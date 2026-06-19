@@ -1,0 +1,54 @@
+@namespace WebWayCMS.Presentation.Components
+@using WebWayCMS.Models.ContentZone
+@using WebWayCMS.Presentation.Rendering
+@inject IContentZoneResolver Resolver
+@inject IContentZoneWidgetRegistry Widgets
+@*
+    Renders a content zone by slot name - the Blazor port of ContentZoneViewComponent and its
+    Default.cshtml. Each item is dispatched to its Razor widget via DynamicComponent; items
+    whose component has not yet been migrated resolve to null and are skipped. A nested
+    CascadingValue carries this zone's id so child zones can resolve as nested slots
+    (replacing the old ViewData["ContentZone:ParentZoneId"] side-channel).
+*@
+@if (_vm.ZoneObjects.Count > 0)
+{
+    <CascadingValue Name="ParentZoneId" Value="_parentForChildren" IsFixed="true">
+        <div class="content-zone" data-zone-name="@_vm.Name">
+            @foreach (var obj in _vm.ZoneObjects.OrderBy(o => o.Ordinal))
+            {
+                <div class="zone-object" data-ordinal="@obj.Ordinal">
+                    @{
+                        var widgetType = Widgets.Resolve(obj.ComponentName);
+                    }
+                    @if (widgetType is not null)
+                    {
+                        <DynamicComponent Type="widgetType" Parameters="BuildParameters(obj)" />
+                    }
+                </div>
+            }
+        </div>
+    </CascadingValue>
+}
+
+@code {
+    [Parameter] public string? ZoneName { get; set; }
+    [Parameter] public bool IsGlobal { get; set; }
+    [Parameter] public Guid? ZoneId { get; set; }
+
+    [CascadingParameter] public CmsRenderContext? Context { get; set; }
+    [CascadingParameter(Name = "ParentZoneId")] public Guid? ParentZoneId { get; set; }
+
+    private ContentZoneViewModel _vm = new();
+    private Guid? _parentForChildren;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _vm = await Resolver.ResolveAsync(ZoneName, IsGlobal, ZoneId, Context?.Page, ParentZoneId);
+        // A persisted zone becomes the parent of its nested zones; an unsaved (empty) zone
+        // passes the inherited parent through unchanged.
+        _parentForChildren = _vm.Id != Guid.Empty ? _vm.Id : ParentZoneId;
+    }
+
+    private static IDictionary<string, object> BuildParameters(ContentZoneObject obj)
+        => new Dictionary<string, object> { ["Config"] = obj.ComponentProperties };
+}

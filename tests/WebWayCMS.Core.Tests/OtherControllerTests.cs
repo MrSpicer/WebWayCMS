@@ -13,6 +13,7 @@ using WebWayCMS.Controllers.Api;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Rendering;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -178,20 +179,42 @@ public class GenericPageControllerTests
 		return controller;
 	}
 
-	[Test]
-	public async Task GenericPage_Index_DefaultView_CustomView_AndConfigFallback()
+	private static GenericPageController BuildGeneric(ICmsPageRenderer renderer)
 	{
-		var controller = Build<GenericPageController>();
-		// No CMS:PageData / CMS:PageConfig -> default view + new config.
-		var def = (ViewResult)await controller.Index();
-		Assert.That(def.ViewName, Is.Null);
-		Assert.That(def.Model, Is.InstanceOf<GenericPageConfiguration>());
+		var controller = new GenericPageController(renderer);
+		controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+		return controller;
+	}
 
-		// With a page that specifies a view name and an existing config.
-		controller.HttpContext.Items["CMS:PageData"] = new PageDTO { ViewName = "Custom", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T" } };
-		controller.HttpContext.Items["CMS:PageConfig"] = new GenericPageConfiguration { Style = "x" };
-		var custom = (ViewResult)await controller.Index();
-		Assert.That(custom.ViewName, Is.EqualTo("Custom"));
+	[Test]
+	public void Constructor_NullRenderer_Throws()
+		=> Assert.That(() => new GenericPageController(null!), Throws.ArgumentNullException);
+
+	[Test]
+	public async Task GenericPage_Index_DelegatesToRenderer_WithAndWithoutPageContext()
+	{
+		var renderer = Substitute.For<ICmsPageRenderer>();
+		var expected = new EmptyResult();
+		renderer.RenderPage(Arg.Any<PageDTO?>(), Arg.Any<object>()).Returns(expected);
+		var controller = BuildGeneric(renderer);
+
+		// No CMS:PageData / CMS:PageConfig -> null page + a fresh config, both forwarded to the renderer.
+		var first = await controller.Index();
+		Assert.That(first, Is.SameAs(expected));
+
+		// With page data + an existing config -> both forwarded to the renderer.
+		var page = new PageDTO { ViewName = "Custom", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T" } };
+		var config = new GenericPageConfiguration { Style = "x" };
+		controller.HttpContext.Items["CMS:PageData"] = page;
+		controller.HttpContext.Items["CMS:PageConfig"] = config;
+		var second = await controller.Index();
+		Assert.That(second, Is.SameAs(expected));
+
+		Assert.Multiple(() =>
+		{
+			renderer.Received(1).RenderPage(Arg.Is<PageDTO?>(p => p == null), Arg.Is<object>(o => o is GenericPageConfiguration));
+			renderer.Received(1).RenderPage(page, config);
+		});
 	}
 
 	[Test]

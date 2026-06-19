@@ -1,5 +1,6 @@
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers;
+using WebWayCMS.Rendering;
 using Microsoft.AspNetCore.Mvc;
 
 namespace WebWayCMS.Controllers;
@@ -41,10 +42,10 @@ public class GenericPageConfiguration
 public class GenericPageController : PageControllerBase<GenericPageConfiguration>
 {
     private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<GenericPageController>();
+    private readonly ICmsPageRenderer _renderer;
 
-    public GenericPageController()
-    {
-    }
+    public GenericPageController(ICmsPageRenderer renderer)
+        => _renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
 
     public override Task<IActionResult> Index()
     {
@@ -52,10 +53,8 @@ public class GenericPageController : PageControllerBase<GenericPageConfiguration
             CurrentPage?.ContentMeta.Id,
             CurrentPage?.ContentMeta.Title);
 
-        var viewName = CurrentPage?.ViewName;
-        if (!string.IsNullOrWhiteSpace(viewName))
-            return Task.FromResult<IActionResult>(View(viewName, PageConfig));
-
-        return Task.FromResult<IActionResult>(View(PageConfig));
+        // The page (and its content zones) are rendered as Blazor SSR components via the
+        // Presentation layer; routing/config resolution stays in the MVC pipeline.
+        return Task.FromResult(_renderer.RenderPage(CurrentPage, PageConfig));
     }
 }

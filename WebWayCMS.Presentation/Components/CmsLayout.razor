@@ -1,0 +1,41 @@
+@namespace WebWayCMS.Presentation.Components
+@*
+    Document shell for Blazor-rendered CMS pages - the Blazor equivalent of the library's
+    minimal Views/Shared/_Layout.cshtml fallback. Emits the full HTML document, the
+    HeadOutlet, the interactive runtime script, and injects per-page Meta/Style/Script.
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@Title</title>
+    @if (!string.IsNullOrWhiteSpace(Meta))
+    {
+        @((MarkupString)Meta!)
+    }
+    @if (!string.IsNullOrWhiteSpace(Style))
+    {
+        <style>@((MarkupString)Style!)</style>
+    }
+    <HeadOutlet />
+</head>
+<body>
+    <main role="main">
+        @ChildContent
+    </main>
+    @if (!string.IsNullOrWhiteSpace(Script))
+    {
+        <script>@((MarkupString)Script!)</script>
+    }
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Meta { get; set; }
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public string? Script { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

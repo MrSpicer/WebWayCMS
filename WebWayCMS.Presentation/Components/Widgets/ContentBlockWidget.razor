@@ -1,0 +1,29 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.ContentBlock
+@inject IContentBlockModel Model
+@*
+    Renders a reusable HTML content block by id - the Blazor port of ContentBlockViewComponent
+    and its Default.cshtml. Receives its typed configuration through the "Config" parameter set
+    by ContentZone's DynamicComponent dispatch.
+*@
+@if (!string.IsNullOrWhiteSpace(_content))
+{
+    @((MarkupString)_content!)
+}
+
+@code {
+    [Parameter] public ContentBlockContentZoneConfiguration? Config { get; set; }
+
+    private string? _content;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _content = null;
+
+        if (Config is null || Config.ContentBlockID == Guid.Empty)
+            return;
+
+        var vm = await Model.GetViewModelByMasterIdAsync(Config.ContentBlockID, CancellationToken.None);
+        _content = vm?.Content;
+    }
+}

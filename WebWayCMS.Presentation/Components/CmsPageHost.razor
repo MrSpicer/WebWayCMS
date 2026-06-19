@@ -1,0 +1,31 @@
+@namespace WebWayCMS.Presentation.Components
+@using WebWayCMS.Controllers
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Presentation.Rendering
+@*
+    Root Blazor component returned by GenericPageController (via ICmsPageRenderer /
+    RazorComponentResult). Establishes the per-request CmsRenderContext cascade and renders
+    the page's "Main" content zone inside the document shell.
+*@
+<CascadingValue Value="_context" IsFixed="true">
+    <CmsLayout Title="@_title" Meta="@_config?.Meta" Style="@_config?.Style" Script="@_config?.Script">
+        <ContentZone ZoneName="Main" />
+    </CmsLayout>
+</CascadingValue>
+
+@code {
+    [Parameter] public PageDTO? Page { get; set; }
+    [Parameter] public object? Config { get; set; }
+    [Parameter] public string? SubRoute { get; set; }
+
+    private CmsRenderContext _context = default!;
+    private GenericPageConfiguration? _config;
+    private string _title = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        _context = new CmsRenderContext(Page, Config, SubRoute);
+        _config = Config as GenericPageConfiguration;
+        _title = CmsPageTitle.ForPage(Page);
+    }
+}

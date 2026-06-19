@@ -112,6 +112,10 @@ public class ServiceCollectionExtensionsTests
 			Assert.That(p.GetService<IArticleModel>(), Is.Not.Null);
 			Assert.That(p.GetService<PageRouteTransformer>(), Is.Not.Null);
 			Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(4));
+			// Blazor SSR rendering services (and the widget-registry factory lambda).
+			Assert.That(p.GetService<WebWayCMS.Rendering.ICmsPageRenderer>(), Is.Not.Null);
+			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.IContentZoneResolver>(), Is.Not.Null);
+			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(), Is.Not.Null);
 		});
 	}
 }

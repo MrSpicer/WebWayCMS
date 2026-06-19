@@ -229,6 +229,18 @@ public static class ServiceCollectionExtensions
 		// The matching endpoints + render mode are mapped in CMSExtensions.ConfigureMiddleware.
 		services.AddRazorComponents()
 			.AddInteractiveServerComponents();
+
+		// Blazor SSR rendering services: the controller -> Blazor bridge, content-zone
+		// resolution, and the component-name -> Razor-widget map that drives ContentZone's
+		// DynamicComponent dispatch (populated as ViewComponents are migrated).
+		services.AddScoped<WebWayCMS.Rendering.ICmsPageRenderer, WebWayCMS.Presentation.Rendering.CmsPageRenderer>();
+		services.AddScoped<WebWayCMS.Presentation.Rendering.IContentZoneResolver, WebWayCMS.Presentation.Rendering.ContentZoneResolver>();
+		services.AddSingleton<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(_ =>
+			new WebWayCMS.Presentation.Rendering.ContentZoneWidgetRegistry(
+				new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+				{
+					["ContentBlock"] = typeof(WebWayCMS.Presentation.Components.Widgets.ContentBlockWidget),
+				}));
 	}
 
 	static void ConfigureAuthorization(IServiceCollection services)
