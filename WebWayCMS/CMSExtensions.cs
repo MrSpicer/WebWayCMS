@@ -299,6 +299,11 @@ public static class CMSExtensions
 
 		app.UseAuthentication();
 		app.UseAuthorization();
+
+		// Required by the Blazor Components endpoints (MapRazorComponents) so antiforgery is
+		// validated for interactive form posts. Coexists with MVC's [ValidateAntiForgeryToken].
+		app.UseAntiforgery();
+
 		app.MapRazorPages();
 
 		// Attribute-routed controllers (e.g. AdminContentController's "admin/{contentType}")
@@ -306,6 +311,12 @@ public static class CMSExtensions
 		// otherwise "/admin/page" is captured by the dynamic page route as a sub-route of the
 		// "/admin" page instead of being handled by its controller.
 		app.MapControllers();
+
+		// Blazor SSR endpoints: serves blazor.web.js, the _blazor Interactive Server hub, and any
+		// routable (@page) Razor components. Page rendering still flows through MVC routing above;
+		// only explicitly declared @page routes are owned by Blazor.
+		app.MapRazorComponents<global::WebWayCMS.Presentation.Components.App>()
+			.AddInteractiveServerRenderMode();
 
 		//todo: this should not be slug. pages have routes
 		app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");

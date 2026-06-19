@@ -1,0 +1,17 @@
+@namespace WebWayCMS.Presentation.Components
+@attribute [ExcludeFromCodeCoverage]
+@*
+    Router for the Blazor-routed surface of the app (the throwaway Phase-0 spike now;
+    the Blazor Identity pages in a later phase). MVC owns the public/admin page routes,
+    so this Router only resolves explicitly declared @page components in this assembly.
+    Logicless shell -> excluded from coverage.
+*@
+<Router AppAssembly="typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <p>Not found.</p>
+    </NotFound>
+</Router>

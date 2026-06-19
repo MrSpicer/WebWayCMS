@@ -224,6 +224,11 @@ public static class ServiceCollectionExtensions
 				apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(presentationAsm));
 			}
 		});
+		// Blazor SSR: register the Razor Components host alongside MVC so the CMS view layer
+		// can render Razor components, with Interactive Server available for admin editing UI.
+		// The matching endpoints + render mode are mapped in CMSExtensions.ConfigureMiddleware.
+		services.AddRazorComponents()
+			.AddInteractiveServerComponents();
 	}
 
 	static void ConfigureAuthorization(IServiceCollection services)

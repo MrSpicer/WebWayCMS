@@ -1,0 +1,21 @@
+@namespace WebWayCMS.Presentation.Components
+@attribute [ExcludeFromCodeCoverage]
+@*
+    Root document for the Blazor Web App host. Discovered by MapRazorComponents<App>()
+    in WebWayCMS.CMSExtensions.ConfigureMiddleware. Only routable (@page) Razor
+    components are served through this document; MVC-routed pages do not use it.
+    Logicless shell -> excluded from coverage (matches the project's narrow exclusion policy).
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

@@ -5,6 +5,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>c9b5010a-16d9-46a5-bfdd-570327ae5743</UserSecretsId>
+    <!-- The Blazor components (and App.razor) live in the WebWayCMS.Presentation RCL, not in
+         this host. The Web SDK only auto-pulls the framework's Blazor static web assets
+         (Microsoft.AspNetCore.App.Internal.Assets, which provides _framework/blazor.web.js)
+         when the host project itself contains .razor files. Force it on so the interactive
+         runtime is published/served. Packaged WebWayCMS consumers will get this via a
+         buildTransitive props file (packaging follow-up). -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
   <ItemGroup>
