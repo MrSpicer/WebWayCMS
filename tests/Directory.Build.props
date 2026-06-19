@@ -1,0 +1,39 @@
+<Project>
+  <!--
+    Shared configuration for every test project under /tests.
+    Imports the repository-root Directory.Build.props (for TargetFramework, Nullable, etc.)
+    then overrides packaging and adds the common test + coverage settings.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- Root sets IsPackable=true for anything starting with "WebWayCMS"; test projects must opt out. -->
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <IsTestProject>true</IsTestProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Coverlet: collect coverage on every `dotnet test` run and fail below 100%. -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <CoverletOutput>$(MSBuildThisFileDirectory)../artifacts/coverage/$(MSBuildProjectName)/</CoverletOutput>
+    <Threshold>100</Threshold>
+    <ThresholdType>line,branch</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+    <!-- Generated EF Core migrations are exercised by running the app, not unit tests; exclude
+         them from the coverage gate (they don't carry [GeneratedCode], so ExcludeByAttribute misses them). -->
+    <ExcludeByFile>**/Migrations/**/*.cs</ExcludeByFile>
+    <SkipAutoProps>true</SkipAutoProps>
+  </PropertyGroup>
+
+  <!-- Test packages shared by every test project. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="coverlet.msbuild" />
+  </ItemGroup>
+</Project>

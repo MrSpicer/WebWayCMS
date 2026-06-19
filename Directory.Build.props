@@ -1,0 +1,33 @@
+<Project>
+  <!--
+    Shared properties for every project in the solution.
+    NuGet packaging is enabled per-project (the CMS class libraries opt in via
+    <IsPackable>true</IsPackable>); a consuming host project leaves
+    IsPackable=false so it is never published as a package.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Shared package metadata used when a project sets IsPackable=true (see Phase 3). -->
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <Authors>Justin Spicer</Authors>
+    <Company>WebWayCMS</Company>
+    <Product>WebWayCMS</Product>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/MrSpicer/WebWayCMS</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/MrSpicer/WebWayCMS</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>cms;aspnetcore;mvc</PackageTags>
+    <Description>WebWayCMS — a modular, reusable code first ASP.NET Core MVC content management system.</Description>
+    <!-- Default: nothing is packed unless a project opts in. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('WebWayCMS'))">
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>

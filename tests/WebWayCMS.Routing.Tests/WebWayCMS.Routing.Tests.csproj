@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS.Routing]*</Include>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\WebWayCMS.Routing\WebWayCMS.Routing.csproj" />
+  </ItemGroup>
+</Project>

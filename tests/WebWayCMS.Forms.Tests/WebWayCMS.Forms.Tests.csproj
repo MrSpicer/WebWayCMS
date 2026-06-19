@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS.Forms]*</Include>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\WebWayCMS.Forms\WebWayCMS.Forms.csproj" />
+  </ItemGroup>
+</Project>

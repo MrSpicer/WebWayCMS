@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "MySite",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/MySite/bin/Debug/net10.0/MySite.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/MySite",
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        }
+    ]
+}

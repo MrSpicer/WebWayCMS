@@ -1,0 +1,20 @@
+nginx/certs/
+**/obj/
+**/bin/
+**/.vs/
+**/*.user
+**/*.suo
+**/Logs/
+*.dll
+*.exe
+*.log
+**/TestResults/
+**/local-nuget/
+artifacts/
+node_modules/
+package-lock.json
+.env
+designsite/*
+
+# Build output copied from Views/AdminPage/PageUpsert.js by the CopyViewScripts target
+WebWayCMS.Presentation/wwwroot/js/page-upsert.js

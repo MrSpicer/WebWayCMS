@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>c9b5010a-16d9-46a5-bfdd-570327ae5743</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference the CMS libraries directly from source so the host fully builds and
+         debugs against them (step-into). The umbrella project transitively references
+         every WebWayCMS.* library. -->
+    <ProjectReference Include="../WebWayCMS/WebWayCMS.csproj" />
+    <!-- Version comes from the repo-root Directory.Packages.props (Central Package Management).
+         Optional: pick up .cshtml branding edits without a rebuild in Development. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" />
+  </ItemGroup>
+
+</Project>

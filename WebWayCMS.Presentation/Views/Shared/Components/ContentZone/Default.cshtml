@@ -1,0 +1,17 @@
+@model WebWayCMS.Models.ContentZone.ContentZoneViewModel
+@using WebWayCMS.Models.ContentZone
+@{
+    // Default view for ContentZone - renders each zone item's component in order
+}
+
+@if (Model?.ZoneObjects?.Any() == true)
+{
+    <div class="content-zone" data-zone-name="@Model.Name">
+        @foreach (var obj in Model.ZoneObjects.OrderBy(o => o.Ordinal))
+        {
+            <div class="zone-object" data-ordinal="@obj.Ordinal">
+                @await Component.InvokeAsync(obj.ComponentName, obj.ComponentProperties)
+            </div>
+        }
+    </div>
+}

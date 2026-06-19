@@ -1,0 +1,20 @@
+# Build artifacts (local-nuget is intentionally NOT ignored — it is the package feed)
+**/bin/
+**/obj/
+
+# Logs
+**/Logs/
+Logs/
+
+# Docker files
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# Scripts — not needed inside the container
+Scripts/
+
+# IDE and editor
+.vscode/
+*.user
+*.suo

@@ -1,0 +1,22 @@
+@*
+    Two Column Sidebar Layout
+    ┌──────────────┬─────────┐
+    │   Main (8)   │ Side(4) │
+    └──────────────┴─────────┘
+    
+    Use case: Blog posts with sidebar, documentation with navigation
+    Mobile: Columns stack automatically
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-8">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+            </div>
+            <div class="column is-4">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Sidebar" })
+            </div>
+        </div>
+    </div>
+</section>

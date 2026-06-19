@@ -1,0 +1,25 @@
+@*
+    Three Column Layout
+    ┌────────┬────────┬────────┐
+    │ Col1(4)│ Col2(4)│ Col3(4)│
+    └────────┴────────┴────────┘
+    
+    Use case: Feature lists, service offerings, team members
+    Mobile: Columns stack automatically
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-4">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column1" })
+            </div>
+            <div class="column is-4">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column2" })
+            </div>
+            <div class="column is-4">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column3" })
+            </div>
+        </div>
+    </div>
+</section>

@@ -1,0 +1,44 @@
+@model WebWayCMS.Models.Article.ArticleListUpsertViewModel
+
+@{
+    var isEdit = Model?.Id != null && Model.Id != Guid.Empty;
+    ViewData["Title"] = isEdit ? "Edit Article List" : "New Article List";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <nav class="breadcrumb" aria-label="breadcrumbs">
+            <ul>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles">Article Lists</a></li>
+                <li class="is-active"><a aria-current="page">@ViewData["Title"]</a></li>
+            </ul>
+        </nav>
+        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articles" method="post" novalidate>
+            @Html.AntiForgeryToken()
+            <div role="alert" aria-live="polite">
+                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
+            </div>
+            <div class="card">
+                <div class="card-content">
+                    <form-fields for="@Model" />
+                </div>
+                <footer class="card-footer">
+                    <div class="card-footer-item is-justify-content-flex-start">
+                        <button type="submit" class="button is-primary mr-3">Save</button>
+                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articles" class="button">Cancel</a>
+                    </div>
+                </footer>
+            </div>
+        </form>
+    </div>
+</section>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Used for the report-generating coverage path:
+    dotnet test --settings tests/coverage.runsettings --collect:"XPlat Code Coverage"
+  Per-project threshold enforcement is handled by the coverlet MSBuild props in
+  tests/Directory.Build.props; this file scopes the XPlat collector output.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <!-- Microsoft's scaffolded Identity UI is excluded from coverage by agreement. -->
+          <Exclude>[WebWayCMS.Presentation]*Areas.Identity*</Exclude>
+          <ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+          <SkipAutoProps>true</SkipAutoProps>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

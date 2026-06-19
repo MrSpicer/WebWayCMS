@@ -1,0 +1,20 @@
+@model WebWayCMS.Models.Article.ArticleUpsertViewModel
+
+@{
+    if (Model == null)
+    {
+        <div class="notification is-warning">No article data provided.</div>
+        return;
+    }
+}
+
+<form-fields for="@Model" />
+
+<div class="field is-grouped">
+    <div class="control">
+        <button type="submit" class="button is-primary">Save</button>
+    </div>
+    <div class="control">
+        <a asp-action="Index" asp-controller="AdminArticle" class="button is-light">Cancel</a>
+    </div>
+</div>

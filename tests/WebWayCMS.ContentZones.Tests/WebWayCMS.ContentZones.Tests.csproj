@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS.ContentZones]*</Include>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\WebWayCMS.ContentZones\WebWayCMS.ContentZones.csproj" />
+  </ItemGroup>
+</Project>

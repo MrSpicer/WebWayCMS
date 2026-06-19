@@ -1,0 +1,23 @@
+<div id="deleteConfirmModal" class="modal" role="dialog" aria-modal="true"
+     aria-labelledby="deleteModalTitle" style="display:none">
+    <div class="modal-background" id="deleteModalBg"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <h2 class="modal-card-title" id="deleteModalTitle">Confirm Delete</h2>
+            <button class="delete" aria-label="Close dialog" id="deleteModalClose"></button>
+        </header>
+        <section class="modal-card-body">
+            <p id="deleteModalMessage">Are you sure you want to delete this item? This cannot be undone.</p>
+        </section>
+        <footer class="modal-card-foot">
+            <form id="deleteConfirmForm" method="post" style="display:contents">
+                @Html.AntiForgeryToken()
+                <button type="submit" id="deleteModalConfirm" class="button is-danger">
+                    <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                    <span>Delete</span>
+                </button>
+            </form>
+            <button class="button" id="deleteModalCancel">Cancel</button>
+        </footer>
+    </div>
+</div>

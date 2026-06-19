@@ -1,0 +1,50 @@
+@using Microsoft.AspNetCore.Identity
+@using WebWayCMS.Models.Page;
+@inject SignInManager<IdentityUser> SignInManager
+@{
+    var currentPath = Context.Request.Path.Value ?? "";
+}
+
+<nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
+    <div class="navbar-brand">
+        @* <a class="navbar-item admin-logo" href="/admin" aria-label="CMS Admin Home">
+            <span>CMS Admin</span>
+        </a> *@
+        <button id="adminBurger" class="navbar-burger" aria-label="Toggle navigation menu"   aria-expanded="false"
+                aria-controls="adminNav">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+        </button>
+    </div>
+
+    <div id="adminNav" class="navbar-menu">
+        <div class="navbar-start" role="list">
+            @await Component.InvokeAsync(name: "Page", new PageContentZoneConfiguration()
+            {
+                AdminPages = true,
+                ViewName = "Default"
+            })
+
+            <a class="navbar-item" href="/admin/pages" @(currentPath.StartsWith("/admin/pages") ? "aria-current=\"page\"" : "") role="listitem">
+                Pages
+            </a>
+            <a class="navbar-item" href="/admin/contentzones" @(currentPath.StartsWith("/admin/contentzones") ? "aria-current=\"page\"" : "") role="listitem">
+                Content Zones
+            </a>
+            <a class="navbar-item" href="/admin/contentblocks" @(currentPath.StartsWith("/admin/contentblocks") ? "aria-current=\"page\"" : "") role="listitem">
+                Content Blocks
+            </a>
+            <a class="navbar-item" href="/admin/articles" @(currentPath.StartsWith("/admin/articles") ? "aria-current=\"page\"" : "") role="listitem">
+                Articles
+            </a>
+        </div>
+
+        <div class="navbar-end">
+            <a class="navbar-item" href="/">
+                View Site
+            </a>
+            <partial name="_LoginNavPartial" />
+        </div>
+    </div>
+</nav>

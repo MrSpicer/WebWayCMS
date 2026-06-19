@@ -1,0 +1,7 @@
+@model WebWayCMS.Models.ContentBlock.ContentBlockViewModel
+@using WebWayCMS.Services
+
+@if(!string.IsNullOrWhiteSpace(Model?.Content))
+{
+    @Html.Raw(Model.Content)
+}

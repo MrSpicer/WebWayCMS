@@ -1,0 +1,14 @@
+@*
+    Single Column Layout
+    ┌─────────────────────────┐
+    │    ContentZone: Main    │
+    └─────────────────────────┘
+    
+    Use case: Simple content pages, landing pages, full-width articles
+*@
+
+<section class="section">
+    <div class="container">
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+    </div>
+</section>

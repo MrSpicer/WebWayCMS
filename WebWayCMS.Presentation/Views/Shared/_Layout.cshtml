@@ -1,0 +1,23 @@
+@*
+    Generic fallback layout shipped with WebWayCMS.Presentation.
+
+    A host that provides no branding still boots and renders pages with this
+    minimal, unstyled layout. To theme the site, a host overrides it simply by
+    adding its own Views/Shared/_Layout.cshtml — host views are resolved before
+    this compiled library view, so the host copy wins automatically.
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - WebWayCMS</title>
+</head>
+<body>
+    <main role="main">
+        @RenderBody()
+    </main>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,44 @@
+# Build artifacts
+**/bin/
+**/obj/
+local-nuget/
+
+# Logs
+**/Logs/
+Logs/
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor
+.vscode/
+*.user
+*.suo
+*.swp
+*.sln.docstates
+WebWayCMScode-workspace
+
+# Docker files
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# Root-level node_modules (Playwright — dev only, not needed in container)
+node_modules/
+package.json
+package-lock.json
+
+# Documentation
+docs/
+README.md
+CLAUDE.md
+
+# Scripts — not copied into container
+Scripts/
+
+# GitHub CI
+.github/
+
+# Exapmles
+examples/

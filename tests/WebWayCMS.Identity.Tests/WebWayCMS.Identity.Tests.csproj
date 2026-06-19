@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Measure coverage only for the assembly under test. -->
+    <Include>[WebWayCMS.Identity]*</Include>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\WebWayCMS.Identity\WebWayCMS.Identity.csproj" />
+  </ItemGroup>
+</Project>

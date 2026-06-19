@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS.Presentation]*</Include>
+    <!-- Microsoft's scaffolded Identity Razor Pages are excluded from coverage by agreement. -->
+    <Exclude>[WebWayCMS.Presentation]WebWayCMS.Presentation.Areas.Identity.*</Exclude>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\WebWayCMS.Presentation\WebWayCMS.Presentation.csproj" />
+  </ItemGroup>
+</Project>

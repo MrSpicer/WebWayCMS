@@ -1,0 +1,31 @@
+@*
+    Header Content Footer Layout
+    ┌─────────────────────────┐
+    │        Header           │
+    ├─────────────────────────┤
+    │        Content          │
+    ├─────────────────────────┤
+    │        Footer           │
+    └─────────────────────────┘
+    
+    Use case: Traditional page structure, landing pages with distinct sections
+    All sections are full-width and stacked vertically
+*@
+
+<section class="section">
+    <div class="container">
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Header" })
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Content" })
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Footer" })
+    </div>
+</section>

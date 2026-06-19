@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <ProjectReference Include="..\WebWayCMS.Data\WebWayCMS.Data.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Identity\WebWayCMS.Identity.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Forms\WebWayCMS.Forms.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Routing\WebWayCMS.Routing.csproj" />
+    <ProjectReference Include="..\WebWayCMS.ContentZones\WebWayCMS.ContentZones.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Core\WebWayCMS.Core.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Presentation\WebWayCMS.Presentation.csproj" />
+  </ItemGroup>
+</Project>

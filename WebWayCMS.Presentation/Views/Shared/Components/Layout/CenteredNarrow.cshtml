@@ -1,0 +1,20 @@
+@*
+    Centered Narrow Layout
+        ┌──────────────┐
+        │   Main (8)   │
+        │  (centered)  │
+        └──────────────┘
+    
+    Use case: Blog posts, articles, forms, focused content
+    Mobile: Full width automatically
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-8 is-offset-2">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+            </div>
+        </div>
+    </div>
+</section>

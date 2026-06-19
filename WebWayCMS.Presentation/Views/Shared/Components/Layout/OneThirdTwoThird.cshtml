@@ -1,0 +1,22 @@
+@*
+    One-Third Two-Thirds Layout
+    ┌───────┬─────────────────┐
+    │Side(4)│     Main (8)    │
+    └───────┴─────────────────┘
+    
+    Use case: Narrow sidebar navigation with wide content area
+    Mobile: Columns stack automatically
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-one-third">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Sidebar" })
+            </div>
+            <div class="column is-two-thirds">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+            </div>
+        </div>
+    </div>
+</section>

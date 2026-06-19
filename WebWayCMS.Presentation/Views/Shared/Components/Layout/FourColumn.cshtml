@@ -1,0 +1,28 @@
+@*
+    Four Column Layout
+    ┌──────┬──────┬──────┬──────┐
+    │Col1(3)│Col2(3)│Col3(3)│Col4(3)│
+    └──────┴──────┴──────┴──────┘
+    
+    Use case: Feature grids, team members, product catalogs
+    Mobile: Columns stack automatically
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-3">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column1" })
+            </div>
+            <div class="column is-3">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column2" })
+            </div>
+            <div class="column is-3">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column3" })
+            </div>
+            <div class="column is-3">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Column4" })
+            </div>
+        </div>
+    </div>
+</section>

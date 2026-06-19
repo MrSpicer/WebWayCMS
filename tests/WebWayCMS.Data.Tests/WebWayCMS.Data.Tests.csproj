@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS.Data]*</Include>
+    <!-- Generated EF Core migrations are excluded from coverage. -->
+    <Exclude>[WebWayCMS.Data]WebWayCMS.Migrations.*</Exclude>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <ProjectReference Include="..\..\WebWayCMS.Data\WebWayCMS.Data.csproj" />
+  </ItemGroup>
+</Project>

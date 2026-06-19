@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Include>[WebWayCMS]*</Include>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <ProjectReference Include="..\..\WebWayCMS\WebWayCMS.csproj" />
+  </ItemGroup>
+</Project>

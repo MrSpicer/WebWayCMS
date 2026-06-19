@@ -1,0 +1,58 @@
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	@await RenderSectionAsync("Meta", required: false)
+	<title>@ViewData["Title"]</title>
+
+	<link rel="dns-prefetch" href="https://cdn.jsdelivr.net/" />
+
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" />
+	<link rel="stylesheet" href="~/_content/WebWayCMS.Presentation/css/admin.css" asp-append-version="true" />
+
+	@if (IsSectionDefined("CKEditor"))
+	{
+		<link rel="stylesheet" href="https://cdn.ckeditor.com/ckeditor5/46.1.1/ckeditor5.css" />
+	}
+
+	@await RenderSectionAsync("Styles", required: false)
+
+	<meta name="csrf-token" content="@Antiforgery.GetAndStoreTokens(Context).RequestToken" />
+	<meta name="ckeditor-license-key" content="@Configuration["CKEditor:LicenseKey"]" />
+	<script>
+		window.__APP_CONFIG__ = Object.assign({}, window.__APP_CONFIG__, {
+			ckEditorLicenseKey: "@Configuration["CKEditor:LicenseKey"]"
+		});
+	</script>
+</head>
+
+<body class="admin-shell">
+	<a href="#main-content" class="skip-to-content">Skip to main content</a>
+
+	<header class="admin-header" role="banner">
+		<partial name="_AdminNavbar" />
+	</header>
+
+	<main id="main-content" class="admin-main" tabindex="-1">
+		@RenderBody()
+	</main>
+
+	<partial name="_DeleteConfirmModal" />
+
+	@if (IsSectionDefined("CKEditor"))
+	{
+		<script src="https://cdn.ckeditor.com/ckeditor5/46.1.1/ckeditor5.umd.js"></script>
+	}
+	<script src="~/_content/WebWayCMS.Presentation/js/admin.js" asp-append-version="true"></script>
+
+	@await RenderSectionAsync("CKEditor", required: false)
+	@await RenderSectionAsync("Scripts", required: false)
+</body>
+
+</html>

@@ -1,0 +1,140 @@
+@model WebWayCMS.Models.ContentZone.ContentZoneViewModel
+@using WebWayCMS.Models.ContentZone
+@using WebWayCMS.ContentZones
+@{
+    var componentsByCategory = ViewData["ComponentsByCategory"] as IReadOnlyDictionary<string, IReadOnlyList<ContentZoneComponentInfo>>
+        ?? new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>();
+
+    // Generate a unique ID for this zone's modal (for multiple zones on one page)
+    var modalId = $"cz-modal-{Guid.NewGuid():N}";
+    var containerId = $"cz-container-{Guid.NewGuid():N}";
+    var modalTitleId = $"czModalTitle-{Guid.NewGuid():N}";
+}
+
+@* Zone name identifier for admin *@
+<div class="zone-name-header">
+    <span class="tag is-light is-small">
+        <span class="icon is-small">
+            <i class="fas fa-th-large" aria-hidden="true"></i>
+        </span>
+        <span>@Model.RawZoneName</span>
+    </span>
+</div>
+
+@if (!Context.Items.ContainsKey("ContentZoneEditAntiForgeryLoaded"))
+{
+    Context.Items["ContentZoneEditAntiForgeryLoaded"] = true;
+    @Html.AntiForgeryToken()
+}
+
+@if (!Context.Items.ContainsKey("ContentZoneEditCssLoaded"))
+{
+    Context.Items["ContentZoneEditCssLoaded"] = true;
+    <link rel="stylesheet" href="~/_content/WebWayCMS.Presentation/css/content-zone-edit.css" />
+}
+
+<div class="content-zone content-zone-edit" id="@containerId" data-zone-name="@Model.Name" data-modal-id="@modalId">
+    @* Hidden zone ID - never displayed to users *@
+    <input type="hidden" class="zone-id-field" value="@Model.Id" />
+
+    @* Render existing zone items *@
+    @if (Model.ZoneObjects?.Any() == true)
+    {
+        foreach (var obj in Model.ZoneObjects.OrderBy(o => o.Ordinal))
+        {
+            <div class="zone-object zone-object-edit" data-item-id="@obj.Id" data-ordinal="@obj.Ordinal" data-zone-id="@obj.ZoneId">
+                <div class="zone-object-toolbar">
+                    <span class="zone-object-label">@obj.ComponentName</span>
+                    <button type="button" class="zone-edit-item" title="Edit @obj.ComponentName" aria-label="Edit @obj.ComponentName">
+                        <span class="icon">
+                            <i class="fas fa-edit" aria-hidden="true"></i>
+                        </span>
+                    </button>
+                    <button type="button" class="zone-delete-item" title="Delete @obj.ComponentName" aria-label="Delete @obj.ComponentName">
+                        <span class="icon">
+                            <i class="fas fa-trash" aria-hidden="true"></i>
+                        </span>
+                    </button>
+                </div>
+                <div class="zone-object-content">
+                    @await Component.InvokeAsync(obj.ComponentName, obj.ComponentProperties)
+                </div>
+            </div>
+        }
+    }
+
+    @* Add Widget Button *@
+    <div class="zone-add-widget">
+        <button type="button" class="button is-primary is-outlined zone-add-btn" data-modal="@modalId">
+            <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+            <span>Add Widget</span>
+        </button>
+    </div>
+</div>
+
+@* Add Widget Modal *@
+<div id="@modalId" class="modal cz-add-modal" role="dialog" aria-modal="true" aria-labelledby="@modalTitleId">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <h2 class="modal-card-title" id="@modalTitleId">Add Widget</h2>
+            <button class="delete" aria-label="Close dialog"></button>
+        </header>
+        <section class="modal-card-body">
+            @* Inline error notification — shown by JS on error *@
+            <div class="cz-modal-error" role="alert" aria-live="assertive" style="display:none"></div>
+
+            <form class="cz-widget-form" data-container="@containerId">
+                @* Hidden fields - IDs are auto-generated, never shown to users *@
+                <input type="hidden" name="zoneName" value="@Model.Name" />
+                @if (Model.ParentPageMasterId.HasValue)
+                {
+                    <input type="hidden" name="parentPageMasterId" value="@Model.ParentPageMasterId.Value" />
+                    <input type="hidden" name="slotName" value="@Model.RawZoneName" />
+                }
+                <input type="hidden" name="componentPropertiesJson" class="component-props-json" />
+
+                <div class="field">
+                    <label class="label" for="componentSelector-@modalId">Component</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="componentSelector-@modalId" name="componentName" class="component-selector" required aria-required="true">
+                                <option value="">-- Select a component --</option>
+                                @foreach (var category in componentsByCategory.OrderBy(c => c.Key))
+                                {
+                                    <optgroup label="@category.Key">
+                                        @foreach (var component in category.Value.OrderBy(c => c.Order).ThenBy(c => c.DisplayName))
+                                        {
+                                            <option value="@component.Name" data-description="@component.Description">
+                                                @component.DisplayName
+                                            </option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help component-description">Select a component to configure.</p>
+                </div>
+
+                <div class="dynamic-properties-container" style="display: none;" aria-live="polite">
+                    <hr />
+                    <h3 class="subtitle is-5">Configuration</h3>
+                    <div class="dynamic-properties">
+                        <!-- Dynamic form fields inserted here -->
+                    </div>
+                </div>
+            </form>
+        </section>
+        <footer class="modal-card-foot">
+            <button type="button" class="button is-success save-widget-btn">Save</button>
+            <button type="button" class="button cancel-btn">Cancel</button>
+        </footer>
+    </div>
+</div>
+
+@if (!Context.Items.ContainsKey("ContentZoneEditJsLoaded"))
+{
+    Context.Items["ContentZoneEditJsLoaded"] = true;
+    <script src="~/_content/WebWayCMS.Presentation/js/content-zone-edit.js"></script>
+}

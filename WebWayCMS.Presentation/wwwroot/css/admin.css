@@ -1,0 +1,544 @@
+/* =============================================================
+   Admin Design Tokens
+   ============================================================= */
+:root {
+  --admin-primary: #818cf8;
+  --admin-primary-dark: #6366f1;
+  --admin-primary-light: #2d3562;
+  --admin-surface: #1e2433;
+  --admin-surface-raised: #252d3d;
+  --admin-border: #3a4460;
+  --admin-text: #e2e8f0;
+  --admin-text-muted: #94a3b8;
+  --admin-danger: #f87171;
+  --admin-success: #4ade80;
+  --admin-warning: #fbbf24;
+  --admin-info: #38bdf8;
+  --admin-navbar-bg: #141824;
+  --admin-navbar-text: #f1f5f9;
+  --admin-navbar-height: 56px;
+  --admin-radius: 8px;
+  --admin-radius-sm: 4px;
+  --admin-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.30);
+  --admin-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40);
+}
+
+/* =============================================================
+   Skip to Content
+   ============================================================= */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  background: var(--admin-primary);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: var(--admin-radius-sm);
+  font-weight: 600;
+  z-index: 9999;
+  text-decoration: none;
+}
+.skip-to-content:focus {
+  top: 0.5rem;
+}
+
+/* =============================================================
+   Admin Shell
+   ============================================================= */
+body.admin-shell {
+  background: var(--admin-surface);
+  min-height: 100vh;
+  margin: 0;
+}
+
+/* =============================================================
+   Admin Navbar
+   ============================================================= */
+.admin-navbar {
+  background: var(--admin-navbar-bg) !important;
+  min-height: var(--admin-navbar-height) !important;
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.admin-navbar .navbar-brand .admin-logo {
+  color: var(--admin-navbar-text) !important;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  padding: 0 1.25rem;
+}
+
+.admin-navbar .navbar-item,
+.admin-navbar .navbar-link {
+  color: var(--admin-navbar-text) !important;
+}
+
+.admin-navbar .navbar-burger span {
+  background-color: var(--admin-navbar-text) !important;
+}
+
+.admin-navbar .navbar-item:hover,
+.admin-navbar .navbar-item:focus,
+.admin-navbar .navbar-link:hover,
+.admin-navbar .navbar-link:focus {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+}
+
+.admin-navbar .navbar-item[aria-current="page"] {
+  background: rgba(79, 70, 229, 0.35) !important;
+  color: #fff !important;
+}
+
+/* Mobile burger toggle background */
+@media screen and (max-width: 1023px) {
+  .admin-navbar .navbar-menu.is-active {
+    background: var(--admin-navbar-bg);
+  }
+}
+
+/* =============================================================
+   Admin Main Content
+   ============================================================= */
+.admin-main {
+  background: var(--admin-surface);
+  min-height: calc(100vh - var(--admin-navbar-height));
+  padding: 2rem 0;
+}
+
+/* =============================================================
+   Focus Rings (Visible for Keyboard Users)
+   ============================================================= */
+.button:focus-visible,
+.input:focus-visible,
+.textarea:focus-visible,
+.select select:focus-visible,
+.navbar-item:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--admin-primary);
+  outline-offset: 2px;
+}
+
+/* =============================================================
+   Page Header
+   ============================================================= */
+.admin-page-header {
+  background: var(--admin-surface-raised);
+  border-bottom: 1px solid var(--admin-border);
+  padding: 1.25rem 0;
+  margin-bottom: 0;
+}
+
+.admin-page-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.admin-page-title-row .title {
+  margin-bottom: 0 !important;
+}
+
+/* =============================================================
+   Tables
+   ============================================================= */
+table thead th {
+  color: var(--admin-text-muted);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+/* =============================================================
+   Empty State
+   ============================================================= */
+.admin-empty-state {
+  border: 2px dashed var(--admin-border) !important;
+  background: var(--admin-surface-raised) !important;
+  border-radius: var(--admin-radius) !important;
+}
+
+/* =============================================================
+   Form Group Section (from FormFieldsTagHelper)
+   ============================================================= */
+.form-group-section {
+  border-left: 3px solid var(--admin-primary-light);
+  padding-left: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* =============================================================
+   Delete Confirm Modal
+   ============================================================= */
+#deleteConfirmModal .modal-card {
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow-md);
+}
+
+#deleteConfirmModal .modal-card-head {
+  background: var(--admin-surface-raised);
+  border-bottom: 1px solid var(--admin-border);
+}
+
+#deleteConfirmModal .modal-card-foot {
+  background: var(--admin-surface);
+  border-top: 1px solid var(--admin-border);
+  gap: 0.5rem;
+}
+
+/* =============================================================
+   Validation Summary
+   ============================================================= */
+.validation-summary-valid {
+  display: none;
+}
+
+/* =============================================================
+   Bulma Dark-Mode Overrides
+   ============================================================= */
+
+/* Typography */
+.title,
+.subtitle {
+  color: var(--admin-text);
+}
+
+.label {
+  color: var(--admin-text);
+}
+
+/* Form controls */
+.input,
+.textarea,
+.select select {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+  border-color: var(--admin-border);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--admin-text-muted);
+}
+
+.input:focus,
+.textarea:focus,
+.select select:focus {
+  border-color: var(--admin-primary);
+  box-shadow: 0 0 0 0.125em rgba(129, 140, 248, 0.25);
+}
+
+.select::after {
+  border-color: var(--admin-text-muted);
+}
+
+/* Box & Card */
+.box {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+  border: 1px solid var(--admin-border);
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.card {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.card-header {
+  background-color: var(--admin-surface-raised);
+  border-bottom: 1px solid var(--admin-border);
+  box-shadow: none;
+}
+
+.card-header-title {
+  color: var(--admin-text);
+}
+
+.card-content {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+}
+
+.card-footer {
+  background-color: var(--admin-surface-raised);
+  border-top: 1px solid var(--admin-border);
+}
+
+.card-footer-item {
+  border-right-color: var(--admin-border);
+  color: var(--admin-text);
+}
+
+/* Tables */
+.table {
+  background-color: transparent;
+  color: var(--admin-text);
+  border-color: var(--admin-border);
+}
+
+.table th {
+  color: var(--admin-text-muted);
+  border-color: var(--admin-border);
+}
+
+.table td {
+  color: var(--admin-text);
+  border-color: var(--admin-border);
+}
+
+.table thead td,
+.table thead th {
+  color: var(--admin-text-muted);
+  border-bottom-color: var(--admin-border);
+}
+
+.table tbody tr:last-child td,
+.table tbody tr:last-child th {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.table.is-striped tbody tr:not(.is-selected):nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.table.is-hoverable tbody tr:not(.is-selected):hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Modal */
+.modal-card {
+  background-color: var(--admin-surface-raised);
+}
+
+.modal-card-head {
+  background-color: var(--admin-surface-raised);
+  border-bottom-color: var(--admin-border);
+}
+
+.modal-card-title {
+  color: var(--admin-text);
+}
+
+.modal-card-body {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+}
+
+.modal-card-foot {
+  background-color: var(--admin-surface);
+  border-top-color: var(--admin-border);
+}
+
+/* Tags */
+.tag:not(body) {
+  background-color: var(--admin-primary-light);
+  color: var(--admin-text);
+}
+
+/* Notification */
+.notification {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+}
+
+/* Breadcrumb */
+.breadcrumb a {
+  color: var(--admin-primary);
+}
+
+.breadcrumb a:hover {
+  color: var(--admin-primary-dark);
+}
+
+.breadcrumb li.is-active a {
+  color: var(--admin-text-muted);
+}
+
+.breadcrumb li + li::before {
+  color: var(--admin-text-muted);
+}
+
+/* Help text */
+.help {
+  color: var(--admin-text-muted);
+}
+
+/* Checkbox & Radio */
+.checkbox,
+.radio {
+  color: var(--admin-text);
+}
+
+/* Menu (sidebar) */
+.menu-label {
+  color: var(--admin-text-muted);
+}
+
+/* Bulma 1.x sets background-color via HSL variables; reset to transparent */
+.menu-list a,
+.menu-list button {
+  background-color: transparent;
+  color: var(--admin-text);
+}
+
+.menu-list a:hover,
+.menu-list button:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--admin-text);
+}
+
+.menu-list a.is-active {
+  background-color: var(--admin-primary-light);
+  color: var(--admin-primary);
+}
+
+/* Divider / horizontal rule */
+hr {
+  background-color: var(--admin-border);
+}
+
+/* =============================================================
+   Bulma Color Variant Overrides (dark theme)
+   ============================================================= */
+
+/* Text utility classes */
+.has-text-grey        { color: var(--admin-text-muted) !important; }
+.has-text-grey-light  { color: var(--admin-text-muted) !important; }
+.has-text-grey-dark   { color: var(--admin-text) !important; }
+.has-text-dark        { color: var(--admin-text) !important; }
+.has-text-black       { color: var(--admin-text) !important; }
+.has-text-info        { color: var(--admin-info) !important; }
+.has-text-success     { color: var(--admin-success) !important; }
+.has-text-warning     { color: var(--admin-warning) !important; }
+.has-text-danger      { color: var(--admin-danger) !important; }
+.has-text-primary     { color: var(--admin-primary) !important; }
+.has-text-link        { color: var(--admin-primary) !important; }
+
+/* Background utility classes */
+.has-background-white,
+.has-background-white-bis,
+.has-background-white-ter,
+.has-background-light { background-color: var(--admin-surface-raised) !important; }
+
+/* ── Buttons: is-light variant ── */
+.button.is-light {
+  background-color: var(--admin-surface-raised);
+  border-color: var(--admin-border);
+  color: var(--admin-text);
+}
+.button.is-light:hover,
+.button.is-light:focus {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--admin-border);
+  color: var(--admin-text);
+}
+
+/* ── Buttons: color + is-light combos ── */
+.button.is-info.is-light {
+  background-color: rgba(56, 189, 248, 0.08);
+  color: var(--admin-info);
+  border-color: transparent;
+}
+.button.is-info.is-light:hover { background-color: rgba(56, 189, 248, 0.18); }
+
+.button.is-primary.is-light {
+  background-color: rgba(129, 140, 248, 0.15);
+  color: var(--admin-primary);
+  border-color: transparent;
+}
+.button.is-primary.is-light:hover { background-color: rgba(129, 140, 248, 0.25); }
+
+.button.is-success.is-light {
+  background-color: rgba(74, 222, 128, 0.15);
+  color: var(--admin-success);
+  border-color: transparent;
+}
+.button.is-success.is-light:hover { background-color: rgba(74, 222, 128, 0.25); }
+
+.button.is-warning.is-light {
+  background-color: rgba(251, 191, 36, 0.15);
+  color: var(--admin-warning);
+  border-color: transparent;
+}
+.button.is-warning.is-light:hover { background-color: rgba(251, 191, 36, 0.25); }
+
+.button.is-danger.is-light {
+  background-color: rgba(248, 113, 113, 0.15);
+  color: var(--admin-danger);
+  border-color: transparent;
+}
+.button.is-danger.is-light:hover { background-color: rgba(248, 113, 113, 0.25); }
+
+/* ── Buttons: solid color overrides (ensure readable on dark) ── */
+.button.is-info    { background-color: var(--admin-info);    color: #0c1a24; border-color: transparent; }
+.button.is-success { background-color: var(--admin-success); color: #0c1a24; border-color: transparent; }
+.button.is-warning { background-color: var(--admin-warning); color: #0c1a24; border-color: transparent; }
+
+/* ── Buttons: outlined variants ── */
+.button.is-outlined              { background-color: transparent; border-color: var(--admin-border); color: var(--admin-text); }
+.button.is-primary.is-outlined   { border-color: var(--admin-primary); color: var(--admin-primary); }
+.button.is-info.is-outlined      { border-color: var(--admin-info); color: var(--admin-info); }
+.button.is-success.is-outlined   { border-color: var(--admin-success); color: var(--admin-success); }
+.button.is-warning.is-outlined   { border-color: var(--admin-warning); color: var(--admin-warning); }
+.button.is-danger.is-outlined    { border-color: var(--admin-danger); color: var(--admin-danger); }
+
+/* ── Tags: color variants ── */
+.tag.is-success:not(body) { background-color: rgba(74, 222, 128, 0.2);   color: var(--admin-success); }
+.tag.is-warning:not(body) { background-color: rgba(251, 191, 36, 0.2);   color: var(--admin-warning); }
+.tag.is-danger:not(body)  { background-color: rgba(248, 113, 113, 0.2);  color: var(--admin-danger);  }
+.tag.is-info:not(body)    { background-color: rgba(56, 189, 248, 0.2);   color: var(--admin-info);    }
+.tag.is-primary:not(body) { background-color: rgba(129, 140, 248, 0.2);  color: var(--admin-primary); }
+.tag.is-light:not(body)   { background-color: var(--admin-surface-raised); color: var(--admin-text-muted); }
+.tag.is-dark:not(body)    { background-color: var(--admin-border);        color: var(--admin-text);    }
+
+/* ── Notifications: color variants ── */
+.notification.is-info    { background-color: rgba(56, 189, 248, 0.12);   color: var(--admin-text); border-left: 3px solid var(--admin-info); }
+.notification.is-success { background-color: rgba(74, 222, 128, 0.12);   color: var(--admin-text); border-left: 3px solid var(--admin-success); }
+.notification.is-warning { background-color: rgba(251, 191, 36, 0.12);   color: var(--admin-text); border-left: 3px solid var(--admin-warning); }
+.notification.is-danger  { background-color: rgba(248, 113, 113, 0.12);  color: var(--admin-text); border-left: 3px solid var(--admin-danger); }
+.notification.is-primary { background-color: rgba(129, 140, 248, 0.12);  color: var(--admin-text); border-left: 3px solid var(--admin-primary); }
+
+/* ── Dropdown menus ── */
+.dropdown-menu .dropdown-content {
+  background-color: var(--admin-surface-raised);
+  border: 1px solid var(--admin-border);
+  box-shadow: var(--admin-shadow-md);
+}
+.dropdown-item, .dropdown-item a { color: var(--admin-text); }
+.dropdown-item:hover, .dropdown-item.is-active {
+  background-color: var(--admin-primary-light);
+  color: var(--admin-primary);
+}
+.dropdown-divider { background-color: var(--admin-border); }
+
+/* ── Panel ── */
+.panel { border-color: var(--admin-border); }
+.panel-heading {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+  border-bottom-color: var(--admin-border);
+}
+.panel-block {
+  background-color: var(--admin-surface-raised);
+  color: var(--admin-text);
+  border-bottom-color: var(--admin-border);
+}
+.panel-block:hover { background-color: rgba(255, 255, 255, 0.04); }
+
+/* ── Progress bar ── */
+.progress { background-color: var(--admin-border); }
+
+/* ── Tabs ── */
+.tabs { border-bottom-color: var(--admin-border); }
+.tabs a { color: var(--admin-text-muted); border-bottom-color: var(--admin-border); }
+.tabs a:hover { color: var(--admin-text); border-bottom-color: var(--admin-text); }
+.tabs li.is-active a { color: var(--admin-primary); border-bottom-color: var(--admin-primary); }

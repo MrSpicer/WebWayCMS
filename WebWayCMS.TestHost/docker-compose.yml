@@ -1,0 +1,39 @@
+# Self-contained compose stack for the Integration-Host example (web + postgres).
+# This is a throwaway test stack, so all values are hardcoded. The only value taken
+# from the environment is CKEDITOR_LICENSE_KEY (a real licensed key that must not be
+# committed); it defaults to empty, in which case CKEditor runs unlicensed.
+services:
+  web:
+    build:
+      context: ../
+      dockerfile: WebWayCMS.TestHost/Dockerfile
+    ports:
+      - "45847:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=integration-host;Username=integration-host;Password=integration-host
+      AdminUser__Email: admin@example.com
+      AdminUser__Password: XKX%aeOtKcte7jBcHn
+      CKEditor__LicenseKey: ${CKEDITOR_LICENSE_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: integration-host
+      POSTGRES_USER: integration-host
+      POSTGRES_PASSWORD: integration-host
+    volumes:
+      - integration-host_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integration-host"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  integration-host_pgdata:

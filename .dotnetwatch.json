@@ -1,0 +1,29 @@
+{
+  "watch": [
+    "MySite/",
+    "WebWayCMS/"
+  ],
+  "ignore": [
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/.vs/**",
+    "**/.vscode/**",
+    "**/Logs/**",
+    "**/.dotnet/**",
+    "**/TestResults/**",
+    "**/.idea/**",
+    "**/*.scss"
+  ],
+  "reload": {
+    "include": [
+      "**/*.cs",
+      "**/*.cshtml",
+      "**/*.csproj",
+      "**/*.json",
+      "**/*.css",
+      "**/*.js"
+    ]
+  }
+}

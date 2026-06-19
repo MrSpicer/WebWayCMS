@@ -1,0 +1,13 @@
+@*
+    Default Layout View
+    Simple single-column layout with a content zone.
+    
+    Note: This is a fallback view. Consider selecting a specific layout template
+    such as SingleColumn, TwoColumnSidebar, ThreeColumn, etc.
+*@
+
+<section class="section">
+    <div class="container">
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+    </div>
+</section>

@@ -1,0 +1,22 @@
+@*
+    Asymmetric Right-Heavy Layout
+    ┌─────────┬──────────────┐
+    │ Side(4) │   Main (8)   │
+    └─────────┴──────────────┘
+    
+    Use case: Navigation-first layouts, filters on left
+    Mobile: Columns stack automatically (sidebar appears first on mobile)
+*@
+
+<section class="section">
+    <div class="container">
+        <div class="columns">
+            <div class="column is-4">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Sidebar" })
+            </div>
+            <div class="column is-8">
+                @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+            </div>
+        </div>
+    </div>
+</section>

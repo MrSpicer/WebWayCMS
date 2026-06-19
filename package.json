@@ -1,0 +1,21 @@
+{
+  "name": "webwaycms",
+  "version": "1.0.0",
+  "description": "This software is in pre-alpha development. do not use it",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrSpicer/WebWayCMS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MrSpicer/WebWayCMS/issues"
+  },
+  "homepage": "https://github.com/MrSpicer/WebWayCMS#readme"
+}

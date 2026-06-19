@@ -1,0 +1,149 @@
+@using WebWayCMS.Models.Page
+
+@model PageIndexViewModel
+
+@{
+    ViewData["Title"] = "Pages";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Pages</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Page</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (TempData["Error"] != null)
+        {
+            <div class="notification is-danger mt-4" role="alert">
+                @TempData["Error"]
+            </div>
+        }
+
+        @if (!Model.Pages.Any())
+        {
+            <div class="card admin-empty-state">
+                <div class="card-content has-text-centered py-6">
+                    <span class="icon is-large has-text-grey-light mb-4">
+                        <i class="fas fa-file-alt fa-3x" aria-hidden="true"></i>
+                    </span>
+                    <p class="title is-5">No pages yet</p>
+                    <p class="subtitle is-6 has-text-grey">Create your first page to get started.</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary mt-2">New Page</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of pages</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Route</th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Controller</th>
+                            <th scope="col">Published</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ await RenderTreeNodes(Model.Pages, 0); }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>
+
+@functions {
+    async Task RenderTreeNodes(List<PageTreeNode> nodes, int depth)
+    {
+        foreach (var node in nodes)
+        {
+            <tr>
+                <td>
+                    <span style="padding-left: @(depth * 1.5)rem;">
+                        @if (depth > 0)
+                        {
+                            <span class="has-text-grey-light" aria-hidden="true">└─ </span>
+                        }
+                        @node.Route
+                        <a asp-controller="AdminContent"
+                           asp-action="Create"
+                           asp-route-contentType="pages"
+                           asp-route-parentRoute="@node.Route"
+                           class="has-text-grey-light ml-2"
+                           title="Create child page under @node.Route"
+                           aria-label="Create child page under @node.Route">
+                            <i class="fas fa-plus-circle" aria-hidden="true"></i>
+                        </a>
+                    </span>
+                </td>
+                <td>
+                    @if (node.PageId.HasValue)
+                    {
+                        @node.Title
+                    }
+                    else
+                    {
+                        <span class="has-text-grey-light is-italic">—</span>
+                    }
+                </td>
+                <td>
+                    @if (!string.IsNullOrEmpty(node.ControllerName))
+                    {
+                        <span class="tag is-light">@node.ControllerName</span>
+                    }
+                </td>
+                <td>
+                    @if (node.PageId.HasValue)
+                    {
+                        if (node.IsPublished)
+                        {
+                            <span class="tag is-success">Yes</span>
+                        }
+                        else
+                        {
+                            <span class="tag is-warning">No</span>
+                        }
+                    }
+                </td>
+                <td>
+                    @if (node.PageId.HasValue)
+                    {
+                        <div class="buttons are-small">
+                            <a href="@node.Route" target="_blank" class="button is-small is-light" rel="noopener">View</a>
+                            @if (node.PageMasterId.HasValue)
+                            {
+                                <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-masterId="@node.PageMasterId" class="button is-small is-info is-light">Versions</a>
+                                <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?pageId=@node.PageMasterId"
+                                   class="button is-small is-info is-light">Content Zones</a>
+                            }
+                            <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageId" class="button is-small">Edit</a>
+                            <button type="button" class="button is-small is-danger is-light"
+                                    data-delete-trigger
+                                    data-delete-name="@node.Title"
+                                    data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageId })">
+                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                <span>Delete</span>
+                            </button>
+                        </div>
+                    }
+                </td>
+            </tr>
+
+            if (node.Children.Any())
+            {
+                await RenderTreeNodes(node.Children, depth + 1);
+            }
+        }
+    }
+}
