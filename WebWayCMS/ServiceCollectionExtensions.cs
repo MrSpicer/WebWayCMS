@@ -236,6 +236,7 @@ public static class ServiceCollectionExtensions
 		services.AddScoped<WebWayCMS.Rendering.ICmsPageRenderer, WebWayCMS.Presentation.Rendering.CmsPageRenderer>();
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IContentZoneResolver, WebWayCMS.Presentation.Rendering.ContentZoneResolver>();
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IArticleWidgetResolver, WebWayCMS.Presentation.Rendering.ArticleWidgetResolver>();
+		services.AddScoped<WebWayCMS.Presentation.Rendering.IFormOptionsProvider, WebWayCMS.Presentation.Rendering.FormOptionsProvider>();
 		services.AddSingleton<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(_ =>
 			new WebWayCMS.Presentation.Rendering.ContentZoneWidgetRegistry(
 				new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)

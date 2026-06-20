@@ -3,6 +3,7 @@
 @using WebWayCMS.ContentZones
 @using WebWayCMS.Forms
 @inject IContentZoneComponentRegistry Registry
+@inject IFormOptionsProvider OptionsProvider
 @*
     Add/Edit widget modal: pick a component (add mode) and edit its configuration via
     InteractiveFormFields, then raise OnSaved with the component name + serialized JSON.
@@ -39,7 +40,7 @@
             @if (_config is not null && _properties.Count > 0)
             {
                 <hr />
-                <InteractiveFormFields Model="_config" Properties="_properties" />
+                <InteractiveFormFields Model="_config" Properties="_properties" Options="_options" />
             }
         </section>
         <footer class="modal-card-foot">
@@ -60,23 +61,25 @@
     private string? _componentName;
     private object? _config;
     private IReadOnlyList<FormPropertyInfo> _properties = Array.Empty<FormPropertyInfo>();
+    private Dictionary<string, IReadOnlyList<FormOption>> _options = new();
 
     private bool IsEdit => EditComponentName is not null;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _byCategory = Registry.GetComponentsByCategory();
         if (EditComponentName is not null)
-            LoadComponent(EditComponentName, EditJson);
+            await LoadComponentAsync(EditComponentName, EditJson);
     }
 
-    private void OnComponentChanged(ChangeEventArgs e) => LoadComponent(e.Value as string, null);
+    private async Task OnComponentChanged(ChangeEventArgs e) => await LoadComponentAsync(e.Value as string, null);
 
-    private void LoadComponent(string? name, string? json)
+    private async Task LoadComponentAsync(string? name, string? json)
     {
         _componentName = string.IsNullOrEmpty(name) ? null : name;
         _config = null;
         _properties = Array.Empty<FormPropertyInfo>();
+        _options = new();
         if (_componentName is null)
             return;
 
@@ -86,6 +89,13 @@
 
         _config = Deserialize(json, info.ConfigurationType) ?? Registry.CreateDefaultConfiguration(_componentName);
         _properties = info.Properties;
+
+        foreach (var prop in _properties)
+        {
+            var options = await OptionsProvider.GetOptionsAsync(prop);
+            if (options.Count > 0)
+                _options[prop.Name] = options;
+        }
     }
 
     private static object? Deserialize(string? json, Type? type)

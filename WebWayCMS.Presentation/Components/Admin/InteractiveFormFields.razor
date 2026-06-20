@@ -28,7 +28,19 @@
         <div class="field">
             <label class="label">@prop.Label</label>
             <div class="control">
-                @if (prop.EditorType is EditorType.TextArea or EditorType.RichText)
+                @if (TryOptions(prop, out var pickerOptions))
+                {
+                    <div class="select is-fullwidth">
+                        <select data-prop="@prop.Name" @onchange="e => Set(prop, e)">
+                            <option value="">-- Select --</option>
+                            @foreach (var o in pickerOptions)
+                            {
+                                <option value="@o.Value" selected="@(o.Value == Display(prop))">@o.Label</option>
+                            }
+                        </select>
+                    </div>
+                }
+                else if (prop.EditorType is EditorType.TextArea or EditorType.RichText)
                 {
                     <textarea class="textarea" data-prop="@prop.Name" @onchange="e => Set(prop, e)">@Display(prop)</textarea>
                 }
@@ -61,6 +73,20 @@
     [Parameter, EditorRequired] public object Model { get; set; } = default!;
 
     [Parameter, EditorRequired] public IReadOnlyList<FormPropertyInfo> Properties { get; set; } = Array.Empty<FormPropertyInfo>();
+
+    /// <summary>Per-field selectable options (keyed by property name) for picker fields; absent fields render plain inputs.</summary>
+    [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<FormOption>>? Options { get; set; }
+
+    private bool TryOptions(FormPropertyInfo prop, out IReadOnlyList<FormOption> options)
+    {
+        if (Options is not null && Options.TryGetValue(prop.Name, out var found))
+        {
+            options = found;
+            return true;
+        }
+        options = Array.Empty<FormOption>();
+        return false;
+    }
 
     private System.Reflection.PropertyInfo? Pi(FormPropertyInfo prop) => Model.GetType().GetProperty(prop.Name);
 

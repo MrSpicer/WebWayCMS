@@ -145,6 +145,34 @@ public class InteractiveFormFieldsTests
 	}
 
 	[Test]
+	public void Field_WithProvidedOptions_RendersSelect_AndBinds()
+	{
+		var ctx = new BunitContext();
+		var model = new FormModel { Text = "x" }; // current value -> option "x" selected
+		var options = new Dictionary<string, IReadOnlyList<FormOption>>
+		{
+			["Text"] = new[] { new FormOption("x", "X-Label"), new FormOption("y", "Y-Label") },
+		};
+
+		var cut = ctx.Render<InteractiveFormFields>(p => p
+			.Add(c => c.Model, model)
+			.Add(c => c.Properties, Props())
+			.Add(c => c.Options, options));
+
+		using (ctx)
+		{
+			Assert.Multiple(() =>
+			{
+				Assert.That(cut.Markup, Does.Contain(">X-Label</option>"));
+				Assert.That(cut.Markup, Does.Contain(">Y-Label</option>"));
+			});
+
+			cut.Find("select[data-prop=\"Text\"]").Change("y");
+			Assert.That(model.Text, Is.EqualTo("y"));
+		}
+	}
+
+	[Test]
 	public void Checkbox_Toggles_TrueAndFalse()
 	{
 		var (ctx, cut, model) = Render();

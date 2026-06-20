@@ -8,6 +8,7 @@ using NUnit.Framework;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Presentation.Components.Admin;
@@ -38,6 +39,11 @@ public class ContentZoneEditorTests
 		ctx.Services.AddSingleton(model);
 		// Empty widget registry -> no item previews rendered (covers the "no preview" branch).
 		ctx.Services.AddSingleton<IContentZoneWidgetRegistry>(new ContentZoneWidgetRegistry(new Dictionary<string, Type>()));
+		// The add/edit form (ContentZoneItemForm) injects a form-options provider.
+		var options = Substitute.For<IFormOptionsProvider>();
+		options.GetOptionsAsync(Arg.Any<FormPropertyInfo>(), Arg.Any<CancellationToken>())
+			.Returns(Task.FromResult<IReadOnlyList<FormOption>>(Array.Empty<FormOption>()));
+		ctx.Services.AddSingleton(options);
 		return ctx.Render<ContentZoneEditor>(p => p.Add(c => c.ZoneId, zoneId));
 	}
 

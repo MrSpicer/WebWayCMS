@@ -10,6 +10,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Forms;
 using WebWayCMS.Presentation.Components.Admin;
+using WebWayCMS.Presentation.Rendering;
 
 namespace WebWayCMS.Presentation.Tests;
 
@@ -47,11 +48,20 @@ public class ContentZoneItemFormTests
 		return reg;
 	}
 
+	private static IFormOptionsProvider EmptyOptions()
+	{
+		var p = Substitute.For<IFormOptionsProvider>();
+		p.GetOptionsAsync(Arg.Any<FormPropertyInfo>(), Arg.Any<CancellationToken>())
+			.Returns(Task.FromResult<IReadOnlyList<FormOption>>(Array.Empty<FormOption>()));
+		return p;
+	}
+
 	private static (BunitContext Ctx, IRenderedComponent<ContentZoneItemForm> Cut, List<ContentZoneItemFormResult> Saved, List<bool> Cancelled) Render(
-		string? editComponent = null, string? editJson = null)
+		string? editComponent = null, string? editJson = null, IFormOptionsProvider? options = null)
 	{
 		var ctx = new BunitContext();
 		ctx.Services.AddSingleton(Registry());
+		ctx.Services.AddSingleton(options ?? EmptyOptions());
 		var saved = new List<ContentZoneItemFormResult>();
 		var cancelled = new List<bool>();
 		var cut = ctx.Render<ContentZoneItemForm>(p => p
@@ -155,6 +165,23 @@ public class ContentZoneItemFormTests
 		using (ctx)
 		{
 			Assert.That(cut.Markup, Does.Contain("data-prop=\"Name\""));
+		}
+	}
+
+	[Test]
+	public void SelectComponent_WithFieldOptions_RendersSelect()
+	{
+		var provider = Substitute.For<IFormOptionsProvider>();
+		provider.GetOptionsAsync(Arg.Any<FormPropertyInfo>(), Arg.Any<CancellationToken>())
+			.Returns(Task.FromResult<IReadOnlyList<FormOption>>(Array.Empty<FormOption>()));
+		provider.GetOptionsAsync(Arg.Is<FormPropertyInfo>(p => p.Name == "Name"), Arg.Any<CancellationToken>())
+			.Returns(Task.FromResult<IReadOnlyList<FormOption>>(new[] { new FormOption("v1", "View One") }));
+
+		var (ctx, cut, _, _) = Render(options: provider);
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			Assert.That(cut.Markup, Does.Contain(">View One</option>"));
 		}
 	}
 
