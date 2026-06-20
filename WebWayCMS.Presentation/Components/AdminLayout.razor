@@ -1,0 +1,21 @@
+@namespace WebWayCMS.Presentation.Components
+@inherits LayoutComponentBase
+@attribute [ExcludeFromCodeCoverage]
+@*
+    Admin document chrome for routable Blazor admin pages - the Blazor counterpart of
+    _AdminLayout.cshtml. Contributes the admin stylesheets to <head> via HeadContent (the App
+    root supplies the document + HeadOutlet). Logicless shell -> excluded from coverage.
+    The admin navbar (_AdminNavbar / Page nav) and CKEditor are added in later sub-phases.
+*@
+<HeadContent>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" />
+    <link rel="stylesheet" href="_content/WebWayCMS.Presentation/css/admin.css" />
+</HeadContent>
+
+<div class="admin-shell">
+    <a href="#main-content" class="skip-to-content">Skip to main content</a>
+    <main id="main-content" class="admin-main" tabindex="-1">
+        @Body
+    </main>
+</div>

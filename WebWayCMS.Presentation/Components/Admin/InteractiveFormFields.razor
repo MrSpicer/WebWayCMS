@@ -1,0 +1,85 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using WebWayCMS.Attributes
+@using WebWayCMS.Forms
+@using WebWayCMS.Presentation.Rendering
+@*
+    Interactive, metadata-driven configuration form. Each field reads/writes the bound Model's
+    property by reflection (via FormValueConverter), so editing updates the config object in place
+    ready for JSON serialization. Covers the editor types used by content-zone component configs;
+    entity pickers and CKEditor rich text are rendered as plain inputs for now (3c-3).
+*@
+@foreach (var prop in Properties)
+{
+    @if (prop.EditorType == EditorType.Hidden)
+    {
+        <input type="hidden" data-prop="@prop.Name" value="@Display(prop)" @onchange="e => Set(prop, e)" />
+    }
+    else if (prop.EditorType == EditorType.Checkbox)
+    {
+        <div class="field">
+            <label class="checkbox">
+                <input type="checkbox" data-prop="@prop.Name" checked="@IsChecked(prop)" @onchange="e => SetBool(prop, e)" />
+                @prop.Label
+            </label>
+        </div>
+    }
+    else
+    {
+        <div class="field">
+            <label class="label">@prop.Label</label>
+            <div class="control">
+                @if (prop.EditorType is EditorType.TextArea or EditorType.RichText)
+                {
+                    <textarea class="textarea" data-prop="@prop.Name" @onchange="e => Set(prop, e)">@Display(prop)</textarea>
+                }
+                else if (prop.EditorType == EditorType.Dropdown)
+                {
+                    <div class="select is-fullwidth">
+                        <select data-prop="@prop.Name" @onchange="e => Set(prop, e)">
+                            <option value="">-- Select --</option>
+                            @foreach (var opt in prop.DropdownOptions)
+                            {
+                                <option value="@opt.Key" selected="@(opt.Key == Display(prop))">@opt.Value</option>
+                            }
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    <input class="input" type="text" data-prop="@prop.Name" value="@Display(prop)" placeholder="@prop.Placeholder" @onchange="e => Set(prop, e)" />
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(prop.HelpText))
+            {
+                <p class="help">@prop.HelpText</p>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public object Model { get; set; } = default!;
+
+    [Parameter, EditorRequired] public IReadOnlyList<FormPropertyInfo> Properties { get; set; } = Array.Empty<FormPropertyInfo>();
+
+    private System.Reflection.PropertyInfo? Pi(FormPropertyInfo prop) => Model.GetType().GetProperty(prop.Name);
+
+    private string Display(FormPropertyInfo prop) => FormValueConverter.ToInput(Pi(prop)?.GetValue(Model), prop.EditorType);
+
+    private bool IsChecked(FormPropertyInfo prop) => Pi(prop)?.GetValue(Model) is true;
+
+    private void Set(FormPropertyInfo prop, ChangeEventArgs e)
+    {
+        var pi = Pi(prop);
+        if (pi is not null)
+            pi.SetValue(Model, FormValueConverter.FromInput(e.Value as string, pi.PropertyType));
+    }
+
+    private void SetBool(FormPropertyInfo prop, ChangeEventArgs e)
+    {
+        // A checkbox change event always provides the checked state as a bool.
+        var pi = Pi(prop);
+        if (pi is not null)
+            pi.SetValue(Model, (bool)e.Value!);
+    }
+}

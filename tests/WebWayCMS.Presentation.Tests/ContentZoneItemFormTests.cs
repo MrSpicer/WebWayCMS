@@ -1,0 +1,171 @@
+using Bunit;
+
+using Microsoft.Extensions.DependencyInjection;
+
+using NSubstitute;
+
+using NUnit.Framework;
+
+using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
+using WebWayCMS.Forms;
+using WebWayCMS.Presentation.Components.Admin;
+
+namespace WebWayCMS.Presentation.Tests;
+
+[TestFixture]
+public class ContentZoneItemFormTests
+{
+	public class DemoConfig
+	{
+		[FormProperty("Name", EditorType.Text)]
+		public string? Name { get; set; }
+	}
+
+	private static IContentZoneComponentRegistry Registry()
+	{
+		var demo = new ContentZoneComponentInfo
+		{
+			Name = "Demo",
+			DisplayName = "Demo",
+			Category = "General",
+			ConfigurationType = typeof(DemoConfig),
+			Properties = FormPropertyBuilder.BuildPropertyInfos(typeof(DemoConfig)),
+		};
+		var bare = new ContentZoneComponentInfo { Name = "Bare", DisplayName = "Bare", Category = "General", ConfigurationType = null };
+
+		var reg = Substitute.For<IContentZoneComponentRegistry>();
+		reg.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>
+		{
+			["General"] = new[] { demo, bare, new ContentZoneComponentInfo { Name = "Ghost", DisplayName = "Ghost" } },
+		});
+		reg.GetByName("Demo").Returns(demo);
+		reg.GetByName("Bare").Returns(bare);
+		reg.GetByName("Ghost").Returns((ContentZoneComponentInfo?)null);
+		reg.CreateDefaultConfiguration("Demo").Returns(_ => new DemoConfig());
+		reg.CreateDefaultConfiguration("Bare").Returns((object?)null);
+		return reg;
+	}
+
+	private static (BunitContext Ctx, IRenderedComponent<ContentZoneItemForm> Cut, List<ContentZoneItemFormResult> Saved, List<bool> Cancelled) Render(
+		string? editComponent = null, string? editJson = null)
+	{
+		var ctx = new BunitContext();
+		ctx.Services.AddSingleton(Registry());
+		var saved = new List<ContentZoneItemFormResult>();
+		var cancelled = new List<bool>();
+		var cut = ctx.Render<ContentZoneItemForm>(p => p
+			.Add(c => c.EditComponentName, editComponent)
+			.Add(c => c.EditJson, editJson)
+			.Add(c => c.OnSaved, (ContentZoneItemFormResult r) => saved.Add(r))
+			.Add(c => c.OnCancel, () => cancelled.Add(true)));
+		return (ctx, cut, saved, cancelled);
+	}
+
+	[Test]
+	public void AddMode_InitiallyNoFormAndSaveNoOpsWhenUnselected()
+	{
+		var (ctx, cut, saved, _) = Render();
+		using (ctx)
+		{
+			Assert.That(cut.Markup, Does.Contain("Add Widget"));
+			cut.Find(".save-form").Click(); // disabled / no component -> no save
+			Assert.That(saved, Is.Empty);
+		}
+	}
+
+	[Test]
+	public void AddMode_SelectConfiguredComponent_ShowsFormAndSaves()
+	{
+		var (ctx, cut, saved, _) = Render();
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			Assert.That(cut.Markup, Does.Contain("Name")); // the DemoConfig field
+
+			cut.Find("input[data-prop=\"Name\"]").Change("hello");
+			cut.Find(".save-form").Click();
+
+			Assert.That(saved, Has.Count.EqualTo(1));
+			Assert.That(saved[0].ComponentName, Is.EqualTo("Demo"));
+			Assert.That(saved[0].Json, Does.Contain("hello"));
+		}
+	}
+
+	[Test]
+	public void AddMode_SelectEmpty_HidesForm()
+	{
+		var (ctx, cut, _, _) = Render();
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			Assert.That(cut.Markup, Does.Contain("data-prop=\"Name\""));
+			cut.Find(".component-selector").Change("");
+			Assert.That(cut.Markup, Does.Not.Contain("data-prop=\"Name\""));
+		}
+	}
+
+	[Test]
+	public void AddMode_SelectUnknownComponent_NoForm()
+	{
+		var (ctx, cut, _, _) = Render();
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Ghost"); // GetByName -> null
+			Assert.That(cut.Markup, Does.Not.Contain("data-prop"));
+		}
+	}
+
+	[Test]
+	public void AddMode_NoConfigComponent_SavesEmptyJson()
+	{
+		var (ctx, cut, saved, _) = Render();
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Bare"); // ConfigurationType null, default null
+			cut.Find(".save-form").Click();
+
+			Assert.That(saved, Has.Count.EqualTo(1));
+			Assert.That(saved[0], Is.EqualTo(new ContentZoneItemFormResult("Bare", "{}")));
+		}
+	}
+
+	[Test]
+	public void EditMode_PrefillsAndSaves()
+	{
+		var (ctx, cut, saved, _) = Render("Demo", "{\"Name\":\"existing\"}");
+		using (ctx)
+		{
+			Assert.Multiple(() =>
+			{
+				Assert.That(cut.Markup, Does.Contain("Edit Widget"));
+				Assert.That(cut.Markup, Does.Contain("existing"));
+				Assert.That(cut.Find(".component-selector").HasAttribute("disabled"), Is.True);
+			});
+
+			cut.Find(".save-form").Click();
+			Assert.That(saved[0].ComponentName, Is.EqualTo("Demo"));
+		}
+	}
+
+	[Test]
+	public void EditMode_EmptyJson_UsesDefaultConfig()
+	{
+		var (ctx, cut, _, _) = Render("Demo", "{}");
+		using (ctx)
+		{
+			Assert.That(cut.Markup, Does.Contain("data-prop=\"Name\""));
+		}
+	}
+
+	[Test]
+	public void Cancel_InvokesCallback()
+	{
+		var (ctx, cut, _, cancelled) = Render();
+		using (ctx)
+		{
+			cut.Find(".cancel-form").Click();
+			Assert.That(cancelled, Has.Count.EqualTo(1));
+		}
+	}
+}

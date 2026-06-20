@@ -1,0 +1,122 @@
+@page "/admin/blocks"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Models.ContentBlock
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IContentBlockModel Model
+@*
+    Interactive Server admin page: lists content blocks with an interactive delete (inline confirm
+    modal, no full page reload) - the first Blazor port of the AdminContentBlock list and the
+    delete-confirm behavior previously implemented in admin.js. Create/Edit/Versions still link to
+    the existing MVC admin endpoints during the transition.
+*@
+<PageTitle>Content Blocks</PageTitle>
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Content Blocks</h1>
+            <a href="/admin/contentblocks/create" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Content Block</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (_items.Count == 0)
+        {
+            <div class="card admin-empty-state mt-4">
+                <div class="card-content has-text-centered py-6">
+                    <p class="title is-5">No content blocks yet</p>
+                    <p class="subtitle is-6 has-text-grey">Create reusable content blocks to embed across your site.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of content blocks</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Title</th>
+                            <th scope="col">Slug</th>
+                            <th scope="col">Version</th>
+                            <th scope="col">Modified</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cb in _items)
+                        {
+                            <tr>
+                                <td>@cb.Title</td>
+                                <td>@cb.Slug</td>
+                                <td><span class="tag is-light">v@(cb.Version)</span></td>
+                                <td>@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a href="/admin/contentblocks/versions/@cb.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a href="/admin/contentblocks/edit/@cb.Id" class="button is-small">Edit</a>
+                                        <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(cb)">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete content block</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>@pending.Title</strong>?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ContentBlockItemViewModel> _items = new();
+    private ContentBlockItemViewModel? _pendingDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var index = await Model.GetContentBlockIndexAsync();
+        _items = index.ContentBlocks;
+    }
+
+    private void RequestDelete(ContentBlockItemViewModel item) => _pendingDelete = item;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(ContentBlockItemViewModel item)
+    {
+        await Model.DeleteAsync(item.Id);
+        _items.Remove(item);
+        _pendingDelete = null;
+    }
+}

@@ -1,0 +1,12 @@
+@namespace WebWayCMS.Presentation.Components
+@using WebWayCMS.Forms
+@*
+    Renders Bulma-styled form fields from a model's [FormProperty] metadata - the Blazor equivalent
+    of the <form-fields> tag helper. Both share FormFieldsHtmlBuilder, so the markup is identical
+    (name= attributes included, so these fields still post to the existing MVC admin endpoints).
+*@
+@((MarkupString)FormFieldsHtmlBuilder.Build(Model))
+
+@code {
+    [Parameter] public object? Model { get; set; }
+}

@@ -1,0 +1,180 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Models.ContentZone
+@using WebWayCMS.Presentation.Rendering
+@inject IContentZoneModel Model
+@inject IContentZoneWidgetRegistry Widgets
+@*
+    Interactive Server editor for a content zone's items - the first Blazor slice of the
+    content-zone-edit.js editor. Supports interactive delete (confirm modal) and reorder
+    (move up/down, persisted via ReorderItemsAsync) of existing items, with no page reload.
+    Adding/editing widgets (the add modal + dynamic config form) and CKEditor are later slices.
+*@
+@if (_zone is null)
+{
+    <div class="notification is-warning">Content zone not found.</div>
+}
+else
+{
+    <div class="content-zone-editor" data-zone-name="@_zone.RawZoneName">
+        <h2 class="title is-5">@_zone.RawZoneName</h2>
+
+        @if (_zone.ZoneObjects.Count == 0)
+        {
+            <p class="has-text-grey">No widgets in this zone yet.</p>
+        }
+        else
+        {
+            <ul class="zone-item-list">
+                @for (var i = 0; i < _zone.ZoneObjects.Count; i++)
+                {
+                    var item = _zone.ZoneObjects[i];
+                    <li class="zone-object-edit" data-item-id="@item.Id">
+                        <span class="zone-object-label">@item.ComponentName</span>
+                        <div class="buttons are-small">
+                            <button type="button" class="button move-up" @onclick="() => MoveUpAsync(item)">Up</button>
+                            <button type="button" class="button move-down" @onclick="() => MoveDownAsync(item)">Down</button>
+                            <button type="button" class="button edit-item" @onclick="() => EditItemAsync(item)">Edit</button>
+                            <button type="button" class="button is-danger zone-delete" @onclick="() => RequestDelete(item)">Delete</button>
+                        </div>
+                        @{
+                            var previewType = Widgets.Resolve(item.ComponentName);
+                        }
+                        @if (previewType is not null)
+                        {
+                            <div class="zone-object-preview">
+                                <DynamicComponent Type="previewType" Parameters="PreviewParameters(item)" />
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        <button type="button" class="button is-primary add-widget" @onclick="AddWidget">Add Widget</button>
+    </div>
+}
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete widget</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>@pending.ComponentName</strong>?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@if (_showForm)
+{
+    <ContentZoneItemForm EditComponentName="@(_editingDto?.ComponentName)" EditJson="@(_editingDto?.ComponentPropertiesJson)"
+                         OnSaved="OnFormSavedAsync" OnCancel="OnFormCancel" />
+}
+
+@code {
+    [Parameter] public Guid ZoneId { get; set; }
+
+    private ContentZoneViewModel? _zone;
+    private ContentZoneObject? _pendingDelete;
+    private bool _showForm;
+    private ContentZoneItemDTO? _editingDto;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _zone = await Model.GetViewModelByIdAsync(ZoneId);
+    }
+
+    private void AddWidget()
+    {
+        _editingDto = null;
+        _showForm = true;
+    }
+
+    private async Task EditItemAsync(ContentZoneObject item)
+    {
+        _editingDto = await Model.GetItemByIdAsync(item.Id);
+        if (_editingDto is null)
+            return;
+        _showForm = true;
+    }
+
+    private async Task OnFormSavedAsync(ContentZoneItemFormResult result)
+    {
+        if (_editingDto is not null)
+        {
+            _editingDto.ComponentPropertiesJson = result.Json;
+            await Model.UpdateItemAsync(_editingDto);
+        }
+        else
+        {
+            await Model.AddItemAsync(_zone!.Id, new ContentZoneItemDTO
+            {
+                ContentZoneId = _zone.Id,
+                ComponentName = result.ComponentName,
+                ComponentPropertiesJson = result.Json,
+                Ordinal = _zone.ZoneObjects.Count,
+            });
+        }
+
+        _showForm = false;
+        _editingDto = null;
+        _zone = await Model.GetViewModelByIdAsync(ZoneId);
+    }
+
+    private void OnFormCancel()
+    {
+        _showForm = false;
+        _editingDto = null;
+    }
+
+    private static IDictionary<string, object> PreviewParameters(ContentZoneObject item)
+        => new Dictionary<string, object> { ["Config"] = item.ComponentProperties };
+
+    private void RequestDelete(ContentZoneObject item) => _pendingDelete = item;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(ContentZoneObject item)
+    {
+        await Model.RemoveItemAsync(item.Id);
+        _zone!.ZoneObjects.Remove(item);
+        _pendingDelete = null;
+    }
+
+    private async Task MoveUpAsync(ContentZoneObject item)
+    {
+        var items = _zone!.ZoneObjects;
+        var idx = items.IndexOf(item);
+        if (idx <= 0)
+            return;
+
+        items.RemoveAt(idx);
+        items.Insert(idx - 1, item);
+        await PersistOrderAsync();
+    }
+
+    private async Task MoveDownAsync(ContentZoneObject item)
+    {
+        var items = _zone!.ZoneObjects;
+        var idx = items.IndexOf(item);
+        if (idx >= items.Count - 1)
+            return;
+
+        items.RemoveAt(idx);
+        items.Insert(idx + 1, item);
+        await PersistOrderAsync();
+    }
+
+    private Task PersistOrderAsync()
+        => Model.ReorderItemsAsync(_zone!.Id, _zone.ZoneObjects.Select(o => o.Id).ToList());
+}

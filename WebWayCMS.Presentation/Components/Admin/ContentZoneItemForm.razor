@@ -1,0 +1,107 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using System.Text.Json
+@using WebWayCMS.ContentZones
+@using WebWayCMS.Forms
+@inject IContentZoneComponentRegistry Registry
+@*
+    Add/Edit widget modal: pick a component (add mode) and edit its configuration via
+    InteractiveFormFields, then raise OnSaved with the component name + serialized JSON.
+    In edit mode the component is fixed and its existing JSON is deserialized into the form.
+*@
+<div class="modal is-active cz-item-form" role="dialog" aria-modal="true">
+    <div class="modal-background" @onclick="OnCancel"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <h2 class="modal-card-title">@(IsEdit ? "Edit Widget" : "Add Widget")</h2>
+            <button class="delete close-form" aria-label="Close dialog" @onclick="OnCancel"></button>
+        </header>
+        <section class="modal-card-body">
+            <div class="field">
+                <label class="label">Component</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select class="component-selector" disabled="@IsEdit" @onchange="OnComponentChanged">
+                            <option value="">-- Select a component --</option>
+                            @foreach (var category in _byCategory)
+                            {
+                                <optgroup label="@category.Key">
+                                    @foreach (var c in category.Value)
+                                    {
+                                        <option value="@c.Name" selected="@(c.Name == _componentName)">@c.DisplayName</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            @if (_config is not null && _properties.Count > 0)
+            {
+                <hr />
+                <InteractiveFormFields Model="_config" Properties="_properties" />
+            }
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-success save-form" disabled="@(_componentName is null)" @onclick="SaveAsync">Save</button>
+            <button class="button cancel-form" @onclick="OnCancel">Cancel</button>
+        </footer>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? EditComponentName { get; set; }
+    [Parameter] public string? EditJson { get; set; }
+    [Parameter] public EventCallback<ContentZoneItemFormResult> OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private IReadOnlyDictionary<string, IReadOnlyList<ContentZoneComponentInfo>> _byCategory =
+        new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>();
+    private string? _componentName;
+    private object? _config;
+    private IReadOnlyList<FormPropertyInfo> _properties = Array.Empty<FormPropertyInfo>();
+
+    private bool IsEdit => EditComponentName is not null;
+
+    protected override void OnInitialized()
+    {
+        _byCategory = Registry.GetComponentsByCategory();
+        if (EditComponentName is not null)
+            LoadComponent(EditComponentName, EditJson);
+    }
+
+    private void OnComponentChanged(ChangeEventArgs e) => LoadComponent(e.Value as string, null);
+
+    private void LoadComponent(string? name, string? json)
+    {
+        _componentName = string.IsNullOrEmpty(name) ? null : name;
+        _config = null;
+        _properties = Array.Empty<FormPropertyInfo>();
+        if (_componentName is null)
+            return;
+
+        var info = Registry.GetByName(_componentName);
+        if (info is null)
+            return;
+
+        _config = Deserialize(json, info.ConfigurationType) ?? Registry.CreateDefaultConfiguration(_componentName);
+        _properties = info.Properties;
+    }
+
+    private static object? Deserialize(string? json, Type? type)
+    {
+        if (type is null || string.IsNullOrEmpty(json) || json == "{}")
+            return null;
+        return JsonSerializer.Deserialize(json, type, JsonOpts);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_componentName is null)
+            return;
+        var json = _config is null ? "{}" : JsonSerializer.Serialize(_config, _config.GetType(), JsonOpts);
+        await OnSaved.InvokeAsync(new ContentZoneItemFormResult(_componentName, json));
+    }
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+}

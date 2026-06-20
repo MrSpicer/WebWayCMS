@@ -1,0 +1,22 @@
+@page "/admin/zone-editor/{ZoneId:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable admin host for the interactive content-zone editor. Coexists with the MVC
+    zone editor (/admin/contentzones/zone-edit/{id}) during the transition.
+*@
+<PageTitle>Edit Content Zone</PageTitle>
+
+<section class="section pt-4">
+    <div class="container">
+        <ContentZoneEditor ZoneId="ZoneId" />
+    </div>
+</section>
+
+@code {
+    [Parameter] public Guid ZoneId { get; set; }
+}
