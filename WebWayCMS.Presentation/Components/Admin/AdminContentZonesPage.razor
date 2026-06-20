@@ -1,0 +1,199 @@
+@page "/admin/zones"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.Primitives
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Models.ContentZone
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IAdminHandlerRegistry Handlers
+@*
+    Interactive Server admin list of content zones, faithfully ported from the MVC ContentZones view:
+    page/parent-zone filtering (query params), assignment counts, the "global" flag, and child-zone
+    navigation. Reuses the handler's existing GetIndexViewModelAsync(query) filtering. Edit -> the
+    Blazor zone-metadata form (AdminUpsert); Edit Zone -> the interactive item editor (3c); Advanced ->
+    the Blazor item table. Versions still links to the MVC admin endpoint during the transition.
+*@
+<PageTitle>Content Zones</PageTitle>
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Content Zones</h1>
+            <a href="/admin/zones/create" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Zone</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (_vm is not null)
+        {
+            @if (FilterLabel is { } label)
+            {
+                <div class="message is-info mt-4">
+                    <div class="message-body">
+                        Filtered by @label
+                        <a href="/admin/zones" class="ml-3 button is-small">Clear filter</a>
+                    </div>
+                </div>
+            }
+
+            @if (_vm.Zones.Count == 0)
+            {
+                <div class="card admin-empty-state mt-4">
+                    <div class="card-content has-text-centered py-6">
+                        <p class="title is-5">No content zones defined</p>
+                        <p class="subtitle is-6 has-text-grey">Create your first content zone to get started.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="table-container mt-4">
+                    <table class="table is-fullwidth is-striped">
+                        <caption class="is-sr-only">List of content zones</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Name</th>
+                                <th scope="col">Description</th>
+                                <th scope="col">Published</th>
+                                <th scope="col">Modified</th>
+                                <th scope="col">Version</th>
+                                <th scope="col">Assignments</th>
+                                <th scope="col">Global</th>
+                                <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var zone in _vm.Zones)
+                            {
+                                var count = _vm.AssignmentCountsByMasterId.GetValueOrDefault(zone.ContentMeta.MasterId, 0);
+                                <tr>
+                                    <td>@zone.Name</td>
+                                    <td>@zone.Description</td>
+                                    <td>
+                                        @if (zone.ContentMeta.IsPublished)
+                                        {
+                                            <span class="tag is-success">Yes</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="tag is-warning">No</span>
+                                        }
+                                    </td>
+                                    <td>@zone.ContentMeta.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td><span class="tag is-light">v@(zone.ContentMeta.Version)</span></td>
+                                    <td>@count</td>
+                                    <td>
+                                        @if (count == 0)
+                                        {
+                                            <span class="tag is-success">Yes</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="tag is-light">No</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="buttons are-small">
+                                            <a href="/admin/contentzones/versions/@zone.ContentMeta.MasterId" class="button is-small is-info is-light">Versions</a>
+                                            <a href="/admin/zones/edit/@zone.ContentId" class="button is-small">Edit</a>
+                                            <a href="/admin/zone-editor/@zone.ContentId" class="button is-small is-primary is-light">Edit Zone</a>
+                                            <a href="/admin/zones/@zone.ContentId/items" class="button is-small is-info is-light">Advanced (@zone.Items.Count)</a>
+                                            @if (_vm.ZoneIdsWithChildren.Contains(zone.ContentId))
+                                            {
+                                                <a href="/admin/zones?zoneId=@zone.ContentId" class="button is-small is-info is-light">Child Zones</a>
+                                            }
+                                            <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(zone)">
+                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                <span>Delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </div>
+</section>
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete content zone</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>@pending.Name</strong>?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "pageId")] public Guid? PageId { get; set; }
+    [SupplyParameterFromQuery(Name = "zoneId")] public Guid? ZoneId { get; set; }
+
+    private ContentZoneIndexViewModel? _vm;
+    private ContentZoneDTO? _pendingDelete;
+    private IAdminCrudHandler _handler = default!;
+
+    // Evaluated only inside the rendered section, where _vm is non-null.
+    private string? FilterLabel
+    {
+        get
+        {
+            var v = _vm!;
+            if (v.FilterPageId is { } pageId)
+                return $"page: {v.FilterPageRoute ?? pageId.ToString()}";
+            if (v.FilterParentZoneId is { } zoneId)
+                return $"zone: {v.FilterParentZoneName ?? zoneId.ToString()}";
+            return null;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _handler = Handlers.GetHandler("contentzones")!;
+        _vm = (ContentZoneIndexViewModel)await _handler.GetIndexViewModelAsync(BuildQuery());
+    }
+
+    private IQueryCollection BuildQuery()
+    {
+        var values = new Dictionary<string, StringValues>();
+        if (PageId is { } p)
+            values["pageId"] = p.ToString();
+        if (ZoneId is { } z)
+            values["zoneId"] = z.ToString();
+        return new QueryCollection(values);
+    }
+
+    private void RequestDelete(ContentZoneDTO zone) => _pendingDelete = zone;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(ContentZoneDTO zone)
+    {
+        await _handler.DeleteAsync(zone.ContentId);
+        _vm!.Zones.Remove(zone);
+        _pendingDelete = null;
+    }
+}

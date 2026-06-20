@@ -1,0 +1,21 @@
+@page "/admin/article-lists/{Slug}/articles/create"
+@page "/admin/article-lists/{Slug}/articles/edit/{Id:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable Interactive Server wrapper for the child-article create/edit form. Logicless shell: binds
+    the {Slug} parent key and optional {Id} route value and delegates to the generic AdminChildUpsert.
+*@
+<PageTitle>Article</PageTitle>
+
+<AdminChildUpsert ContentType="articles" ParentKey="@Slug" Id="Id" ListUrl="@($"/admin/article-lists/{Slug}/articles")" />
+
+@code {
+    [Parameter] public string Slug { get; set; } = default!;
+    [Parameter] public Guid? Id { get; set; }
+}

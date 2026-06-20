@@ -3,14 +3,25 @@
 @using WebWayCMS.Forms
 @using WebWayCMS.Presentation.Rendering
 @*
-    Interactive, metadata-driven configuration form. Each field reads/writes the bound Model's
-    property by reflection (via FormValueConverter), so editing updates the config object in place
-    ready for JSON serialization. Covers the editor types used by content-zone component configs;
-    entity pickers and CKEditor rich text are rendered as plain inputs for now (3c-3).
+    Interactive, metadata-driven form. Each field reads/writes the bound Model's property by
+    reflection (via FormValueConverter), so editing updates the model in place ready for save or JSON
+    serialization. Covers the editor types used by both content-zone component configs and the admin
+    content view models (Hidden/Text/TextArea/DateTime/Date/Number/Url/Email/Color/Checkbox/Dropdown
+    + entity/view pickers via Options, grouped under their FormProperty Group). CKEditor rich text is
+    still rendered as a plain textarea for now (the JS-interop wrapper lands in a later 3d sub-step).
 *@
+@{
+    string? currentGroup = null;
+}
 @foreach (var prop in Properties)
 {
-    @if (prop.EditorType == EditorType.Hidden)
+    if (!string.IsNullOrEmpty(prop.Group) && prop.Group != currentGroup)
+    {
+        currentGroup = prop.Group;
+        <h3 class="subtitle is-5 mt-4">@prop.Group</h3>
+    }
+
+    if (prop.EditorType == EditorType.Hidden)
     {
         <input type="hidden" data-prop="@prop.Name" value="@Display(prop)" @onchange="e => Set(prop, e)" />
     }
@@ -20,13 +31,23 @@
             <label class="checkbox">
                 <input type="checkbox" data-prop="@prop.Name" checked="@IsChecked(prop)" @onchange="e => SetBool(prop, e)" />
                 @prop.Label
+                @if (prop.IsRequired)
+                {
+                    <span class="has-text-danger">*</span>
+                }
             </label>
         </div>
     }
     else
     {
         <div class="field">
-            <label class="label">@prop.Label</label>
+            <label class="label">
+                @prop.Label
+                @if (prop.IsRequired)
+                {
+                    <span class="has-text-danger">*</span>
+                }
+            </label>
             <div class="control">
                 @if (TryOptions(prop, out var pickerOptions))
                 {
@@ -58,7 +79,7 @@
                 }
                 else
                 {
-                    <input class="input" type="text" data-prop="@prop.Name" value="@Display(prop)" placeholder="@prop.Placeholder" @onchange="e => Set(prop, e)" />
+                    <input class="input" type="@InputType(prop.EditorType)" data-prop="@prop.Name" value="@Display(prop)" placeholder="@prop.Placeholder" @onchange="e => Set(prop, e)" />
                 }
             </div>
             @if (!string.IsNullOrEmpty(prop.HelpText))
@@ -87,6 +108,18 @@
         options = Array.Empty<FormOption>();
         return false;
     }
+
+    // Maps an editor type to the corresponding HTML text-input type, mirroring the MVC tag-helper.
+    private static string InputType(EditorType editorType) => editorType switch
+    {
+        EditorType.DateTime => "datetime-local",
+        EditorType.Date => "date",
+        EditorType.Number => "number",
+        EditorType.Url => "url",
+        EditorType.Email => "email",
+        EditorType.Color => "color",
+        _ => "text",
+    };
 
     private System.Reflection.PropertyInfo? Pi(FormPropertyInfo prop) => Model.GetType().GetProperty(prop.Name);
 

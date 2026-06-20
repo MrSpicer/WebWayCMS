@@ -1,0 +1,20 @@
+@page "/admin/blocks/create"
+@page "/admin/blocks/edit/{Id:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable Interactive Server wrapper for the content-block create/edit form. Logicless shell: binds
+    the optional {Id} route value and delegates to the generic AdminUpsert (covered by its own tests).
+*@
+<PageTitle>Content Block</PageTitle>
+
+<AdminUpsert ContentType="contentblocks" Id="Id" ListUrl="/admin/blocks" />
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+}

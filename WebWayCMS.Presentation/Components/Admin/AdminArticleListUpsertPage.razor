@@ -1,0 +1,20 @@
+@page "/admin/article-lists/create"
+@page "/admin/article-lists/edit/{Id:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable Interactive Server wrapper for the article-list create/edit form. Logicless shell: binds
+    the optional {Id} route value and delegates to the generic AdminUpsert (covered by its own tests).
+*@
+<PageTitle>Article List</PageTitle>
+
+<AdminUpsert ContentType="articles" Id="Id" ListUrl="/admin/article-lists" />
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+}

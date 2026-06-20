@@ -1,27 +1,26 @@
-@page "/admin/blocks"
+@page "/admin/article-lists"
 @namespace WebWayCMS.Presentation.Components.Admin
 @using Microsoft.AspNetCore.Authorization
-@using WebWayCMS.Models.ContentBlock
+@using WebWayCMS.Models.Article
 @using WebWayCMS.Presentation.Components
 @attribute [Authorize(Roles = "Admin")]
 @layout AdminLayout
 @rendermode InteractiveServer
-@inject IContentBlockModel Model
+@inject IArticleListModel Model
 @*
-    Interactive Server admin page: lists content blocks with an interactive delete (inline confirm
-    modal, no full page reload) - the first Blazor port of the AdminContentBlock list and the
-    delete-confirm behavior previously implemented in admin.js. Create/Edit link to the Blazor
-    AdminUpsert pages; Versions still links to the existing MVC admin endpoint during the transition.
+    Interactive Server admin list of article lists, with an inline delete-confirm (no full page
+    reload). Create/Edit and Articles (child management) link to the Blazor admin pages; Versions still
+    links to the existing MVC admin endpoint during the transition.
 *@
-<PageTitle>Content Blocks</PageTitle>
+<PageTitle>Article Lists</PageTitle>
 
 <div class="admin-page-header">
     <div class="container">
         <div class="admin-page-title-row">
-            <h1 class="title is-4">Content Blocks</h1>
-            <a href="/admin/blocks/create" class="button is-primary">
+            <h1 class="title is-4">Article Lists</h1>
+            <a href="/admin/article-lists/create" class="button is-primary">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-                <span>New Content Block</span>
+                <span>New Article List</span>
             </a>
         </div>
     </div>
@@ -33,8 +32,8 @@
         {
             <div class="card admin-empty-state mt-4">
                 <div class="card-content has-text-centered py-6">
-                    <p class="title is-5">No content blocks yet</p>
-                    <p class="subtitle is-6 has-text-grey">Create reusable content blocks to embed across your site.</p>
+                    <p class="title is-5">No article lists yet</p>
+                    <p class="subtitle is-6 has-text-grey">Create your first article list to get started.</p>
                 </div>
             </div>
         }
@@ -42,29 +41,34 @@
         {
             <div class="table-container">
                 <table class="table is-fullwidth is-striped">
-                    <caption class="is-sr-only">List of content blocks</caption>
+                    <caption class="is-sr-only">List of article lists</caption>
                     <thead>
                         <tr>
                             <th scope="col">Title</th>
                             <th scope="col">Slug</th>
                             <th scope="col">Version</th>
+                            <th scope="col">Articles</th>
+                            <th scope="col">Created</th>
                             <th scope="col">Modified</th>
                             <th scope="col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var cb in _items)
+                        @foreach (var list in _items)
                         {
                             <tr>
-                                <td>@cb.Title</td>
-                                <td>@cb.Slug</td>
-                                <td><span class="tag is-light">v@(cb.Version)</span></td>
-                                <td>@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@list.Title</td>
+                                <td>@list.Slug</td>
+                                <td><span class="tag is-light">v@(list.Version)</span></td>
+                                <td>@list.ArticleCount</td>
+                                <td>@list.CreationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="buttons are-small">
-                                        <a href="/admin/contentblocks/versions/@cb.MasterId" class="button is-small is-info is-light">Versions</a>
-                                        <a href="/admin/blocks/edit/@cb.Id" class="button is-small">Edit</a>
-                                        <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(cb)">
+                                        <a href="/admin/articles/versions/@list.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a href="/admin/article-lists/@list.Slug/articles" class="button is-small is-info is-light">Articles</a>
+                                        <a href="/admin/article-lists/edit/@list.Id" class="button is-small">Edit</a>
+                                        <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(list)">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                             <span>Delete</span>
                                         </button>
@@ -85,11 +89,11 @@
         <div class="modal-background" @onclick="CancelDelete"></div>
         <div class="modal-card">
             <header class="modal-card-head">
-                <h2 class="modal-card-title">Delete content block</h2>
+                <h2 class="modal-card-title">Delete article list</h2>
                 <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
             </header>
             <section class="modal-card-body">
-                Are you sure you want to delete <strong>@pending.Title</strong>?
+                Are you sure you want to delete <strong>@pending.Title</strong> and all of its articles?
             </section>
             <footer class="modal-card-foot">
                 <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
@@ -100,22 +104,22 @@
 }
 
 @code {
-    private List<ContentBlockItemViewModel> _items = new();
-    private ContentBlockItemViewModel? _pendingDelete;
+    private List<ArticleListItemViewModel> _items = new();
+    private ArticleListItemViewModel? _pendingDelete;
 
     protected override async Task OnInitializedAsync()
     {
-        var index = await Model.GetContentBlockIndexAsync();
-        _items = index.ContentBlocks;
+        var index = await Model.GetArticleListIndexAsync();
+        _items = index.ArticleLists;
     }
 
-    private void RequestDelete(ContentBlockItemViewModel item) => _pendingDelete = item;
+    private void RequestDelete(ArticleListItemViewModel item) => _pendingDelete = item;
 
     private void CancelDelete() => _pendingDelete = null;
 
-    private async Task ConfirmDeleteAsync(ContentBlockItemViewModel item)
+    private async Task ConfirmDeleteAsync(ArticleListItemViewModel item)
     {
-        await Model.DeleteAsync(item.Id);
+        await Model.DeleteArticleListAsync(item.Id);
         _items.Remove(item);
         _pendingDelete = null;
     }

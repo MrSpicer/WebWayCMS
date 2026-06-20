@@ -1,0 +1,142 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Http
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Forms
+@using WebWayCMS.Presentation.Rendering
+@inject IAdminHandlerRegistry Handlers
+@inject IFormOptionsProvider OptionsProvider
+@inject NavigationManager Nav
+@*
+    Generic Interactive Server admin create/edit form. Resolves the IAdminCrudHandler by ContentType,
+    loads (edit) or creates (new) its upsert view model, renders the metadata-driven
+    InteractiveFormFields, validates with DataAnnotations, and saves in-circuit via the handler -
+    replacing the MVC AdminContent GET render + EditPost for migrated content types. Per-content-type
+    routable pages supply ContentType + Id (route) + ListUrl (where to return after save/cancel).
+*@
+@if (_handler is null)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-danger">No admin handler registered for content type '@ContentType'.</p>
+        </div>
+    </div>
+}
+else if (_notFound)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">The requested @_handler.DisplayName was not found.</p>
+        </div>
+    </div>
+}
+else if (_model is not null)
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="@ListUrl">@_handler.DisplayName</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">@Title</a></li>
+                </ul>
+            </nav>
+            <h1 class="title is-4 mt-2">@Title</h1>
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            @if (_error is not null)
+            {
+                <div class="notification is-danger save-error">@_error</div>
+            }
+            <div class="card">
+                <div class="card-content">
+                    <InteractiveFormFields Model="_model" Properties="_properties" Options="_options" />
+                </div>
+                <footer class="card-footer">
+                    <div class="card-footer-item is-justify-content-flex-start">
+                        <button class="button is-primary mr-3 save-content" @onclick="SaveAsync" disabled="@_saving">Save</button>
+                        <a href="@ListUrl" class="button cancel-content">Cancel</a>
+                    </div>
+                </footer>
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public string ContentType { get; set; } = default!;
+    [Parameter] public Guid? Id { get; set; }
+    [Parameter, EditorRequired] public string ListUrl { get; set; } = default!;
+
+    private IAdminCrudHandler? _handler;
+    private object? _model;
+    private IReadOnlyList<FormPropertyInfo> _properties = Array.Empty<FormPropertyInfo>();
+    private Dictionary<string, IReadOnlyList<FormOption>> _options = new();
+    private bool _notFound;
+    private bool _saving;
+    private string? _error;
+
+    // Edit when a row id is supplied by the route; the create route omits it. (The {Id:guid} route
+    // constraint precludes an empty Guid, so HasValue is the only distinction needed.)
+    private bool IsEdit => Id.HasValue;
+
+    // Only evaluated inside the rendered form, where _handler is guaranteed non-null.
+    private string Title => $"{(IsEdit ? "Edit" : "New")} {_handler!.DisplayName}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _handler = Handlers.GetHandler(ContentType);
+        _notFound = false;
+        _error = null;
+        if (_handler is null)
+            return;
+
+        _model = IsEdit
+            ? await _handler.GetUpsertViewModelAsync(Id, EmptyQuery)
+            : await _handler.GetUpsertViewModelAsync(null, EmptyQuery) ?? _handler.CreateEmptyUpsertViewModel();
+
+        if (_model is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _properties = FormPropertyBuilder.BuildPropertyInfos(_model.GetType());
+        _options = new();
+        foreach (var prop in _properties)
+        {
+            var options = await OptionsProvider.GetOptionsAsync(prop);
+            if (options.Count > 0)
+                _options[prop.Name] = options;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var model = _model!;
+        var handler = _handler!;
+        _error = null;
+
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true))
+        {
+            _error = string.Join(" ", results.Select(r => r.ErrorMessage));
+            return;
+        }
+
+        _saving = true;
+        var result = await handler.SaveUpsertAsync(model);
+        _saving = false;
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage ?? "An error occurred while saving.";
+            return;
+        }
+
+        Nav.NavigateTo(ListUrl);
+    }
+
+    private static readonly IQueryCollection EmptyQuery = new QueryCollection();
+}

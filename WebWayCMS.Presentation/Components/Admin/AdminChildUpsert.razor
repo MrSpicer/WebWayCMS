@@ -1,0 +1,137 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using System.ComponentModel.DataAnnotations
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Forms
+@using WebWayCMS.Presentation.Rendering
+@inject IAdminHandlerRegistry Handlers
+@inject IFormOptionsProvider OptionsProvider
+@inject NavigationManager Nav
+@*
+    Generic Interactive Server create/edit form for child entities (e.g. articles within an article
+    list). Resolves the parent IAdminCrudHandler by ContentType, then its ChildHandler, loads/creates
+    the parent-keyed child view model, renders InteractiveFormFields, validates with DataAnnotations,
+    and saves in-circuit via SaveChildUpsertAsync(parentKey, model). Routable per-child wrapper pages
+    supply ContentType + ParentKey + Id (route) + ListUrl (the child list to return to).
+*@
+@if (_child is null)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-danger">No child handler available for content type '@ContentType'.</p>
+        </div>
+    </div>
+}
+else if (_notFound)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">The requested @_child.ChildDisplayName was not found.</p>
+        </div>
+    </div>
+}
+else if (_model is not null)
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="@ListUrl">@(_child.ChildDisplayName)s</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">@Title</a></li>
+                </ul>
+            </nav>
+            <h1 class="title is-4 mt-2">@Title</h1>
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            @if (_error is not null)
+            {
+                <div class="notification is-danger save-error">@_error</div>
+            }
+            <div class="card">
+                <div class="card-content">
+                    <InteractiveFormFields Model="_model" Properties="_properties" Options="_options" />
+                </div>
+                <footer class="card-footer">
+                    <div class="card-footer-item is-justify-content-flex-start">
+                        <button class="button is-primary mr-3 save-content" @onclick="SaveAsync" disabled="@_saving">Save</button>
+                        <a href="@ListUrl" class="button cancel-content">Cancel</a>
+                    </div>
+                </footer>
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public string ContentType { get; set; } = default!;
+    [Parameter, EditorRequired] public string ParentKey { get; set; } = default!;
+    [Parameter] public Guid? Id { get; set; }
+    [Parameter, EditorRequired] public string ListUrl { get; set; } = default!;
+
+    private IAdminCrudChildHandler? _child;
+    private object? _model;
+    private IReadOnlyList<FormPropertyInfo> _properties = Array.Empty<FormPropertyInfo>();
+    private Dictionary<string, IReadOnlyList<FormOption>> _options = new();
+    private bool _notFound;
+    private bool _saving;
+    private string? _error;
+
+    private bool IsEdit => Id.HasValue;
+
+    // Only evaluated inside the rendered form, where _child is guaranteed non-null.
+    private string Title => $"{(IsEdit ? "Edit" : "New")} {_child!.ChildDisplayName}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _child = Handlers.GetHandler(ContentType)?.ChildHandler;
+        _notFound = false;
+        _error = null;
+        if (_child is null)
+            return;
+
+        // GetChildUpsertViewModelAsync returns a parent-keyed empty model for create (Id null) and the
+        // populated model for edit; null means the parent or child row was not found.
+        _model = await _child.GetChildUpsertViewModelAsync(ParentKey, Id);
+        if (_model is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _properties = FormPropertyBuilder.BuildPropertyInfos(_model.GetType());
+        _options = new();
+        foreach (var prop in _properties)
+        {
+            var options = await OptionsProvider.GetOptionsAsync(prop);
+            if (options.Count > 0)
+                _options[prop.Name] = options;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var model = _model!;
+        var child = _child!;
+        _error = null;
+
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true))
+        {
+            _error = string.Join(" ", results.Select(r => r.ErrorMessage));
+            return;
+        }
+
+        _saving = true;
+        var result = await child.SaveChildUpsertAsync(ParentKey, model);
+        _saving = false;
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage ?? "An error occurred while saving.";
+            return;
+        }
+
+        Nav.NavigateTo(ListUrl);
+    }
+}

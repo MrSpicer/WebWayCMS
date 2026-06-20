@@ -1,0 +1,147 @@
+@page "/admin/article-lists/{Slug}/articles"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Models.Article
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IArticleListModel ListModel
+@inject IArticleModel ArticleModel
+@*
+    Interactive Server admin list of articles within one article list (child entities), with an inline
+    delete-confirm. Create/Edit link to the Blazor AdminChildUpsert pages; Versions still links to the
+    existing MVC admin endpoint during the transition. Mirrors the existing published-only filtering of
+    GetArticlesForListBySlugAsync.
+*@
+<PageTitle>Articles</PageTitle>
+
+@if (_list is null)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">Article list not found.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="/admin/article-lists">Article Lists</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">@_list.ArticleListTitle</a></li>
+                </ul>
+            </nav>
+            <div class="admin-page-title-row">
+                <h1 class="title is-4">@_list.ArticleListTitle — Articles</h1>
+                <a href="/admin/article-lists/@Slug/articles/create" class="button is-primary">
+                    <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                    <span>New Article</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            @if (_list.Articles.Count == 0)
+            {
+                <div class="card admin-empty-state mt-4">
+                    <div class="card-content has-text-centered py-6">
+                        <p class="title is-5">No articles yet</p>
+                        <p class="subtitle is-6 has-text-grey">Create your first article in this list.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="table-container">
+                    <table class="table is-fullwidth is-striped">
+                        <caption class="is-sr-only">Articles in @_list.ArticleListTitle</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Title</th>
+                                <th scope="col">Slug</th>
+                                <th scope="col">Version</th>
+                                <th scope="col">Created</th>
+                                <th scope="col">Modified</th>
+                                <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var article in _list.Articles)
+                            {
+                                <tr>
+                                    <td>@article.Title</td>
+                                    <td>@article.Slug</td>
+                                    <td><span class="tag is-light">v@(article.Version)</span></td>
+                                    <td>@article.CreationDate?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@article.ModificationDate?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>
+                                        <div class="buttons are-small">
+                                            @if (article.MasterId.HasValue)
+                                            {
+                                                <a href="/admin/articles/@Slug/articles/versions/@article.MasterId" class="button is-small is-info is-light">Versions</a>
+                                            }
+                                            <a href="/admin/article-lists/@Slug/articles/edit/@article.Id" class="button is-small">Edit</a>
+                                            <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(article)">
+                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                <span>Delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete article</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>@pending.Title</strong>?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = default!;
+
+    private ArticleListViewModel? _list;
+    private ArticleViewModel? _pendingDelete;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _list = await ListModel.GetArticlesForListBySlugAsync(Slug);
+    }
+
+    private void RequestDelete(ArticleViewModel item) => _pendingDelete = item;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(ArticleViewModel item)
+    {
+        // Reached only from a rendered row, so _list is non-null and the article has an id.
+        await ArticleModel.DeleteAsync(item.Id.GetValueOrDefault());
+        _list!.Articles.Remove(item);
+        _pendingDelete = null;
+    }
+}

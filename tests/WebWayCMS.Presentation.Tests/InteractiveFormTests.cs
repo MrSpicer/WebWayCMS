@@ -201,4 +201,45 @@ public class InteractiveFormFieldsTests
 			Assert.That(model.Flag, Is.False);
 		}
 	}
+
+	[Test]
+	public void RendersInputTypes_RequiredMarkers_AndGroupHeaders()
+	{
+		var ctx = new BunitContext();
+		var props = new List<FormPropertyInfo>
+		{
+			new() { Name = "When", Label = "When", EditorType = EditorType.DateTime },
+			new() { Name = "Day", Label = "Day", EditorType = EditorType.Date },
+			new() { Name = "Count", Label = "Count", EditorType = EditorType.Number },
+			new() { Name = "Link", Label = "Link", EditorType = EditorType.Url },
+			new() { Name = "Mail", Label = "Mail", EditorType = EditorType.Email },
+			new() { Name = "Shade", Label = "Shade", EditorType = EditorType.Color },
+			new() { Name = "Title", Label = "Title", EditorType = EditorType.Text, IsRequired = true },
+			new() { Name = "Pub", Label = "Pub", EditorType = EditorType.Checkbox, IsRequired = true, Group = "Publishing" },
+			new() { Name = "Stat", Label = "Stat", EditorType = EditorType.Text, Group = "Publishing" }, // same group -> no second header
+			new() { Name = "Arch", Label = "Arch", EditorType = EditorType.Text, Group = "Status" },
+		};
+
+		// Display tolerates properties absent from the model, so a bare object suffices here.
+		var cut = ctx.Render<InteractiveFormFields>(p => p
+			.Add(c => c.Model, new object())
+			.Add(c => c.Properties, props));
+
+		using (ctx)
+		{
+			Assert.Multiple(() =>
+			{
+				Assert.That(cut.Markup, Does.Contain("type=\"datetime-local\""));
+				Assert.That(cut.Markup, Does.Contain("type=\"date\""));
+				Assert.That(cut.Markup, Does.Contain("type=\"number\""));
+				Assert.That(cut.Markup, Does.Contain("type=\"url\""));
+				Assert.That(cut.Markup, Does.Contain("type=\"email\""));
+				Assert.That(cut.Markup, Does.Contain("type=\"color\""));
+				Assert.That(cut.Markup, Does.Contain("<span class=\"has-text-danger\">*</span>"));
+				Assert.That(cut.Markup, Does.Contain(">Publishing</h3>"));
+				Assert.That(cut.Markup, Does.Contain(">Status</h3>"));
+				Assert.That(System.Text.RegularExpressions.Regex.Matches(cut.Markup, ">Publishing</h3>"), Has.Count.EqualTo(1));
+			});
+		}
+	}
 }
