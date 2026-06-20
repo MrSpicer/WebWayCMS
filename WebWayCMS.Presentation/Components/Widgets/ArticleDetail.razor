@@ -1,0 +1,39 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.Article
+@*
+    Renders a single article card - the Blazor port of Article/Article.cshtml. The detail link is
+    built from the current page route (from the cascaded render context) plus the article slug.
+*@
+@if (Article is null)
+{
+    <div class="notification is-warning">Article not found.</div>
+}
+else
+{
+    <div class="column is-full">
+        <div class="card">
+            <div class="card-content">
+                <p class="title">
+                    <a href="@_detailLink">@Article.Title</a>
+                </p>
+                <p class="subtitle">@Article.PublicationDate?.ToString("MMMM dd, yyyy")</p>
+                <hr />
+                @((MarkupString)Article.Body)
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ArticleViewModel? Article { get; set; }
+
+    [CascadingParameter] public CmsRenderContext? Context { get; set; }
+
+    private string _detailLink = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (Article is not null)
+            _detailLink = ArticleDetailLink.Build(Context?.Page, Article);
+    }
+}

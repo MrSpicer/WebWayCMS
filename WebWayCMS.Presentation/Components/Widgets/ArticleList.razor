@@ -1,0 +1,23 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.Article
+@*
+    Renders a grid of article cards - the Blazor port of Article/List.cshtml. Each article is
+    rendered by ArticleDetail.
+*@
+<section class="section">
+    <div class="container">
+        <div class="columns is-multiline">
+            @if (List is not null)
+            {
+                @foreach (var article in List.Articles)
+                {
+                    <ArticleDetail Article="article" />
+                }
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter] public ArticleListViewModel? List { get; set; }
+}

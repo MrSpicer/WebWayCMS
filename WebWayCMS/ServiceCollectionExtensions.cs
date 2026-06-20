@@ -235,11 +235,15 @@ public static class ServiceCollectionExtensions
 		// DynamicComponent dispatch (populated as ViewComponents are migrated).
 		services.AddScoped<WebWayCMS.Rendering.ICmsPageRenderer, WebWayCMS.Presentation.Rendering.CmsPageRenderer>();
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IContentZoneResolver, WebWayCMS.Presentation.Rendering.ContentZoneResolver>();
+		services.AddScoped<WebWayCMS.Presentation.Rendering.IArticleWidgetResolver, WebWayCMS.Presentation.Rendering.ArticleWidgetResolver>();
 		services.AddSingleton<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(_ =>
 			new WebWayCMS.Presentation.Rendering.ContentZoneWidgetRegistry(
 				new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 				{
 					["ContentBlock"] = typeof(WebWayCMS.Presentation.Components.Widgets.ContentBlockWidget),
+					["Layout"] = typeof(WebWayCMS.Presentation.Components.Widgets.LayoutWidget),
+					["Page"] = typeof(WebWayCMS.Presentation.Components.Widgets.PageNavigationWidget),
+					["Article"] = typeof(WebWayCMS.Presentation.Components.Widgets.ArticleWidget),
 				}));
 	}
 

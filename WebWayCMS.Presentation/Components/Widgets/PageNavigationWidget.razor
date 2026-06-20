@@ -1,0 +1,38 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.Page
+@inject IPageModel Model
+@*
+    Renders navigation links for published CMS pages - the Blazor port of PageViewComponent and its
+    Default.cshtml (two levels: each top-level item followed by a list of its direct children).
+*@
+@if (_items.Count > 0)
+{
+    @foreach (var item in _items)
+    {
+        <a class="navbar-item" href="@item.Route">@item.Title</a>
+        @if (item.Children.Count > 0)
+        {
+            <ul>
+                @foreach (var child in item.Children)
+                {
+                    <li>
+                        <a class="navbar-item" href="@child.Route">@child.Title</a>
+                    </li>
+                }
+            </ul>
+        }
+    }
+}
+
+@code {
+    [Parameter] public PageContentZoneConfiguration? Config { get; set; }
+
+    private List<PageNavigationItem> _items = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var config = Config ?? new PageContentZoneConfiguration();
+        var index = await Model.GetPageIndexAsync();
+        _items = PageNavigationBuilder.Build(index.Pages, config);
+    }
+}

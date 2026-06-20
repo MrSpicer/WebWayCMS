@@ -1,0 +1,34 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.Layout
+@*
+    Renders one of the built-in layout templates selected by configuration - the Blazor port of
+    LayoutViewComponent. Unknown or empty names fall back to the default single-column layout.
+*@
+<DynamicComponent Type="_layoutType" />
+
+@code {
+    [Parameter] public LayoutContentZoneConfiguration? Config { get; set; }
+
+    private static readonly IReadOnlyDictionary<string, Type> Layouts = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Default"] = typeof(DefaultLayout),
+        ["SingleColumn"] = typeof(SingleColumnLayout),
+        ["CenteredNarrow"] = typeof(CenteredNarrowLayout),
+        ["TwoColumnEqual"] = typeof(TwoColumnEqualLayout),
+        ["TwoColumnSidebar"] = typeof(TwoColumnSidebarLayout),
+        ["OneThirdTwoThird"] = typeof(OneThirdTwoThirdLayout),
+        ["ThreeColumn"] = typeof(ThreeColumnLayout),
+        ["FourColumn"] = typeof(FourColumnLayout),
+        ["HeaderContentFooter"] = typeof(HeaderContentFooterLayout),
+        ["HeroWithColumns"] = typeof(HeroWithColumnsLayout),
+        ["AsymmetricRightHeavy"] = typeof(AsymmetricRightHeavyLayout),
+    };
+
+    private Type _layoutType = typeof(DefaultLayout);
+
+    protected override void OnParametersSet()
+    {
+        var name = Config?.ViewName;
+        _layoutType = name is not null && Layouts.TryGetValue(name, out var type) ? type : typeof(DefaultLayout);
+    }
+}

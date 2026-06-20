@@ -1,0 +1,28 @@
+@namespace WebWayCMS.Presentation.Components.Widgets
+@using WebWayCMS.Models.Article
+@inject IArticleWidgetResolver Resolver
+@*
+    Dispatches article rendering - the Blazor port of ArticleViewComponent's display modes
+    (single article, list, sub-route detail). Admin upsert mode stays on the MVC ViewComponent.
+*@
+@if (_model.Kind == ArticleRenderKind.Single)
+{
+    <ArticleDetail Article="_model.Article" />
+}
+else if (_model.Kind == ArticleRenderKind.List)
+{
+    <ArticleList List="_model.List" />
+}
+
+@code {
+    [Parameter] public ArticleContentZoneConfiguration? Config { get; set; }
+
+    [CascadingParameter] public CmsRenderContext? Context { get; set; }
+
+    private ArticleRenderModel _model = ArticleRenderModel.None;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _model = await Resolver.ResolveAsync(Config, Context?.SubRoute);
+    }
+}

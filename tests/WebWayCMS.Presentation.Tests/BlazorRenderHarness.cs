@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
+using WebWayCMS.Presentation.Rendering;
+
 namespace WebWayCMS.Presentation.Tests;
 
 /// <summary>
@@ -35,6 +37,38 @@ internal static class BlazorRenderHarness
 			var output = await renderer.RenderComponentAsync<TComponent>(view);
 			return output.ToHtmlString();
 		});
+	}
+
+	/// <summary>
+	/// Renders <typeparamref name="TComponent"/> wrapped in a <see cref="CmsRenderContext"/> cascade so
+	/// components that read the cascaded context (page, sub-route) can be exercised with it present.
+	/// </summary>
+	public static Task<string> RenderInContextAsync<TComponent>(
+		CmsRenderContext context,
+		IDictionary<string, object?>? parameters = null,
+		Action<IServiceCollection>? configureServices = null)
+		where TComponent : IComponent
+	{
+		RenderFragment child = builder =>
+		{
+			builder.OpenComponent<TComponent>(0);
+			if (parameters is not null)
+			{
+				var seq = 1;
+				foreach (var kvp in parameters)
+					builder.AddComponentParameter(seq++, kvp.Key, kvp.Value);
+			}
+			builder.CloseComponent();
+		};
+
+		var rootParameters = new Dictionary<string, object?>
+		{
+			["Value"] = context,
+			["IsFixed"] = true,
+			["ChildContent"] = child,
+		};
+
+		return RenderAsync<CascadingValue<CmsRenderContext>>(rootParameters, configureServices);
 	}
 
 	private sealed class NoOpJSRuntime : IJSRuntime
