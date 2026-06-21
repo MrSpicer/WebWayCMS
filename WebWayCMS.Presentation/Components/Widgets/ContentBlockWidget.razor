@@ -1,5 +1,7 @@
 @namespace WebWayCMS.Presentation.Components.Widgets
 @using WebWayCMS.Models.ContentBlock
+@using WebWayCMS.Attributes
+@attribute [ContentZoneComponent(DisplayName = "Content Block", Description = "Renders a reusable HTML content block from the CMS.", Category = "Content", ConfigurationType = typeof(ContentBlockContentZoneConfiguration), IconClass = "fa-file-alt", Order = 1)]
 @inject IContentBlockModel Model
 @*
     Renders a reusable HTML content block by id - the Blazor port of ContentBlockViewComponent

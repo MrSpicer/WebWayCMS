@@ -31,14 +31,17 @@ public class ContentZoneComponentRegistryTests
 	}
 
 	[Test]
-	public void Scan_GetComponentName_StripsViewComponentSuffixOnly()
+	public void Scan_GetComponentName_UsesExplicitNameOrStripsKnownSuffix()
 	{
 		var registry = CreateRegistry();
 
 		Assert.Multiple(() =>
 		{
-			Assert.That(registry.GetByName("Configured"), Is.Not.Null);
-			Assert.That(registry.GetByName("Banner"), Is.Not.Null, "name without suffix is kept as-is");
+			Assert.That(registry.GetByName("Configured"), Is.Not.Null, "ViewComponent suffix stripped");
+			Assert.That(registry.GetByName("Gadget"), Is.Not.Null, "Widget suffix stripped");
+			Assert.That(registry.GetByName("Explicit"), Is.Not.Null, "explicit Name wins over class name");
+			Assert.That(registry.GetByName("ExplicitNameWidget"), Is.Null, "class name not used when Name is set");
+			Assert.That(registry.GetByName("Banner"), Is.Not.Null, "name without a known suffix is kept as-is");
 		});
 	}
 

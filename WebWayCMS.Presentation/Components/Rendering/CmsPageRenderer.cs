@@ -32,4 +32,19 @@ public sealed class CmsPageRenderer : ICmsPageRenderer
 
         return new ResultActionResult(new RazorComponentResult<CmsPageHost>(parameters));
     }
+
+    public IActionResult RenderAdminPage(PageDTO? page, object config, string? viewName)
+    {
+        var subRoute = _httpContextAccessor.HttpContext?.Items["CMS:SubRoute"] as string;
+
+        var parameters = new Dictionary<string, object?>
+        {
+            [nameof(AdminPageHost.Page)] = page,
+            [nameof(AdminPageHost.Config)] = config,
+            [nameof(AdminPageHost.SubRoute)] = subRoute,
+            [nameof(AdminPageHost.ViewName)] = viewName,
+        };
+
+        return new ResultActionResult(new RazorComponentResult<AdminPageHost>(parameters));
+    }
 }

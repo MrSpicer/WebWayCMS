@@ -19,9 +19,6 @@
          debugs against them (step-into). The umbrella project transitively references
          every WebWayCMS.* library. -->
     <ProjectReference Include="../WebWayCMS/WebWayCMS.csproj" />
-    <!-- Version comes from the repo-root Directory.Packages.props (Central Package Management).
-         Optional: pick up .cshtml branding edits without a rebuild in Development. -->
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" />
   </ItemGroup>
 
 </Project>

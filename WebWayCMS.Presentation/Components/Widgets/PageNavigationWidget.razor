@@ -1,5 +1,7 @@
 @namespace WebWayCMS.Presentation.Components.Widgets
 @using WebWayCMS.Models.Page
+@using WebWayCMS.Attributes
+@attribute [ContentZoneComponent(Name = "Page", DisplayName = "Page Navigation", Description = "Renders navigation links for published CMS pages.", Category = "Navigation", ConfigurationType = typeof(PageContentZoneConfiguration), IconClass = "fa-sitemap", Order = 10)]
 @inject IPageModel Model
 @*
     Renders navigation links for published CMS pages - the Blazor port of PageViewComponent and its

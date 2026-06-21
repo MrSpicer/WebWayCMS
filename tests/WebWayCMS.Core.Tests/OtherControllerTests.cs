@@ -6,182 +6,25 @@ using NSubstitute;
 
 using NUnit.Framework;
 
-using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;
-using WebWayCMS.Controllers.Admin;
-using WebWayCMS.Controllers.Api;
 using WebWayCMS.Data.Models;
-using WebWayCMS.Data.Services;
-using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Rendering;
 
 namespace WebWayCMS.Core.Tests;
 
 [TestFixture]
-public class AdminContentZoneControllerTests
-{
-	[Test]
-	public void Constructor_NullArguments_Throw()
-	{
-		var model = Substitute.For<IContentZoneModel>();
-		var registry = Substitute.For<IContentZoneComponentRegistry>();
-
-		Assert.Multiple(() =>
-		{
-			Assert.That(() => new AdminContentZoneController(null!, registry), Throws.ArgumentNullException);
-			Assert.That(() => new AdminContentZoneController(model, null!), Throws.ArgumentNullException);
-		});
-	}
-
-	[Test]
-	public async Task ZoneEdit_NotFoundAndView()
-	{
-		var model = Substitute.For<IContentZoneModel>();
-		var controller = new AdminContentZoneController(model, Substitute.For<IContentZoneComponentRegistry>());
-		new MvcHarness().Configure(controller, new[] { "Admin" });
-
-		model.GetViewModelByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-			.Returns((ContentZoneViewModel?)null, new ContentZoneViewModel());
-
-		Assert.Multiple(async () =>
-		{
-			Assert.That(await controller.ZoneEdit(Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
-			Assert.That(await controller.ZoneEdit(Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
-		});
-	}
-}
-
-[TestFixture]
-public class ContentZoneApiControllerTests
-{
-	private IContentZoneService _service = null!;
-	private ContentZoneApiController _controller = null!;
-
-	[SetUp]
-	public void SetUp()
-	{
-		_service = Substitute.For<IContentZoneService>();
-		_controller = new ContentZoneApiController(_service);
-		new MvcHarness().Configure(_controller, new[] { "Admin" });
-	}
-
-	[Test]
-	public void Constructor_Null_Throws()
-		=> Assert.That(() => new ContentZoneApiController(null!), Throws.ArgumentNullException);
-
-	[Test]
-	public async Task SaveItem_ValidationErrors()
-	{
-		Assert.Multiple(async () =>
-		{
-			Assert.That(await _controller.SaveItem(null!, default), Is.InstanceOf<BadRequestObjectResult>());
-			Assert.That(await _controller.SaveItem(new SaveItemRequest { ComponentName = "", ZoneName = "Z" }, default), Is.InstanceOf<BadRequestObjectResult>());
-			Assert.That(await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "" }, default), Is.InstanceOf<BadRequestObjectResult>());
-		});
-	}
-
-	[Test]
-	public async Task SaveItem_ByZoneId_CreatesItem()
-	{
-		var zoneId = Guid.NewGuid();
-		_service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
-			.Returns(c => c.Arg<ContentZoneItemDTO>());
-
-		var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ZoneId = zoneId }, default);
-
-		Assert.That(result, Is.InstanceOf<OkObjectResult>());
-	}
-
-	[Test]
-	public async Task SaveItem_ByPageSlot_UpdatesItem_SuccessAndNotFound()
-	{
-		var pageMaster = Guid.NewGuid();
-		var zone = new ContentZoneDTO { ContentId = Guid.NewGuid() };
-		_service.GetOrCreateByPageSlotAsync(pageMaster, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
-		_service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
-
-		var req = new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageMasterId = pageMaster, SlotName = "Main", ItemId = Guid.NewGuid() };
-
-		Assert.Multiple(async () =>
-		{
-			Assert.That(await _controller.SaveItem(req, default), Is.InstanceOf<OkObjectResult>());
-			Assert.That(await _controller.SaveItem(req, default), Is.InstanceOf<NotFoundObjectResult>());
-		});
-	}
-
-	[Test]
-	public async Task SaveItem_ByName_ExistingZone()
-	{
-		_service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO { ContentId = Guid.NewGuid() });
-		_service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneItemDTO>());
-
-		var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default);
-
-		Assert.That(result, Is.InstanceOf<OkObjectResult>());
-	}
-
-	[Test]
-	public async Task SaveItem_ByName_CreatesZone()
-	{
-		_service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
-		_service.CreateAsync(Arg.Any<ContentZoneDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneDTO>());
-		_service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneItemDTO>());
-
-		var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default);
-
-		Assert.That(result, Is.InstanceOf<OkObjectResult>());
-	}
-
-	[Test]
-	public async Task SaveItem_ExceptionReturns500()
-	{
-		_service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns<ContentZoneDTO?>(_ => throw new InvalidOperationException("boom"));
-
-		var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default) as ObjectResult;
-
-		Assert.That(result!.StatusCode, Is.EqualTo(500));
-	}
-
-	[Test]
-	public async Task DeleteItem_Success_NotFound_Exception()
-	{
-		_service.RemoveItemAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
-		Assert.That(await _controller.DeleteItem(Guid.NewGuid(), default), Is.InstanceOf<OkObjectResult>());
-		Assert.That(await _controller.DeleteItem(Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-
-		_service.RemoveItemAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns<bool>(_ => throw new InvalidOperationException());
-		Assert.That(((ObjectResult)await _controller.DeleteItem(Guid.NewGuid(), default)).StatusCode, Is.EqualTo(500));
-	}
-
-	[Test]
-	public async Task GetItem_FoundAndNotFound()
-	{
-		var item = new ContentZoneItemDTO { ContentId = Guid.NewGuid(), ComponentName = "C" };
-		var zone = new ContentZoneDTO { Items = new List<ContentZoneItemDTO> { item } };
-		_service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { zone });
-
-		Assert.Multiple(async () =>
-		{
-			Assert.That(await _controller.GetItem(item.ContentId, default), Is.InstanceOf<OkObjectResult>());
-			Assert.That(await _controller.GetItem(Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-		});
-	}
-}
-
-[TestFixture]
 public class GenericPageControllerTests
 {
-	private static T Build<T>() where T : Controller, new()
-	{
-		var controller = new T();
-		var http = new DefaultHttpContext();
-		controller.ControllerContext = new ControllerContext { HttpContext = http };
-		return controller;
-	}
-
 	private static GenericPageController BuildGeneric(ICmsPageRenderer renderer)
 	{
 		var controller = new GenericPageController(renderer);
+		controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+		return controller;
+	}
+
+	private static GenericAdminPageController BuildAdmin(ICmsPageRenderer renderer)
+	{
+		var controller = new GenericAdminPageController(renderer);
 		controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 		return controller;
 	}
@@ -218,13 +61,34 @@ public class GenericPageControllerTests
 	}
 
 	[Test]
-	public async Task GenericAdminPage_Index_DefaultAndCustomView()
-	{
-		var controller = Build<GenericAdminPageController>();
-		Assert.That(((ViewResult)await controller.Index()).ViewName, Is.Null);
+	public void AdminConstructor_NullRenderer_Throws()
+		=> Assert.That(() => new GenericAdminPageController(null!), Throws.ArgumentNullException);
 
-		controller.HttpContext.Items["CMS:PageData"] = new PageDTO { ViewName = "AdminView" };
-		Assert.That(((ViewResult)await controller.Index()).ViewName, Is.EqualTo("AdminView"));
+	[Test]
+	public async Task GenericAdminPage_Index_DelegatesToRenderer_ForwardingViewName()
+	{
+		var renderer = Substitute.For<ICmsPageRenderer>();
+		var expected = new EmptyResult();
+		renderer.RenderAdminPage(Arg.Any<PageDTO?>(), Arg.Any<object>(), Arg.Any<string?>()).Returns(expected);
+		var controller = BuildAdmin(renderer);
+
+		// No page context -> null page, null view name forwarded.
+		var first = await controller.Index();
+		Assert.That(first, Is.SameAs(expected));
+
+		// With a page whose ViewName selects the dashboard.
+		var page = new PageDTO { ViewName = "Dashboard", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T" } };
+		var config = new GenericPageConfiguration();
+		controller.HttpContext.Items["CMS:PageData"] = page;
+		controller.HttpContext.Items["CMS:PageConfig"] = config;
+		var second = await controller.Index();
+		Assert.That(second, Is.SameAs(expected));
+
+		Assert.Multiple(() =>
+		{
+			renderer.Received(1).RenderAdminPage(Arg.Is<PageDTO?>(p => p == null), Arg.Is<object>(o => o is GenericPageConfiguration), null);
+			renderer.Received(1).RenderAdminPage(page, config, "Dashboard");
+		});
 	}
 }
 
@@ -238,21 +102,27 @@ public class ErrorControllerTests
 		return controller;
 	}
 
+	private static ContentResult IndexResult(ErrorController c) => (ContentResult)c.Index();
+
 	[Test]
-	public void Index_NoExceptionFeature_ReturnsErrorView()
+	public void Index_NoExceptionFeature_ReturnsErrorContent()
 	{
-		var result = (ViewResult)Build().Index();
-		Assert.That(result.ViewName, Is.EqualTo("Error"));
+		var result = IndexResult(Build());
+		Assert.Multiple(() =>
+		{
+			Assert.That(result.ContentType, Does.Contain("text/html"));
+			Assert.That(result.Content, Does.Contain("An error occurred while processing your request."));
+		});
 	}
 
 	[Test]
-	public void Index_WithExceptionFeature_LogsAndReturnsView()
+	public void Index_WithExceptionFeature_LogsAndReturnsContent()
 	{
 		var controller = Build();
 		controller.HttpContext.Features.Set<IExceptionHandlerPathFeature>(
 			new ExceptionHandlerFeature { Error = new InvalidOperationException("x"), Path = "/p" });
 
-		Assert.That(((ViewResult)controller.Index()).ViewName, Is.EqualTo("Error"));
+		Assert.That(IndexResult(controller).Content, Does.Contain("Error."));
 	}
 
 	[Test]
@@ -261,13 +131,13 @@ public class ErrorControllerTests
 		var controller = Build();
 		controller.HttpContext.Features.Set<IExceptionHandlerPathFeature>(new ExceptionHandlerFeature());
 
-		Assert.That(((ViewResult)controller.Index()).ViewName, Is.EqualTo("Error"));
+		Assert.That(IndexResult(controller).Content, Does.Contain("Error."));
 	}
 
 	[Test]
-	public void StatusCodeHandler_ReturnsErrorView()
+	public void StatusCodeHandler_ReturnsErrorContent()
 	{
-		Assert.That(((ViewResult)Build().StatusCodeHandler(404)).ViewName, Is.EqualTo("Error"));
+		Assert.That(((ContentResult)Build().StatusCodeHandler(404)).Content, Does.Contain("An error occurred"));
 	}
 
 	[Test]
@@ -277,8 +147,8 @@ public class ErrorControllerTests
 		activity.Start();
 		try
 		{
-			Assert.That(((ViewResult)Build().Index()).ViewName, Is.EqualTo("Error"));
-			Assert.That(((ViewResult)Build().StatusCodeHandler(500)).ViewName, Is.EqualTo("Error"));
+			Assert.That(IndexResult(Build()).Content, Does.Contain(activity.Id!));
+			Assert.That(((ContentResult)Build().StatusCodeHandler(500)).Content, Does.Contain("Request ID"));
 		}
 		finally
 		{

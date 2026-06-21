@@ -1,5 +1,7 @@
 @namespace WebWayCMS.Presentation.Components.Widgets
 @using WebWayCMS.Models.Article
+@using WebWayCMS.Attributes
+@attribute [ContentZoneComponent(DisplayName = "Article", Description = "Displays blog articles - either a list or a single post.", Category = "Content", ConfigurationType = typeof(ArticleContentZoneConfiguration), IconClass = "fa-newspaper", Order = 2)]
 @inject IArticleWidgetResolver Resolver
 @*
     Dispatches article rendering - the Blazor port of ArticleViewComponent's display modes

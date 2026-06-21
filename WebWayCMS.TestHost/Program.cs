@@ -6,11 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWebWayCms(builder.Configuration);
 builder.Host.UseCmsSerilog(builder.Configuration);
 
-var mvc = builder.Services.AddControllersWithViews();
-if (builder.Environment.IsDevelopment())
-{
-    mvc.AddRazorRuntimeCompilation();
-}
+builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 

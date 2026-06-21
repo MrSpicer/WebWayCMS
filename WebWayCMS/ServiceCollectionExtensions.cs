@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;        // GenericPageController
-using WebWayCMS.Controllers.Admin;  // AdminContentController
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data;
 using WebWayCMS.Data.Models;
@@ -13,7 +12,6 @@ using WebWayCMS.Mapping;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.TagHelpers;         // FormFieldsTagHelper
-using WebWayCMS.ViewComponents;     // ContentZoneViewComponent
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Mvc;
@@ -123,7 +121,7 @@ public static class ServiceCollectionExtensions
 		{
 			var assemblies = new[]
 			{
-				typeof(ContentZoneViewComponent).Assembly,  // CMS.Presentation: [ContentZoneComponent] ViewComponents
+				typeof(WebWayCMS.Presentation.Components.Widgets.ContentBlockWidget).Assembly,  // CMS.Presentation: [ContentZoneComponent] Blazor widgets
 				Assembly.GetEntryAssembly()
 			}.Where(a => a != null).Distinct().Cast<Assembly>();
 			return new ContentZoneComponentRegistry(assemblies);
@@ -210,20 +208,13 @@ public static class ServiceCollectionExtensions
 		services.Configure<MvcOptions>(_ => { }); // no-op to ensure MVC services available if host only calls minimal AddControllersWithViews later
 		services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>
 		{
-			var coreAsm = typeof(AdminContentController).Assembly; // CMS.Core
+			var coreAsm = typeof(GenericPageController).Assembly; // CMS.Core (page controllers)
 			if (!apm.ApplicationParts.Any(p => p.Name == coreAsm.GetName().Name))
 				apm.ApplicationParts.Add(new AssemblyPart(coreAsm));
 
-			var formsAsm = typeof(FormFieldsTagHelper).Assembly; // CMS.Forms
+			var formsAsm = typeof(FormFieldsTagHelper).Assembly; // CMS.Forms (tag helper)
 			if (!apm.ApplicationParts.Any(p => p.Name == formsAsm.GetName().Name))
 				apm.ApplicationParts.Add(new AssemblyPart(formsAsm));
-
-			var presentationAsm = typeof(ContentZoneViewComponent).Assembly; // CMS.Presentation
-			if (!apm.ApplicationParts.Any(p => p.Name == presentationAsm.GetName().Name))
-			{
-				apm.ApplicationParts.Add(new AssemblyPart(presentationAsm));
-				apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(presentationAsm));
-			}
 		});
 		// Blazor SSR: register the Razor Components host alongside MVC so the CMS view layer
 		// can render Razor components, with Interactive Server available for admin editing UI.

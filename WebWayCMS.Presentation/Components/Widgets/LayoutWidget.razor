@@ -1,5 +1,7 @@
 @namespace WebWayCMS.Presentation.Components.Widgets
 @using WebWayCMS.Models.Layout
+@using WebWayCMS.Attributes
+@attribute [ContentZoneComponent(DisplayName = "Layout", Description = "Renders a selected view template.", Category = "General", ConfigurationType = typeof(LayoutContentZoneConfiguration), IconClass = "fa-columns", Order = 10)]
 @*
     Renders one of the built-in layout templates selected by configuration - the Blazor port of
     LayoutViewComponent. Unknown or empty names fall back to the default single-column layout.

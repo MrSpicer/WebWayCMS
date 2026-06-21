@@ -82,3 +82,12 @@ public class IgnoredViewComponent : ViewComponent
 {
 	public IViewComponentResult Invoke() => View();
 }
+
+// A plain (non-ViewComponent) class with a "Widget" suffix — exercises the Blazor-widget scan path
+// and the "Widget" suffix removal in GetComponentName -> "Gadget".
+[ContentZoneComponent(Category = "Content", Order = 5)]
+public class GadgetWidget { }
+
+// An explicit Name on the attribute wins over the class-name suffix derivation -> "Explicit".
+[ContentZoneComponent(Name = "Explicit", Category = "Content", Order = 6)]
+public class ExplicitNameWidget { }

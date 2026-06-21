@@ -1,5 +1,6 @@
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers;
+using WebWayCMS.Rendering;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,10 +18,10 @@ namespace WebWayCMS.Controllers;
 public class GenericAdminPageController : PageControllerBase<GenericPageConfiguration>
 {
     private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<GenericAdminPageController>();
+    private readonly ICmsPageRenderer _renderer;
 
-    public GenericAdminPageController()
-    {
-    }
+    public GenericAdminPageController(ICmsPageRenderer renderer)
+        => _renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
 
     public override Task<IActionResult> Index()
     {
@@ -28,10 +29,7 @@ public class GenericAdminPageController : PageControllerBase<GenericPageConfigur
             CurrentPage?.ContentMeta.Id,
             CurrentPage?.ContentMeta.Title);
 
-        var viewName = CurrentPage?.ViewName;
-        if (!string.IsNullOrWhiteSpace(viewName))
-            return Task.FromResult<IActionResult>(View(viewName, PageConfig));
-
-        return Task.FromResult<IActionResult>(View(PageConfig));
+        // The admin page (and its content zones) renders as Blazor SSR via the Presentation layer.
+        return Task.FromResult(_renderer.RenderAdminPage(CurrentPage, PageConfig, CurrentPage?.ViewName));
     }
 }

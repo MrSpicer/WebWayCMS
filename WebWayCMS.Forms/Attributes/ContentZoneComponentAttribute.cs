@@ -1,15 +1,22 @@
 namespace WebWayCMS.Attributes;
 
 /// <summary>
-/// Marks a ViewComponent as available for use within content zones.
-/// The component will appear in the admin UI dropdown when adding items to a content zone.
+/// Marks a content-zone widget (a Blazor component) as available for use within content zones.
+/// The component appears in the admin UI dropdown when adding items to a content zone.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class ContentZoneComponentAttribute : Attribute
 {
     /// <summary>
+    /// Gets or sets the stored component name (persisted in zone items, used by the widget registry).
+    /// If not specified, the component's class name with a "Widget" or "ViewComponent" suffix removed
+    /// is used.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the display name shown in the component selection dropdown.
-    /// If not specified, the ViewComponent name (without "ViewComponent" suffix) is used.
+    /// If not specified, the component name is used.
     /// </summary>
     public string DisplayName { get; set; } = string.Empty;
 

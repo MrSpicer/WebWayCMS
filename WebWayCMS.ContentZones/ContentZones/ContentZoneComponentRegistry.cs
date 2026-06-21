@@ -3,12 +3,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using WebWayCMS.Attributes;
 using WebWayCMS.Forms;
-using Microsoft.AspNetCore.Mvc;
 
 namespace WebWayCMS.ContentZones;
 
 /// <summary>
-/// Scans assemblies for ViewComponents decorated with <see cref="ContentZoneComponentAttribute"/>
+/// Scans assemblies for content-zone widgets decorated with <see cref="ContentZoneComponentAttribute"/>
 /// and provides metadata for the admin UI.
 /// </summary>
 public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
@@ -77,16 +76,16 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
 
     private void ScanAssembly(Assembly assembly)
     {
-        var viewComponentTypes = assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract && typeof(ViewComponent).IsAssignableFrom(t));
+        var candidateTypes = assembly.GetTypes()
+            .Where(t => t.IsClass && !t.IsAbstract);
 
-        foreach (var type in viewComponentTypes)
+        foreach (var type in candidateTypes)
         {
             var attribute = type.GetCustomAttribute<ContentZoneComponentAttribute>();
             if (attribute == null)
                 continue;
 
-            var componentName = GetComponentName(type);
+            var componentName = GetComponentName(type, attribute);
             var info = BuildComponentInfo(type, attribute, componentName);
 
             _components.Add(info);
@@ -101,14 +100,20 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
         }
     }
 
-    private static string GetComponentName(Type type)
+    private static string GetComponentName(Type type, ContentZoneComponentAttribute attribute)
     {
-        // ViewComponent convention: remove "ViewComponent" suffix
-        const string suffix = "ViewComponent";
+        // An explicit Name on the attribute wins (e.g. PageNavigationWidget -> "Page").
+        if (!string.IsNullOrEmpty(attribute.Name))
+            return attribute.Name;
+
+        // Otherwise fall back to the class name with a known widget/component suffix removed.
         var name = type.Name;
-        return name.EndsWith(suffix, StringComparison.Ordinal)
-            ? name[..^suffix.Length]
-            : name;
+        foreach (var suffix in new[] { "Widget", "ViewComponent" })
+        {
+            if (name.EndsWith(suffix, StringComparison.Ordinal))
+                return name[..^suffix.Length];
+        }
+        return name;
     }
 
     private static ContentZoneComponentInfo BuildComponentInfo(Type type, ContentZoneComponentAttribute attribute, string componentName)

@@ -122,6 +122,42 @@ public class CmsPageRendererTests
 
 		Assert.That(component.Parameters!["SubRoute"], Is.EqualTo("my-slug"));
 	}
+
+	[Test]
+	public void RenderAdminPage_ForwardsPageConfigViewNameAndSubRoute()
+	{
+		var http = new DefaultHttpContext();
+		http.Items["CMS:SubRoute"] = "sub";
+		var accessor = Substitute.For<IHttpContextAccessor>();
+		accessor.HttpContext.Returns(http);
+		var renderer = new CmsPageRenderer(accessor);
+		var page = new PageDTO { ContentMeta = new ContentDTO { Title = "Admin" } };
+		var config = new WebWayCMS.Controllers.GenericPageConfiguration();
+
+		var result = (ResultActionResult)renderer.RenderAdminPage(page, config, "Dashboard");
+		var component = (RazorComponentResult<AdminPageHost>)result.Result;
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(component.Parameters!["Page"], Is.SameAs(page));
+			Assert.That(component.Parameters!["Config"], Is.SameAs(config));
+			Assert.That(component.Parameters!["ViewName"], Is.EqualTo("Dashboard"));
+			Assert.That(component.Parameters!["SubRoute"], Is.EqualTo("sub"));
+		});
+	}
+
+	[Test]
+	public void RenderAdminPage_NoHttpContext_PassesNullSubRoute()
+	{
+		var accessor = Substitute.For<IHttpContextAccessor>();
+		accessor.HttpContext.Returns((HttpContext?)null);
+		var renderer = new CmsPageRenderer(accessor);
+
+		var result = (ResultActionResult)renderer.RenderAdminPage(null, new WebWayCMS.Controllers.GenericPageConfiguration(), null);
+		var component = (RazorComponentResult<AdminPageHost>)result.Result;
+
+		Assert.That(component.Parameters!["SubRoute"], Is.Null);
+	}
 }
 
 [TestFixture]

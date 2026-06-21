@@ -1,0 +1,98 @@
+@namespace WebWayCMS.Presentation.Components
+@using Microsoft.AspNetCore.Http
+@using WebWayCMS.Controllers
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Presentation.Components.Admin
+@using WebWayCMS.Presentation.Rendering
+@attribute [ExcludeFromCodeCoverage]
+@*
+    Root Blazor component returned by GenericAdminPageController (via ICmsPageRenderer.RenderAdminPage).
+    Emits the admin document shell (stylesheets + a static admin navbar) and renders either the admin
+    dashboard or the page's "Main" content zone. The controller's [Authorize(Roles="Admin")] guarantees
+    an authenticated admin, so the navbar needs no AuthorizeView. Logicless shell -> excluded from
+    coverage (the dashboard logic lives in AdminDashboard, which is tested; validated live here).
+*@
+<CascadingValue Value="_context" IsFixed="true">
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>@_title</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" />
+        <link rel="stylesheet" href="_content/WebWayCMS.Presentation/css/admin.css" />
+        @if (!string.IsNullOrWhiteSpace(_config?.Style))
+        {
+            <style>@((MarkupString)_config!.Style)</style>
+        }
+        <HeadOutlet />
+    </head>
+    <body class="admin-shell">
+        <header class="admin-header" role="banner">
+            <nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
+                <div class="navbar-menu is-active">
+                    <div class="navbar-start">
+                        <a class="navbar-item" href="/admin/site-pages">Pages</a>
+                        <a class="navbar-item" href="/admin/zones">Content Zones</a>
+                        <a class="navbar-item" href="/admin/blocks">Content Blocks</a>
+                        <a class="navbar-item" href="/admin/article-lists">Articles</a>
+                    </div>
+                    <div class="navbar-end">
+                        <a class="navbar-item" href="/">View Site</a>
+                        <a class="navbar-item" href="/Account/Manage">@HttpContext?.User.Identity?.Name</a>
+                        <div class="navbar-item">
+                            <form action="/Account/Logout" method="post">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="returnUrl" value="" />
+                                <button type="submit" class="button is-small is-light">Log out</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </header>
+        <main id="main-content" class="admin-main" tabindex="-1">
+            @if (_isDashboard)
+            {
+                <AdminDashboard />
+            }
+            else
+            {
+                <section class="section">
+                    <div class="container">
+                        <ContentZone ZoneName="Main" />
+                    </div>
+                </section>
+            }
+        </main>
+        @if (!string.IsNullOrWhiteSpace(_config?.Script))
+        {
+            <script>@((MarkupString)_config!.Script)</script>
+        }
+        <script src="_framework/blazor.web.js"></script>
+    </body>
+    </html>
+</CascadingValue>
+
+@code {
+    [Parameter] public PageDTO? Page { get; set; }
+    [Parameter] public object? Config { get; set; }
+    [Parameter] public string? SubRoute { get; set; }
+    [Parameter] public string? ViewName { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private CmsRenderContext _context = default!;
+    private GenericPageConfiguration? _config;
+    private string _title = string.Empty;
+    private bool _isDashboard;
+
+    protected override void OnParametersSet()
+    {
+        _context = new CmsRenderContext(Page, Config, SubRoute);
+        _config = Config as GenericPageConfiguration;
+        _title = CmsPageTitle.ForPage(Page);
+        _isDashboard = string.Equals(ViewName, "Dashboard", StringComparison.OrdinalIgnoreCase);
+    }
+}
