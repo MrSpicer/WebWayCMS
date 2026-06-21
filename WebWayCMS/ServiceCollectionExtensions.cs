@@ -28,6 +28,7 @@ using Microsoft.EntityFrameworkCore;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
+using WebWayCMS.Presentation.Components.Account;
 using WebWayCMS.Routing;
 
 namespace WebWayCMS;
@@ -263,7 +264,20 @@ public static class ServiceCollectionExtensions
 				}
 				)
 			.AddRoles<IdentityRole>()
-			.AddEntityFrameworkStores<ApplicationDbContext>()
-			.AddDefaultUI();
+			.AddEntityFrameworkStores<ApplicationDbContext>();
+
+		// The Blazor /Account/* components fully replace the scaffolded Identity UI, so point the
+		// Identity application cookie at them (it previously defaulted to the now-removed
+		// /Identity/Account/* Razor Pages).
+		services.ConfigureApplicationCookie(options =>
+		{
+			options.LoginPath = "/Account/Login";
+			options.LogoutPath = "/Account/Logout";
+			options.AccessDeniedPath = "/Account/AccessDenied";
+		});
+
+		// Blazor Identity (account) components: cascading auth state, redirect/user-accessor helpers,
+		// the revalidating server auth-state provider, and the typed email sender.
+		services.AddCmsBlazorIdentity();
 	}
 }

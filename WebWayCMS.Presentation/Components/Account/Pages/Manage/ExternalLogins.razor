@@ -1,0 +1,109 @@
+@page "/Account/Manage/ExternalLogins"
+@namespace WebWayCMS.Presentation.Components.Account.Pages.Manage
+@layout WebWayCMS.Presentation.Components.Account.Shared.ManageLayout
+@attribute [Authorize]
+@inject UserManager<IdentityUser> UserManager
+@inject SignInManager<IdentityUser> SignInManager
+@inject IdentityUserAccessor UserAccessor
+@inject IUserStore<IdentityUser> UserStore
+@inject IdentityRedirectManager RedirectManager
+@*
+    Manage the user's linked external logins (add/remove). Counterpart of
+    Areas/Identity/Pages/Account/Manage/ExternalLogins.
+*@
+<PageTitle>Manage your external logins</PageTitle>
+
+<h2 class="title is-5">Manage your external logins</h2>
+<StatusMessage Message="@message" />
+
+@if (currentLogins?.Count > 0)
+{
+    <table class="table is-fullwidth">
+        <tbody>
+            @foreach (var login in currentLogins)
+            {
+                <tr>
+                    <td>@login.ProviderDisplayName</td>
+                    <td>
+                        @if (showRemoveButton)
+                        {
+                            <form @formname="@($"remove-login-{login.LoginProvider}")" @onsubmit="OnSubmitAsync" method="post">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="@nameof(LoginProvider)" value="@login.LoginProvider" />
+                                <input type="hidden" name="@nameof(ProviderKey)" value="@login.ProviderKey" />
+                                <button type="submit" class="button is-small is-danger is-light" title="Remove this @login.ProviderDisplayName login from your account">Remove</button>
+                            </form>
+                        }
+                        else
+                        {
+                            @: &nbsp;
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (otherLogins?.Count > 0)
+{
+    <h3 class="title is-6 mt-4">Add another service to log in.</h3>
+    <form class="form-horizontal" action="Account/Manage/LinkExternalLogin" method="post">
+        <AntiforgeryToken />
+        <div class="buttons">
+            @foreach (var provider in otherLogins)
+            {
+                <button type="submit" class="button" name="Provider" value="@provider.Name" title="Log in using your @provider.DisplayName account">@provider.DisplayName</button>
+            }
+        </div>
+    </form>
+}
+
+@if ((currentLogins?.Count ?? 0) == 0 && (otherLogins?.Count ?? 0) == 0)
+{
+    <p>There are no external authentication services configured.</p>
+}
+
+@code {
+    public const string LinkLoginCallbackAction = "LinkLoginCallback";
+
+    private string? message;
+    private IdentityUser user = default!;
+    private IList<UserLoginInfo>? currentLogins;
+    private IList<AuthenticationScheme>? otherLogins;
+    private bool showRemoveButton;
+
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm] private string? LoginProvider { get; set; }
+    [SupplyParameterFromForm] private string? ProviderKey { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await UserAccessor.GetRequiredUserAsync(HttpContext);
+        currentLogins = await UserManager.GetLoginsAsync(user);
+        otherLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync())
+            .Where(auth => currentLogins.All(ul => auth.Name != ul.LoginProvider))
+            .ToList();
+
+        string? passwordHash = null;
+        if (UserStore is IUserPasswordStore<IdentityUser> userPasswordStore)
+        {
+            passwordHash = await userPasswordStore.GetPasswordHashAsync(user, HttpContext.RequestAborted);
+        }
+
+        showRemoveButton = passwordHash is not null || currentLogins.Count > 1;
+    }
+
+    private async Task OnSubmitAsync()
+    {
+        var result = await UserManager.RemoveLoginAsync(user, LoginProvider!, ProviderKey!);
+        if (!result.Succeeded)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: The external login was not removed.", HttpContext);
+        }
+
+        await SignInManager.RefreshSignInAsync(user);
+        RedirectManager.RedirectToCurrentPageWithStatus("The external login was removed.", HttpContext);
+    }
+}

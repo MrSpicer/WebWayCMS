@@ -1,0 +1,47 @@
+@page "/Account/Manage/ResetAuthenticator"
+@namespace WebWayCMS.Presentation.Components.Account.Pages.Manage
+@layout WebWayCMS.Presentation.Components.Account.Shared.ManageLayout
+@attribute [Authorize]
+@inject UserManager<IdentityUser> UserManager
+@inject SignInManager<IdentityUser> SignInManager
+@inject IdentityUserAccessor UserAccessor
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<ResetAuthenticator> Logger
+@*
+    Resets the authenticator key (disables 2FA until reconfigured). Counterpart of
+    Areas/Identity/Pages/Account/Manage/ResetAuthenticator.
+*@
+<PageTitle>Reset authenticator key</PageTitle>
+
+<h2 class="title is-5">Reset authenticator key</h2>
+<StatusMessage />
+
+<div class="notification is-warning">
+    <p>If you reset your authenticator key your authenticator app will not work until you reconfigure it.</p>
+    <p>This process disables 2FA until you verify your authenticator app.</p>
+</div>
+
+<EditForm Model="Input" FormName="reset-authenticator" OnValidSubmit="OnSubmitAsync" method="post">
+    <button class="button is-danger" type="submit">Reset authenticator key</button>
+</EditForm>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private object Input { get; set; } = new();
+
+    private async Task OnSubmitAsync()
+    {
+        var user = await UserAccessor.GetRequiredUserAsync(HttpContext);
+        await UserManager.SetTwoFactorEnabledAsync(user, false);
+        await UserManager.ResetAuthenticatorKeyAsync(user);
+        var userId = await UserManager.GetUserIdAsync(user);
+        Logger.LogInformation("User with ID '{UserId}' has reset their authentication app key.", userId);
+
+        await SignInManager.RefreshSignInAsync(user);
+
+        RedirectManager.RedirectToWithStatus(
+            "Account/Manage/EnableAuthenticator",
+            "Your authenticator app key has been reset, you will need to configure your authenticator app using the new key.",
+            HttpContext);
+    }
+}

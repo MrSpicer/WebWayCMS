@@ -1,8 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Include>[WebWayCMS.Presentation]*</Include>
-    <!-- Microsoft's scaffolded Identity Razor Pages are excluded from coverage by agreement. -->
-    <Exclude>[WebWayCMS.Presentation]WebWayCMS.Presentation.Areas.Identity.*</Exclude>
+    <!-- Microsoft's scaffolded Identity Razor Pages, and the Blazor Identity components that replace
+         them (Components.Account.*), are excluded from coverage by agreement - validated by running
+         the app (the standard ASP.NET Identity UI is not unit-tested). -->
+    <Exclude>[WebWayCMS.Presentation]WebWayCMS.Presentation.Areas.Identity.*,[WebWayCMS.Presentation]WebWayCMS.Presentation.Components.Account.*</Exclude>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

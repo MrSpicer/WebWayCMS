@@ -1,4 +1,5 @@
 @namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 @*
     Admin navigation bar for the Blazor admin layout (counterpart of _AdminNavbar.cshtml). NavLinks to
@@ -15,6 +16,21 @@
         </div>
         <div class="navbar-end">
             <a class="navbar-item" href="/">View Site</a>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="navbar-item" href="/Account/Manage" aria-label="Manage account">@context.User.Identity?.Name</a>
+                    <div class="navbar-item">
+                        <form action="/Account/Logout" method="post">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="returnUrl" value="" />
+                            <button type="submit" class="button is-small is-light">Log out</button>
+                        </form>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="navbar-item" href="/Account/Login">Log in</a>
+                </NotAuthorized>
+            </AuthorizeView>
         </div>
     </div>
 </nav>

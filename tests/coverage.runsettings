@@ -11,8 +11,8 @@
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
           <Format>cobertura</Format>
-          <!-- Microsoft's scaffolded Identity UI is excluded from coverage by agreement. -->
-          <Exclude>[WebWayCMS.Presentation]*Areas.Identity*</Exclude>
+          <!-- Microsoft's scaffolded Identity UI, and the Blazor Identity components replacing it, are excluded from coverage by agreement. -->
+          <Exclude>[WebWayCMS.Presentation]*Areas.Identity*,[WebWayCMS.Presentation]*Components.Account*</Exclude>
           <ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
           <SkipAutoProps>true</SkipAutoProps>
         </Configuration>

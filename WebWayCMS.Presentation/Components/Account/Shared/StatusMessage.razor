@@ -1,0 +1,32 @@
+@*
+    Shows a one-shot status/error message for the Static-SSR Identity components, read either from a
+    parameter or from the IdentityRedirectManager status cookie (set across a redirect). Adapted from
+    the standard ASP.NET Core Blazor Web App (Individual Accounts) template.
+*@
+@if (!string.IsNullOrEmpty(DisplayMessage))
+{
+    var statusMessageClass = DisplayMessage.StartsWith("Error") ? "is-danger" : "is-success";
+    <div class="notification @statusMessageClass" role="alert">
+        @DisplayMessage
+    </div>
+}
+
+@code {
+    private string? messageFromCookie;
+
+    [Parameter] public string? Message { get; set; }
+
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    private string? DisplayMessage => Message ?? messageFromCookie;
+
+    protected override void OnInitialized()
+    {
+        messageFromCookie = HttpContext.Request.Cookies[IdentityRedirectManager.StatusCookieName];
+
+        if (messageFromCookie is not null)
+        {
+            HttpContext.Response.Cookies.Delete(IdentityRedirectManager.StatusCookieName);
+        }
+    }
+}

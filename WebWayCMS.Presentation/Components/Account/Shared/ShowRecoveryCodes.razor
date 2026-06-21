@@ -1,0 +1,31 @@
+@*
+    Displays freshly generated 2FA recovery codes. Counterpart of the template's ShowRecoveryCodes
+    shared component.
+*@
+@if (RecoveryCodes.Length > 0)
+{
+    <div class="notification is-warning">
+        <p><strong>Put these codes in a safe place.</strong></p>
+        <p>If you lose your device and don't have the recovery codes you will lose access to your account.</p>
+    </div>
+    <div class="content">
+        <div class="columns is-multiline">
+            @for (var row = 0; row < RecoveryCodes.Length; row += 2)
+            {
+                <div class="column is-half">
+                    <code>@RecoveryCodes[row]</code>
+                    @if (row + 1 < RecoveryCodes.Length)
+                    {
+                        <text>&nbsp;</text>
+                        <code>@RecoveryCodes[row + 1]</code>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string[] RecoveryCodes { get; set; } = [];
+    [Parameter] public string? StatusMessage { get; set; }
+}

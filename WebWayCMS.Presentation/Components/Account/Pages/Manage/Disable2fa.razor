@@ -1,0 +1,57 @@
+@page "/Account/Manage/Disable2fa"
+@namespace WebWayCMS.Presentation.Components.Account.Pages.Manage
+@layout WebWayCMS.Presentation.Components.Account.Shared.ManageLayout
+@attribute [Authorize]
+@inject UserManager<IdentityUser> UserManager
+@inject IdentityUserAccessor UserAccessor
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<Disable2fa> Logger
+@*
+    Disables 2FA for the signed-in user. Counterpart of
+    Areas/Identity/Pages/Account/Manage/Disable2fa.
+*@
+<PageTitle>Disable two-factor authentication (2FA)</PageTitle>
+
+<h2 class="title is-5">Disable two-factor authentication (2FA)</h2>
+<StatusMessage />
+
+<div class="notification is-warning">
+    <p>This action only disables 2FA. To change the key used in an authenticator app you should
+    <a href="Account/Manage/ResetAuthenticator">reset your authenticator keys</a>.</p>
+</div>
+
+<EditForm Model="Input" FormName="disable-2fa" OnValidSubmit="OnSubmitAsync" method="post">
+    <button class="button is-danger" type="submit">Disable 2FA</button>
+</EditForm>
+
+@code {
+    private IdentityUser user = default!;
+
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] private object Input { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await UserAccessor.GetRequiredUserAsync(HttpContext);
+        if (!await UserManager.GetTwoFactorEnabledAsync(user))
+        {
+            throw new InvalidOperationException("Cannot disable 2FA for user as it's not currently enabled.");
+        }
+    }
+
+    private async Task OnSubmitAsync()
+    {
+        var disable2faResult = await UserManager.SetTwoFactorEnabledAsync(user, false);
+        if (!disable2faResult.Succeeded)
+        {
+            throw new InvalidOperationException("Unexpected error occurred disabling 2FA.");
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        Logger.LogInformation("User with ID '{UserId}' has disabled 2fa.", userId);
+        RedirectManager.RedirectToWithStatus(
+            "Account/Manage/TwoFactorAuthentication",
+            "2fa has been disabled. You can reenable 2fa when you setup an authenticator app",
+            HttpContext);
+    }
+}

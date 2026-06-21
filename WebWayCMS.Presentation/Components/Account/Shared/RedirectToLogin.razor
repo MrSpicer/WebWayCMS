@@ -1,0 +1,14 @@
+@inject NavigationManager NavigationManager
+@*
+    Redirects an unauthenticated visitor to the Blazor login page, preserving the current URL as the
+    return target. Used by the Manage components. Adapted from the standard ASP.NET Core Blazor Web
+    App (Individual Accounts) template.
+*@
+@code {
+    protected override void OnInitialized()
+    {
+        NavigationManager.NavigateTo(
+            $"Account/Login?ReturnUrl={Uri.EscapeDataString(NavigationManager.ToBaseRelativePath(NavigationManager.Uri))}",
+            forceLoad: true);
+    }
+}

@@ -1,0 +1,18 @@
+@namespace WebWayCMS.Presentation.Components.Account.Shared
+@inherits LayoutComponentBase
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@*
+    Document chrome for the Static-SSR Blazor Identity (account) pages: contributes the shared
+    stylesheets and centres the account forms. Logicless shell -> excluded from coverage.
+*@
+<HeadContent>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" />
+    <link rel="stylesheet" href="_content/WebWayCMS.Presentation/css/admin.css" />
+</HeadContent>
+
+<section class="section">
+    <div class="container" style="max-width: 30rem;">
+        @Body
+    </div>
+</section>

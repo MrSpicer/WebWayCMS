@@ -4,29 +4,36 @@
 // RichTextEditor component therefore renders an opaque host element that Blazor never re-renders,
 // and this module owns the CKEditor instance entirely. Content flows back to .NET via a change
 // callback (so the bound model stays current without Blazor touching the editor DOM).
-// Imported from esm.sh (the npm distribution served as self-contained browser ESM, with bare
-// dependency specifiers resolved) rather than the CKEditor cloud CDN: the 'GPL' license key is only
-// valid for the npm/self-hosted distribution channel, not the cloud channel.
-import {
-	ClassicEditor,
-	Essentials, Bold, Italic, Underline, Strikethrough, Code, BlockQuote,
-	Heading, Link, List, Indent, IndentBlock, Paragraph,
-	Font, FontSize, FontFamily, FontColor, FontBackgroundColor, Alignment,
-	Table, TableToolbar, CodeBlock, HorizontalLine, SpecialCharacters,
-	RemoveFormat, Highlight, SourceEditing, HtmlEmbed, GeneralHtmlSupport
-} from 'https://esm.sh/ckeditor5@46.1.1';
 
 // The license key is supplied server-side via a meta tag (from CKEditor:LicenseKey config).
-// Fall back to 'GPL' when none is configured so the editor still loads in dev/integration.
-function licenseKey() {
+function configuredLicenseKey() {
 	const meta = document.querySelector('meta[name="ckeditor-license-key"]');
-	const key = meta && meta.content ? meta.content : '';
-	return key || 'GPL';
+	return meta && meta.content ? meta.content : '';
+}
+
+// CKEditor 5 distribution channels gate the license key: a configured key (commercial/development)
+// is valid for the official cloud CDN, whereas 'GPL' is only valid for the npm distribution. So load
+// from the cloud CDN when a key is configured, and fall back to esm.sh (npm, self-contained browser
+// ESM) + 'GPL' when none is - keeping the editor working for keyless/open-source consumers.
+function ckeditorSource(hasKey) {
+	return hasKey
+		? 'https://cdn.ckeditor.com/ckeditor5/46.1.1/ckeditor5.js'
+		: 'https://esm.sh/ckeditor5@46.1.1';
 }
 
 export async function init(element, dotnetRef, initialValue) {
+	const key = configuredLicenseKey();
+	const {
+		ClassicEditor,
+		Essentials, Bold, Italic, Underline, Strikethrough, Code, BlockQuote,
+		Heading, Link, List, Indent, IndentBlock, Paragraph,
+		Font, FontSize, FontFamily, FontColor, FontBackgroundColor, Alignment,
+		Table, TableToolbar, CodeBlock, HorizontalLine, SpecialCharacters,
+		RemoveFormat, Highlight, SourceEditing, HtmlEmbed, GeneralHtmlSupport
+	} = await import(ckeditorSource(key !== ''));
+
 	const editor = await ClassicEditor.create(element, {
-		licenseKey: licenseKey(),
+		licenseKey: key || 'GPL',
 		initialData: initialValue || '',
 		plugins: [
 			Essentials, Bold, Italic, Underline, Strikethrough, Code, BlockQuote,

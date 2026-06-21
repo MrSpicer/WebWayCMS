@@ -304,8 +304,6 @@ public static class CMSExtensions
 		// validated for interactive form posts. Coexists with MVC's [ValidateAntiForgeryToken].
 		app.UseAntiforgery();
 
-		app.MapRazorPages();
-
 		// Attribute-routed controllers (e.g. AdminContentController's "admin/{contentType}")
 		// must be registered as endpoints so they out-rank the catch-all page route below;
 		// otherwise "/admin/page" is captured by the dynamic page route as a sub-route of the
@@ -317,6 +315,11 @@ public static class CMSExtensions
 		// only explicitly declared @page routes are owned by Blazor.
 		app.MapRazorComponents<global::WebWayCMS.Presentation.Components.App>()
 			.AddInteractiveServerRenderMode();
+
+		// Non-component Identity endpoints (logout, and later external-login/personal-data) that the
+		// Static-SSR Blazor account components post to.
+		global::WebWayCMS.Presentation.Components.Account.IdentityComponentsEndpointRouteBuilderExtensions
+			.MapAdditionalIdentityEndpoints(app);
 
 		//todo: this should not be slug. pages have routes
 		app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");

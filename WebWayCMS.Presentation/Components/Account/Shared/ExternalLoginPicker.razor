@@ -1,0 +1,41 @@
+@inject SignInManager<IdentityUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+@*
+    Renders a button per configured external authentication provider, posting to the
+    PerformExternalLogin endpoint. Shows guidance when none are configured. Counterpart of the
+    template's ExternalLoginPicker shared component.
+*@
+@if (externalLogins.Length == 0)
+{
+    <div class="content">
+        <p>
+            There are no external authentication services configured. See
+            <a href="https://go.microsoft.com/fwlink/?LinkID=532715">this article</a>
+            about setting up this app to support logging in via external services.
+        </p>
+    </div>
+}
+else
+{
+    <form class="form-horizontal" action="Account/PerformExternalLogin" method="post">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+        <div class="buttons">
+            @foreach (var provider in externalLogins)
+            {
+                <button type="submit" class="button" name="provider" value="@provider.Name" title="Log in using your @provider.DisplayName account">@provider.DisplayName</button>
+            }
+        </div>
+    </form>
+}
+
+@code {
+    private AuthenticationScheme[] externalLogins = [];
+
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        externalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).ToArray();
+    }
+}
