@@ -14,8 +14,9 @@
 *@
 <PageTitle>Content Zone</PageTitle>
 
-<AdminUpsert ContentType="contentzones" Id="Id" ListUrl="/admin/zones" />
+<AdminUpsert ContentType="contentzones" Id="Id" RestoreId="RestoreId" ListUrl="/admin/zones" />
 
 @code {
     [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "restoreId")] public Guid? RestoreId { get; set; }
 }

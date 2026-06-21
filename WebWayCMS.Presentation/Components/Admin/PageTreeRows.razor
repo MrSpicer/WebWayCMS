@@ -1,0 +1,83 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using WebWayCMS.Models.Page
+@*
+    Recursive table rows for the page route tree. Renders each node (indented by depth) and recurses
+    into its children. Intermediate route nodes (no PageId) render a placeholder row without actions.
+*@
+@foreach (var node in Nodes)
+{
+    <tr>
+        <td>
+            <span style="padding-left: @(Depth * 1.5)rem;">
+                @if (Depth > 0)
+                {
+                    <span class="has-text-grey-light" aria-hidden="true">└─ </span>
+                }
+                @node.Route
+                <a href="/admin/site-pages/create?parentRoute=@Uri.EscapeDataString(node.Route)"
+                   class="has-text-grey-light ml-2"
+                   title="Create child page under @node.Route"
+                   aria-label="Create child page under @node.Route">
+                    <i class="fas fa-plus-circle" aria-hidden="true"></i>
+                </a>
+            </span>
+        </td>
+        <td>
+            @if (node.PageId.HasValue)
+            {
+                @node.Title
+            }
+            else
+            {
+                <span class="has-text-grey-light is-italic">—</span>
+            }
+        </td>
+        <td>
+            @if (!string.IsNullOrEmpty(node.ControllerName))
+            {
+                <span class="tag is-light">@node.ControllerName</span>
+            }
+        </td>
+        <td>
+            @if (node.PageId.HasValue)
+            {
+                @if (node.IsPublished)
+                {
+                    <span class="tag is-success">Yes</span>
+                }
+                else
+                {
+                    <span class="tag is-warning">No</span>
+                }
+            }
+        </td>
+        <td>
+            @if (node.PageId is { } pageId)
+            {
+                <div class="buttons are-small">
+                    <a href="@node.Route" target="_blank" rel="noopener" class="button is-small is-light">View</a>
+                    @if (node.PageMasterId is { } masterId)
+                    {
+                        <a href="/admin/versions/pages/@masterId" class="button is-small is-info is-light">Versions</a>
+                        <a href="/admin/zones?pageId=@masterId" class="button is-small is-info is-light">Content Zones</a>
+                    }
+                    <a href="/admin/site-pages/edit/@pageId" class="button is-small">Edit</a>
+                    <button type="button" class="button is-small is-danger is-light" @onclick="() => OnDelete.InvokeAsync(node)">
+                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            }
+        </td>
+    </tr>
+    @if (node.Children.Count > 0)
+    {
+        <PageTreeRows Nodes="node.Children" Depth="Depth + 1" OnDelete="OnDelete" />
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public List<PageTreeNode> Nodes { get; set; } = default!;
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public EventCallback<PageTreeNode> OnDelete { get; set; }
+}

@@ -90,11 +90,13 @@ public class InteractiveFormFieldsTests
 		new() { Name = "Choice", Label = "Choice", EditorType = EditorType.Dropdown, DropdownOptions = new() { ["a"] = "A", ["b"] = "B" } },
 		new() { Name = "HiddenVal", Label = "Hidden", EditorType = EditorType.Hidden },
 		new() { Name = "Missing", Label = "Missing", EditorType = EditorType.Text },
+		new() { Name = "MissingRich", Label = "MissingRich", EditorType = EditorType.RichText },
 	};
 
 	private static (BunitContext Ctx, IRenderedComponent<InteractiveFormFields> Cut, FormModel Model) Render(FormModel? model = null)
 	{
 		var ctx = new BunitContext();
+		ctx.JSInterop.Mode = JSRuntimeMode.Loose; // RichText fields render RichTextEditor (JS-interop)
 		var m = model ?? new FormModel();
 		var cut = ctx.Render<InteractiveFormFields>(p => p
 			.Add(c => c.Model, m)
@@ -148,6 +150,7 @@ public class InteractiveFormFieldsTests
 	public void Field_WithProvidedOptions_RendersSelect_AndBinds()
 	{
 		var ctx = new BunitContext();
+		ctx.JSInterop.Mode = JSRuntimeMode.Loose; // RichText fields render RichTextEditor (JS-interop)
 		var model = new FormModel { Text = "x" }; // current value -> option "x" selected
 		var options = new Dictionary<string, IReadOnlyList<FormOption>>
 		{
@@ -199,6 +202,23 @@ public class InteractiveFormFieldsTests
 				cut.Find("input[data-prop=\"MissingFlag\"]").Change(true);
 			}, Throws.Nothing);
 			Assert.That(model.Flag, Is.False);
+		}
+	}
+
+	[Test]
+	public async Task RichText_ContentChange_UpdatesMappedModel_IgnoresUnmapped()
+	{
+		var (ctx, cut, model) = Render();
+		using (ctx)
+		{
+			// Two RichText fields: "Rich" (mapped to FormModel.Rich) and "MissingRich" (no model property).
+			var editors = cut.FindComponents<RichTextEditor>();
+			Assert.That(editors, Has.Count.EqualTo(2));
+
+			foreach (var ed in editors)
+				await cut.InvokeAsync(() => ed.Instance.OnContentChanged("<p>hi</p>"));
+
+			Assert.That(model.Rich, Is.EqualTo("<p>hi</p>")); // mapped updated; unmapped was a no-op (did not throw)
 		}
 	}
 

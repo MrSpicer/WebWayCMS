@@ -1,0 +1,104 @@
+@page "/admin/site-pages"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Models.Page
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IPageModel Model
+@*
+    Interactive Server admin list of pages, rendered as the route tree (recursive PageTreeRows) with an
+    inline delete-confirm. New/Edit link to the Blazor page form; Versions still link to the MVC admin
+    endpoint during the transition.
+*@
+<PageTitle>Pages</PageTitle>
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Pages</h1>
+            <a href="/admin/site-pages/create" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Page</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (_pages.Count == 0)
+        {
+            <div class="card admin-empty-state">
+                <div class="card-content has-text-centered py-6">
+                    <p class="title is-5">No pages yet</p>
+                    <p class="subtitle is-6 has-text-grey">Create your first page to get started.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of pages</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Route</th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Controller</th>
+                            <th scope="col">Published</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <PageTreeRows Nodes="_pages" OnDelete="RequestDelete" />
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete page</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>@pending.Title</strong> (<code>@pending.Route</code>)?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PageTreeNode> _pages = new();
+    private PageTreeNode? _pendingDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var index = await Model.GetPageIndexAsync();
+        _pages = index.Pages;
+    }
+
+    private void RequestDelete(PageTreeNode node) => _pendingDelete = node;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(PageTreeNode node)
+    {
+        // The delete action only renders for nodes backed by a page, so PageId is non-null here.
+        await Model.DeletePageAsync(node.PageId!.Value);
+        _pages = (await Model.GetPageIndexAsync()).Pages;
+        _pendingDelete = null;
+    }
+}

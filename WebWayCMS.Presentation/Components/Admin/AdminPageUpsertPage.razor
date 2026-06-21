@@ -1,0 +1,22 @@
+@page "/admin/site-pages/create"
+@page "/admin/site-pages/edit/{Id:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable Interactive Server wrapper for the page create/edit form. Logicless shell: binds the
+    optional {Id} route value and the parentRoute query value, delegating to AdminPageUpsert.
+*@
+<PageTitle>Page</PageTitle>
+
+<AdminPageUpsert Id="Id" RestoreId="RestoreId" ParentRoute="@ParentRoute" />
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "restoreId")] public Guid? RestoreId { get; set; }
+    [SupplyParameterFromQuery(Name = "parentRoute")] public string? ParentRoute { get; set; }
+}

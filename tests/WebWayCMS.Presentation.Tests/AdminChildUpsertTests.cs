@@ -135,6 +135,29 @@ public class AdminChildUpsertTests
 	}
 
 	[Test]
+	public void RestoreMode_LoadsHistoricalChildVersion_AsEdit()
+	{
+		var h = Build();
+		var restoreId = Guid.NewGuid();
+		h.Child.GetChildRestoreVersionViewModelAsync(Parent, restoreId, Arg.Any<CancellationToken>())
+			.Returns((object?)new DemoChildVm { Title = "Restored" });
+		using (h.Ctx)
+		{
+			var cut = h.Ctx.Render<AdminChildUpsert>(p => p
+				.Add(c => c.ContentType, "articles")
+				.Add(c => c.ParentKey, Parent)
+				.Add(c => c.RestoreId, restoreId)
+				.Add(c => c.ListUrl, "/admin/article-lists/list-slug/articles"));
+
+			Assert.Multiple(() =>
+			{
+				Assert.That(cut.Markup, Does.Contain("Edit Article"));
+				Assert.That(cut.Markup, Does.Contain("value=\"Restored\""));
+			});
+		}
+	}
+
+	[Test]
 	public void Save_Valid_CallsHandler_AndNavigatesToList()
 	{
 		var h = Build();

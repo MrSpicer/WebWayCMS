@@ -13,9 +13,10 @@
 *@
 <PageTitle>Article</PageTitle>
 
-<AdminChildUpsert ContentType="articles" ParentKey="@Slug" Id="Id" ListUrl="@($"/admin/article-lists/{Slug}/articles")" />
+<AdminChildUpsert ContentType="articles" ParentKey="@Slug" Id="Id" RestoreId="RestoreId" ListUrl="@($"/admin/article-lists/{Slug}/articles")" />
 
 @code {
     [Parameter] public string Slug { get; set; } = default!;
     [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "restoreId")] public Guid? RestoreId { get; set; }
 }

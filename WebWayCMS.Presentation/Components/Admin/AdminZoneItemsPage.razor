@@ -1,0 +1,157 @@
+@page "/admin/zones/{ZoneId:guid}/items"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IAdminHandlerRegistry Handlers
+@*
+    Interactive Server "Advanced" view of a content zone's items (the table-based alternative to the
+    visual zone editor). Edit/delete only - items are added via the zone editor (3c). Edit links to the
+    Blazor AdminChildUpsert; delete runs in-circuit via the zone's child handler.
+*@
+<PageTitle>Zone Items</PageTitle>
+
+@if (_zone is null)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">Content zone not found.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="/admin/zones">Content Zones</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">@_zone.Name</a></li>
+                </ul>
+            </nav>
+            <h1 class="title is-4">Items in: @_zone.Name</h1>
+            @if (!string.IsNullOrEmpty(_zone.Description))
+            {
+                <p class="subtitle is-6 has-text-grey">@_zone.Description</p>
+            }
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            @if (_zone.Items.Count == 0)
+            {
+                <div class="card admin-empty-state mt-4">
+                    <div class="card-content has-text-centered py-6">
+                        <p class="title is-5">No items in this zone yet</p>
+                        <p class="subtitle is-6 has-text-grey">Use the zone editor to add components.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="table-container mt-4">
+                    <table class="table is-fullwidth is-striped">
+                        <caption class="is-sr-only">Items in content zone @_zone.Name</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col" style="width: 60px;">Order</th>
+                                <th scope="col">Component</th>
+                                <th scope="col">Properties</th>
+                                <th scope="col">Active</th>
+                                <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in _zone.Items.OrderBy(i => i.Ordinal))
+                            {
+                                <tr>
+                                    <td><span class="tag is-medium">@item.Ordinal</span></td>
+                                    <td><strong>@item.ComponentName</strong></td>
+                                    <td><code class="is-size-7">@Preview(item.ComponentPropertiesJson)</code></td>
+                                    <td>
+                                        @if (item.IsActive)
+                                        {
+                                            <span class="tag is-success">Yes</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="tag is-warning">No</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="buttons are-small">
+                                            <a href="/admin/zones/@ZoneId/items/edit/@item.ContentId" class="button is-small">
+                                                <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                                <span>Edit</span>
+                                            </a>
+                                            <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(item)">
+                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                <span>Delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <div class="mt-4">
+                <a href="/admin/zones" class="button">Back to Zones</a>
+            </div>
+        </div>
+    </section>
+}
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete item</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete the <strong>@pending.ComponentName</strong> item?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid ZoneId { get; set; }
+
+    private ContentZoneDTO? _zone;
+    private ContentZoneItemDTO? _pendingDelete;
+    private IAdminCrudChildHandler _child = default!;
+
+    private static string Preview(string json) => json.Length > 50 ? json[..50] + "..." : json;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _child = Handlers.GetHandler("contentzones")!.ChildHandler!;
+        _zone = await _child.GetChildIndexViewModelAsync(ZoneId.ToString()) as ContentZoneDTO;
+    }
+
+    private void RequestDelete(ContentZoneItemDTO item) => _pendingDelete = item;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(ContentZoneItemDTO item)
+    {
+        await _child.DeleteChildAsync(item.ContentId);
+        _zone!.Items.Remove(item);
+        _pendingDelete = null;
+    }
+}

@@ -1,0 +1,62 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@*
+    Opaque CKEditor host for Interactive Server. Renders a host element once and hands it to
+    richtext.js, which owns the editor DOM entirely (Blazor never re-renders it - ShouldRender is
+    disabled after init, avoiding the R2 Blazor/CKEditor diffing conflict). Edits flow back via
+    OnContentChanged -> ValueChanged so the bound model stays current. Excluded from coverage as a
+    thin JS-interop boundary - validated by live verification.
+*@
+<div @ref="_host" class="rich-text-host"></div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private ElementReference _host;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _editor;
+    private DotNetObjectReference<RichTextEditor>? _ref;
+    private string _initialValue = string.Empty;
+    private bool _initialized;
+
+    protected override void OnInitialized() => _initialValue = Value ?? string.Empty;
+
+    // The editor owns its DOM after creation; never let Blazor re-render the host element.
+    protected override bool ShouldRender() => !_initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _initialized = true;
+        _ref = DotNetObjectReference.Create(this);
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/WebWayCMS.Presentation/js/richtext.js");
+        _editor = await _module.InvokeAsync<IJSObjectReference>("init", _host, _ref, _initialValue);
+    }
+
+    [JSInvokable]
+    public Task OnContentChanged(string html) => ValueChanged.InvokeAsync(html);
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_editor is not null)
+            {
+                await _editor.InvokeVoidAsync("destroy");
+                await _editor.DisposeAsync();
+            }
+            if (_module is not null)
+                await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone during teardown - nothing to dispose.
+        }
+        _ref?.Dispose();
+    }
+}

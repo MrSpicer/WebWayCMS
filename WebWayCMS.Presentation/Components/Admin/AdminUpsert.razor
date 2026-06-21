@@ -68,6 +68,7 @@ else if (_model is not null)
 @code {
     [Parameter, EditorRequired] public string ContentType { get; set; } = default!;
     [Parameter] public Guid? Id { get; set; }
+    [Parameter] public Guid? RestoreId { get; set; }
     [Parameter, EditorRequired] public string ListUrl { get; set; } = default!;
 
     private IAdminCrudHandler? _handler;
@@ -78,9 +79,8 @@ else if (_model is not null)
     private bool _saving;
     private string? _error;
 
-    // Edit when a row id is supplied by the route; the create route omits it. (The {Id:guid} route
-    // constraint precludes an empty Guid, so HasValue is the only distinction needed.)
-    private bool IsEdit => Id.HasValue;
+    // Edit when a row id (route) or a restore-from-version id (query) is supplied; create otherwise.
+    private bool IsEdit => Id.HasValue || RestoreId.HasValue;
 
     // Only evaluated inside the rendered form, where _handler is guaranteed non-null.
     private string Title => $"{(IsEdit ? "Edit" : "New")} {_handler!.DisplayName}";
@@ -93,9 +93,11 @@ else if (_model is not null)
         if (_handler is null)
             return;
 
-        _model = IsEdit
-            ? await _handler.GetUpsertViewModelAsync(Id, EmptyQuery)
-            : await _handler.GetUpsertViewModelAsync(null, EmptyQuery) ?? _handler.CreateEmptyUpsertViewModel();
+        _model = RestoreId is { } restoreId
+            ? await _handler.GetRestoreVersionViewModelAsync(restoreId)
+            : Id.HasValue
+                ? await _handler.GetUpsertViewModelAsync(Id, EmptyQuery)
+                : await _handler.GetUpsertViewModelAsync(null, EmptyQuery) ?? _handler.CreateEmptyUpsertViewModel();
 
         if (_model is null)
         {

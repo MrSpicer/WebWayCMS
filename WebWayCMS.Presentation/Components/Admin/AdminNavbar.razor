@@ -1,0 +1,20 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@*
+    Admin navigation bar for the Blazor admin layout (counterpart of _AdminNavbar.cshtml). NavLinks to
+    the Blazor admin sections (auto-highlighting the active one) + a link back to the public site. The
+    menu is always shown (no mobile burger JS needed). Logicless shell -> excluded from coverage.
+*@
+<nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
+    <div class="navbar-menu is-active">
+        <div class="navbar-start">
+            <NavLink class="navbar-item" href="/admin/site-pages">Pages</NavLink>
+            <NavLink class="navbar-item" href="/admin/zones">Content Zones</NavLink>
+            <NavLink class="navbar-item" href="/admin/blocks">Content Blocks</NavLink>
+            <NavLink class="navbar-item" href="/admin/article-lists">Articles</NavLink>
+        </div>
+        <div class="navbar-end">
+            <a class="navbar-item" href="/">View Site</a>
+        </div>
+    </div>
+</nav>

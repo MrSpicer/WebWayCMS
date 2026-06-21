@@ -1,0 +1,21 @@
+@page "/admin/zones/{ZoneId:guid}/items/edit/{Id:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Presentation.Components
+@attribute [Authorize(Roles = "Admin")]
+@attribute [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+@layout AdminLayout
+@rendermode InteractiveServer
+@*
+    Routable Interactive Server wrapper for editing a single content-zone item (the "Advanced" table's
+    Edit). Edit-only - new items are added via the visual zone editor (the child handler returns null
+    for create). Logicless shell delegating to the generic AdminChildUpsert.
+*@
+<PageTitle>Content Zone Item</PageTitle>
+
+<AdminChildUpsert ContentType="contentzones" ParentKey="@ZoneId.ToString()" Id="Id" ListUrl="@($"/admin/zones/{ZoneId}/items")" />
+
+@code {
+    [Parameter] public Guid ZoneId { get; set; }
+    [Parameter] public Guid? Id { get; set; }
+}

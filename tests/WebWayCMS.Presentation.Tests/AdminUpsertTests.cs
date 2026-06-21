@@ -146,6 +146,28 @@ public class AdminUpsertTests
 	}
 
 	[Test]
+	public void RestoreMode_LoadsHistoricalVersion_AsEdit()
+	{
+		var h = Build();
+		var restoreId = Guid.NewGuid();
+		h.Handler.GetRestoreVersionViewModelAsync(restoreId, Arg.Any<CancellationToken>())
+			.Returns((object?)new DemoVm { Title = "Restored" });
+		using (h.Ctx)
+		{
+			var cut = h.Ctx.Render<AdminUpsert>(p => p
+				.Add(c => c.ContentType, "contentblocks")
+				.Add(c => c.RestoreId, restoreId)
+				.Add(c => c.ListUrl, "/admin/blocks"));
+
+			Assert.Multiple(() =>
+			{
+				Assert.That(cut.Markup, Does.Contain("Edit Content Block")); // restore is an edit of the current row
+				Assert.That(cut.Markup, Does.Contain("value=\"Restored\""));
+			});
+		}
+	}
+
+	[Test]
 	public void Save_Valid_CallsHandler_AndNavigatesToList()
 	{
 		var h = Build();

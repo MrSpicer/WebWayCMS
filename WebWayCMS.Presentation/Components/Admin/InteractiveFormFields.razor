@@ -61,9 +61,13 @@
                         </select>
                     </div>
                 }
-                else if (prop.EditorType is EditorType.TextArea or EditorType.RichText)
+                else if (prop.EditorType == EditorType.TextArea)
                 {
                     <textarea class="textarea" data-prop="@prop.Name" @onchange="e => Set(prop, e)">@Display(prop)</textarea>
+                }
+                else if (prop.EditorType == EditorType.RichText)
+                {
+                    <RichTextEditor Value="@Display(prop)" ValueChanged="@(html => SetString(prop, html))" />
                 }
                 else if (prop.EditorType == EditorType.Dropdown)
                 {
@@ -140,5 +144,13 @@
         var pi = Pi(prop);
         if (pi is not null)
             pi.SetValue(Model, (bool)e.Value!);
+    }
+
+    // Writes a rich-text editor's HTML straight to the bound string property (no input event).
+    private void SetString(FormPropertyInfo prop, string html)
+    {
+        var pi = Pi(prop);
+        if (pi is not null)
+            pi.SetValue(Model, html);
     }
 }

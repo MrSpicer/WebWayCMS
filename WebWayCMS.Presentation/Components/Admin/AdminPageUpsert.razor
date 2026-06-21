@@ -1,0 +1,232 @@
+@namespace WebWayCMS.Presentation.Components.Admin
+@using System.ComponentModel.DataAnnotations
+@using System.Text.Json
+@using Microsoft.AspNetCore.Http
+@using Microsoft.Extensions.Primitives
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Forms
+@using WebWayCMS.Models.Page
+@using WebWayCMS.Pages
+@using WebWayCMS.Presentation.Rendering
+@using WebWayCMS.Services
+@inject IAdminHandlerRegistry Handlers
+@inject IPageControllerRegistry Controllers
+@inject IViewDiscoveryService Views
+@inject IFormOptionsProvider OptionsProvider
+@inject NavigationManager Nav
+@*
+    Interactive Server page create/edit form. Beyond the standard fields it drives a dynamic
+    Configuration section from the selected page controller's metadata - replacing PageUpsert.js:
+    choosing a controller loads its FormPropertyInfo + available views as C# event handlers, and the
+    config object is serialized to ConfigurationJson on save. Saves in-circuit via the pages handler.
+*@
+@if (_notFound)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">The requested page was not found.</p>
+        </div>
+    </div>
+}
+else if (_model is not null)
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="@ListUrl">Pages</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">@Title</a></li>
+                </ul>
+            </nav>
+            <h1 class="title is-4 mt-2">@Title</h1>
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            @if (_error is not null)
+            {
+                <div class="notification is-danger save-error">@_error</div>
+            }
+            <div class="card">
+                <div class="card-content">
+                    <InteractiveFormFields Model="_model" Properties="_standardProps" />
+
+                    <div class="field">
+                        <label class="label">Page Controller <span class="has-text-danger">*</span></label>
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select class="controller-picker" @onchange="OnControllerChangedAsync">
+                                    <option value="" selected="@(string.IsNullOrEmpty(_model.ControllerName))">-- Select a page type --</option>
+                                    @foreach (var c in _controllers)
+                                    {
+                                        <option value="@c.Name" selected="@(c.Name == _model.ControllerName)">@(string.IsNullOrEmpty(c.Description) ? c.DisplayName : $"{c.DisplayName} - {c.Description}")</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">The page type determines what the page renders and what configuration options are available.</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">View Name</label>
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select class="view-picker" @onchange="OnViewNameChanged">
+                                    <option value="" selected="@(string.IsNullOrEmpty(_model.ViewName))">-- Default --</option>
+                                    @foreach (var v in _availableViews)
+                                    {
+                                        <option value="@v" selected="@(v == _model.ViewName)">@v</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">The view template to use. Leave empty for default behavior.</p>
+                    </div>
+
+                    @if (_config is not null && _configProps.Count > 0)
+                    {
+                        <hr />
+                        <h2 class="subtitle mt-4">Configuration</h2>
+                        <InteractiveFormFields Model="_config" Properties="_configProps" Options="_configOptions" />
+                    }
+                </div>
+                <footer class="card-footer">
+                    <div class="card-footer-item is-justify-content-flex-start">
+                        <button class="button is-primary mr-3 save-content" @onclick="SaveAsync" disabled="@_saving">Save</button>
+                        <a href="@ListUrl" class="button cancel-content">Cancel</a>
+                    </div>
+                </footer>
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [Parameter] public Guid? RestoreId { get; set; }
+    [Parameter] public string? ParentRoute { get; set; }
+
+    private const string ContentType = "pages";
+    private const string ListUrl = "/admin/site-pages";
+
+    private IAdminCrudHandler _handler = default!;
+    private PageUpsertViewModel? _model;
+    private IReadOnlyList<FormPropertyInfo> _standardProps = Array.Empty<FormPropertyInfo>();
+    private IReadOnlyList<PageControllerInfo> _controllers = Array.Empty<PageControllerInfo>();
+    private object? _config;
+    private IReadOnlyList<FormPropertyInfo> _configProps = Array.Empty<FormPropertyInfo>();
+    private Dictionary<string, IReadOnlyList<FormOption>> _configOptions = new();
+    private IReadOnlyList<string> _availableViews = Array.Empty<string>();
+    private bool _notFound;
+    private bool _saving;
+    private string? _error;
+
+    private bool IsEdit => Id.HasValue || RestoreId.HasValue;
+    private string Title => IsEdit ? "Edit Page" : "Create Page";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _handler = Handlers.GetHandler(ContentType)!;
+        var loaded = RestoreId is { } restoreId
+            ? await _handler.GetRestoreVersionViewModelAsync(restoreId)
+            : await _handler.GetUpsertViewModelAsync(Id, BuildQuery());
+        if (loaded is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _model = (PageUpsertViewModel)loaded;
+        _standardProps = FormPropertyBuilder.BuildPropertyInfos(typeof(PageUpsertViewModel))
+            .Where(p => p.Name is not (nameof(PageUpsertViewModel.ControllerName)
+                or nameof(PageUpsertViewModel.ViewName)
+                or nameof(PageUpsertViewModel.ConfigurationJson)))
+            .ToList();
+        _controllers = Controllers.GetAllControllers();
+
+        if (!string.IsNullOrEmpty(_model.ControllerName))
+            await LoadControllerAsync(_model.ControllerName, _model.ConfigurationJson);
+    }
+
+    private IQueryCollection BuildQuery()
+    {
+        var values = new Dictionary<string, StringValues>();
+        if (!string.IsNullOrEmpty(ParentRoute))
+            values["parentRoute"] = ParentRoute;
+        return new QueryCollection(values);
+    }
+
+    private async Task OnControllerChangedAsync(ChangeEventArgs e)
+    {
+        // A <select> change always supplies its (possibly empty) string value.
+        _model!.ControllerName = (string)e.Value!;
+        await LoadControllerAsync(_model.ControllerName, null);
+    }
+
+    private void OnViewNameChanged(ChangeEventArgs e)
+    {
+        var value = e.Value as string;
+        _model!.ViewName = string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    private async Task LoadControllerAsync(string name, string? json)
+    {
+        _config = null;
+        _configProps = Array.Empty<FormPropertyInfo>();
+        _configOptions = new();
+        _availableViews = Array.Empty<string>();
+        _model!.ConfigurationJson = "{}";
+
+        var info = Controllers.GetByName(name);
+        if (info is null)
+            return;
+
+        _availableViews = Views.GetControllerViews(name);
+        if (info.ConfigurationType is null || info.Properties.Count == 0)
+            return;
+
+        _configProps = info.Properties;
+        _config = Deserialize(json, info.ConfigurationType) ?? Controllers.CreateDefaultConfiguration(name);
+        foreach (var prop in _configProps)
+        {
+            var options = await OptionsProvider.GetOptionsAsync(prop);
+            if (options.Count > 0)
+                _configOptions[prop.Name] = options;
+        }
+    }
+
+    private static object? Deserialize(string? json, Type type)
+    {
+        if (string.IsNullOrEmpty(json) || json == "{}")
+            return null;
+        return JsonSerializer.Deserialize(json, type, JsonOpts);
+    }
+
+    private async Task SaveAsync()
+    {
+        var model = _model!;
+        _error = null;
+        model.ConfigurationJson = _config is null ? "{}" : JsonSerializer.Serialize(_config, _config.GetType(), JsonOpts);
+
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true))
+        {
+            _error = string.Join(" ", results.Select(r => r.ErrorMessage));
+            return;
+        }
+
+        _saving = true;
+        var result = await _handler.SaveUpsertAsync(model);
+        _saving = false;
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage ?? "An error occurred while saving.";
+            return;
+        }
+
+        Nav.NavigateTo(ListUrl);
+    }
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+}

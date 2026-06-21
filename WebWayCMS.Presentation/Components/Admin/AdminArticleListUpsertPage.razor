@@ -13,8 +13,9 @@
 *@
 <PageTitle>Article List</PageTitle>
 
-<AdminUpsert ContentType="articles" Id="Id" ListUrl="/admin/article-lists" />
+<AdminUpsert ContentType="articles" Id="Id" RestoreId="RestoreId" ListUrl="/admin/article-lists" />
 
 @code {
     [Parameter] public Guid? Id { get; set; }
+    [SupplyParameterFromQuery(Name = "restoreId")] public Guid? RestoreId { get; set; }
 }

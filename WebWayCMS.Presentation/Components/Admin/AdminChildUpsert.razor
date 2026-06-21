@@ -68,6 +68,7 @@ else if (_model is not null)
     [Parameter, EditorRequired] public string ContentType { get; set; } = default!;
     [Parameter, EditorRequired] public string ParentKey { get; set; } = default!;
     [Parameter] public Guid? Id { get; set; }
+    [Parameter] public Guid? RestoreId { get; set; }
     [Parameter, EditorRequired] public string ListUrl { get; set; } = default!;
 
     private IAdminCrudChildHandler? _child;
@@ -78,7 +79,7 @@ else if (_model is not null)
     private bool _saving;
     private string? _error;
 
-    private bool IsEdit => Id.HasValue;
+    private bool IsEdit => Id.HasValue || RestoreId.HasValue;
 
     // Only evaluated inside the rendered form, where _child is guaranteed non-null.
     private string Title => $"{(IsEdit ? "Edit" : "New")} {_child!.ChildDisplayName}";
@@ -92,8 +93,11 @@ else if (_model is not null)
             return;
 
         // GetChildUpsertViewModelAsync returns a parent-keyed empty model for create (Id null) and the
-        // populated model for edit; null means the parent or child row was not found.
-        _model = await _child.GetChildUpsertViewModelAsync(ParentKey, Id);
+        // populated model for edit; null means the parent or child row was not found. RestoreId loads a
+        // historical version's content into an edit of the current row.
+        _model = RestoreId is { } restoreId
+            ? await _child.GetChildRestoreVersionViewModelAsync(ParentKey, restoreId)
+            : await _child.GetChildUpsertViewModelAsync(ParentKey, Id);
         if (_model is null)
         {
             _notFound = true;

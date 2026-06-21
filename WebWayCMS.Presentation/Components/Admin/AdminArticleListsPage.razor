@@ -65,7 +65,7 @@
                                 <td>@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="buttons are-small">
-                                        <a href="/admin/articles/versions/@list.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a href="/admin/versions/articles/@list.MasterId" class="button is-small is-info is-light">Versions</a>
                                         <a href="/admin/article-lists/@list.Slug/articles" class="button is-small is-info is-light">Articles</a>
                                         <a href="/admin/article-lists/edit/@list.Id" class="button is-small">Edit</a>
                                         <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(list)">

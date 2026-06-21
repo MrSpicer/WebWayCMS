@@ -1,0 +1,167 @@
+@page "/admin/versions/{ContentType}/{MasterId:guid}"
+@page "/admin/versions/{ContentType}/{ParentKey}/{ChildType}/{MasterId:guid}"
+@namespace WebWayCMS.Presentation.Components.Admin
+@using Microsoft.AspNetCore.Authorization
+@using WebWayCMS.Controllers.Admin.Handlers
+@using WebWayCMS.Models.Shared
+@using WebWayCMS.Presentation.Components
+@using WebWayCMS.Presentation.Rendering
+@attribute [Authorize(Roles = "Admin")]
+@layout AdminLayout
+@rendermode InteractiveServer
+@inject IAdminHandlerRegistry Handlers
+@*
+    Interactive Server version-history view (generic, top-level + child). Lists the versions of a
+    content item with an inline delete-confirm (in-circuit). "Edit" restores a historical version into
+    the Blazor upsert form via its ?restoreId query. Replaces AdminShared/VersionHistory.cshtml.
+*@
+<PageTitle>Version History</PageTitle>
+
+@if (_vm is null)
+{
+    <div class="section">
+        <div class="container">
+            <p class="notification is-warning">Version history not found.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="admin-page-header">
+        <div class="container">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    <li><a href="@BackUrl">Back to listing</a></li>
+                    <li class="is-active"><a href="#" aria-current="page">Version History: @_vm.ItemTitle</a></li>
+                </ul>
+            </nav>
+            <h1 class="title is-4">Version History</h1>
+            <p class="subtitle is-6 has-text-grey">@_vm.ItemTitle</p>
+        </div>
+    </div>
+
+    <section class="section pt-4">
+        <div class="container">
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">Version history for @_vm.ItemTitle</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Version</th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Modified</th>
+                            <th scope="col">Published</th>
+                            <th scope="col">Status</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in _vm.Versions)
+                        {
+                            <tr>
+                                <td><span class="tag is-light">v@(v.Version)</span></td>
+                                <td>@v.Title</td>
+                                <td>@v.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    @if (v.IsPublished)
+                                    {
+                                        <span class="tag is-success">Yes</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag is-warning">No</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (v.IsLatest)
+                                    {
+                                        <span class="tag is-info">Current</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag is-light">Historical</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a href="@EditUrl(v.Id)" class="button is-small">Edit</a>
+                                        @if (!v.IsLatest)
+                                        {
+                                            <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(v)">
+                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                <span>Delete</span>
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+}
+
+@if (_pendingDelete is { } pending)
+{
+    <div class="modal is-active" role="dialog" aria-modal="true">
+        <div class="modal-background" @onclick="CancelDelete"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <h2 class="modal-card-title">Delete version</h2>
+                <button class="delete" aria-label="Close dialog" @onclick="CancelDelete"></button>
+            </header>
+            <section class="modal-card-body">
+                Are you sure you want to delete <strong>v@(pending.Version)</strong>?
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button is-danger confirm-delete" @onclick="() => ConfirmDeleteAsync(pending)">Delete</button>
+                <button class="button cancel-delete" @onclick="CancelDelete">Cancel</button>
+            </footer>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string ContentType { get; set; } = default!;
+    [Parameter] public Guid MasterId { get; set; }
+    [Parameter] public string? ParentKey { get; set; }
+    [Parameter] public string? ChildType { get; set; }
+
+    private VersionHistoryViewModel? _vm;
+    private VersionItemViewModel? _pendingDelete;
+    private IAdminCrudHandler? _handler;
+
+    private string ListUrl => AdminRoutes.ListUrl(ContentType);
+    private string BackUrl => ParentKey is null ? ListUrl : $"{ListUrl}/{ParentKey}/{ChildType}";
+    private string EditUrl(Guid versionId) => ParentKey is null
+        ? $"{ListUrl}/create?restoreId={versionId}"
+        : $"{ListUrl}/{ParentKey}/{ChildType}/create?restoreId={versionId}";
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _handler = Handlers.GetHandler(ContentType);
+        var child = _handler?.ChildHandler;
+        _vm = ParentKey is null
+            ? _handler is null ? null : await _handler.GetVersionHistoryViewModelAsync(MasterId)
+            : child is null ? null : await child.GetChildVersionHistoryViewModelAsync(ParentKey, MasterId);
+    }
+
+    private void RequestDelete(VersionItemViewModel item) => _pendingDelete = item;
+
+    private void CancelDelete() => _pendingDelete = null;
+
+    private async Task ConfirmDeleteAsync(VersionItemViewModel item)
+    {
+        if (ParentKey is null)
+            await _handler!.DeleteVersionAsync(item.Id);
+        else
+            await _handler!.ChildHandler!.DeleteChildVersionAsync(item.Id);
+
+        await LoadAsync();
+        _pendingDelete = null;
+    }
+}

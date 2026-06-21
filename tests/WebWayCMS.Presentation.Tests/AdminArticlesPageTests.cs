@@ -81,7 +81,7 @@ public class AdminArticlesPageTests
 				Assert.That(cut.Markup, Does.Contain("Company News — Articles"));
 				Assert.That(cut.Markup, Does.Contain("Alpha"));
 				Assert.That(cut.Markup, Does.Contain("Beta"));
-				Assert.That(cut.Markup, Does.Contain($"/versions/{mastered.MasterId}")); // mastered -> link
+				Assert.That(cut.Markup, Does.Contain($"/admin/versions/articles/news/articles/{mastered.MasterId}")); // mastered -> version-history link
 				Assert.That(cut.FindAll("a.is-info"), Has.Count.EqualTo(1)); // only the mastered row has Versions
 				Assert.That(cut.Markup, Does.Not.Contain("modal is-active"));
 			});

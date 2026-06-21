@@ -62,7 +62,7 @@
                                 <td>@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="buttons are-small">
-                                        <a href="/admin/contentblocks/versions/@cb.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a href="/admin/versions/contentblocks/@cb.MasterId" class="button is-small is-info is-light">Versions</a>
                                         <a href="/admin/blocks/edit/@cb.Id" class="button is-small">Edit</a>
                                         <button type="button" class="button is-small is-danger is-light" @onclick="() => RequestDelete(cb)">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
