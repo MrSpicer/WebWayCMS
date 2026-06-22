@@ -86,7 +86,7 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
                 continue;
 
             var componentName = GetComponentName(type, attribute);
-            var info = BuildComponentInfo(type, attribute, componentName);
+            var info = BuildComponentInfo(attribute, componentName);
 
             _components.Add(info);
             _componentsByName[componentName] = info;
@@ -116,7 +116,7 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
         return name;
     }
 
-    private static ContentZoneComponentInfo BuildComponentInfo(Type type, ContentZoneComponentAttribute attribute, string componentName)
+    private static ContentZoneComponentInfo BuildComponentInfo(ContentZoneComponentAttribute attribute, string componentName)
     {
         var info = new ContentZoneComponentInfo
         {
@@ -126,7 +126,6 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
             Category = attribute.Category,
             IconClass = attribute.IconClass,
             Order = attribute.Order,
-            ViewComponentType = type,
             ConfigurationType = attribute.ConfigurationType
         };
 

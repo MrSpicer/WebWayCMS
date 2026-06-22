@@ -11,7 +11,6 @@ using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
-using WebWayCMS.TagHelpers;         // FormFieldsTagHelper
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Mvc;
@@ -201,7 +200,8 @@ public static class ServiceCollectionExtensions
 		var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
 		services.AddSingleton<IMapper>(mapperConfig.CreateMapper());
 
-		// Register CMS.Core (controllers), CMS.Forms (tag helpers), CMS.Presentation (ViewComponents + compiled views)
+		// Register CMS.Core as an MVC application part so its page controllers are discovered (the
+		// view layer is Blazor, so no Forms tag-helper / Presentation view parts are needed).
 		// Sub-route validation is performed inside PageRouteTransformer (it only resolves a
 		// page for a sub-route some ISubRouteContent resolver can serve), so no global filter
 		// is needed here.
@@ -211,10 +211,6 @@ public static class ServiceCollectionExtensions
 			var coreAsm = typeof(GenericPageController).Assembly; // CMS.Core (page controllers)
 			if (!apm.ApplicationParts.Any(p => p.Name == coreAsm.GetName().Name))
 				apm.ApplicationParts.Add(new AssemblyPart(coreAsm));
-
-			var formsAsm = typeof(FormFieldsTagHelper).Assembly; // CMS.Forms (tag helper)
-			if (!apm.ApplicationParts.Any(p => p.Name == formsAsm.GetName().Name))
-				apm.ApplicationParts.Add(new AssemblyPart(formsAsm));
 		});
 		// Blazor SSR: register the Razor Components host alongside MVC so the CMS view layer
 		// can render Razor components, with Interactive Server available for admin editing UI.

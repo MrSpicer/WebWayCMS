@@ -39,11 +39,6 @@ public class ContentZoneComponentInfo
     public int Order { get; set; } = 0;
 
     /// <summary>
-    /// Gets or sets the Type of the ViewComponent class.
-    /// </summary>
-    public Type ViewComponentType { get; set; } = null!;
-
-    /// <summary>
     /// Gets or sets the Type of the configuration model class.
     /// Null if the component has no configuration.
     /// </summary>
