@@ -11,50 +11,58 @@
 *@
 <PageTitle>Log in</PageTitle>
 
-<h1 class="title is-4">Log in</h1>
-<h2 class="subtitle is-6">Use a local account to log in.</h2>
+<div class="columns">
+    <div class="column is-one-third">
+        <h2 class="title is-5">Use a local account to log in.</h2>
+        <hr />
 
-<StatusMessage Message="@errorMessage" />
+        <StatusMessage Message="@errorMessage" />
 
-<EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
-    <DataAnnotationsValidator />
+        <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+            <DataAnnotationsValidator />
 
-    <div class="field">
-        <label class="label" for="Input.Email">Email</label>
-        <div class="control">
-            <InputText @bind-Value="Input.Email" id="Input.Email" class="input" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-        </div>
-        <ValidationMessage For="() => Input.Email" class="help is-danger" />
+            <div class="field">
+                <label class="label" for="Input.Email">Email</label>
+                <div class="control">
+                    <InputText @bind-Value="Input.Email" id="Input.Email" class="input" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                </div>
+                <ValidationMessage For="() => Input.Email" class="help is-danger" />
+            </div>
+
+            <div class="field">
+                <label class="label" for="Input.Password">Password</label>
+                <div class="control">
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="input" autocomplete="current-password" aria-required="true" placeholder="password" />
+                </div>
+                <ValidationMessage For="() => Input.Password" class="help is-danger" />
+            </div>
+
+            <div class="field">
+                <label class="checkbox">
+                    <InputCheckbox @bind-Value="Input.RememberMe" /> Remember me
+                </label>
+            </div>
+
+            <div class="field">
+                <div class="control">
+                    <button type="submit" class="button is-primary is-fullwidth">Log in</button>
+                </div>
+            </div>
+
+            <div class="content">
+                <p><a href="Account/ForgotPassword">Forgot your password?</a></p>
+                <p><a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a></p>
+                <p><a href="Account/ResendEmailConfirmation">Resend email confirmation</a></p>
+            </div>
+        </EditForm>
     </div>
 
-    <div class="field">
-        <label class="label" for="Input.Password">Password</label>
-        <div class="control">
-            <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="input" autocomplete="current-password" aria-required="true" placeholder="password" />
-        </div>
-        <ValidationMessage For="() => Input.Password" class="help is-danger" />
+    <div class="column">
+        <h3 class="title is-5">Use another service to log in.</h3>
+        <hr />
+        <ExternalLoginPicker />
     </div>
-
-    <div class="field">
-        <label class="checkbox">
-            <InputCheckbox @bind-Value="Input.RememberMe" /> Remember me
-        </label>
-    </div>
-
-    <div class="field">
-        <button type="submit" class="button is-primary">Log in</button>
-    </div>
-
-    <div class="content">
-        <p><a href="Account/ForgotPassword">Forgot your password?</a></p>
-        <p><a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a></p>
-        <p><a href="Account/ResendEmailConfirmation">Resend email confirmation</a></p>
-    </div>
-</EditForm>
-
-<hr />
-<h3 class="title is-6">Use another service to log in.</h3>
-<ExternalLoginPicker />
+</div>
 
 @code {
     private string? errorMessage;

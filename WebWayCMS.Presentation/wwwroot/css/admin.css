@@ -542,3 +542,116 @@ hr {
 .tabs a { color: var(--admin-text-muted); border-bottom-color: var(--admin-border); }
 .tabs a:hover { color: var(--admin-text); border-bottom-color: var(--admin-text); }
 .tabs li.is-active a { color: var(--admin-primary); border-bottom-color: var(--admin-primary); }
+
+/* =============================================================
+   Account / Identity pages (navbar-less admin-shell)
+   The routable /Account/* pages render inside the App root <body class="admin-shell">,
+   so they inherit the dark surface. Centre the forms and suppress the focus-on-navigate
+   outline drawn on the routed page heading (FocusOnNavigate Selector="h1").
+   ============================================================= */
+body.admin-shell > .section {
+  min-height: 100vh;
+}
+/* FocusOnNavigate (Routes.razor, Selector="h1") focuses the page heading after each
+   navigation and gives it tabindex="-1". Suppress the keyboard focus ring on those
+   non-interactive programmatic focus targets so it doesn't draw a box over headings;
+   real interactive controls still get the :focus-visible ring above. */
+[tabindex="-1"]:focus,
+h1.title:focus,
+h2.title:focus {
+  outline: none;
+}
+
+/* =============================================================
+   Content-Zone Editor (interactive Blazor ContentZoneEditor)
+   Restyled in the Blazor idiom for the component's own classes
+   (.content-zone-editor / .zone-item-list / .zone-object-edit), replacing the
+   deleted content-zone-edit.css.
+   ============================================================= */
+.content-zone-editor {
+  border: 2px dashed var(--admin-border);
+  background: var(--admin-surface-raised);
+  border-radius: var(--admin-radius);
+  padding: 1.25rem;
+}
+
+.content-zone-editor > .title {
+  margin-bottom: 1rem;
+}
+
+.content-zone-editor > .has-text-grey {
+  padding: 1.5rem 0;
+  text-align: center;
+}
+
+.zone-item-list {
+  list-style: none;
+  margin: 0 0 1rem 0;
+  padding: 0;
+}
+
+.zone-object-edit {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.zone-object-edit:last-child {
+  margin-bottom: 0;
+}
+
+.zone-object-label {
+  display: inline-block;
+  font-weight: 600;
+  color: var(--admin-text);
+  margin-bottom: 0.5rem;
+}
+
+.zone-object-edit .buttons {
+  margin-bottom: 0;
+}
+
+.zone-object-preview {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--admin-border);
+  color: var(--admin-text-muted);
+}
+
+/* =============================================================
+   CKEditor 5 dark theme (inline editor lives inside .admin-shell)
+   Map CKEditor's design tokens onto the admin palette so the rich-text
+   editor stops rendering bright white against the dark admin theme.
+   ============================================================= */
+.admin-shell {
+  --ck-color-base-background: var(--admin-surface-raised);
+  --ck-color-base-foreground: var(--admin-surface);
+  --ck-color-base-border: var(--admin-border);
+  --ck-color-base-text: var(--admin-text);
+  --ck-color-text: var(--admin-text);
+  --ck-color-toolbar-background: var(--admin-surface);
+  --ck-color-toolbar-border: var(--admin-border);
+  --ck-color-panel-background: var(--admin-surface-raised);
+  --ck-color-panel-border: var(--admin-border);
+  --ck-color-button-default-background: transparent;
+  --ck-color-button-default-hover-background: rgba(255, 255, 255, 0.08);
+  --ck-color-button-default-active-background: rgba(255, 255, 255, 0.12);
+  --ck-color-button-on-background: rgba(129, 140, 248, 0.18);
+  --ck-color-button-on-hover-background: rgba(129, 140, 248, 0.28);
+  --ck-color-input-background: var(--admin-surface-raised);
+  --ck-color-input-border: var(--admin-border);
+  --ck-color-input-text: var(--admin-text);
+}
+
+.admin-shell .ck.ck-content,
+.admin-shell .ck.ck-editor__main > .ck-editor__editable {
+  background: var(--admin-surface-raised);
+  color: var(--admin-text);
+}
+
+.admin-shell .ck.ck-button,
+.admin-shell .ck.ck-toolbar .ck-button {
+  color: var(--admin-text);
+}
