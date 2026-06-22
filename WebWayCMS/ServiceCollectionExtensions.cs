@@ -225,15 +225,23 @@ public static class ServiceCollectionExtensions
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IContentZoneResolver, WebWayCMS.Presentation.Rendering.ContentZoneResolver>();
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IArticleWidgetResolver, WebWayCMS.Presentation.Rendering.ArticleWidgetResolver>();
 		services.AddScoped<WebWayCMS.Presentation.Rendering.IFormOptionsProvider, WebWayCMS.Presentation.Rendering.FormOptionsProvider>();
+		// All four registries scan the same set: the CMS Presentation assembly (built-in widgets) and
+		// the host's entry assembly (host-provided widgets, page views, content-zone views, and site
+		// chrome), discovered by convention via their marker attributes.
+		static Assembly[] ComponentAssemblies() => new[]
+		{
+			typeof(WebWayCMS.Presentation.Components.Widgets.ContentBlockWidget).Assembly,
+			Assembly.GetEntryAssembly()
+		}.Where(a => a != null).Distinct().Cast<Assembly>().ToArray();
+
 		services.AddSingleton<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(_ =>
-			new WebWayCMS.Presentation.Rendering.ContentZoneWidgetRegistry(
-				new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
-				{
-					["ContentBlock"] = typeof(WebWayCMS.Presentation.Components.Widgets.ContentBlockWidget),
-					["Layout"] = typeof(WebWayCMS.Presentation.Components.Widgets.LayoutWidget),
-					["Page"] = typeof(WebWayCMS.Presentation.Components.Widgets.PageNavigationWidget),
-					["Article"] = typeof(WebWayCMS.Presentation.Components.Widgets.ArticleWidget),
-				}));
+			WebWayCMS.Presentation.Rendering.ContentZoneWidgetRegistry.FromAssemblies(ComponentAssemblies()));
+		services.AddSingleton<WebWayCMS.Presentation.Rendering.ICmsChromeRegistry>(_ =>
+			new WebWayCMS.Presentation.Rendering.CmsChromeRegistry(ComponentAssemblies()));
+		services.AddSingleton<WebWayCMS.Presentation.Rendering.ICmsPageViewRegistry>(_ =>
+			new WebWayCMS.Presentation.Rendering.CmsPageViewRegistry(ComponentAssemblies()));
+		services.AddSingleton<WebWayCMS.Presentation.Rendering.IContentZoneViewRegistry>(_ =>
+			new WebWayCMS.Presentation.Rendering.ContentZoneViewRegistry(ComponentAssemblies()));
 	}
 
 	static void ConfigureAuthorization(IServiceCollection services)

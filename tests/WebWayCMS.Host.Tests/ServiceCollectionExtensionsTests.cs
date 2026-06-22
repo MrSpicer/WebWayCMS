@@ -116,6 +116,9 @@ public class ServiceCollectionExtensionsTests
 			Assert.That(p.GetService<WebWayCMS.Rendering.ICmsPageRenderer>(), Is.Not.Null);
 			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.IContentZoneResolver>(), Is.Not.Null);
 			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.IContentZoneWidgetRegistry>(), Is.Not.Null);
+			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.ICmsChromeRegistry>(), Is.Not.Null);
+			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.ICmsPageViewRegistry>(), Is.Not.Null);
+			Assert.That(p.GetService<WebWayCMS.Presentation.Rendering.IContentZoneViewRegistry>(), Is.Not.Null);
 		});
 	}
 }

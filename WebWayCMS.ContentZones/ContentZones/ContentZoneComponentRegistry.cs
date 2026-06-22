@@ -101,20 +101,7 @@ public class ContentZoneComponentRegistry : IContentZoneComponentRegistry
     }
 
     private static string GetComponentName(Type type, ContentZoneComponentAttribute attribute)
-    {
-        // An explicit Name on the attribute wins (e.g. PageNavigationWidget -> "Page").
-        if (!string.IsNullOrEmpty(attribute.Name))
-            return attribute.Name;
-
-        // Otherwise fall back to the class name with a known widget/component suffix removed.
-        var name = type.Name;
-        foreach (var suffix in new[] { "Widget", "ViewComponent" })
-        {
-            if (name.EndsWith(suffix, StringComparison.Ordinal))
-                return name[..^suffix.Length];
-        }
-        return name;
-    }
+        => ContentZoneComponentNaming.ResolveName(type, attribute);
 
     private static ContentZoneComponentInfo BuildComponentInfo(ContentZoneComponentAttribute attribute, string componentName)
     {

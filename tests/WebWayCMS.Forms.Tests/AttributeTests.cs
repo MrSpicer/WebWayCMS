@@ -74,4 +74,70 @@ public class AttributeTests
 			Assert.That(attr.ConfigurationType, Is.EqualTo(typeof(Config)));
 		});
 	}
+
+	[Test]
+	public void CmsChromeAttribute_DefaultOrderIsZero()
+		=> Assert.That(new CmsChromeAttribute().Order, Is.EqualTo(0));
+
+	[Test]
+	public void CmsPageViewAttribute_Constructors()
+	{
+		var def = new CmsPageViewAttribute();
+		var ctor = new CmsPageViewAttribute("Generic", "Wide");
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(def.ForController, Is.Empty);
+			Assert.That(def.Name, Is.Empty);
+			Assert.That(ctor.ForController, Is.EqualTo("Generic"));
+			Assert.That(ctor.Name, Is.EqualTo("Wide"));
+		});
+	}
+
+	[Test]
+	public void ContentZoneViewAttribute_Constructors()
+	{
+		var def = new ContentZoneViewAttribute();
+		var ctor = new ContentZoneViewAttribute("ContentBlock", "Card");
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(def.ForComponent, Is.Empty);
+			Assert.That(def.Name, Is.Empty);
+			Assert.That(ctor.ForComponent, Is.EqualTo("ContentBlock"));
+			Assert.That(ctor.Name, Is.EqualTo("Card"));
+		});
+	}
+
+	private sealed class FooWidget { }
+	private sealed class BarViewComponent { }
+	private sealed class Plain { }
+
+	[Test]
+	public void ContentZoneComponentNaming_NullArgs_Throw()
+	{
+		Assert.Multiple(() =>
+		{
+			Assert.That(() => ContentZoneComponentNaming.ResolveName(null!, new ContentZoneComponentAttribute()),
+				Throws.ArgumentNullException);
+			Assert.That(() => ContentZoneComponentNaming.ResolveName(typeof(FooWidget), null!),
+				Throws.ArgumentNullException);
+		});
+	}
+
+	[Test]
+	public void ContentZoneComponentNaming_ResolvesExplicitNameSuffixesAndPlain()
+	{
+		Assert.Multiple(() =>
+		{
+			Assert.That(ContentZoneComponentNaming.ResolveName(typeof(FooWidget), new ContentZoneComponentAttribute { Name = "Explicit" }),
+				Is.EqualTo("Explicit"));
+			Assert.That(ContentZoneComponentNaming.ResolveName(typeof(FooWidget), new ContentZoneComponentAttribute()),
+				Is.EqualTo("Foo"));
+			Assert.That(ContentZoneComponentNaming.ResolveName(typeof(BarViewComponent), new ContentZoneComponentAttribute()),
+				Is.EqualTo("Bar"));
+			Assert.That(ContentZoneComponentNaming.ResolveName(typeof(Plain), new ContentZoneComponentAttribute()),
+				Is.EqualTo("Plain"));
+		});
+	}
 }
