@@ -2,14 +2,23 @@
 @using WebWayCMS.Controllers
 @using WebWayCMS.Data.Models
 @using WebWayCMS.Presentation.Rendering
+@inject ICmsPageViewRegistry PageViews
 @*
     Root Blazor component returned by GenericPageController (via ICmsPageRenderer /
-    RazorComponentResult). Establishes the per-request CmsRenderContext cascade and renders
-    the page's "Main" content zone inside the document shell.
+    RazorComponentResult). Establishes the per-request CmsRenderContext cascade and renders the page
+    body inside the document shell. The body is a host-provided [CmsPageView] component when the page
+    selects one (by controller + view name); otherwise it is the page's "Main" content zone.
 *@
 <CascadingValue Value="_context" IsFixed="true">
     <CmsLayout Title="@_title" Meta="@_config?.Meta" Style="@_config?.Style" Script="@_config?.Script">
-        <ContentZone ZoneName="Main" />
+        @if (_pageViewType is not null)
+        {
+            <DynamicComponent Type="_pageViewType" />
+        }
+        else
+        {
+            <ContentZone ZoneName="Main" />
+        }
     </CmsLayout>
 </CascadingValue>
 
@@ -21,11 +30,21 @@
     private CmsRenderContext _context = default!;
     private GenericPageConfiguration? _config;
     private string _title = string.Empty;
+    private Type? _pageViewType;
 
     protected override void OnParametersSet()
     {
         _context = new CmsRenderContext(Page, Config, SubRoute);
         _config = Config as GenericPageConfiguration;
         _title = CmsPageTitle.ForPage(Page);
+        _pageViewType = ResolvePageView();
+    }
+
+    private Type? ResolvePageView()
+    {
+        if (Page is null || string.IsNullOrWhiteSpace(Page.ViewName))
+            return null;
+
+        return PageViews.Resolve(Page.ControllerName, Page.ViewName);
     }
 }

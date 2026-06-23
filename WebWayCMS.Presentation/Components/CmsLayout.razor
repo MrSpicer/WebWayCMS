@@ -1,8 +1,14 @@
 @namespace WebWayCMS.Presentation.Components
+@using WebWayCMS.Presentation.Rendering
+@inject ICmsChromeRegistry ChromeRegistry
 @*
     Document shell for Blazor-rendered CMS pages - the Blazor equivalent of the library's
     minimal Views/Shared/_Layout.cshtml fallback. Emits the full HTML document, the
     HeadOutlet, the interactive runtime script, and injects per-page Meta/Style/Script.
+
+    The CMS owns the document and framework script; a host brands the public site by providing a
+    [CmsChrome] component (see CmsChromeBase). When present, the page body is wrapped in that chrome;
+    otherwise it renders in the default <main> element.
 *@
 <!DOCTYPE html>
 <html lang="en">
@@ -21,9 +27,16 @@
     <HeadOutlet />
 </head>
 <body>
-    <main role="main">
-        @ChildContent
-    </main>
+    @if (_chromeType is not null)
+    {
+        <DynamicComponent Type="_chromeType" Parameters="_chromeParameters" />
+    }
+    else
+    {
+        <main role="main">
+            @ChildContent
+        </main>
+    }
     @if (!string.IsNullOrWhiteSpace(Script))
     {
         <script>@((MarkupString)Script!)</script>
@@ -38,4 +51,14 @@
     [Parameter] public string? Style { get; set; }
     [Parameter] public string? Script { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private Type? _chromeType;
+    private IDictionary<string, object> _chromeParameters = new Dictionary<string, object>();
+
+    protected override void OnParametersSet()
+    {
+        _chromeType = ChromeRegistry.ChromeType;
+        // The host chrome receives the page body through its ChildContent parameter (CmsChromeBase).
+        _chromeParameters = new Dictionary<string, object> { ["ChildContent"] = ChildContent! };
+    }
 }

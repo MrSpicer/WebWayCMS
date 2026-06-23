@@ -54,7 +54,7 @@ public class AdminPageUpsertTests
 		public required BunitContext Ctx { get; init; }
 		public required IAdminCrudHandler Handler { get; init; }
 		public required IPageControllerRegistry Controllers { get; init; }
-		public required IViewDiscoveryService Views { get; init; }
+		public required ICmsPageViewRegistry Views { get; init; }
 		public required IFormOptionsProvider Options { get; init; }
 		public NavigationManager Nav => Ctx.Services.GetRequiredService<NavigationManager>();
 	}
@@ -69,7 +69,7 @@ public class AdminPageUpsertTests
 		var controllers = Substitute.For<IPageControllerRegistry>();
 		controllers.GetAllControllers().Returns(new[] { BlogController(), SimpleController() });
 
-		var views = Substitute.For<IViewDiscoveryService>();
+		var views = Substitute.For<ICmsPageViewRegistry>();
 		views.GetControllerViews(Arg.Any<string>()).Returns(new[] { "Default", "Wide" });
 
 		var options = Substitute.For<IFormOptionsProvider>();

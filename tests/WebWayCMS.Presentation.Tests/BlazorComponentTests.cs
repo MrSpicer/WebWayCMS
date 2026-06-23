@@ -138,11 +138,19 @@ public class CmsPageHostTests
 		resolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<Guid?>(), Arg.Any<PageDTO?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
 			.Returns(new ContentZoneViewModel { Id = Guid.Empty, ZoneObjects = new List<ContentZoneObject>() });
 
+		var chrome = Substitute.For<ICmsChromeRegistry>();
+		chrome.ChromeType.Returns((Type?)null);
+
+		var pageViews = Substitute.For<ICmsPageViewRegistry>();
+		pageViews.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
+
 		return s =>
 		{
 			s.AddSingleton(resolver);
 			s.AddSingleton<IContentZoneWidgetRegistry>(new ContentZoneWidgetRegistry(new Dictionary<string, Type>()));
 			s.AddSingleton(Substitute.For<IContentBlockModel>());
+			s.AddSingleton(chrome);
+			s.AddSingleton(pageViews);
 		};
 	}
 
@@ -182,6 +190,102 @@ public class CmsPageHostTests
 		{
 			Assert.That(html, Does.Contain("<title>Page - WebWayCMS</title>"));
 			Assert.That(html, Does.Not.Contain("<style>"));
+		});
+	}
+
+	private sealed class MarkerPageView : Microsoft.AspNetCore.Components.ComponentBase
+	{
+		protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+			=> builder.AddMarkupContent(0, "<div id=\"host-page-view\">VIEW</div>");
+	}
+
+	[Test]
+	public async Task PageWithRegisteredView_RendersViewAsBody()
+	{
+		var page = new PageDTO
+		{
+			ContentMeta = new ContentDTO { Title = "Home" },
+			ControllerName = "Generic",
+			ViewName = "Wide",
+		};
+
+		var configure = WithEmptyZone();
+		var html = await BlazorRenderHarness.RenderAsync<CmsPageHost>(
+			new Dictionary<string, object?> { ["Page"] = page, ["Config"] = new WebWayCMS.Controllers.GenericPageConfiguration(), ["SubRoute"] = null },
+			s =>
+			{
+				configure(s);
+				// Last registration wins: a page-view registry that resolves the host view component.
+				var pageViews = Substitute.For<ICmsPageViewRegistry>();
+				pageViews.Resolve("Generic", "Wide").Returns(typeof(MarkerPageView));
+				s.AddSingleton(pageViews);
+			});
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(html, Does.Contain("id=\"host-page-view\""));
+			Assert.That(html, Does.Not.Contain("class=\"content-zone\""));
+		});
+	}
+}
+
+[TestFixture]
+public class CmsLayoutChromeTests
+{
+	private sealed class MarkerChrome : Microsoft.AspNetCore.Components.ComponentBase
+	{
+		[Microsoft.AspNetCore.Components.Parameter] public Microsoft.AspNetCore.Components.RenderFragment? ChildContent { get; set; }
+
+		protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+		{
+			builder.OpenElement(0, "header");
+			builder.AddContent(1, "CHROME-HEADER");
+			builder.CloseElement();
+			builder.OpenElement(2, "main");
+			builder.AddAttribute(3, "class", "host-chrome");
+			builder.AddContent(4, ChildContent);
+			builder.CloseElement();
+		}
+	}
+
+	private static Microsoft.AspNetCore.Components.RenderFragment Body =>
+		b => b.AddMarkupContent(0, "<p>BODY</p>");
+
+	private static Action<IServiceCollection> WithChrome(Type? chromeType) => s =>
+	{
+		var chrome = Substitute.For<ICmsChromeRegistry>();
+		chrome.ChromeType.Returns(chromeType);
+		s.AddSingleton(chrome);
+	};
+
+	[Test]
+	public async Task NoChrome_RendersDefaultMainAroundBody()
+	{
+		var html = await BlazorRenderHarness.RenderAsync<CmsLayout>(
+			new Dictionary<string, object?> { ["Title"] = "T", ["ChildContent"] = Body },
+			WithChrome(null));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(html, Does.Contain("<main role=\"main\">"));
+			Assert.That(html, Does.Contain("<p>BODY</p>"));
+			Assert.That(html, Does.Not.Contain("CHROME-HEADER"));
+		});
+	}
+
+	[Test]
+	public async Task WithChrome_WrapsBodyInHostChrome_NoDefaultMain()
+	{
+		var html = await BlazorRenderHarness.RenderAsync<CmsLayout>(
+			new Dictionary<string, object?> { ["Title"] = "T", ["ChildContent"] = Body },
+			WithChrome(typeof(MarkerChrome)));
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(html, Does.Contain("CHROME-HEADER"));
+			Assert.That(html, Does.Contain("class=\"host-chrome\""));
+			Assert.That(html, Does.Contain("<p>BODY</p>"));
+			Assert.That(html, Does.Not.Contain("role=\"main\""));
 		});
 	}
 }
