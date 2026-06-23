@@ -112,9 +112,6 @@ public static class ServiceCollectionExtensions
 		services.AddHttpContextAccessor();
 		services.AddSingleton<WebWayCMS.Services.UserService>();
 
-		// ViewComponent view discovery service
-		services.AddScoped<WebWayCMS.Services.IViewDiscoveryService, WebWayCMS.Services.ViewDiscoveryService>();
-
 		// Content Zone Component Registry - scans assemblies for registered ViewComponents
 		services.AddSingleton<IContentZoneComponentRegistry>(sp =>
 		{

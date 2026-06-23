@@ -23,16 +23,13 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public ContentZoneModel(
         IContentZoneService service,
         IPageService pageService,
-        IContentZoneComponentRegistry registry,
-        IViewDiscoveryService viewDiscoveryService)
+        IContentZoneComponentRegistry registry)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _pageService = pageService ?? throw new ArgumentNullException(nameof(pageService));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _childHandler = new ContentZoneChildHandler(this);
-        _registryHandler = new ContentZoneRegistryHandler(
-            registry,
-            viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService)));
+        _registryHandler = new ContentZoneRegistryHandler(registry);
     }
 
     // IContentZoneModel members
@@ -449,16 +446,10 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
 {
     private readonly IContentZoneComponentRegistry _registry;
-    private readonly IViewDiscoveryService _viewDiscoveryService;
-    private readonly Serilog.ILogger _logger =
-        Serilog.Log.ForContext<ContentZoneRegistryHandler>();
 
-    public ContentZoneRegistryHandler(
-        IContentZoneComponentRegistry registry,
-        IViewDiscoveryService viewDiscoveryService)
+    public ContentZoneRegistryHandler(IContentZoneComponentRegistry registry)
     {
         _registry = registry;
-        _viewDiscoveryService = viewDiscoveryService;
     }
 
     public IActionResult GetAll()
@@ -483,40 +474,23 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
         if (component == null)
             return new NotFoundObjectResult(new { error = $"Component '{name}' not found." });
 
-        var properties = component.Properties.Select(p =>
+        var properties = component.Properties.Select(p => new
         {
-            Dictionary<string, string> dropdownOptions = p.DropdownOptions;
-
-            if (p.EditorType == EditorType.ViewPicker && !string.IsNullOrWhiteSpace(p.ViewComponentName))
-            {
-                var views = _viewDiscoveryService.GetAvailableViews(p.ViewComponentName);
-                if (views.Any())
-                    dropdownOptions = views.ToDictionary(v => v, v => v);
-                else
-                {
-                    _logger.Warning("No views found for ViewComponent '{ComponentName}'", p.ViewComponentName);
-                    dropdownOptions = new Dictionary<string, string>();
-                }
-            }
-
-            return new
-            {
-                name = p.Name,
-                label = p.Label,
-                helpText = p.HelpText,
-                placeholder = p.Placeholder,
-                editorType = p.EditorType.ToString().ToLowerInvariant(),
-                isRequired = p.IsRequired,
-                defaultValue = p.DefaultValue,
-                order = p.Order,
-                group = p.Group,
-                entityType = p.EntityType,
-                dropdownOptions,
-                viewComponentName = p.ViewComponentName,
-                min = p.Min,
-                max = p.Max,
-                maxLength = p.MaxLength
-            };
+            name = p.Name,
+            label = p.Label,
+            helpText = p.HelpText,
+            placeholder = p.Placeholder,
+            editorType = p.EditorType.ToString().ToLowerInvariant(),
+            isRequired = p.IsRequired,
+            defaultValue = p.DefaultValue,
+            order = p.Order,
+            group = p.Group,
+            entityType = p.EntityType,
+            dropdownOptions = p.DropdownOptions,
+            viewComponentName = p.ViewComponentName,
+            min = p.Min,
+            max = p.Max,
+            maxLength = p.MaxLength
         }).OrderBy(p => p.order).ToList();
 
         return new JsonResult(new

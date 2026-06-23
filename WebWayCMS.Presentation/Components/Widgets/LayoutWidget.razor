@@ -26,6 +26,12 @@
         ["AsymmetricRightHeavy"] = typeof(AsymmetricRightHeavyLayout),
     };
 
+    /// <summary>
+    /// The built-in layout template names, in declared order. Single source of truth for the admin
+    /// "View Name" picker (surfaced via <c>FormOptionsProvider</c>) and the render-time lookup.
+    /// </summary>
+    public static IReadOnlyList<string> LayoutViewNames { get; } = Layouts.Keys.ToList();
+
     private Type _layoutType = typeof(DefaultLayout);
 
     protected override void OnParametersSet()

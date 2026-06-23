@@ -5,7 +5,6 @@ using NUnit.Framework;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
-using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -23,18 +22,9 @@ public class CoreInternalsTests
 	}
 
 	[Test]
-	public void PageRegistryHandler_NullViewDiscovery_Throws()
-	{
-		var registry = Substitute.For<IPageControllerRegistry>();
-
-		Assert.That(() => new PageRegistryHandler(registry, null!), Throws.ArgumentNullException);
-	}
-
-	[Test]
 	public void PageRegistryHandler_ConstructsWithValidArguments()
 	{
 		Assert.That(() => new PageRegistryHandler(
-			Substitute.For<IPageControllerRegistry>(),
-			Substitute.For<IViewDiscoveryService>()), Throws.Nothing);
+			Substitute.For<IPageControllerRegistry>()), Throws.Nothing);
 	}
 }

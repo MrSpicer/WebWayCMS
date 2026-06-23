@@ -10,7 +10,6 @@ using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
-using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -20,7 +19,6 @@ public class PageModelTests
 	private IPageService _service = null!;
 	private IMapper _mapper = null!;
 	private IPageControllerRegistry _registry = null!;
-	private IViewDiscoveryService _viewDiscovery = null!;
 	private PageModel _model = null!;
 
 	[SetUp]
@@ -29,8 +27,7 @@ public class PageModelTests
 		_service = Substitute.For<IPageService>();
 		_mapper = TestSupport.CreateMapper();
 		_registry = Substitute.For<IPageControllerRegistry>();
-		_viewDiscovery = Substitute.For<IViewDiscoveryService>();
-		_model = new PageModel(_service, _mapper, _registry, _viewDiscovery);
+		_model = new PageModel(_service, _mapper, _registry);
 	}
 
 	private static PageDTO Page(string route, string title = "T", bool published = true, bool hidden = false)
@@ -53,10 +50,9 @@ public class PageModelTests
 	{
 		Assert.Multiple(() =>
 		{
-			Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new PageModel(_service, null!, _registry, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new PageModel(_service, _mapper, null!, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new PageModel(_service, _mapper, _registry, null!), Throws.ArgumentNullException);
+			Assert.That(() => new PageModel(null!, _mapper, _registry), Throws.ArgumentNullException);
+			Assert.That(() => new PageModel(_service, null!, _registry), Throws.ArgumentNullException);
+			Assert.That(() => new PageModel(_service, _mapper, null!), Throws.ArgumentNullException);
 		});
 	}
 
@@ -351,7 +347,6 @@ public class PageModelTests
 				new() { Name = "ViewName", Label = "View", Order = 1 }
 			}
 		});
-		_viewDiscovery.GetControllerViews("Generic").Returns(new[] { "Default" });
 
 		var result = _model.RegistryHandler!.GetProperties("Generic");
 

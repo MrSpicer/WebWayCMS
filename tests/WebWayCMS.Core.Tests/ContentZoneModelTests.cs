@@ -14,7 +14,6 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
-using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -29,7 +28,6 @@ public class ContentZoneModelTests
 	private IContentZoneService _service = null!;
 	private IPageService _pageService = null!;
 	private IContentZoneComponentRegistry _registry = null!;
-	private IViewDiscoveryService _viewDiscovery = null!;
 	private ContentZoneModel _model = null!;
 
 	[SetUp]
@@ -38,8 +36,7 @@ public class ContentZoneModelTests
 		_service = Substitute.For<IContentZoneService>();
 		_pageService = Substitute.For<IPageService>();
 		_registry = Substitute.For<IContentZoneComponentRegistry>();
-		_viewDiscovery = Substitute.For<IViewDiscoveryService>();
-		_model = new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery);
+		_model = new ContentZoneModel(_service, _pageService, _registry);
 	}
 
 	private static ContentZoneDTO Zone(Guid? id = null, string name = "Zone", params ContentZoneItemDTO[] items)
@@ -75,10 +72,9 @@ public class ContentZoneModelTests
 	{
 		Assert.Multiple(() =>
 		{
-			Assert.That(() => new ContentZoneModel(null!, _pageService, _registry, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new ContentZoneModel(_service, null!, _registry, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new ContentZoneModel(_service, _pageService, null!, _viewDiscovery), Throws.ArgumentNullException);
-			Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, null!), Throws.ArgumentNullException);
+			Assert.That(() => new ContentZoneModel(null!, _pageService, _registry), Throws.ArgumentNullException);
+			Assert.That(() => new ContentZoneModel(_service, null!, _registry), Throws.ArgumentNullException);
+			Assert.That(() => new ContentZoneModel(_service, _pageService, null!), Throws.ArgumentNullException);
 		});
 	}
 
@@ -419,7 +415,7 @@ public class ContentZoneModelTests
 	}
 
 	[Test]
-	public void RegistryHandler_GetProperties_ViewPickerWithAndWithoutViews_AndPlainProperty()
+	public void RegistryHandler_GetProperties_ReturnsPropertiesJson()
 	{
 		_registry.GetByName("C").Returns(new ContentZoneComponentInfo
 		{
@@ -428,13 +424,10 @@ public class ContentZoneModelTests
 			Category = "General",
 			Properties = new List<FormPropertyInfo>
 			{
-				new() { Name = "WithViews", EditorType = EditorType.ViewPicker, ViewComponentName = "Has", Order = 1 },
-				new() { Name = "NoViews", EditorType = EditorType.ViewPicker, ViewComponentName = "Empty", Order = 2 },
-				new() { Name = "Plain", EditorType = EditorType.Text, Order = 3 },
+				new() { Name = "Pick", EditorType = EditorType.ViewPicker, ViewComponentName = "Layout", Order = 1 },
+				new() { Name = "Plain", EditorType = EditorType.Text, Order = 2 },
 			}
 		});
-		_viewDiscovery.GetAvailableViews("Has").Returns(new[] { "Default" });
-		_viewDiscovery.GetAvailableViews("Empty").Returns(Array.Empty<string>());
 
 		Assert.That(_model.RegistryHandler!.GetProperties("C"), Is.InstanceOf<JsonResult>());
 	}

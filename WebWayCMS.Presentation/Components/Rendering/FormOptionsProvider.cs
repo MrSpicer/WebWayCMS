@@ -1,27 +1,26 @@
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Forms;
-using WebWayCMS.Services;
+using WebWayCMS.Presentation.Components.Widgets;
 
 namespace WebWayCMS.Presentation.Rendering;
 
 /// <inheritdoc />
 public sealed class FormOptionsProvider : IFormOptionsProvider
 {
-    private readonly IViewDiscoveryService _views;
     private readonly IAdminHandlerRegistry _handlers;
 
-    public FormOptionsProvider(IViewDiscoveryService views, IAdminHandlerRegistry handlers)
+    public FormOptionsProvider(IAdminHandlerRegistry handlers)
     {
-        _views = views ?? throw new ArgumentNullException(nameof(views));
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
     }
 
     public async Task<IReadOnlyList<FormOption>> GetOptionsAsync(FormPropertyInfo prop, CancellationToken ct = default)
     {
-        // ViewPicker: the available views for the field's ViewComponent.
-        if (prop.EditorType == EditorType.ViewPicker && !string.IsNullOrEmpty(prop.ViewComponentName))
-            return _views.GetAvailableViews(prop.ViewComponentName).Select(v => new FormOption(v, v)).ToList();
+        // ViewPicker is used only by the Layout widget to pick among its built-in layout templates;
+        // host component views are selected per zone-item via IContentZoneViewRegistry instead.
+        if (prop.EditorType == EditorType.ViewPicker && string.Equals(prop.ViewComponentName, "Layout", StringComparison.OrdinalIgnoreCase))
+            return LayoutWidget.LayoutViewNames.Select(v => new FormOption(v, v)).ToList();
 
         // Guid entity picker: the entities of the field's EntityType, via the admin handler's api list.
         if (prop.EditorType == EditorType.Guid && !string.IsNullOrEmpty(prop.EntityType))

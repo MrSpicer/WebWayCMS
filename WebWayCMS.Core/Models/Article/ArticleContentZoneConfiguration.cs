@@ -31,16 +31,6 @@ public class ArticleContentZoneConfiguration
     )]
     public Guid? Id { get; set; }
 
-    [FormProperty(
-        Label = "View Name",
-        HelpText = "The view template to use. Leave empty for default behavior.",
-        Placeholder = "e.g., Article, List, Summary",
-        EditorType = EditorType.ViewPicker,
-        ViewComponentName = "Article",
-        Order = 3
-    )]
-    public string? ViewName { get; set; }
-
     public ArticleViewModel? Article { get; set; }
 
     public ArticleUpsertViewModel? UpsertModel { get; set; }

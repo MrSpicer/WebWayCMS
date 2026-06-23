@@ -5,8 +5,8 @@ using NUnit.Framework;
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Forms;
+using WebWayCMS.Presentation.Components.Widgets;
 using WebWayCMS.Presentation.Rendering;
-using WebWayCMS.Services;
 
 namespace WebWayCMS.Presentation.Tests;
 
@@ -16,29 +16,24 @@ public class FormOptionsProviderTests
 	private static FormPropertyInfo ViewPicker(string? component) => new() { EditorType = EditorType.ViewPicker, ViewComponentName = component ?? string.Empty };
 	private static FormPropertyInfo Entity(string? entityType) => new() { EditorType = EditorType.Guid, EntityType = entityType ?? string.Empty };
 
-	private static FormOptionsProvider New(IViewDiscoveryService? views = null, IAdminHandlerRegistry? handlers = null)
-		=> new(views ?? Substitute.For<IViewDiscoveryService>(), handlers ?? Substitute.For<IAdminHandlerRegistry>());
+	private static FormOptionsProvider New(IAdminHandlerRegistry? handlers = null)
+		=> new(handlers ?? Substitute.For<IAdminHandlerRegistry>());
 
 	[Test]
-	public void Constructor_Nulls_Throw()
+	public void Constructor_Null_Throws()
+		=> Assert.That(() => new FormOptionsProvider(null!), Throws.ArgumentNullException);
+
+	[Test]
+	public async Task ViewPicker_Layout_ReturnsBuiltInLayoutNames()
 	{
-		Assert.Multiple(() =>
-		{
-			Assert.That(() => new FormOptionsProvider(null!, Substitute.For<IAdminHandlerRegistry>()), Throws.ArgumentNullException);
-			Assert.That(() => new FormOptionsProvider(Substitute.For<IViewDiscoveryService>(), null!), Throws.ArgumentNullException);
-		});
+		var options = await New().GetOptionsAsync(ViewPicker("Layout"));
+
+		Assert.That(options.Select(o => o.Value), Is.EqualTo(LayoutWidget.LayoutViewNames));
 	}
 
 	[Test]
-	public async Task ViewPicker_ReturnsViewOptions()
-	{
-		var views = Substitute.For<IViewDiscoveryService>();
-		views.GetAvailableViews("Article").Returns(new[] { "Default", "Card" });
-
-		var options = await New(views: views).GetOptionsAsync(ViewPicker("Article"));
-
-		Assert.That(options.Select(o => o.Value), Is.EqualTo(new[] { "Default", "Card" }));
-	}
+	public async Task ViewPicker_NonLayoutComponent_Empty()
+		=> Assert.That(await New().GetOptionsAsync(ViewPicker("Article")), Is.Empty);
 
 	[Test]
 	public async Task ViewPicker_NoComponentName_Empty()

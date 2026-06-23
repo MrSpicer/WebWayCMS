@@ -27,13 +27,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel
     public override string UpsertViewPath => "~/Views/AdminPage/PageUpsert.cshtml";
     public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
 
-    public PageModel(IPageService service, IMapper mapper, IPageControllerRegistry registry, IViewDiscoveryService viewDiscovery)
+    public PageModel(IPageService service, IMapper mapper, IPageControllerRegistry registry)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         _registryHandler = new PageRegistryHandler(
-            registry ?? throw new ArgumentNullException(nameof(registry)),
-            viewDiscovery ?? throw new ArgumentNullException(nameof(viewDiscovery)));
+            registry ?? throw new ArgumentNullException(nameof(registry)));
     }
 
     public async Task<PageDTO?> GetByRouteAsync(string route, CancellationToken ct = default)
@@ -264,12 +263,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel
 internal sealed class PageRegistryHandler : IAdminRegistryHandler
 {
     private readonly IPageControllerRegistry _registry;
-    private readonly IViewDiscoveryService _viewDiscovery;
 
-    public PageRegistryHandler(IPageControllerRegistry registry, IViewDiscoveryService viewDiscovery)
+    public PageRegistryHandler(IPageControllerRegistry registry)
     {
         _registry = registry;
-        _viewDiscovery = viewDiscovery ?? throw new ArgumentNullException(nameof(viewDiscovery));
     }
 
     public IActionResult GetAll()
@@ -313,14 +310,11 @@ internal sealed class PageRegistryHandler : IAdminRegistryHandler
             maxLength = p.MaxLength
         }).OrderBy(p => p.order).ToList();
 
-        var availableViews = _viewDiscovery.GetControllerViews(name);
-
         return new JsonResult(new
         {
             controllerName = controller.Name,
             displayName = controller.DisplayName,
             category = controller.Category,
-            availableViews,
             properties
         });
     }
