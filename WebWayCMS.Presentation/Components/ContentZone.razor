@@ -3,6 +3,7 @@
 @using WebWayCMS.Presentation.Rendering
 @inject IContentZoneResolver Resolver
 @inject IContentZoneWidgetRegistry Widgets
+@inject IContentZoneViewRegistry Views
 @*
     Renders a content zone by slot name - the Blazor port of ContentZoneViewComponent and its
     Default.cshtml. Each item is dispatched to its Razor widget via DynamicComponent; items
@@ -18,11 +19,11 @@
             {
                 <div class="zone-object" data-ordinal="@obj.Ordinal">
                     @{
-                        var widgetType = Widgets.Resolve(obj.ComponentName);
+                        var renderType = ResolveRenderType(obj);
                     }
-                    @if (widgetType is not null)
+                    @if (renderType is not null)
                     {
-                        <DynamicComponent Type="widgetType" Parameters="BuildParameters(obj)" />
+                        <DynamicComponent Type="renderType" Parameters="BuildParameters(obj)" />
                     }
                 </div>
             }
@@ -47,6 +48,19 @@
         // A persisted zone becomes the parent of its nested zones; an unsaved (empty) zone
         // passes the inherited parent through unchanged.
         _parentForChildren = _vm.Id != Guid.Empty ? _vm.Id : ParentZoneId;
+    }
+
+    // A selected host view ("sub-view") overrides the default widget for the same component; both
+    // receive the same Config, so the view renders the widget's data differently.
+    private Type? ResolveRenderType(ContentZoneObject obj)
+    {
+        if (!string.IsNullOrWhiteSpace(obj.ViewName))
+        {
+            var viewType = Views.Resolve(obj.ComponentName, obj.ViewName);
+            if (viewType is not null)
+                return viewType;
+        }
+        return Widgets.Resolve(obj.ComponentName);
     }
 
     private static IDictionary<string, object> BuildParameters(ContentZoneObject obj)

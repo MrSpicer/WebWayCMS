@@ -23,11 +23,15 @@ public class LayoutWidgetTests
 		resolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<Guid?>(), Arg.Any<PageDTO?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
 			.Returns(new ContentZoneViewModel { Id = Guid.Empty, ZoneObjects = new List<ContentZoneObject>() });
 
+		var views = Substitute.For<IContentZoneViewRegistry>();
+		views.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
+
 		return s =>
 		{
 			s.AddSingleton(resolver);
 			s.AddSingleton<IContentZoneWidgetRegistry>(new ContentZoneWidgetRegistry(new Dictionary<string, Type>()));
 			s.AddSingleton(Substitute.For<IContentBlockModel>());
+			s.AddSingleton(views);
 		};
 	}
 

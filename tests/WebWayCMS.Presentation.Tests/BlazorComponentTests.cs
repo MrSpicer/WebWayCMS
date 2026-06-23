@@ -71,6 +71,21 @@ public class ContentZoneComponentTests
 			["ContentBlock"] = typeof(ContentBlockWidget),
 		});
 
+	private static IContentZoneViewRegistry NoViews()
+	{
+		var v = Substitute.For<IContentZoneViewRegistry>();
+		v.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
+		return v;
+	}
+
+	private sealed class MarkerZoneView : Microsoft.AspNetCore.Components.ComponentBase
+	{
+		[Microsoft.AspNetCore.Components.Parameter] public object? Config { get; set; }
+
+		protected override void BuildRenderTree(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder)
+			=> builder.AddMarkupContent(0, "<span class=\"zone-view\">VIEW</span>");
+	}
+
 	[Test]
 	public async Task WithItems_RendersMappedWidget_AndSkipsUnmapped()
 	{
@@ -98,6 +113,7 @@ public class ContentZoneComponentTests
 			{
 				s.AddSingleton(resolver);
 				s.AddSingleton(RealRegistry());
+				s.AddSingleton(NoViews());
 				s.AddSingleton(model);
 			});
 
@@ -122,10 +138,74 @@ public class ContentZoneComponentTests
 			{
 				s.AddSingleton(resolver);
 				s.AddSingleton(RealRegistry());
+				s.AddSingleton(NoViews());
 				s.AddSingleton(Substitute.For<IContentBlockModel>());
 			});
 
 		Assert.That(html.Trim(), Is.Empty);
+	}
+
+	private static IContentZoneResolver ResolverWith(ContentZoneObject item)
+	{
+		var resolver = Substitute.For<IContentZoneResolver>();
+		resolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<Guid?>(), Arg.Any<PageDTO?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+			.Returns(new ContentZoneViewModel { Id = Guid.NewGuid(), Name = "Main", ZoneObjects = new List<ContentZoneObject> { item } });
+		return resolver;
+	}
+
+	[Test]
+	public async Task ItemWithViewName_RendersHostViewInsteadOfWidget()
+	{
+		var item = new ContentZoneObject { Ordinal = 0, ComponentName = "ContentBlock", ViewName = "Card", ComponentProperties = new object() };
+		var views = Substitute.For<IContentZoneViewRegistry>();
+		views.Resolve("ContentBlock", "Card").Returns(typeof(MarkerZoneView));
+
+		var html = await BlazorRenderHarness.RenderAsync<ContentZone>(
+			new Dictionary<string, object?> { ["ZoneName"] = "Main" },
+			s =>
+			{
+				s.AddSingleton(ResolverWith(item));
+				s.AddSingleton(RealRegistry());
+				s.AddSingleton(views);
+				s.AddSingleton(Substitute.For<IContentBlockModel>());
+			});
+
+		Assert.That(html, Does.Contain("class=\"zone-view\""));
+	}
+
+	[Test]
+	public async Task ItemWithUnregisteredViewName_FallsBackToWidget()
+	{
+		var blockId = Guid.NewGuid();
+		var item = new ContentZoneObject
+		{
+			Ordinal = 0,
+			ComponentName = "ContentBlock",
+			ViewName = "Missing",
+			ComponentProperties = new ContentBlockContentZoneConfiguration { ContentBlockID = blockId },
+		};
+		var views = Substitute.For<IContentZoneViewRegistry>();
+		views.Resolve("ContentBlock", "Missing").Returns((Type?)null);
+
+		var model = Substitute.For<IContentBlockModel>();
+		model.GetViewModelByMasterIdAsync(blockId, Arg.Any<CancellationToken>())
+			.Returns(new ContentBlockViewModel { Content = "<p>fallback block</p>" });
+
+		var html = await BlazorRenderHarness.RenderAsync<ContentZone>(
+			new Dictionary<string, object?> { ["ZoneName"] = "Main" },
+			s =>
+			{
+				s.AddSingleton(ResolverWith(item));
+				s.AddSingleton(RealRegistry());
+				s.AddSingleton(views);
+				s.AddSingleton(model);
+			});
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(html, Does.Contain("<p>fallback block</p>"));
+			Assert.That(html, Does.Not.Contain("zone-view"));
+		});
 	}
 }
 
@@ -144,6 +224,9 @@ public class CmsPageHostTests
 		var pageViews = Substitute.For<ICmsPageViewRegistry>();
 		pageViews.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
 
+		var zoneViews = Substitute.For<IContentZoneViewRegistry>();
+		zoneViews.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
+
 		return s =>
 		{
 			s.AddSingleton(resolver);
@@ -151,6 +234,7 @@ public class CmsPageHostTests
 			s.AddSingleton(Substitute.For<IContentBlockModel>());
 			s.AddSingleton(chrome);
 			s.AddSingleton(pageViews);
+			s.AddSingleton(zoneViews);
 		};
 	}
 

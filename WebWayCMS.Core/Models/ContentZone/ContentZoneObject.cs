@@ -15,5 +15,9 @@ public class ContentZoneObject : IContentZoneObject
 	public Guid ZoneId { get; set; }
 
 	public string ComponentName { get; set; } = string.Empty;
+
+	/// <summary>Optional host-provided view name; empty renders the component's default widget.</summary>
+	public string ViewName { get; set; } = string.Empty;
+
 	public object ComponentProperties { get; set; } = default!;
 }

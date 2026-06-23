@@ -30,6 +30,13 @@ public record ContentZoneItemDTO : IContent
     public string ComponentName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional name of a host-provided alternate view ("sub-view") for the component. Empty renders
+    /// the component's default widget; otherwise the matching <c>[ContentZoneView]</c> component is
+    /// used (see <c>IContentZoneViewRegistry</c>).
+    /// </summary>
+    public string ViewName { get; set; } = string.Empty;
+
+    /// <summary>
     /// JSON-serialized properties to pass to the ViewComponent.
     /// </summary>
     public string ComponentPropertiesJson { get; set; } = "{}";

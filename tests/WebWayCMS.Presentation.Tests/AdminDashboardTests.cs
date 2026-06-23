@@ -43,6 +43,9 @@ public class AdminDashboardTests
 			s.AddSingleton(resolver);
 			s.AddSingleton<IContentZoneWidgetRegistry>(new ContentZoneWidgetRegistry(new Dictionary<string, Type>()));
 			s.AddSingleton(Substitute.For<IContentBlockModel>());
+			var views = Substitute.For<IContentZoneViewRegistry>();
+			views.Resolve(Arg.Any<string>(), Arg.Any<string>()).Returns((Type?)null);
+			s.AddSingleton(views);
 		};
 	}
 

@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations.Article
 {
     [DbContext(typeof(ArticleContext))]
-    [Migration("20260618205806_InitialArticle")]
+    [Migration("20260623010140_InitialArticle")]
     partial class InitialArticle
     {
         /// <inheritdoc />

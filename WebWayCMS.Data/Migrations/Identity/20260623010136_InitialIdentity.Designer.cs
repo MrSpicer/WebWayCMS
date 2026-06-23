@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations.Identity
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260618205802_InitialIdentity")]
+    [Migration("20260623010136_InitialIdentity")]
     partial class InitialIdentity
     {
         /// <inheritdoc />

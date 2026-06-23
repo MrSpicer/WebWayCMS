@@ -65,6 +65,7 @@ public class ContentZoneContext : DbContext
         {
             entity.ConfigureContentLink();
             entity.Property(e => e.ComponentName).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.ViewName).HasMaxLength(256);
             entity.Property(e => e.ComponentPropertiesJson).HasMaxLength(4000);
             entity.ToTable("ContentZoneItems");
 

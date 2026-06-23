@@ -2,7 +2,9 @@
 @using System.Text.Json
 @using WebWayCMS.ContentZones
 @using WebWayCMS.Forms
+@using WebWayCMS.Presentation.Rendering
 @inject IContentZoneComponentRegistry Registry
+@inject IContentZoneViewRegistry ViewRegistry
 @inject IFormOptionsProvider OptionsProvider
 @*
     Add/Edit widget modal: pick a component (add mode) and edit its configuration via
@@ -37,6 +39,25 @@
                 </div>
             </div>
 
+            @if (_availableViews.Count > 0)
+            {
+                <div class="field">
+                    <label class="label">View</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select class="view-selector" @onchange="OnViewChanged">
+                                <option value="" selected="@(string.IsNullOrEmpty(_viewName))">-- Default --</option>
+                                @foreach (var v in _availableViews)
+                                {
+                                    <option value="@v" selected="@(v == _viewName)">@v</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">The view template to render this component with. Leave empty for the default.</p>
+                </div>
+            }
+
             @if (_config is not null && _properties.Count > 0)
             {
                 <hr />
@@ -52,6 +73,7 @@
 
 @code {
     [Parameter] public string? EditComponentName { get; set; }
+    [Parameter] public string? EditViewName { get; set; }
     [Parameter] public string? EditJson { get; set; }
     [Parameter] public EventCallback<ContentZoneItemFormResult> OnSaved { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
@@ -59,6 +81,8 @@
     private IReadOnlyDictionary<string, IReadOnlyList<ContentZoneComponentInfo>> _byCategory =
         new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>();
     private string? _componentName;
+    private string? _viewName;
+    private IReadOnlyList<string> _availableViews = Array.Empty<string>();
     private object? _config;
     private IReadOnlyList<FormPropertyInfo> _properties = Array.Empty<FormPropertyInfo>();
     private Dictionary<string, IReadOnlyList<FormOption>> _options = new();
@@ -69,14 +93,22 @@
     {
         _byCategory = Registry.GetComponentsByCategory();
         if (EditComponentName is not null)
-            await LoadComponentAsync(EditComponentName, EditJson);
+            await LoadComponentAsync(EditComponentName, EditJson, EditViewName);
     }
 
     private async Task OnComponentChanged(ChangeEventArgs e) => await LoadComponentAsync(e.Value as string, null);
 
-    private async Task LoadComponentAsync(string? name, string? json)
+    private void OnViewChanged(ChangeEventArgs e)
+    {
+        var value = e.Value as string;
+        _viewName = string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    private async Task LoadComponentAsync(string? name, string? json, string? viewName = null)
     {
         _componentName = string.IsNullOrEmpty(name) ? null : name;
+        _viewName = null;
+        _availableViews = Array.Empty<string>();
         _config = null;
         _properties = Array.Empty<FormPropertyInfo>();
         _options = new();
@@ -87,6 +119,8 @@
         if (info is null)
             return;
 
+        _availableViews = ViewRegistry.GetComponentViews(_componentName);
+        _viewName = viewName;
         _config = Deserialize(json, info.ConfigurationType) ?? Registry.CreateDefaultConfiguration(_componentName);
         _properties = info.Properties;
 
@@ -110,7 +144,7 @@
         if (_componentName is null)
             return;
         var json = _config is null ? "{}" : JsonSerializer.Serialize(_config, _config.GetType(), JsonOpts);
-        await OnSaved.InvokeAsync(new ContentZoneItemFormResult(_componentName, json));
+        await OnSaved.InvokeAsync(new ContentZoneItemFormResult(_componentName, _viewName ?? string.Empty, json));
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };

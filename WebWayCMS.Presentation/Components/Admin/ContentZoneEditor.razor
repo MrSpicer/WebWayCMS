@@ -77,7 +77,8 @@ else
 
 @if (_showForm)
 {
-    <ContentZoneItemForm EditComponentName="@(_editingDto?.ComponentName)" EditJson="@(_editingDto?.ComponentPropertiesJson)"
+    <ContentZoneItemForm EditComponentName="@(_editingDto?.ComponentName)" EditViewName="@(_editingDto?.ViewName)"
+                         EditJson="@(_editingDto?.ComponentPropertiesJson)"
                          OnSaved="OnFormSavedAsync" OnCancel="OnFormCancel" />
 }
 
@@ -113,6 +114,7 @@ else
         if (_editingDto is not null)
         {
             _editingDto.ComponentPropertiesJson = result.Json;
+            _editingDto.ViewName = result.ViewName;
             await Model.UpdateItemAsync(_editingDto);
         }
         else
@@ -121,6 +123,7 @@ else
             {
                 ContentZoneId = _zone.Id,
                 ComponentName = result.ComponentName,
+                ViewName = result.ViewName,
                 ComponentPropertiesJson = result.Json,
                 Ordinal = _zone.ZoneObjects.Count,
             });

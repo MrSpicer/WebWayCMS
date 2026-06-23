@@ -9,11 +9,11 @@ using WebWayCMS.Data.DbContexts;
 
 #nullable disable
 
-namespace WebWayCMS.Data.Migrations.ContentBlock
+namespace WebWayCMS.Data.Migrations.Page
 {
-    [DbContext(typeof(ContentBlockContext))]
-    [Migration("20260618205809_InitialContentBlock")]
-    partial class InitialContentBlock
+    [DbContext(typeof(PageContext))]
+    [Migration("20260623010152_InitialPage")]
+    partial class InitialPage
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -24,21 +24,6 @@ namespace WebWayCMS.Data.Migrations.ContentBlock
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("WebWayCMS.Data.Models.ContentBlockDTO", b =>
-                {
-                    b.Property<Guid>("ContentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasMaxLength(10000)
-                        .HasColumnType("character varying(10000)");
-
-                    b.HasKey("ContentId");
-
-                    b.ToTable("ContentBlocks", (string)null);
-                });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentDTO", b =>
                 {
@@ -108,15 +93,34 @@ namespace WebWayCMS.Data.Migrations.ContentBlock
                         });
                 });
 
-            modelBuilder.Entity("WebWayCMS.Data.Models.ContentBlockDTO", b =>
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageDTO", b =>
                 {
-                    b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
-                        .WithOne()
-                        .HasForeignKey("WebWayCMS.Data.Models.ContentBlockDTO", "ContentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                    b.Property<Guid>("ContentId")
+                        .HasColumnType("uuid");
 
-                    b.Navigation("ContentMeta");
+                    b.Property<string>("ConfigurationJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("ControllerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Route")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ViewName")
+                        .HasColumnType("text");
+
+                    b.HasKey("ContentId");
+
+                    b.HasIndex("Route");
+
+                    b.ToTable("Pages", (string)null);
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentDTO", b =>
@@ -148,6 +152,17 @@ namespace WebWayCMS.Data.Migrations.ContentBlock
                         });
 
                     b.Navigation("CustomFields");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageDTO", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
+                        .WithOne()
+                        .HasForeignKey("WebWayCMS.Data.Models.PageDTO", "ContentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ContentMeta");
                 });
 #pragma warning restore 612, 618
         }

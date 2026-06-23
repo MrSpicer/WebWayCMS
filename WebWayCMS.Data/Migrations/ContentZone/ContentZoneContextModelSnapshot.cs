@@ -174,6 +174,11 @@ namespace WebWayCMS.Data.Migrations.ContentZone
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ViewName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.HasKey("ContentId");
 
                     b.HasIndex("ContentZoneId", "Ordinal");

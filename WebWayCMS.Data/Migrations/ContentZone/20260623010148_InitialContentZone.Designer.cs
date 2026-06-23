@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations.ContentZone
 {
     [DbContext(typeof(ContentZoneContext))]
-    [Migration("20260618205813_InitialContentZone")]
+    [Migration("20260623010148_InitialContentZone")]
     partial class InitialContentZone
     {
         /// <inheritdoc />
@@ -176,6 +176,11 @@ namespace WebWayCMS.Data.Migrations.ContentZone
 
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ViewName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.HasKey("ContentId");
 

@@ -15,5 +15,6 @@ public interface IContentZoneObject
 	Guid ZoneId { get; set; }
 
 	string ComponentName { get; set; }
+	string ViewName { get; set; }
 	Object ComponentProperties { get; set; }
 }

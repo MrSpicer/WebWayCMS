@@ -56,16 +56,26 @@ public class ContentZoneItemFormTests
 		return p;
 	}
 
+	private static IContentZoneViewRegistry EmptyViews()
+	{
+		var v = Substitute.For<IContentZoneViewRegistry>();
+		v.GetComponentViews(Arg.Any<string>()).Returns(Array.Empty<string>());
+		return v;
+	}
+
 	private static (BunitContext Ctx, IRenderedComponent<ContentZoneItemForm> Cut, List<ContentZoneItemFormResult> Saved, List<bool> Cancelled) Render(
-		string? editComponent = null, string? editJson = null, IFormOptionsProvider? options = null)
+		string? editComponent = null, string? editJson = null, IFormOptionsProvider? options = null,
+		IContentZoneViewRegistry? views = null, string? editViewName = null)
 	{
 		var ctx = new BunitContext();
 		ctx.Services.AddSingleton(Registry());
 		ctx.Services.AddSingleton(options ?? EmptyOptions());
+		ctx.Services.AddSingleton(views ?? EmptyViews());
 		var saved = new List<ContentZoneItemFormResult>();
 		var cancelled = new List<bool>();
 		var cut = ctx.Render<ContentZoneItemForm>(p => p
 			.Add(c => c.EditComponentName, editComponent)
+			.Add(c => c.EditViewName, editViewName)
 			.Add(c => c.EditJson, editJson)
 			.Add(c => c.OnSaved, (ContentZoneItemFormResult r) => saved.Add(r))
 			.Add(c => c.OnCancel, () => cancelled.Add(true)));
@@ -136,7 +146,70 @@ public class ContentZoneItemFormTests
 			cut.Find(".save-form").Click();
 
 			Assert.That(saved, Has.Count.EqualTo(1));
-			Assert.That(saved[0], Is.EqualTo(new ContentZoneItemFormResult("Bare", "{}")));
+			Assert.That(saved[0], Is.EqualTo(new ContentZoneItemFormResult("Bare", "", "{}")));
+		}
+	}
+
+	private static IContentZoneViewRegistry ViewsFor(string component, params string[] names)
+	{
+		var v = Substitute.For<IContentZoneViewRegistry>();
+		v.GetComponentViews(Arg.Any<string>()).Returns(Array.Empty<string>());
+		v.GetComponentViews(component).Returns(names);
+		return v;
+	}
+
+	[Test]
+	public void AddMode_WithViews_ShowsDropdown_AndSavesSelectedView()
+	{
+		var (ctx, cut, saved, _) = Render(views: ViewsFor("Demo", "Card", "Banner"));
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			Assert.That(cut.Markup, Does.Contain("view-selector"));
+			Assert.That(cut.Markup, Does.Contain(">Card</option>"));
+
+			cut.Find(".view-selector").Change("Card");
+			cut.Find(".save-form").Click();
+
+			Assert.That(saved[0].ViewName, Is.EqualTo("Card"));
+		}
+	}
+
+	[Test]
+	public void AddMode_NoViews_HidesDropdown()
+	{
+		var (ctx, cut, _, _) = Render();
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			Assert.That(cut.Markup, Does.Not.Contain("view-selector"));
+		}
+	}
+
+	[Test]
+	public void AddMode_SelectThenClearView_SavesEmptyView()
+	{
+		var (ctx, cut, saved, _) = Render(views: ViewsFor("Demo", "Card"));
+		using (ctx)
+		{
+			cut.Find(".component-selector").Change("Demo");
+			cut.Find(".view-selector").Change("Card");
+			cut.Find(".view-selector").Change(""); // back to default
+			cut.Find(".save-form").Click();
+
+			Assert.That(saved[0].ViewName, Is.Empty);
+		}
+	}
+
+	[Test]
+	public void EditMode_PrefillsSelectedView_AndSaves()
+	{
+		var (ctx, cut, saved, _) = Render("Demo", "{}", views: ViewsFor("Demo", "Card", "Banner"), editViewName: "Banner");
+		using (ctx)
+		{
+			Assert.That(cut.Markup, Does.Contain("value=\"Banner\" selected"));
+			cut.Find(".save-form").Click();
+			Assert.That(saved[0].ViewName, Is.EqualTo("Banner"));
 		}
 	}
 

@@ -66,6 +66,7 @@ namespace WebWayCMS.Data.Migrations.ContentZone
                     ContentZoneId = table.Column<Guid>(type: "uuid", nullable: false),
                     Ordinal = table.Column<int>(type: "integer", nullable: false),
                     ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ViewName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ComponentPropertiesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false)
                 },

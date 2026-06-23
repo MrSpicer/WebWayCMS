@@ -317,6 +317,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
                     Ordinal = i.Ordinal,
                     ZoneId = i.ContentZoneId,
                     ComponentName = i.ComponentName,
+                    ViewName = i.ViewName,
                     ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson)
                 })
                 .ToList()
