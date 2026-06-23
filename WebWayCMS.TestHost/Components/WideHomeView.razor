@@ -1,0 +1,14 @@
+@namespace WebWayCMS.TestHost.Components
+@attribute [CmsPageView(ForController = "GenericPage", Name = "Wide")]
+@*
+    Sample host-provided page-body view for the "Generic" page controller. When a page selects the
+    "Wide" view in the admin, CmsPageHost renders this in place of the default content zone (still
+    inside the document shell and host chrome). It may include its own content zones.
+*@
+<section class="py-5" style="background:#f5f7fa;border-radius:8px;margin-bottom:1.5rem;">
+    <div class="container">
+        <h1 class="display-5">Wide host page view</h1>
+        <p class="lead">Rendered by the host's <code>[CmsPageView]</code> instead of the default content zone.</p>
+    </div>
+</section>
+<ContentZone ZoneName="Main" />

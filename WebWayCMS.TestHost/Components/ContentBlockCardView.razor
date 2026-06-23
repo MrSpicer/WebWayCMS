@@ -1,0 +1,34 @@
+@namespace WebWayCMS.TestHost.Components
+@using WebWayCMS.Models.ContentBlock
+@attribute [ContentZoneView(ForComponent = "ContentBlock", Name = "Card")]
+@inject IContentBlockModel Model
+@*
+    Sample host-provided content-zone "sub-view" for the built-in ContentBlock widget. It shares the
+    widget's configuration model (ContentBlockContentZoneConfiguration) and renders the same content
+    block in a card. Selectable per zone-item via the admin "View" dropdown.
+*@
+<div class="card" style="border:1px solid #d0d7de;border-radius:8px;overflow:hidden;">
+    <div class="card-header" style="background:#f0f3f6;padding:.5rem 1rem;font-weight:600;">Host Card View</div>
+    <div class="card-body" style="padding:1rem;">
+        @if (!string.IsNullOrWhiteSpace(_content))
+        {
+            @((MarkupString)_content!)
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public ContentBlockContentZoneConfiguration? Config { get; set; }
+
+    private string? _content;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _content = null;
+        if (Config is null || Config.ContentBlockID == Guid.Empty)
+            return;
+
+        var vm = await Model.GetViewModelByMasterIdAsync(Config.ContentBlockID, CancellationToken.None);
+        _content = vm?.Content;
+    }
+}

@@ -1,0 +1,29 @@
+@namespace WebWayCMS.TestHost.Components
+@attribute [CmsChrome]
+@inherits CmsChromeBase
+@*
+    Sample host-provided public-site chrome. Discovered by convention (the [CmsChrome] attribute) and
+    rendered by CmsLayout around every public page body. Demonstrates branding the public site without
+    touching the CMS library: header / navigation / footer plus host-owned <head> assets injected via
+    <HeadContent> into the CMS document shell's <HeadOutlet>.
+*@
+<HeadContent>
+    <link rel="stylesheet" href="/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="/css/site.css" />
+</HeadContent>
+
+<header>
+    <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom box-shadow mb-3" role="navigation">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Integration-Host (host chrome)</a>
+        </div>
+    </nav>
+</header>
+<div class="container">
+    <main role="main" class="pb-3">
+        @ChildContent
+    </main>
+</div>
+<footer class="border-top footer text-muted">
+    <div class="container py-3">&copy; 2026 - Integration-Host (host footer)</div>
+</footer>

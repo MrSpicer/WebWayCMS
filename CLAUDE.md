@@ -41,7 +41,17 @@
 - Content-zone widgets are Blazor components in `WebWayCMS.Presentation/Components/Widgets/`
   decorated with `[ContentZoneComponent]`. `ContentZoneComponentRegistry` scans them to populate the
   admin component picker; `IContentZoneWidgetRegistry` maps component names to widget types for
-  `<DynamicComponent>` dispatch.
+  `<DynamicComponent>` dispatch. Both registries scan the CMS Presentation assembly **and the host
+  entry assembly**, so host-provided widgets work too.
+- A NuGet-consuming host customizes the **public** site with convention-scanned (entry-assembly)
+  Blazor components — no registration call needed: `[CmsChrome]` (inherit `CmsChromeBase`) supplies
+  header/nav/footer + `<head>` assets (via `<HeadContent>`) wrapped around the page body by
+  `CmsLayout` (`ICmsChromeRegistry`); `[CmsPageView(ForController, Name)]` supplies an alternate page
+  body selectable in the admin "View Name" dropdown (`ICmsPageViewRegistry`, consumed by
+  `CmsPageHost`); `[ContentZoneView(ForComponent, Name)]` supplies an alternate widget rendering
+  sharing the widget's `Config`, selectable in the widget "View" dropdown (`IContentZoneViewRegistry`,
+  dispatched by `ContentZone`, persisted as `ContentZoneItemDTO.ViewName`). The CMS owns the document
+  shell + `blazor.web.js`; admin chrome is not host-branded. Samples: `WebWayCMS.TestHost/Components/`.
 - The RichText editor wraps CKEditor 5 via JS interop (`wwwroot/js/richtext.js`). For the licensed
   cloud-CDN build, set the `CKEDITOR_LICENSE_KEY` environment variable (read via the
   `CKEditor:LicenseKey` config key); when empty it falls back to the GPL/esm.sh build. The license

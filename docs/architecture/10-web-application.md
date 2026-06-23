@@ -6,10 +6,11 @@
 **Depends on:** the `WebWayCMS` NuGet package (Bootstrap: `AddWebWayCms`, `EnsureCMS`) and all CMS extension points
 **Consumed by:** Nothing (top of the dependency graph)
 
-> The host references the CMS as a NuGet package, not by project reference. Generic
-> chrome (the `ErrorController`, error view, validation/login partials, admin JS) now
-> lives in the CMS libraries; the host overrides any CMS view by adding a file of the
-> same name. See [getting-started](../getting-started.md).
+> The host references the CMS as a NuGet package, not by project reference. The view
+> layer is Blazor SSR: the CMS owns the public document shell (`CmsLayout`) and admin
+> chrome, and the host brands/customizes the public site with attribute-marked Blazor
+> components (`[CmsChrome]`, `[CmsPageView]`, `[ContentZoneView]`) discovered by
+> convention from the host assembly. See [getting-started](../getting-started.md).
 
 ---
 
@@ -22,16 +23,17 @@
 | Site-specific content types | Content type framework (admin CRUD, versioning) |
 | Site CSS/JS/fonts/icons | Admin UI CSS/JS (served from CMS library's wwwroot) |
 | `Program.cs` startup | All service registrations, middleware, seeding |
-| Branding views (`_Layout`, nav/footer) | Generic chrome: error view, validation/login partials, `ErrorController` |
+| Public branding (`[CmsChrome]`), page/widget views | Public document shell (`CmsLayout`), admin chrome, `ErrorController` |
 | Mapping profiles for Web-specific types | CMS built-in type mappings |
 
 When a feature is purely about this site's content or design, it goes in the Web project. When a feature is reusable across any site running this CMS, it belongs in the CMS library.
 
 ---
 
-## 2. The Four Extension Surfaces
+## 2. The Extension Surfaces
 
-The CMS provides four integration points for the Web project to customize behavior:
+The CMS provides these integration points for the Web project to customize behavior. All
+are discovered by convention (assembly scan at startup) — no registration call required:
 
 ### 1. Custom Page Types
 Extend `PageControllerBase<TConfig>` and decorate with `[PageController]`:
@@ -49,18 +51,19 @@ public class BlogPageController : PageControllerBase<BlogPageConfiguration>
 No registration required — `PageControllerRegistry` discovers it at startup. See [Area 3](03-page-routing.md).
 
 ### 2. Custom Widgets
-Extend `ViewComponent` and decorate with `[ContentZoneComponent]`:
-```csharp
-[ContentZoneComponent("My Widget", typeof(MyWidgetConfiguration))]
-public class MyWidgetViewComponent : ViewComponent
-{
-    public IViewComponentResult Invoke(MyWidgetConfiguration? configuration)
-    {
-        // ...
-    }
+Create a Blazor component decorated with `[ContentZoneComponent]` that accepts its typed
+configuration through a `Config` parameter:
+```razor
+@attribute [ContentZoneComponent("My Widget", typeof(MyWidgetConfiguration))]
+
+<div>…</div>
+
+@code {
+    [Parameter] public MyWidgetConfiguration? Config { get; set; }
 }
 ```
-No registration required — `ContentZoneComponentRegistry` discovers it. See [Area 4](04-content-zone-framework.md).
+No registration required — `ContentZoneComponentRegistry` (admin metadata) and
+`ContentZoneWidgetRegistry` (render dispatch) discover it. See [Area 4](04-content-zone-framework.md).
 
 ### 3. Custom Content Types
 Create a DTO, DbContext, domain model, and register in DI:
@@ -89,6 +92,25 @@ public class MappingProfile : Profile
 }
 ```
 Registered in `Program.cs` alongside CMS mappings.
+
+### 5. Public Branding & Views
+Public pages render through `GenericPageController → ICmsPageRenderer → CmsPageHost → CmsLayout`
+(Blazor SSR, not the Router). The CMS owns the document shell (`CmsLayout`: `<html>`/`<head>`/
+`<HeadOutlet>` + `blazor.web.js`); the host customizes the public site with attribute-marked Blazor
+components in its assembly:
+
+- **`[CmsChrome]`** — header/nav/footer wrapped around every public page body. Inherit `CmsChromeBase`
+  and render around `@ChildContent`; add `<head>` assets via `<HeadContent>`. Resolved by
+  `ICmsChromeRegistry` (lowest `Order` wins); no chrome ⇒ the body renders in the default `<main>`.
+- **`[CmsPageView(ForController, Name)]`** — an alternate page body for a page type, selected per page
+  via the admin "View Name" dropdown. Resolved by `ICmsPageViewRegistry`; falls back to the page's
+  `Main` content zone.
+- **`[ContentZoneView(ForComponent, Name)]`** — an alternate rendering ("sub-view") of an existing
+  widget sharing its `Config` model, selected per zone item via the admin "View" dropdown. Resolved by
+  `IContentZoneViewRegistry`; falls back to the default widget.
+
+Admin chrome (`AdminLayout` / `AdminPageHost`) is CMS-owned and intentionally not host-branded.
+Working examples live in `WebWayCMS.TestHost/Components/`. See [getting-started §6](../getting-started.md).
 
 ---
 

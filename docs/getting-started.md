@@ -117,21 +117,55 @@ dotnet user-secrets set "AdminUser:Email" "admin@example.com"
 dotnet user-secrets set "AdminUser:Password" "<strong-password>"
 ```
 
-## 6. Branding (the only per-site code)
+## 6. Branding and custom views (the per-site code)
 
-WebWayCMS provides a minimal fallback `_Layout.cshtml` so the host boots with no
-branding at all. Because the host's own views are resolved **before** the
-packaged (compiled) library views, you override any CMS view by adding a file of
-the same name. To brand the public site, supply:
+The view layer is **Blazor SSR**. The CMS owns the public document shell
+(`CmsLayout` — `<html>`/`<head>`/`<HeadOutlet>` and the `blazor.web.js` runtime
+script), and a host brands and customizes the public site by dropping **Blazor
+components marked with attributes** into the host project. They are discovered by
+convention (the CMS scans the host's entry assembly at startup — the same pattern as
+`[PageController]` / `[ContentZoneComponent]`); no registration call is required.
 
-- `Views/_ViewStart.cshtml` → `@{ Layout = "_Layout"; }`
-- `Views/Shared/_Layout.cshtml` — your public layout (overrides the fallback)
-- Public navigation/footer partials and any `ContentZone` placeholders
-- `wwwroot/` — your CSS/JS, fonts, `favicon`, etc.
+> The old `Views/Shared/_Layout.cshtml` + `Views/_ViewStart.cshtml` override
+> mechanism is **gone** — there are no MVC views in the render path anymore. Create
+> the components below instead.
 
-The admin UI (`/admin`), Identity pages, content-zone editors, and their CSS/JS
-come from the package (served under `_content/WebWayCMS.Presentation/...`) and
-need no host files.
+Three extension points, all optional (the CMS works with none of them):
+
+- **Site chrome** — header / navigation / footer wrapped around every public page.
+  Inherit `CmsChromeBase` and mark the component `[CmsChrome]`; render your chrome
+  around `@ChildContent` (the page body). Inject host `<head>` assets (stylesheets,
+  fonts) with Blazor's `<HeadContent>`, which flows into the CMS document shell's
+  `<HeadOutlet>`:
+
+  ```razor
+  @attribute [CmsChrome]
+  @inherits CmsChromeBase
+
+  <HeadContent><link rel="stylesheet" href="/css/site.css" /></HeadContent>
+  <header>…your nav…</header>
+  <main>@ChildContent</main>
+  <footer>…</footer>
+  ```
+
+- **Page views** — an alternate body for a page type. Mark the component
+  `[CmsPageView(ForController = "GenericPage", Name = "Wide")]` (where `ForController`
+  is the page controller's class name without the `Controller` suffix — the built-in
+  `GenericPageController` is `"GenericPage"`); it appears in the admin page editor's
+  **View Name** dropdown and renders in place of the default content zone when
+  selected. It can include its own `<ContentZone ZoneName="…" />`.
+
+- **Content-zone widget views ("sub-views")** — an alternate rendering of an existing
+  widget that shares the widget's configuration model. Mark the component
+  `[ContentZoneView(ForComponent = "ContentBlock", Name = "Card")]` and accept the
+  same `[Parameter] … Config`; it appears in the widget editor's **View** dropdown.
+
+- **`wwwroot/`** — your CSS/JS, fonts, `favicon`, referenced from your `[CmsChrome]`
+  component via `<HeadContent>`.
+
+Working examples of all three live in `WebWayCMS.TestHost/Components/`. The admin UI
+(`/admin`), Identity pages, content-zone editors, and their CSS/JS come from the
+package (served under `_content/WebWayCMS.Presentation/...`) and need no host files.
 
 ## 7. Optional startup toggles (environment variables)
 
