@@ -190,7 +190,6 @@ public static class ServiceCollectionExtensions
 		services.AddScoped<ISubRouteContent, ArticleSubRouteResolver>();
 
 		// Admin CRUD handler registry
-		services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
 		services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
 
 		// Object mapper (in-house) configured from this assembly's profile

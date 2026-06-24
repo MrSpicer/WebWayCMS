@@ -31,13 +31,15 @@ Database developer page exception filter is added in `DEBUG` builds.
 **Utility services:**
 - `IHttpContextAccessor` — needed by `UserService`
 - `UserService` — singleton
-- `IViewDiscoveryService` → `ViewDiscoveryService` — scoped
+- Blazor rendering services (scoped): `ICmsPageRenderer`, `IContentZoneResolver`, `IFormOptionsProvider`
+- Host-extension registries (singletons): `ICmsChromeRegistry`, `ICmsPageViewRegistry`,
+  `IContentZoneViewRegistry`, `IContentZoneWidgetRegistry` — each scans the `CMS.Presentation`
+  assembly + entry assembly
 
 **Registries (singletons):**
 - `IContentZoneComponentRegistry` → `ContentZoneComponentRegistry` — scans `CMS.Presentation` assembly + entry assembly
 - `IPageControllerRegistry` → `PageControllerRegistry` — scans `CMS.Core` assembly + entry assembly
 - `PageRouteTransformer` — scoped (because it injects `IPageService`)
-- Route constraint: `"notreserved"` → `NotReservedConstraint`
 
 **Content services (scoped, bound to correct DbContexts):**
 - `IContentService<ArticleDTO>` → `ContentService<ArticleDTO>` (uses `ArticleContext`)
@@ -62,16 +64,21 @@ Database developer page exception filter is added in `DEBUG` builds.
 **Object mapper (in-house `IMapper`):**
 - Adds `MappingProfile` from the `CMS.Core` assembly
 
-**MVC application parts (3 assemblies registered):**
-- `AssemblyPart(CMS.Core)` — registers controllers and ViewComponents
-- `AssemblyPart(CMS.Forms)` — registers tag helpers (`FormFieldsTagHelper`)
-- `AssemblyPart(CMS.Presentation)` + `CompiledRazorAssemblyPart(CMS.Presentation)` — registers ViewComponents and exposes pre-compiled Razor views
+**MVC + Blazor registration:**
+- `AddControllersWithViews().ConfigureApplicationPartManager(...)` — registers the `CMS.Core`
+  controllers (`AssemblyPart(CMS.Core)`); page controllers, `ErrorController`, etc. There are **no**
+  `CompiledRazorAssemblyPart` registrations or runtime Razor compilation — the view layer is Blazor.
+- `AddRazorComponents().AddInteractiveServerComponents()` — registers the Blazor Web App services so
+  the CMS's Razor components (public Static SSR + admin/editor Interactive Server) can render.
 
 **Identity:**
 - `AddDefaultIdentity<IdentityUser>` with password policy (see [Area 8](08-identity-auth.md))
 - `.AddRoles<IdentityRole>()`
-- `.AddEntityFrameworkStores<ApplicationDbContext>()`
-- `.AddDefaultUI()` — embeds Identity Razor Pages
+- `.AddEntityFrameworkStores<ApplicationDbContext>()` — note: **no** `.AddDefaultUI()`; the Identity UI
+  is Blazor components, not scaffolded Razor Pages
+- `ConfigureApplicationCookie(...)` points `LoginPath`/`LogoutPath`/`AccessDeniedPath` at `/Account/*`
+- `AddCmsBlazorIdentity()` — wires the Blazor Identity component support (revalidating auth-state
+  provider, redirect manager, user accessor, email sender). See [Area 8](08-identity-auth.md).
 
 ---
 
@@ -154,16 +161,22 @@ UseStaticFiles()               — serve wwwroot assets
 UseRouting()                   — match routes
 UseAuthentication()
 UseAuthorization()
-MapRazorPages()                — Identity UI pages
+UseAntiforgery()               — required by the Blazor Components endpoints (interactive form posts)
+MapControllers()               — attribute-routed controllers (page controllers, ErrorController)
+MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode()  — blazor.web.js, the _blazor hub, and all @page components
+MapAdditionalIdentityEndpoints()       — non-component Identity endpoints (logout, etc.)
 MapDynamicControllerRoute<PageRouteTransformer>("{**slug}")  — dynamic page routing
 MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}")  — fallback MVC
 ```
 
 Route mapping is performed by `ConfigureMiddleware` (the final `EnsureCMS()` step), so the host
-project does not register CMS routes itself. The dynamic catch-all `{**slug}` is mapped before the
-conventional route; if `PageRouteTransformer` returns `null!`, routing falls through to the
-conventional `{controller}/{action}/{id?}` route. Keeping both registrations inside the CMS makes
-the package self-contained — the Web project only calls `EnsureCMS()`.
+project does not register CMS routes itself. `MapControllers()` and `MapRazorComponents<App>()` (which
+owns the admin pages at `/admin/*` and the Identity components at `/Account/*`) are both mapped before
+the dynamic catch-all `{**slug}`, so those real routes out-rank it; if `PageRouteTransformer` returns
+`null!`, routing falls through to the conventional `{controller}/{action}/{id?}` route. `UseAntiforgery()`
+sits after auth and before the endpoints, as the Blazor Components endpoints require it. Keeping all
+registrations inside the CMS makes the package self-contained — the Web project only calls `EnsureCMS()`.
 
 ---
 
@@ -183,9 +196,7 @@ builder.Services.AddWebWayCms(builder.Configuration);  // CMS DI
 
 builder.Host.UseCmsSerilog(builder.Configuration);  // Serilog
 
-var mvc = builder.Services.AddControllersWithViews();
-if (builder.Environment.IsDevelopment())
-    mvc.AddRazorRuntimeCompilation();
+builder.Services.AddControllersWithViews();  // optional; AddWebWayCms already registers MVC + Blazor
 
 var app = builder.Build();
 

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
@@ -156,8 +155,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public override string ContentType => "contentzones";
     public override string DisplayName => "Content Zone";
     public override string[]? WriteRoles => null;
-    public override string IndexViewPath => "~/Views/AdminContentZone/ContentZones.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminContentZone/ContentZoneUpsert.cshtml";
 
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
     {
@@ -377,9 +374,6 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
     public string ChildDisplayName => "Content Zone Item";
     public string[]? WriteRoles => null;
 
-    public string ChildIndexViewPath => "~/Views/AdminContentZone/ContentZoneItems.cshtml";
-    public string ChildUpsertViewPath => "~/Views/AdminContentZone/ContentZoneItemUpsert.cshtml";
-
     public async Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default)
     {
         if (!Guid.TryParse(parentKey, out var zoneId)) return null;
@@ -401,14 +395,6 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ComponentPropertiesJson = item.ComponentPropertiesJson,
             IsActive = item.IsActive,
         };
-    }
-
-    public async Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(parentKey, out var zoneId)) return;
-        var zone = await _model.GetByIdAsync(zoneId, ct);
-        viewData["ZoneName"] = zone?.Name ?? zone?.ContentMeta.Title ?? parentKey;
-        viewData["ZoneId"] = parentKey;
     }
 
     public object CreateEmptyChildUpsertViewModel() => new ContentZoneItemUpsertViewModel();

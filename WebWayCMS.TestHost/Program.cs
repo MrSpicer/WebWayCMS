@@ -6,8 +6,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddWebWayCms(builder.Configuration);
 builder.Host.UseCmsSerilog(builder.Configuration);
 
-builder.Services.AddControllersWithViews();
-
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())

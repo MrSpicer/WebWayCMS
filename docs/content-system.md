@@ -38,7 +38,7 @@ VersionedModel<TDto>  (abstract)
 IAdminCrudHandler  (interface)
     └── implemented by each AdminCrudModel subclass
     └── resolved via AdminHandlerRegistry
-    └── driven by AdminContentController (single controller, all content types)
+    └── driven by the generic Blazor admin pages (AdminUpsert / list / version)
 ```
 
 **Top-level vs child model types:**
@@ -308,8 +308,6 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 
     public override string ContentType => "mycontents";
     public override string DisplayName => "My Content";
-    public override string IndexViewPath => "~/Views/AdminMyContent/Index.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminMyContent/Upsert.cshtml";
 
     public MyContentModel(IContentService<MyContentDTO> service, IMapper mapper)
     {
@@ -353,11 +351,33 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 }
 ```
 
-### 7. Create Razor views
+### 7. No admin views to author
 
-`MySite/Views/AdminMyContent/Index.cshtml` — list all items using the standard admin table partial.
+The admin UI is **Blazor SSR**, so there are **no per-type Razor views**. The generic `AdminUpsert`
+component renders the create/edit form directly from the `[FormProperty]` attributes on your ViewModel
+(via `InteractiveFormFields`), driven by the `IAdminCrudHandler` you registered.
 
-`MySite/Views/AdminMyContent/Upsert.cshtml` — the create/edit form. Use `@Html.EditorForModel()` or bind individual fields; the `[FormProperty]` attributes on the ViewModel drive dynamic form generation.
+To expose your content type at admin routes, add small **routable Blazor wrapper pages** (mirroring the
+built-ins `AdminContentBlocksPage` / `AdminContentBlockUpsertPage`):
+
+```razor
+@* MySite/Components/Admin/AdminMyContentsPage.razor *@
+@page "/admin/mycontents"
+@attribute [Authorize(Roles = "Admin")]
+@* ...render the list from GetIndexViewModelAsync... *@
+```
+
+```razor
+@* MySite/Components/Admin/AdminMyContentUpsertPage.razor *@
+@page "/admin/mycontents/create"
+@page "/admin/mycontents/edit/{Id:guid}"
+@attribute [Authorize(Roles = "Admin")]
+<AdminUpsert ContentType="mycontents" Id="Id" ListUrl="/admin/mycontents" />
+@code { [Parameter] public Guid? Id { get; set; } }
+```
+
+See [architecture/06-admin-crud-framework §6](architecture/06-admin-crud-framework.md) for the route
+conventions.
 
 ### 8. Register services
 
@@ -378,7 +398,7 @@ builder.Services.AddScoped<MyContentModel>();
 builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyContentModel>());
 ```
 
-`AdminHandlerRegistry` picks up any `IAdminCrudHandler` registered in DI regardless of which project it originates from. `AdminContentController` handles all routes for `mycontents` with no additional controller code needed.
+`AdminHandlerRegistry` picks up any `IAdminCrudHandler` registered in DI regardless of which project it originates from. The generic Blazor admin components (`AdminUpsert` etc.) handle the create/edit/version flows for `mycontents` once you add its routable wrapper pages (Step 7) — no MVC controller code needed.
 
 ---
 

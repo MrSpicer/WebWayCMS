@@ -7,8 +7,8 @@
     reflection (via FormValueConverter), so editing updates the model in place ready for save or JSON
     serialization. Covers the editor types used by both content-zone component configs and the admin
     content view models (Hidden/Text/TextArea/DateTime/Date/Number/Url/Email/Color/Checkbox/Dropdown
-    + entity/view pickers via Options, grouped under their FormProperty Group). CKEditor rich text is
-    still rendered as a plain textarea for now (the JS-interop wrapper lands in a later 3d sub-step).
+    + entity/view pickers via Options, grouped under their FormProperty Group). RichText renders the
+    CKEditor-backed RichTextEditor component via JS interop.
 *@
 @{
     string? currentGroup = null;

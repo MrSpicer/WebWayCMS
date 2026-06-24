@@ -53,8 +53,6 @@ public class ContentBlockModelTests
 		{
 			Assert.That(_model.ContentType, Is.EqualTo("contentblocks"));
 			Assert.That(_model.DisplayName, Is.EqualTo("Content Block"));
-			Assert.That(_model.IndexViewPath, Does.Contain("ContentBlocks.cshtml"));
-			Assert.That(_model.UpsertViewPath, Does.Contain("ContentBlockUpsert.cshtml"));
 			Assert.That(_model.SupportsVersionHistory, Is.True);
 			Assert.That(_model.WriteRoles, Is.Null);
 			Assert.That(_model.HasSecondaryApiList, Is.False);

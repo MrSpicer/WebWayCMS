@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using NUnit.Framework;
 
@@ -16,8 +15,6 @@ internal sealed class MinimalHandler : IAdminCrudHandler
 	public string ContentType => "minimal";
 	public string DisplayName => "Minimal";
 	public string[]? WriteRoles => null;
-	public string IndexViewPath => "i";
-	public string UpsertViewPath => "u";
 	public Task<object> GetIndexViewModelAsync(CancellationToken ct = default) => Task.FromResult<object>("index");
 	public Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default) => Task.FromResult<object?>(null);
 	public object CreateEmptyUpsertViewModel() => new object();
@@ -35,11 +32,8 @@ internal sealed class MinimalChild : IAdminCrudChildHandler
 	public string ChildType => "minimal";
 	public string ChildDisplayName => "Minimal";
 	public string[]? WriteRoles => null;
-	public string ChildIndexViewPath => "i";
-	public string ChildUpsertViewPath => "u";
 	public Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default) => Task.FromResult<object?>(null);
 	public Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default) => Task.FromResult<object?>(null);
-	public Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default) => Task.CompletedTask;
 	public object CreateEmptyChildUpsertViewModel() => new object();
 	public Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default) => Task.FromResult(new AdminSaveResult(true));
 	public Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);

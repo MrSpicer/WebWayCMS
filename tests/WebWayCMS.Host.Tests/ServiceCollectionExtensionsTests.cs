@@ -85,7 +85,6 @@ public class ServiceCollectionExtensionsTests
 			Assert.That(app.Services.GetService<IMapper>(), Is.Not.Null);
 			// Configure<T> lambdas execute on options resolution.
 			Assert.That(app.Services.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value.ForwardedHeaders, Is.Not.EqualTo(ForwardedHeaders.None));
-			Assert.That(app.Services.GetRequiredService<IOptions<RouteOptions>>().Value.ConstraintMap.ContainsKey("notreserved"), Is.True);
 			Assert.That(app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value.Password.RequiredLength, Is.EqualTo(12));
 		});
 	}

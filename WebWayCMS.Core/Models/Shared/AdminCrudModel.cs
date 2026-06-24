@@ -15,9 +15,6 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public abstract string DisplayName { get; }
     public virtual string[]? WriteRoles => null;
 
-    public abstract string IndexViewPath { get; }
-    public abstract string UpsertViewPath { get; }
-
     public abstract Task<object> GetIndexViewModelAsync(CancellationToken ct = default);
     public abstract Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default);
     public abstract object CreateEmptyUpsertViewModel();

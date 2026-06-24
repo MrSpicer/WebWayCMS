@@ -68,14 +68,13 @@ public enum EditorType
     /// <summary>
     /// Dropdown populated with available views for a ViewComponent.
     /// Requires ViewComponentName to be specified in the FormPropertyAttribute.
+    /// Options are supplied server-side (via IFormOptionsProvider) and rendered as a select.
     /// </summary>
     ViewPicker,
 
     /// <summary>
-    /// Dropdown populated at runtime with the registered page controllers.
-    /// Rendered as an empty select (marked with a <c>data-page-controller-picker</c> attribute)
-    /// whose options are loaded client-side from the page controller registry; mirrors
-    /// <see cref="ViewPicker"/>, which is likewise populated by client-side script.
+    /// Dropdown populated with the registered page controllers. Rendered server-side as a select
+    /// whose options come from the page controller registry (see AdminPageUpsert).
     /// </summary>
     PageControllerPicker,
 

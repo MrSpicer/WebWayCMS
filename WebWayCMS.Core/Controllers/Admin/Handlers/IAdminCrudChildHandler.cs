@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Controllers.Admin.Handlers;
@@ -20,9 +19,6 @@ public interface IAdminCrudChildHandler
     /// </summary>
     string[]? WriteRoles { get; }
 
-    string ChildIndexViewPath { get; }
-    string ChildUpsertViewPath { get; }
-
     /// <summary>
     /// Returns the view model for the child list page, or null if the parent was not found.
     /// parentKey is a slug (articles) or Guid string (zone items).
@@ -31,13 +27,6 @@ public interface IAdminCrudChildHandler
 
     /// <summary>Returns the upsert view model for a child entity, or null if not found.</summary>
     Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default);
-
-    /// <summary>
-    /// Sets any handler-specific ViewData needed by the child upsert view.
-    /// Called by the controller before rendering the upsert view.
-    /// May perform async operations (e.g. fetching parent title).
-    /// </summary>
-    Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default);
 
     object CreateEmptyChildUpsertViewModel();
 

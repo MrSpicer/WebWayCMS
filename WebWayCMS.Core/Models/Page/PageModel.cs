@@ -23,8 +23,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel
 
     public override string ContentType => "pages";
     public override string DisplayName => "Page";
-    public override string IndexViewPath => "~/Views/AdminPage/Pages.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminPage/PageUpsert.cshtml";
     public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
 
     public PageModel(IPageService service, IMapper mapper, IPageControllerRegistry registry)

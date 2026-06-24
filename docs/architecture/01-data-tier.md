@@ -115,7 +115,7 @@ Implements `IContent`. Key fields:
 ### `ContentZoneItemDTO`
 Implements `IContent`. Versioned through its own `ContentMeta` (`Id`/`MasterId`/`Version`). Key fields:
 - `ContentZoneId` — FK to the owning `ContentZoneDTO` (its `ContentId`)
-- `ComponentName` — name of the `[ContentZoneComponent]` ViewComponent to render
+- `ComponentName` — name of the `[ContentZoneComponent]` Blazor widget to render
 - `ComponentPropertiesJson` — JSON-serialized widget configuration
 - `Ordinal` — display order within the zone
 - `IsActive` — whether this item is currently visible

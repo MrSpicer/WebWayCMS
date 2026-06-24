@@ -3,10 +3,10 @@
 **Namespaces:**
 - `WebWayCMS.Data.DbContexts` — `ApplicationDbContext`
 - `WebWayCMS.Services` — `UserService`, `DevEmailSender`
-- `WebWayCMS.Areas.Identity` — scaffolded ASP.NET Identity Razor Pages
+- `WebWayCMS.Presentation.Components.Account` — Blazor Identity components (Login, Register, Manage/*, …) + helpers (`IdentityRedirectManager`, `IdentityUserAccessor`, `IdentityRevalidatingAuthenticationStateProvider`, `IdentityEmailSender`)
 
 **Depends on:** ASP.NET Identity, EF Core (`ApplicationDbContext`)
-**Consumed by:** All admin controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in views and admin write checks, `CMSExtensions` for seeding
+**Consumed by:** All admin pages/controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in components and admin write checks, `CMSExtensions` for seeding
 
 ---
 
@@ -21,8 +21,10 @@ Three roles are seeded at startup:
 | `User` | Authenticated user with no admin access; reserved for future public-facing features |
 
 Role checks are enforced at two layers:
-1. **Controller level:** `[Authorize(Roles = "Admin")]` on `AdminContentController` prevents any non-admin from accessing admin routes
-2. **Handler level:** `HasWriteAccess(handler.WriteRoles)` in write actions checks the per-handler `WriteRoles` and returns 403 if the user lacks the required role
+1. **Route/component level:** `[Authorize(Roles = "Admin")]` on the admin Blazor pages (and admin page
+   controllers) prevents any non-admin from accessing admin routes
+2. **Handler level:** the per-handler `WriteRoles` check in save/delete blocks the write if the user
+   lacks the required role
 
 ---
 
@@ -45,9 +47,10 @@ public class UserService
 ```
 
 **When to use:**
-- In Razor views, to conditionally show/hide admin controls (e.g., edit buttons, zone edit overlays)
-- In `ContentZoneViewComponent` to determine whether to render `editMode` controls
-- Do not use for authorization enforcement — use `[Authorize]` and `HasWriteAccess` in controllers
+- In Razor components, to conditionally show/hide admin controls (e.g., edit buttons, zone edit overlays)
+- In the content-zone editor and admin pages, to gate editing affordances
+- Do not use for authorization enforcement — use `[Authorize]` on components/controllers and the
+  per-handler `WriteRoles` check for writes
 
 **Injection:** Inject `UserService` directly (it is a singleton, not an interface, by convention for this simple helper).
 
@@ -105,30 +108,44 @@ Minimum 12 characters; requires digits, lower, upper, and a non-alphanumeric cha
 
 ---
 
-## 6. Identity UI Area
+## 6. Identity UI — Blazor Components
 
-`AddDefaultUI()` in `ServiceCollectionExtensions` embeds ASP.NET Identity's default Razor Pages. The CMS ships scaffolded versions of the most commonly customized pages:
+The Identity UI is a set of **Blazor components**, not scaffolded Razor Pages. `.AddDefaultUI()` and the
+`Areas/Identity/Pages` tree are gone. The components live in
+`WebWayCMS.Presentation/Components/Account/` and route under `/Account/*`:
 
 ```
-Areas/Identity/Pages/Account/
-    Login.cshtml.cs
-    Logout.cshtml.cs
-    Register.cshtml.cs
-    ForgotPassword.cshtml.cs
-    ForgotPasswordConfirmation.cshtml.cs
-    ConfirmEmail.cshtml.cs
-    ResetPassword.cshtml.cs
-    ResetPasswordConfirmation.cshtml.cs
-    ResendEmailConfirmation.cshtml.cs
-    Manage/
-        Index.cshtml.cs
-        ChangePassword.cshtml.cs
-        SetPassword.cshtml.cs
-        DeletePersonalData.cshtml.cs
-        PersonalData.cshtml.cs
-        ExternalLogins.cshtml.cs
-        TwoFactorAuthentication.cshtml.cs
-        ManageNavPages.cs
+Components/Account/
+    Pages/
+        Login.razor · Register.razor · RegisterConfirmation.razor
+        ForgotPassword.razor · ForgotPasswordConfirmation.razor · ResetPassword.razor · ResetPasswordConfirmation.razor
+        ConfirmEmail.razor · ConfirmEmailChange.razor · ResendEmailConfirmation.razor · InvalidPasswordReset.razor
+        Login.razor · LoginWith2fa.razor · LoginWithRecoveryCode.razor · Lockout.razor
+        ExternalLogin.razor · AccessDenied.razor
+        Manage/  (Index, Email, ChangePassword, SetPassword, TwoFactorAuthentication, EnableAuthenticator,
+                  Disable2fa, ResetAuthenticator, GenerateRecoveryCodes, ExternalLogins,
+                  PersonalData, DeletePersonalData)
+    Shared/  (AccountLayout, ManageLayout, ManageNavMenu, ExternalLoginPicker, StatusMessage,
+              ShowRecoveryCodes, RedirectToLogin)
 ```
 
-These pages are compiled into the CMS assembly and served via `CompiledRazorAssemblyPart`. To customize them in the Web project, scaffold the specific page(s) into `MySite/Areas/Identity/Pages/` — Web project views take precedence over CMS library views.
+**Wiring (in `ServiceCollectionExtensions` / `CMSExtensions`):**
+- `ConfigureApplicationCookie(...)` points the cookie handler at the Blazor routes:
+  ```csharp
+  options.LoginPath = "/Account/Login";
+  options.LogoutPath = "/Account/Logout";
+  options.AccessDeniedPath = "/Account/AccessDenied";
+  ```
+- `AddCmsBlazorIdentity()` registers the supporting services:
+  - `IdentityRevalidatingAuthenticationStateProvider` — server auth-state provider with periodic revalidation
+  - `IdentityRedirectManager` — safe redirects + status-message cookie between Identity components
+  - `IdentityUserAccessor` — resolves the current `IdentityUser` (redirects to login/invalid pages on failure)
+  - `IdentityEmailSender` — typed `IEmailSender<IdentityUser>` wrapper over the configured `IEmailSender`
+  - cascading authentication state for the component tree
+- `MapAdditionalIdentityEndpoints(app)` (in `ConfigureMiddleware`) maps the non-component Identity
+  endpoints (e.g. logout, external-login callbacks, personal-data download) that the Static-SSR account
+  components post to. The account components themselves are routable `@page` components served by
+  `MapRazorComponents<App>()`.
+
+To customize the Identity UI in a host, replace/override the relevant Blazor components rather than
+scaffolding Razor Pages.

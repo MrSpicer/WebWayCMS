@@ -125,19 +125,17 @@ builder.Services.AddWebWayCms(builder.Configuration);  // (2) CMS DI
 
 builder.Host.UseCmsSerilog(builder.Configuration);       // (3) Serilog
 
-var mvc = builder.Services.AddControllersWithViews();    // (4) MVC
-if (builder.Environment.IsDevelopment())
-    mvc.AddRazorRuntimeCompilation();                    // (5) Hot reload in dev
+builder.Services.AddControllersWithViews();              // (4) optional; AddWebWayCms already registers MVC + Blazor
 
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");                   // (6) Exception handler
-    app.UseStatusCodePagesWithReExecute("/Error/{0}");   // (7) Status code handler (404, etc.)
+    app.UseExceptionHandler("/Error");                   // (5) Exception handler
+    app.UseStatusCodePagesWithReExecute("/Error/{0}");   // (6) Status code handler (404, etc.)
 }
 
-app.EnsureCMS();                                         // (8) Migrations, seeding, middleware, route mapping
+app.EnsureCMS();                                         // (7) Migrations, seeding, middleware, route mapping
 
 app.Run();
 ```
@@ -160,43 +158,36 @@ public IActionResult StatusCodeHandler(int statusCode)
 // Handles UseStatusCodePagesWithReExecute — logs status codes (like 404) at Warning level
 ```
 
-Both actions render `Views/Shared/Error.cshtml` (must be provided by the Web project) with an `ErrorViewModel` containing the `RequestId`. Error handling is only active outside development (development shows the detailed exception page).
+Both actions return a **self-contained inline HTML page** (`ContentResult` from the private
+`ErrorContent()`), showing a generic message and the request ID. There is no `Error.cshtml` view and no
+`ErrorViewModel` — the fallback intentionally has no Razor view/layout dependency so it renders even
+when component rendering is what failed. Error handling is only active outside development (development
+shows the detailed exception page).
 
 ---
 
 ## 5. Frontend Assets
 
-`wwwroot/` structure:
+**Host site assets** live in the Web project's `wwwroot/` (`css/site.css`, `js/site.js`, fonts, icons,
+favicon, …) and are **static, host-maintained files** — there are no `.scss` sources or CMS build
+targets that compile them (the former `CompileSass` / `CopyViewScripts` targets and the
+`Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation` package were removed in the Blazor migration).
+Branding/markup is supplied by the host's `[CmsChrome]`/`[CmsPageView]` components (§2.5), which pull in
+their assets via `<HeadContent>`.
 
-```
-wwwroot/
-├── css/
-│   ├── site.css          ← compiled from site.scss (run ./Scripts/HotReloadRun.sh)
-│   ├── animations.css
-│   └── print.css
-├── js/
-│   ├── site.js           ← main site JavaScript
-│   ├── admin.js          ← admin UI interactions (zone editing, drag-reorder, CKEditor init)
-│   ├── animations.js
-│   └── typewriter.js
-├── fonts/
-│   ├── InterVariable.woff2
-│   └── FiraCode-VF.woff2
-├── icons/
-│   └── sprite.svg        ← SVG icon sprite (reference via <use href="/icons/sprite.svg#icon-name">)
-├── favicon.ico
-├── favicon.svg
-└── robots.txt
-```
+**CMS admin/editor assets** ship from the CMS library's `wwwroot/` (served as RCL content under
+`_content/WebWayCMS.Presentation/`):
+- `css/admin.css` — a **static, hand-maintained** stylesheet (no `.scss`), referenced by `AdminPageHost`
+  / `AdminLayout`.
+- `js/richtext.js` — the CKEditor 5 JS-interop wrapper for the `RichTextEditor` component. The licensed
+  cloud-CDN build is gated on the `CKEDITOR_LICENSE_KEY` environment variable (read via the
+  `CKEditor:LicenseKey` config key); when empty it falls back to the GPL/esm.sh build. The key must not
+  be committed.
+- `js/admin.js` — small admin-chrome interactions only. Inline content-zone editing
+  (add/remove/drag-reorder, config forms) is **Blazor Interactive Server** (`ContentZoneEditor.razor`),
+  not JavaScript.
 
-**Sass compilation:** `site.css` is generated from a `.scss` source file. The hot-reload script (`./Scripts/HotReloadRun.sh`) runs both `dotnet watch run` and a Sass watcher in parallel. Run this script for development — do not edit `site.css` directly.
-
-**JS conventions:** No jQuery. Vanilla JS only. `admin.js` handles inline zone editing (drag-to-reorder, add/remove widgets, CKEditor initialization for RichText fields). `site.js` is the public-facing entry point.
-
-**Icon sprite:** SVG symbols bundled into `sprite.svg`. Reference icons in Razor views with:
-```html
-<svg><use href="/icons/sprite.svg#icon-name" /></svg>
-```
+**JS conventions:** No jQuery; vanilla JS only.
 
 ---
 

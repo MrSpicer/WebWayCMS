@@ -8,7 +8,7 @@ The page system drives dynamic URL routing — every database-managed page is di
 - [Core Components](#core-components)
 - [Creating a Custom Page Type](#creating-a-custom-page-type)
 - [Accessing Page Data in Your Controller](#accessing-page-data-in-your-controller)
-- [Placing Content Zones in Your View](#placing-content-zones-in-your-view)
+- [Placing Content Zones in Your Page Body](#placing-content-zones-in-your-page-body)
 - [\[PageController\] Attribute Reference](#pagecontroller-attribute-reference)
 
 ---
@@ -23,7 +23,7 @@ On every request, `PageRouteTransformer` (a `DynamicRouteValueTransformer`) inte
 4. Deserialises the page's `ConfigurationJson` into the controller's declared config type and stores both the `PageDTO` and the config object in `HttpContext.Items`.
 5. Returns `{ controller = ControllerName, action = "Index" }` — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.
 
-The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The `Index()` action typically renders a Razor view with `PageConfig` as the model, and the view places one or more **ContentZones** for admin-managed widget regions.
+The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The view layer is **Blazor SSR**: the `Index()` action returns a Blazor root component via `ICmsPageRenderer.RenderPage(...)` (a `RazorComponentResult<CmsPageHost>`), not a Razor view. `CmsPageHost` renders the page body — the page's `Main` content zone by default, or a host `[CmsPageView]` Blazor component when the page selects one — inside the CMS document shell. **ContentZones** (admin-managed widget regions) are placed in that body.
 
 `PageControllerRegistry` scans both the CMS assembly and `Assembly.GetEntryAssembly()` (the Web project) at startup, so any controller decorated with `[PageController]` is discovered automatically — no manual registration is needed.
 
@@ -73,6 +73,7 @@ Properties without `[FormProperty]` are ignored by both the admin form generator
 ```csharp
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers;
+using WebWayCMS.Rendering;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MySite.Pages;
@@ -85,7 +86,10 @@ namespace MySite.Pages;
     Order = 10)]
 public class MyPageController : PageControllerBase<MyPageConfiguration>
 {
+    private readonly ICmsPageRenderer _renderer;
     private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<MyPageController>();
+
+    public MyPageController(ICmsPageRenderer renderer) => _renderer = renderer;
 
     public override Task<IActionResult> Index()
     {
@@ -93,40 +97,52 @@ public class MyPageController : PageControllerBase<MyPageConfiguration>
             CurrentPage?.Id,
             CurrentPage?.Title);
 
-        return Task.FromResult<IActionResult>(View(PageConfig));
+        // Returns a Blazor root (CmsPageHost), not an MVC view.
+        return Task.FromResult<IActionResult>(_renderer.RenderPage(CurrentPage, PageConfig));
     }
 }
 ```
 
 - `ConfigurationType` in `[PageController]` must match the generic type parameter on `PageControllerBase<T>`. This tells the route transformer which type to deserialise `ConfigurationJson` into, and tells the admin UI which properties to render as form fields.
-- Constructor injection works normally — add parameters and they will be resolved from DI.
+- Constructor injection works normally — `ICmsPageRenderer` (and any other dependency) is resolved from DI.
 
-### Step 3 — Create the Razor view
+### Step 3 — Provide the page body (Blazor)
 
-**`MySite/Views/MyPage/Index.cshtml`**
+A custom page type usually does **not** author a view. By returning `RenderPage(...)`, the page body is
+the page's `Main` content zone — editors fill it with widgets in the admin, no host markup required.
 
-```cshtml
-@model MySite.Pages.MyPageConfiguration
+When you need fixed markup (like the heading + conditional sidebar above), supply a host `[CmsPageView]`
+Blazor component for this controller. It is selected per page via the admin **View Name** dropdown and
+reads the typed config from the cascaded `CmsRenderContext`:
 
-@{
-    ViewData["Title"] = ViewContext.RouteData.Values["title"]?.ToString() ?? "Page";
+**`MySite/Components/MyPageView.razor`**
+
+```razor
+@attribute [CmsPageView(ForController = "MyPage", Name = "Default")]
+@using WebWayCMS.Presentation.Rendering
+
+@{ var config = Context?.Config as MyPageConfiguration ?? new(); }
+
+<h1>@config.Heading</h1>
+
+<ContentZone ZoneName="Main" />
+
+@if (config.ShowSidebar)
+{
+    <ContentZone ZoneName="Sidebar" />
 }
 
-<h1>@Model.Heading</h1>
-
-@await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
-
-@if (Model.ShowSidebar)
-{
-    @await Component.InvokeAsync("ContentZone", new { zoneName = "Sidebar" })
+@code {
+    [CascadingParameter] public CmsRenderContext? Context { get; set; }
 }
 ```
 
-The view name must be `Index.cshtml` and the folder name must match the controller name without the `Controller` suffix (i.e. `MyPage` for `MyPageController`).
+`ForController` is the controller's class name without the `Controller` suffix (`MyPage` for
+`MyPageController`). The component is discovered by convention from the host assembly — no registration.
 
 ### Step 4 — No registration required
 
-`PageControllerRegistry` scans `Assembly.GetEntryAssembly()` (the Web project) automatically at startup. The new page type will appear in the admin page-creation UI under the `Category` specified in the attribute.
+`PageControllerRegistry` scans `Assembly.GetEntryAssembly()` (the Web project) automatically at startup. The new page type will appear in the admin page-creation UI under the `Category` specified in the attribute; any `[CmsPageView]` you add appears in the page's **View Name** dropdown.
 
 ---
 
@@ -167,18 +183,20 @@ var subRoute = HttpContext.Items["CMS:SubRoute"] as string;
 
 ---
 
-## Placing Content Zones in Your View
+## Placing Content Zones in Your Page Body
 
-ContentZones are admin-managed widget regions. Invoke them from your view with:
+ContentZones are admin-managed widget regions. Place them in your `[CmsPageView]` Blazor component (or
+any widget/chrome component) with the `<ContentZone>` component:
 
-```cshtml
-@await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
+```razor
+<ContentZone ZoneName="Main" />
 ```
 
-Each zone name is scoped to the current page's `MasterId` automatically. For zones shared across all pages (e.g. a footer), pass `IsGlobal = true`:
+Each zone name is scoped to the current page's `MasterId` automatically (via the cascaded
+`CmsRenderContext`). For zones shared across all pages (e.g. a footer), set `IsGlobal="true"`:
 
-```cshtml
-@await Component.InvokeAsync("ContentZone", new { zoneName = "Footer", IsGlobal = true })
+```razor
+<ContentZone ZoneName="Footer" IsGlobal="true" />
 ```
 
 See [`docs/widget-system.md`](widget-system.md) for full ContentZone documentation including how to create new widget types.
@@ -198,4 +216,4 @@ See [`docs/widget-system.md`](widget-system.md) for full ContentZone documentati
 
 ---
 
-*For architectural reference — routing algorithm, registry internals, `HttpContext.Items` contract, `NotReservedConstraint`, and built-in page types — see [docs/architecture/03-page-routing.md](architecture/03-page-routing.md).*
+*For architectural reference — routing algorithm, registry internals, `HttpContext.Items` contract, and built-in page types — see [docs/architecture/03-page-routing.md](architecture/03-page-routing.md).*

@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
-
 using NSubstitute;
 
 using NUnit.Framework;
@@ -57,9 +54,6 @@ public class ArticleListModelTests
 		};
 	}
 
-	private static ViewDataDictionary NewViewData() =>
-		new(new EmptyModelMetadataProvider(), new ModelStateDictionary());
-
 	[Test]
 	public void Constructor_NullArguments_Throw()
 	{
@@ -79,8 +73,6 @@ public class ArticleListModelTests
 		{
 			Assert.That(_model.ContentType, Is.EqualTo("articles"));
 			Assert.That(_model.DisplayName, Is.EqualTo("Article List"));
-			Assert.That(_model.IndexViewPath, Does.Contain("Index.cshtml"));
-			Assert.That(_model.UpsertViewPath, Does.Contain("ArticleListUpsert.cshtml"));
 			Assert.That(_model.HasSecondaryApiList, Is.True);
 			Assert.That(_model.ChildHandler, Is.Not.Null);
 		});
@@ -292,8 +284,6 @@ public class ArticleListModelTests
 			Assert.That(child.ChildType, Is.EqualTo("articles"));
 			Assert.That(child.ChildDisplayName, Is.EqualTo("Article"));
 			Assert.That(child.WriteRoles, Is.EqualTo(new[] { "Admin", "Editor" }));
-			Assert.That(child.ChildIndexViewPath, Does.Contain("Articles.cshtml"));
-			Assert.That(child.ChildUpsertViewPath, Does.Contain("Upsert.cshtml"));
 			Assert.That(child.SupportsReorder, Is.False);
 			Assert.That(child.SupportsVersionHistory, Is.True);
 			Assert.That(child.CreateEmptyChildUpsertViewModel(), Is.InstanceOf<ArticleUpsertViewModel>());
@@ -331,19 +321,6 @@ public class ArticleListModelTests
 		_articleModel.GetUpsertViewModelAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
 			.Returns((ArticleUpsertViewModel?)null);
 		Assert.That(await child.GetChildUpsertViewModelAsync("list", Guid.NewGuid()), Is.Null);
-	}
-
-	[Test]
-	public async Task ChildHandler_SetViewData_SetsSlugAndTitle()
-	{
-		var list = List();
-		_listService.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-		_listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list);
-		var viewData = NewViewData();
-
-		await _model.ChildHandler!.SetChildUpsertViewDataAsync(viewData, "list");
-
-		Assert.That(viewData["ArticleListSlug"], Is.EqualTo("list"));
 	}
 
 	[Test]

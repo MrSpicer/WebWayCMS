@@ -20,12 +20,6 @@ public interface IAdminCrudHandler
     /// </summary>
     string[]? WriteRoles { get; }
 
-    /// <summary>Absolute Razor view path, e.g. "~/Views/AdminContentBlock/ContentBlocks.cshtml".</summary>
-    string IndexViewPath { get; }
-
-    /// <summary>Absolute Razor view path for the create/edit form.</summary>
-    string UpsertViewPath { get; }
-
     Task<object> GetIndexViewModelAsync(CancellationToken ct = default);
 
     /// <summary>

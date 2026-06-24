@@ -1,13 +1,13 @@
 # Area 3: Page Routing Subsystem
 
 **Namespaces:**
-- `WebWayCMS.Routing` — `PageRouteTransformer`, `NotReservedConstraint`
+- `WebWayCMS.Routing` — `PageRouteTransformer`
 - `WebWayCMS.Pages` — `PageControllerRegistry`, `IPageControllerRegistry`, `PageControllerInfo`
 - `WebWayCMS.Controllers` — `PageControllerBase<TConfig>`, `GenericPageController`, `GenericAdminPageController`
 - `WebWayCMS.Attributes` — `[PageController]`
 
 **Depends on:** Data Tier (`IPageService.GetByRouteAsync`), Form Generation Metadata (`FormPropertyBuilder`), ASP.NET Core Routing
-**Consumed by:** All page controllers (Web project + CMS built-ins), Content Zone `ViewComponent` (`CMS:PageData` from `HttpContext`), Admin page-edit UI (controller dropdown populated from registry)
+**Consumed by:** All page controllers (Web project + CMS built-ins), content-zone rendering (`ContentZone.razor`, via the `CmsRenderContext` cascade), Admin page-edit UI (controller dropdown populated from registry)
 
 ---
 
@@ -25,7 +25,12 @@ app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");
 2. If found, stores the `PageDTO` and deserialized config in `HttpContext.Items`
 3. Returns `{ controller = page.ControllerName, action = "Index" }` to the routing system
 
-The controller's `Index()` action then runs and returns a view. Content zones within that view are rendered by `ContentZoneViewComponent`, which also reads `HttpContext.Items["CMS:PageData"]` to scope zones to the current page.
+The controller's `Index()` action then runs and returns a **Blazor root component** via
+`ICmsPageRenderer` (a `RazorComponentResult<CmsPageHost>` for public pages,
+`RazorComponentResult<AdminPageHost>` for admin pages) — not an MVC view. `CmsPageHost` establishes a
+per-request `CmsRenderContext` cascade (carrying the `PageDTO`/config) and renders the page body.
+Content zones placed in that body (`<ContentZone ZoneName="..." />`) read the current page from the
+cascaded `CmsRenderContext` rather than from `HttpContext.Items` directly.
 
 ---
 
@@ -43,11 +48,12 @@ The controller's `Index()` action then runs and returns a view. Content zones wi
 
 If no page is found at any step, `TransformAsync` returns `null!` and routing falls through to the standard MVC route table, which results in a 404.
 
-> **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
-> **before** the dynamic page route (`MapDynamicControllerRoute<PageRouteTransformer>("{**slug}")`),
-> so real controller routes such as `AdminContentController`'s `admin/{contentType}` out-rank
-> the catch-all. Without this, `/admin/page` would be captured by the page route as a sub-route
-> of the `/admin` page rather than handled by its controller.
+> **Routing precedence.** Attribute-routed controllers (`app.MapControllers()`) and the routable
+> Blazor components (`app.MapRazorComponents<App>()`, including the admin pages such as
+> `/admin/blocks` and the Identity components at `/Account/*`) are both mapped **before** the dynamic
+> page route (`MapDynamicControllerRoute<PageRouteTransformer>("{**slug}")`), so those real routes
+> out-rank the catch-all. Without this, a path like `/admin/blocks` would be captured by the page
+> route as a sub-route of the `/admin` page rather than handled by its component.
 
 ### Sub-route validation (404 for unresolved sub-routes)
 
@@ -72,7 +78,10 @@ The transformer populates these keys for the dispatched controller:
 | `"CMS:PageConfig"` | `object` (typed to `TConfig`) | Deserialized `ConfigurationJson`; falls back to `Activator.CreateInstance(ConfigurationType)` on parse failure |
 | `"CMS:SubRoute"` | `string` | Remaining path segments after the matched page route; only present when a parent page matched |
 
-`CMS:PageData` is also read by `ContentZoneViewComponent` to scope content zones to the current page. Any controller or view component that needs the current page should read from `HttpContext.Items`, not the database.
+`CMS:PageData` is surfaced to the Blazor render tree through the `CmsRenderContext` cascade
+(established by `CmsPageHost`), so `ContentZone.razor` scopes content zones to the current page from
+the cascade. Any controller that needs the current page should read from `HttpContext.Items`, not the
+database; Blazor components read the cascaded `CmsRenderContext`.
 
 ---
 
@@ -89,7 +98,8 @@ public abstract class PageControllerBase<TConfig> : Controller where TConfig : c
 
 - `CurrentPage` — the resolved `PageDTO`; `null` only if the controller is reached without going through the transformer (should not happen in normal operation)
 - `PageConfig` — the typed configuration; returns a default instance if not set (safe fallback)
-- `Index()` — the only action the transformer dispatches to; all page rendering happens here
+- `Index()` — the only action the transformer dispatches to; all page rendering happens here. It
+  returns a Blazor root component via `ICmsPageRenderer` (a `RazorComponentResult`), not a `ViewResult`
 
 Do not add additional named actions to page controllers. Sub-routing via `CMS:SubRoute` is the correct mechanism for URL segments beyond the page route.
 
@@ -114,7 +124,7 @@ Do not add additional named actions to page controllers. Sub-routing via `CMS:Su
 - `typeof(ServiceCollectionExtensions).Assembly` — the CMS library
 - `Assembly.GetEntryAssembly()` — the host Web project
 
-Scanning finds all non-abstract classes that inherit from `Controller` (but not `ViewComponent`) and carry `[PageController]`. For each, it builds a `PageControllerInfo`:
+Scanning finds all non-abstract classes that inherit from `Controller` and carry `[PageController]`. For each, it builds a `PageControllerInfo`:
 
 ```csharp
 public class PageControllerInfo
@@ -145,60 +155,44 @@ IReadOnlyList<string> ValidateConfiguration(string controllerName, object config
 
 ---
 
-## 7. `NotReservedConstraint`
-
-Applied to the `{parentKey}` route segment in admin child resource routes to prevent conflicts with literal action segments. The reserved words are:
-
-```
-edit, delete, create, registry, api, reorder, versions
-```
-
-Registered in the route constraint map via:
-```csharp
-services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
-```
-
-Used in admin routes like `{contentType}/{parentKey:notreserved}/{childType}`.
-
----
-
-## 8. Built-in Page Types
+## 7. Built-in Page Types
 
 **`GenericPageController`** — `[PageController("Generic Page")]`
-- No configuration class
-- Renders `Views/GenericPage/Index.cshtml` (must be provided by the Web project)
+- Configuration class `GenericPageConfiguration` (per-page `ViewName`/`Meta`/`Style`/`Script`)
+- Renders the `CmsPageHost` Blazor component via `ICmsPageRenderer.RenderPage(...)` — no host view
+  needed. The body is the page's `Main` content zone, or a host `[CmsPageView]` component when the
+  page selects one
 - The default controller type for the seeded home page
 
 **`GenericAdminPageController`** — `[PageController("Admin Dashboard")]`
 - Used for the seeded `/admin` page
 - Requires `[Authorize(Roles = "Admin")]`
-- Renders the admin dashboard view from the CMS library
+- Renders the `AdminPageHost` Blazor component via `ICmsPageRenderer.RenderAdminPage(...)` from the
+  CMS library
 
 ---
 
-## 9. Sub-route Handling
+## 8. Sub-route Handling
 
 `CMS:SubRoute` contains the path segments after the matched page route, joined with `/`. For example, if `/blog` is a page and the request is for `/blog/2026/my-post`, `CMS:SubRoute` is `"2026/my-post"`.
 
-Use `CMS:SubRoute` when a single page type handles multiple sub-paths (e.g., a blog page that also serves individual post URLs). Parse it in `Index()` to determine what to render:
+Use `CMS:SubRoute` when a single page type handles multiple sub-paths (e.g., a blog page that also serves individual post URLs). Parse it in `Index()` to guard for a `404` before rendering, then return the Blazor root via `ICmsPageRenderer`:
 
 ```csharp
 public override async Task<IActionResult> Index()
 {
     var subRoute = HttpContext.Items["CMS:SubRoute"] as string;
-    if (string.IsNullOrEmpty(subRoute))
-        return View("List", await BuildListViewModelAsync());
-
-    var article = await _articleService.GetBySlugAsync(subRoute);
-    if (article == null)
+    if (!string.IsNullOrEmpty(subRoute) && await _articleService.GetBySlugAsync(subRoute) is null)
         return NotFound();
 
-    return View("Detail", article);
+    return _renderer.RenderPage(CurrentPage, PageConfig);
 }
 ```
 
-When a page renders its sub-route content through a content zone view component
-(rather than the controller's `Index()`), the controller cannot return `NotFound()`
+The page body (its content zones, or a `[CmsPageView]` component) reads `CmsRenderContext.SubRoute`
+to decide what to render (list vs. detail). When a page renders its sub-route content through a
+content zone (`ContentZone.razor`) rather than branching in `Index()`, the controller cannot return
+`NotFound()`
 because the response has already started by the time the component runs. Register an
 `ISubRouteContent` resolver instead: `PageRouteTransformer` queries every resolver
 during routing and returns a 404 for any sub-route none of them can resolve.

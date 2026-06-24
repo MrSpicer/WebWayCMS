@@ -1,176 +1,138 @@
-# Area 9: CMS View Components & Presentation
+# Area 9: Blazor Presentation Layer
 
 **Namespaces:**
-- `WebWayCMS.ViewComponents` (excluding `ContentZoneViewComponent`, covered in [Area 4](04-content-zone-framework.md))
-- `WebWayCMS.Views.*`
-- `WebWayCMS.Services` — `IViewDiscoveryService`, `ViewDiscoveryService`
+- `WebWayCMS.Presentation.Components` — `CmsLayout`, `CmsPageHost`, `AdminPageHost`, `AdminLayout`, `ContentZone`, `App`
+- `WebWayCMS.Presentation.Components.Widgets` — built-in widgets (`ContentBlockWidget`, `ArticleWidget`, `LayoutWidget`, `PageNavigationWidget`)
+- `WebWayCMS.Presentation.Components.Admin` — admin pages, `ContentZoneEditor`, `InteractiveFormFields`, `RichTextEditor`
+- `WebWayCMS.Presentation.Rendering` — `ICmsPageRenderer`, `IContentZoneResolver`, `IContentZoneWidgetRegistry`, `ICmsChromeRegistry`, `ICmsPageViewRegistry`, `IContentZoneViewRegistry`, `IFormOptionsProvider`, `AdminRoutes`
 
-**Depends on:** Content Domain Models (ViewModels), Content Zone Component Framework (admin zone edit views), Identity (admin views gated by `[Authorize]`)
-**Consumed by:** Web project layout files via `CompiledRazorAssemblyPart`
-
----
-
-## 1. Embedded Razor Views
-
-The CMS library ships pre-compiled Razor views. This is enabled in `ServiceCollectionExtensions` by registering two application parts:
-
-```csharp
-apm.ApplicationParts.Add(new AssemblyPart(asm));           // controllers, ViewComponents
-apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(asm)); // pre-compiled .cshtml views
-```
-
-The Web project uses runtime Razor compilation in development (`AddRazorRuntimeCompilation()`) so changes to `.cshtml` files in the Web project are picked up without rebuild. The CMS library's views are pre-compiled and are not affected by runtime compilation.
-
-**View resolution precedence:** ASP.NET Core searches the Web project's `Views/` folder before falling back to the CMS library's compiled views. To override any CMS view, create a file at the same relative path in the Web project.
+**Depends on:** Content Domain Models (ViewModels), Content Zone Component Framework, Identity (admin/account components gated by `[Authorize]`)
+**Consumed by:** Page controllers (via `ICmsPageRenderer`), the host's optional branding components
 
 ---
 
-## 2. Admin Layout Structure
+## 1. Overview
 
-The CMS library provides the shared admin layout:
+The CMS view layer is **Blazor SSR**, shipped as a Razor Class Library (`WebWayCMS.Presentation`).
+There are **no `.cshtml` views** and no view pre-compilation (`CompiledRazorAssemblyPart`) or runtime
+Razor compilation — those MVC mechanisms were removed in the migration. Public pages render **Static
+SSR**; the admin UI (`/admin/*`) and the content-zone editor render **Interactive Server**; the Identity
+UI is Blazor components at `/Account/*` (see [Area 8](08-identity-auth.md)).
 
-| File | Purpose |
-|------|---------|
-| `Views/Shared/_AdminLayout.cshtml` | Root admin layout with navigation, sidebar, Bulma CSS |
-| `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`) |
-| `Views/Shared/_ViewStart.cshtml` | Sets `_AdminLayout` as the default layout for admin views |
-| `Views/AdminShared/VersionHistory.cshtml` | Shared version history list view used by all content types |
-| `Views/AdminShared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal partial |
-
-Admin views specify the admin layout explicitly or inherit it via `_ViewStart.cshtml`.
+`App.razor` is the Blazor Web App root mapped by `MapRazorComponents<App>()`. Static assets ship as RCL
+content under `_content/WebWayCMS.Presentation/` (e.g. `_content/WebWayCMS.Presentation/css/admin.css`).
 
 ---
 
-## 3. Built-in View Components
+## 2. Document Shell & Page Hosts
 
-### `PageViewComponent`
+Page controllers do not return a view; they return a Blazor root component via `ICmsPageRenderer`
+(`RazorComponentResult<CmsPageHost>` / `RazorComponentResult<AdminPageHost>` — see
+[Area 3](03-page-routing.md)).
 
-**Invocation:**
-```razor
-@await Component.InvokeAsync("Page", new { config = new PageContentZoneConfiguration() })
-```
-
-**Purpose:** Renders a page reference by fetching page data from `IPageModel`. Used to embed a page's content block zones as a widget within another zone.
-
-**Parameter:** `PageContentZoneConfiguration? config` — contains the target page configuration (zone slot names).
-
----
-
-### `ContentBlockViewComponent`
-
-**Invocation:**
-```razor
-@await Component.InvokeAsync("ContentBlock", new { config = myConfig })
-```
-
-**Purpose:** Renders a reusable content block by ID. Fetches the latest published version from `IContentBlockModel` and renders it. Used as a widget within content zones.
-
-**Parameter:** `ContentBlockContentZoneConfiguration config` — contains the content block identifier and rendering options.
+- **`CmsPageHost`** — root for public pages. Establishes the per-request `CmsRenderContext` cascade and
+  renders the page body: a host `[CmsPageView]` component when the page selects one, otherwise the
+  page's `Main` content zone. Wraps the body in `CmsLayout`.
+- **`CmsLayout`** — the public **document shell**. Emits `<!DOCTYPE html>`, the `<HeadOutlet />`, the
+  per-page `Meta`/`Style`/`Script`, and `<script src="_framework/blazor.web.js">`. If the host provides
+  a `[CmsChrome]` component, the page body is wrapped in that chrome; otherwise it renders in a default
+  `<main>`. The CMS owns the document and the framework script.
+- **`AdminPageHost`** — root for admin pages returned by `GenericAdminPageController`. Emits the admin
+  document shell (Bulma + Font Awesome + `admin.css` + a static admin navbar) and renders either the
+  admin dashboard or the page's `Main` zone. Admin chrome is **CMS-owned and not host-branded**.
+- **`AdminLayout`** — the `@layout` applied to the routable admin `@page` components (the CRUD pages),
+  providing the shared admin shell for those pages.
 
 ---
 
-### `ArticleViewComponent`
+## 3. Built-in Widgets
 
-**Invocation:**
-```razor
-@await Component.InvokeAsync("Article", new { config = myConfig })
-```
+The four former ViewComponents are now Blazor widgets in `Components/Widgets/`, each decorated with
+`[ContentZoneComponent]` and receiving its config through a `[Parameter] Config` (see
+[Area 4](04-content-zone-framework.md)):
 
-**Purpose:** Renders an article list or a specific article. Fetches from `IArticleListModel` and `IArticleModel`.
+| Widget | Component name | Purpose |
+|--------|----------------|---------|
+| `ContentBlockWidget` | `ContentBlock` | Renders a reusable content block by ID (latest published version) |
+| `ArticleWidget` | `Article` | Renders an article list or a single article (delegates to `ArticleList`/`ArticleDetail`) |
+| `PageNavigationWidget` | `Page` (explicit `Name`) | Renders navigation / a page reference |
+| `LayoutWidget` | `Layout` | Renders a selected multi-column layout template (see §4) |
 
-**Parameter:** `ArticleContentZoneConfiguration config` — contains the article list reference and display options (list view vs detail view).
+The render-time name→type dispatch is handled by `IContentZoneWidgetRegistry` + `<DynamicComponent>` in
+`ContentZone.razor`.
 
 ---
 
-### `LayoutViewComponent`
+## 4. `LayoutWidget` Templates
 
-**Invocation:**
-```razor
-@await Component.InvokeAsync("Layout", new { config = new LayoutContentZoneConfiguration() })
-```
-
-**Purpose:** Renders a multi-column layout by composing multiple `ContentZone` components. The layout variant determines how columns are arranged.
-
-**Parameter:** `LayoutContentZoneConfiguration config` — specifies the layout variant.
-
-**Available layout variants:**
+`LayoutWidget` composes named zone slots into one of the built-in layout templates, selected by its
+config's `ViewName`. Unknown/empty names fall back to `Default`. The template list is the single source
+of truth in `LayoutWidget.Layouts` (also exposed as `LayoutWidget.LayoutViewNames` for the admin picker):
 
 | Variant | Description |
 |---------|-------------|
 | `Default` | Single column (full width) |
 | `SingleColumn` | Explicit single column |
+| `CenteredNarrow` | Centered, constrained-width single column |
 | `TwoColumnEqual` | Two equal 50/50 columns |
 | `TwoColumnSidebar` | Main content + narrow sidebar |
+| `OneThirdTwoThird` | 1/3 + 2/3 split |
 | `ThreeColumn` | Three equal columns |
 | `FourColumn` | Four equal columns |
-| `OneThirdTwoThird` | 1/3 + 2/3 split |
-| `AsymmetricRightHeavy` | Narrow left + wide right |
-| `CenteredNarrow` | Centered, constrained-width single column |
 | `HeaderContentFooter` | Three stacked rows (header/body/footer) |
 | `HeroWithColumns` | Full-width hero row + columned body |
+| `AsymmetricRightHeavy` | Narrow left + wide right |
 
-Each variant renders named zone slots (`Column1`, `Column2`, `Header`, `Footer`, etc.) that editors populate with widgets.
-
----
-
-## 4. Shared Admin Partials
-
-Located in `Views/AdminShared/` (CMS library):
-
-| Partial | Description |
-|---------|-------------|
-| `_DeleteConfirmModal.cshtml` | Bootstrap/Bulma modal for delete confirmation; renders form POST to the delete route |
-| `VersionHistory.cshtml` | Full version list view with restore and delete-version actions |
-
-Components directory (`Views/Shared/Components/`) contains the default views for each built-in ViewComponent (e.g., `ContentZone/Default.cshtml`, `ContentZone/Edit.cshtml`).
+Each variant renders named zone slots (`Column1`, `Column2`, `Header`, `Footer`, etc.) that editors
+populate with widgets.
 
 ---
 
-## 5. `IViewDiscoveryService`
+## 5. Admin Forms
 
-`ViewDiscoveryService` discovers available view names (excluding partials prefixed with `_`) from **two combined sources**, so the result is correct in both debug and Release/Docker builds. It is a **scoped** service.
-
-1. **Compiled views from application parts** — enumerates `ApplicationPartManager` → `ViewsFeature` and inspects each `CompiledViewDescriptor.RelativePath`. This is the only source available in Release/Docker, where views are compiled into assemblies (e.g. `CompiledRazorAssemblyPart` for `WebWayCMS.Presentation`) and no `.cshtml` files exist on disk.
-2. **Filesystem scan** — scans standard ASP.NET view locations on disk, so freshly-added `.cshtml` files appear in development without a rebuild.
-
-The two result sets are unioned (case-insensitive).
-
-```csharp
-public interface IViewDiscoveryService
-{
-    IReadOnlyList<string> GetAvailableViews(string componentName);
-    IReadOnlyList<string> GetControllerViews(string controllerName);
-}
-```
-
-**`GetAvailableViews(componentName)`** — returns views whose path tail is `Views/Shared/Components/{componentName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
-- Compiled descriptors matching that tail (e.g. `/Views/Shared/Components/{componentName}/Default.cshtml`)
-- `{contentRoot}/Views/Shared/Components/{componentName}/`
-- `{contentRoot}/Areas/*/Views/Shared/Components/{componentName}/`
-- Sibling directories (to find views in `WebWayCMS/Views/`)
-
-Used by the `ViewPicker` `EditorType` — when an admin form has a `ViewPicker` field, the dropdown is populated with the discovered view names via the registry endpoint (`/admin/{contentType}/registry/{name}/properties`).
-
-**`GetControllerViews(controllerName)`** — returns views whose path tail is `Views/{controllerName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
-- Compiled descriptors matching that tail (e.g. `/Views/{controllerName}/Index.cshtml`)
-- `{contentRoot}/Views/{controllerName}/`
-- Sibling directories
-
-Used by `PageRegistryHandler.GetProperties` to return the list of available views for a page controller type, shown in the page-edit admin UI.
+`InteractiveFormFields.razor` is the metadata-driven form used by both the admin CRUD pages
+(`AdminUpsert`/`AdminChildUpsert`/`AdminPageUpsert`) and the content-zone editor. It renders each
+`FormPropertyInfo` (built by `FormPropertyBuilder`) by its `EditorType`
+(Hidden/Text/TextArea/DateTime/Date/Number/Url/Email/Color/Checkbox/Dropdown + entity/view pickers via
+`Options`), grouped by `FormProperty` group, binding directly to the model by reflection. `RichText`
+fields render the `RichTextEditor` component (CKEditor 5 via the `wwwroot/js/richtext.js` interop — see
+[Area 10](10-web-application.md)). Version history is rendered by `AdminVersionHistoryPage`.
 
 ---
 
-## 6. Overriding CMS Views in the Web Project
+## 6. Host-Extension Registries (replacing `IViewDiscoveryService`)
 
-To replace any CMS view with a custom version:
+The old filesystem/compiled-view scanner `IViewDiscoveryService` (which populated `ViewPicker`
+dropdowns) has been **removed**. View/component selection is now driven by three convention-scanned
+registries (each scans the CMS Presentation assembly + the host entry assembly):
 
-1. Create a file at the same relative path in `MySite/Views/`
-2. ASP.NET Core's view resolution searches the Web project first
+| Registry | Attribute | Selects | Dispatched by |
+|----------|-----------|---------|---------------|
+| `ICmsChromeRegistry` | `[CmsChrome]` (inherit `CmsChromeBase`) | the host's site chrome (header/nav/footer + `<head>` assets) | `CmsLayout` |
+| `ICmsPageViewRegistry` | `[CmsPageView(ForController, Name)]` | an alternate page body, by controller + "View Name" | `CmsPageHost` |
+| `IContentZoneViewRegistry` | `[ContentZoneView(ForComponent, Name)]` | an alternate widget rendering sharing the widget's `Config`, by component + "View" | `ContentZone` |
 
-For example, to replace the admin navbar:
-- Create `MySite/Views/Shared/_AdminNavbar.cshtml`
+Built-in option lists come from the components themselves: `LayoutWidget.LayoutViewNames` supplies the
+Layout widget's template names, and admin **option lists** for entity/view picker fields are produced
+in-circuit by `IFormOptionsProvider` (entity pickers via the admin handlers' API lists; the Layout
+`ViewPicker` via `LayoutWidget.LayoutViewNames`).
 
-For ViewComponent default views:
-- Create `MySite/Views/Shared/Components/ContentBlock/Default.cshtml`
+---
 
-No configuration changes are needed; view resolution precedence handles the override automatically.
+## 7. Host Branding & Overrides
+
+A NuGet-consuming host customizes the **public** site with convention-scanned Blazor components — no
+registration call needed (the entry assembly is scanned):
+
+- **`[CmsChrome]`** (inherit `CmsChromeBase`) — supplies header/nav/footer and `<head>` assets (via
+  `<HeadContent>`), wrapped around the page body by `CmsLayout`.
+- **`[CmsPageView(ForController, Name)]`** — supplies an alternate page body, selectable in the admin
+  "View Name" dropdown; consumed by `CmsPageHost`.
+- **`[ContentZoneView(ForComponent, Name)]`** — supplies an alternate widget rendering sharing the
+  widget's `Config`, selectable in the widget "View" dropdown; dispatched by `ContentZone` and persisted
+  as `ContentZoneItemDTO.ViewName`.
+
+The CMS owns the document shell and `blazor.web.js`; the **admin** chrome is not host-branded. Working
+samples are in `WebWayCMS.TestHost/Components/` (`HostChrome.razor`, `WideHomeView.razor`,
+`ContentBlockCardView.razor`). See [getting-started §6](../getting-started.md) and
+[10-web-application §2.5](10-web-application.md).

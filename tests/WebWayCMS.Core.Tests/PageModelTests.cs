@@ -63,8 +63,6 @@ public class PageModelTests
 		{
 			Assert.That(_model.ContentType, Is.EqualTo("pages"));
 			Assert.That(_model.DisplayName, Is.EqualTo("Page"));
-			Assert.That(_model.IndexViewPath, Does.Contain("Pages.cshtml"));
-			Assert.That(_model.UpsertViewPath, Does.Contain("PageUpsert.cshtml"));
 			Assert.That(_model.RegistryHandler, Is.Not.Null);
 		});
 	}

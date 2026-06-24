@@ -51,11 +51,12 @@ For real distribution, point at GitHub Packages instead (requires a
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="WebWayCMS" Version="0.0.1" />
-    <!-- Optional: pick up .cshtml branding edits without a rebuild in Development -->
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="10.0.0" />
   </ItemGroup>
 </Project>
 ```
+
+> The view layer is Blazor SSR, so there is no `.cshtml` runtime-compilation package to add — branding
+> is supplied by Blazor components (see §6), picked up by the normal .NET hot-reload loop in Development.
 
 ## 4. Program.cs
 
@@ -67,12 +68,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddWebWayCms(builder.Configuration);
 builder.Host.UseCmsSerilog(builder.Configuration);
-
-var mvc = builder.Services.AddControllersWithViews();
-if (builder.Environment.IsDevelopment())
-{
-    mvc.AddRazorRuntimeCompilation();
-}
 
 var app = builder.Build();
 

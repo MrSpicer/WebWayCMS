@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
@@ -22,8 +21,6 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
 
     public override string ContentType => "articles";
     public override string DisplayName => "Article List";
-    public override string IndexViewPath => "~/Views/AdminArticle/Index.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminArticle/ArticleListUpsert.cshtml";
     public override bool HasSecondaryApiList => true;
     public override IAdminCrudChildHandler? ChildHandler => _childHandler;
 
@@ -207,9 +204,6 @@ internal sealed class ArticleChildHandler : IAdminCrudChildHandler
     public string ChildDisplayName => "Article";
     public string[]? WriteRoles => ["Admin", "Editor"];
 
-    public string ChildIndexViewPath => "~/Views/AdminArticle/Articles.cshtml";
-    public string ChildUpsertViewPath => "~/Views/AdminArticle/Upsert.cshtml";
-
     public async Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default)
         => await _listModel.GetArticlesForListBySlugAsync(parentKey, ct);
 
@@ -220,13 +214,6 @@ internal sealed class ArticleChildHandler : IAdminCrudChildHandler
         var vm = await _articleModel.GetUpsertViewModelAsync(id, list.ArticleListId, ct);
         if (vm == null && id != null) return null;
         return vm;
-    }
-
-    public async Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default)
-    {
-        viewData["ArticleListSlug"] = parentKey;
-        var list = await _listModel.GetArticlesForListBySlugAsync(parentKey, ct);
-        viewData["ArticleListTitle"] = list?.ArticleListTitle;
     }
 
     public object CreateEmptyChildUpsertViewModel() => new ArticleUpsertViewModel();

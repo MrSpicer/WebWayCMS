@@ -304,10 +304,9 @@ public static class CMSExtensions
 		// validated for interactive form posts. Coexists with MVC's [ValidateAntiForgeryToken].
 		app.UseAntiforgery();
 
-		// Attribute-routed controllers (e.g. AdminContentController's "admin/{contentType}")
-		// must be registered as endpoints so they out-rank the catch-all page route below;
-		// otherwise "/admin/page" is captured by the dynamic page route as a sub-route of the
-		// "/admin" page instead of being handled by its controller.
+		// Attribute-routed controllers (e.g. ErrorController's "/Error") must be registered as
+		// endpoints so they out-rank the catch-all page route below; otherwise an explicit path
+		// like "/Error" is captured by the dynamic page route instead of its controller.
 		app.MapControllers();
 
 		// Blazor SSR endpoints: serves blazor.web.js, the _blazor Interactive Server hub, and any

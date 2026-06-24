@@ -2,11 +2,12 @@
 
 **Namespaces:**
 - `WebWayCMS.Attributes` — `FormPropertyAttribute`, `EditorType`, `PageControllerAttribute`, `ContentZoneComponentAttribute`
-- `WebWayCMS.Forms` — `FormPropertyBuilder`, `FormPropertyInfo`
-- `WebWayCMS.TagHelpers` — `FormFieldsTagHelper`
+- `WebWayCMS.Forms` — `FormPropertyBuilder`, `FormPropertyInfo`, `FormOption`
+- `WebWayCMS.Presentation.Components.Admin` — `InteractiveFormFields` (Blazor form renderer)
+- `WebWayCMS.Presentation.Rendering` — `IFormOptionsProvider`
 
 **Depends on:** Nothing (pure reflection; no external dependencies)
-**Consumed by:** Page Routing Subsystem (registry validates config), Content Zone Component Framework (registry validates config), Admin CRUD Framework (`<form-fields>` tag helper in views)
+**Consumed by:** Page Routing Subsystem (registry validates config), Content Zone Component Framework (registry validates config), Admin CRUD Framework (`InteractiveFormFields.razor` in admin pages)
 
 ---
 
@@ -17,7 +18,7 @@ Admin forms in the CMS are generated from C# attributes — no per-type Razor bo
 - Widget (content zone component) configuration forms
 - Any future configuration class
 
-The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<FormPropertyInfo>` → `FormFieldsTagHelper` → rendered HTML**.
+The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<FormPropertyInfo>` → `InteractiveFormFields.razor` → rendered fields**.
 
 ---
 
@@ -43,7 +44,7 @@ The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<For
 | `PatternErrorMessage` | `string` | `""` | Error message shown when pattern fails |
 | `DropdownOptions` | `string` | `""` | Comma-separated `"value:Label,value:Label"` pairs for `Dropdown` editors |
 | `EntityType` | `string` | `""` | Entity type name for GUID pickers, e.g. `"ContentBlock"` |
-| `ViewComponentName` | `string` | `""` | ViewComponent name for `ViewPicker` editors |
+| `ViewComponentName` | `string` | `""` | Picker-source key for `ViewPicker` editors (e.g. `"Layout"`); resolved by `IFormOptionsProvider` |
 
 **Constructors:**
 ```csharp
@@ -60,7 +61,7 @@ The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<For
 |-------|---------------|-------|
 | `Text` | `<input type="text">` | Default for `string` |
 | `TextArea` | `<textarea>` | Multi-line |
-| `RichText` | `<textarea class="rich-text-editor">` | CKEditor is attached by admin JS |
+| `RichText` | `<RichTextEditor>` component | CKEditor 5 via the `richtext.js` JS-interop wrapper |
 | `Number` | `<input type="number">` | Respects `Min`/`Max` |
 | `Checkbox` | `<input type="checkbox">` | Default for `bool` |
 | `Guid` | `<input type="text">` | Default for `Guid`; `EntityType` enables DB-backed picker |
@@ -70,8 +71,8 @@ The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<For
 | `Color` | `<input type="color">` | Browser color picker |
 | `Url` | `<input type="url">` | URL validation |
 | `Email` | `<input type="email">` | Email validation |
-| `ViewPicker` | `<select>` | Populated with available views via `IViewDiscoveryService`; `ViewComponentName` required |
-| `PageControllerPicker` | `<select data-page-controller-picker>` | Empty select populated client-side from the page controller registry (`/admin/pages/registry`); used by the page editor |
+| `ViewPicker` | `<select>` | Populated in-circuit by `IFormOptionsProvider` (e.g. the Layout widget's templates); `ViewComponentName` selects the source |
+| `PageControllerPicker` | `<select>` | Rendered by the dedicated `AdminPageUpsert` page editor, populated in-circuit from `IPageControllerRegistry`; used by the page editor |
 | `Hidden` | `<input type="hidden">` | Not displayed; included in form POST |
 
 **Type inference** (when `EditorType` is not set on `[FormProperty]` and there is no attribute at all):
@@ -96,44 +97,47 @@ everything else → Text
 1. `[FormProperty]` attribute values take precedence
 2. Standard data annotation attributes (`[Required]`, `[Range]`, `[StringLength]`, `[RegularExpression]`) fill in where `[FormProperty]` does not specify
 
-**Sorting:** Results are sorted by `Order` ascending, then alphabetically by property name. This is the order in which `FormFieldsTagHelper` renders fields.
+**Sorting:** Results are sorted by `Order` ascending, then alphabetically by property name. This is the order in which `InteractiveFormFields` renders fields.
 
 **Dropdown parsing:** `DropdownOptions` string `"a:Alpha,b:Beta"` produces `{ "a": "Alpha", "b": "Beta" }`. If no `:` separator, value is used as label.
 
 ---
 
-## 5. `FormFieldsTagHelper`
+## 5. `InteractiveFormFields.razor`
 
-**Usage in Razor:**
-```html
-<form-fields for="@Model.Configuration" />
+The metadata-driven form is an **Interactive Server Blazor component** (replacing the former
+`<form-fields>` tag helper). It is used by the admin CRUD pages (`AdminUpsert` / `AdminChildUpsert` /
+`AdminPageUpsert`) and the content-zone editor (`ContentZoneItemForm`).
+
+**Usage in a Razor component:**
+```razor
+<InteractiveFormFields Model="_config"
+                       Properties="_props"
+                       Options="_options" />
 ```
 
-The tag helper inspects the passed object's runtime type, calls `FormPropertyBuilder.BuildPropertyInfos`, and emits Bulma-styled HTML. It renders no wrapper element of its own (`output.TagName = null`).
+- `Model` — the configuration/ViewModel object being edited; each field reads/writes the bound
+  property by reflection (`FormValueConverter`), so edits update the model in place ready for save or
+  JSON serialization.
+- `Properties` — the `List<FormPropertyInfo>` from `FormPropertyBuilder.BuildPropertyInfos`.
+- `Options` — an optional `IReadOnlyDictionary<string, IReadOnlyList<FormOption>>` keyed by property
+  name, supplying selectable options for entity/view picker fields. The hosting page obtains these from
+  `IFormOptionsProvider.GetOptionsAsync(prop)`; fields without an entry render plain inputs.
 
-**Layout behavior:**
-- Properties in the same `Group` are wrapped in `<div class="form-group-section">` with an `<h3>` heading.
-- Properties with `GroupWithNext = true` are placed side-by-side in `<div class="field is-horizontal"><div class="field-body">`.
-- All other properties are stacked vertically.
+**Layout behavior:** fields are grouped under their `FormProperty` `Group` heading and rendered with
+Bulma styling, in the `FormPropertyBuilder` sort order.
 
-**Validation attributes emitted:**
-- `required aria-required="true"` for required fields
-- `maxlength="{n}"` for string fields with `MaxLength`
-- `min="{n}"` and `max="{n}"` for number fields
-- `pattern="{regex}"` for fields with `Pattern`
-- `aria-describedby="{fieldId}_help"` when `HelpText` is set
-- `<span role="alert" data-valmsg-for="{name}">` for client-side validation message display
+**Editor coverage:** Hidden, Text, TextArea, DateTime, Date, Number, Url, Email, Color, Checkbox,
+Dropdown, entity/view pickers (via `Options`), and RichText (the `RichTextEditor` CKEditor component).
 
-**Value formatting for special types:**
-- `DateTime` → `"yyyy-MM-ddTHH:mm"` for `<input type="datetime-local">`
-- `DateOnly` → `"yyyy-MM-dd"`
-- `Guid.Empty` → `""` (displayed as blank)
+Validation runs against the model's DataAnnotations on the hosting page's submit, and the page surfaces
+the resulting messages.
 
 ---
 
 ## 6. `[PageControllerAttribute]` and `[ContentZoneComponentAttribute]`
 
-Both attributes follow the same structure. They are applied at the class level to mark a controller or ViewComponent as discoverable by the respective registry.
+Both attributes follow the same structure. They are applied at the class level to mark a controller or Blazor widget as discoverable by the respective registry.
 
 `[PageControllerAttribute]` properties:
 
@@ -168,7 +172,7 @@ A configuration class is any POCO whose properties are decorated with `[FormProp
 - Those settings are stored as JSON (`ConfigurationJson` on `PageDTO`, `ComponentPropertiesJson` on `ContentZoneItemDTO`)
 
 **Conventions:**
-- Place alongside the controller or ViewComponent it belongs to
+- Place alongside the controller or widget it belongs to
 - Use simple value types or nullable types only (must survive JSON round-tripping)
 - Use `[FormProperty]` on every property that should be editable; omit it for computed/internal properties
 - Name the class `{PageType}PageConfiguration` or `{ComponentName}Configuration` by convention

@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using NSubstitute;
 
@@ -65,8 +63,6 @@ public class ContentZoneModelTests
 		};
 	}
 
-	private static ViewDataDictionary NewViewData() => new(new EmptyModelMetadataProvider(), new ModelStateDictionary());
-
 	[Test]
 	public void Constructor_NullArguments_Throw()
 	{
@@ -85,8 +81,6 @@ public class ContentZoneModelTests
 		{
 			Assert.That(_model.ContentType, Is.EqualTo("contentzones"));
 			Assert.That(_model.DisplayName, Is.EqualTo("Content Zone"));
-			Assert.That(_model.IndexViewPath, Does.Contain("ContentZones.cshtml"));
-			Assert.That(_model.UpsertViewPath, Does.Contain("ContentZoneUpsert.cshtml"));
 			Assert.That(_model.WriteRoles, Is.Null);
 			Assert.That(_model.HasSecondaryApiList, Is.False);
 			Assert.That(_model.RegistryHandler, Is.Not.Null);
@@ -333,15 +327,12 @@ public class ContentZoneModelTests
 		_service.GetItemByIdAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(item);
 		_service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
 		_service.RemoveItemAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(true);
-		var viewData = NewViewData();
 
 		Assert.Multiple(async () =>
 		{
 			Assert.That(child.ChildType, Is.EqualTo("items"));
 			Assert.That(child.ChildDisplayName, Is.EqualTo("Content Zone Item"));
 			Assert.That(child.WriteRoles, Is.Null);
-			Assert.That(child.ChildIndexViewPath, Does.Contain("ContentZoneItems.cshtml"));
-			Assert.That(child.ChildUpsertViewPath, Does.Contain("ContentZoneItemUpsert.cshtml"));
 			Assert.That(child.SupportsReorder, Is.False);
 			Assert.That(child.CreateEmptyChildUpsertViewModel(), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
 
@@ -354,11 +345,6 @@ public class ContentZoneModelTests
 			Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.False);
 			Assert.That(await child.DeleteChildAsync(item.ContentMeta.Id), Is.True);
 		});
-
-		// SetChildUpsertViewData: invalid guid returns early; valid sets ViewData.
-		await child.SetChildUpsertViewDataAsync(viewData, "not-a-guid");
-		await child.SetChildUpsertViewDataAsync(viewData, zone.ContentMeta.Id.ToString());
-		Assert.That(viewData["ZoneId"], Is.EqualTo(zone.ContentMeta.Id.ToString()));
 	}
 
 	[Test]

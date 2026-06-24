@@ -19,8 +19,6 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
 
     public override string ContentType => "contentblocks";
     public override string DisplayName => "Content Block";
-    public override string IndexViewPath => "~/Views/AdminContentBlock/ContentBlocks.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminContentBlock/ContentBlockUpsert.cshtml";
 
     public ContentBlockModel(IContentService<ContentBlockDTO> service, IMapper mapper)
     {

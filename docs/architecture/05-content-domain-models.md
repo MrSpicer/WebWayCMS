@@ -41,7 +41,7 @@ protected abstract string GetVersionHistoryBackUrl(string? parentKey = null);
 
 `BuildVersionHistoryAsync` is the shared implementation that calls `GetAllVersionsAsync`, finds the maximum version number, and builds a `VersionHistoryViewModel` containing `VersionItemViewModel` entries with an `IsLatest` flag.
 
-`VersionHistoryViewModel` is rendered by the shared `_VersionHistory.cshtml` partial in the admin UI.
+`VersionHistoryViewModel` is rendered by the shared `AdminVersionHistoryPage` Blazor component in the admin UI.
 
 ---
 
@@ -106,7 +106,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 - **ContentType:** `"contentzones"`
 - Manages both zones (parent) and zone items (child) via `ContentZoneChildHandler`
-- Exposes `IContentZoneModel` which is consumed by `ContentZoneViewComponent`
+- Exposes `IContentZoneModel` which is consumed by `ContentZone.razor` (via `IContentZoneResolver`) and the content-zone editor
 - Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByZoneSlotAsync`, `GetViewModelByIdAsync`
 
 ---

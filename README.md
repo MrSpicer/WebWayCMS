@@ -67,8 +67,9 @@ its own assembly. Coverlet enforces **100% line + branch** coverage per project 
 dotnet test tests/WebWayCMS.Core.Tests/WebWayCMS.Core.Tests.csproj # run a single project
 ```
 
-Generated EF migrations, the scaffolded ASP.NET Identity Razor Pages, and the database/seeding
-orchestration in `CMSExtensions` are excluded from coverage (validated by running the app).
+Generated EF migrations, the Blazor Identity components (`Components/Account/*`), and the
+database/seeding orchestration in `CMSExtensions` are excluded from coverage (validated by running
+the app).
 
 ### Integration host (end-to-end)
 
