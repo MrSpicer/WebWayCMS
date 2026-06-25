@@ -38,6 +38,10 @@ public class ContentZoneViewComponent : ViewComponent
 	{
 		var ct = HttpContext.RequestAborted;
 
+		// A nested zone inherits edit mode from the ancestor zone that is being edited.
+		if (ViewData["ContentZone:EditMode"] as bool? == true)
+			editMode = true;
+
 		ContentZoneViewModel? vm;
 
 		Guid? pageMasterIdForVm = null;
@@ -52,23 +56,18 @@ public class ContentZoneViewComponent : ViewComponent
 			if (string.IsNullOrWhiteSpace(zoneName))
 				return Content(string.Empty);
 
-			if (!IsGlobal && HttpContext.Items["CMS:PageData"] is PageDTO pageData)
+			var parentZoneId = ViewData["ContentZone:ParentZoneId"] as Guid?;
+
+			if (!IsGlobal && parentZoneId.HasValue)
 			{
+				// Nested zone inside another zone - works with or without page context.
+				vm = await _model.GetOrCreateViewModelByZoneSlotAsync(parentZoneId.Value, zoneName, ct);
+			}
+			else if (!IsGlobal && HttpContext.Items["CMS:PageData"] is PageDTO pageData)
+			{
+				// Top-level page zone: resolve via assignment
 				pageMasterIdForVm = pageData.ContentMeta.MasterId;
-
-				// Page-scoped zone: resolve via assignment
-				var parentZoneId = ViewData["ContentZone:ParentZoneId"] as Guid?;
-
-				if (parentZoneId.HasValue)
-				{
-					// Nested zone inside another zone
-					vm = await _model.GetOrCreateViewModelByZoneSlotAsync(parentZoneId.Value, zoneName, ct);
-				}
-				else
-				{
-					// Top-level page zone
-					vm = await _model.GetOrCreateViewModelByPageSlotAsync(pageData.ContentMeta.MasterId, zoneName, ct);
-				}
+				vm = await _model.GetOrCreateViewModelByPageSlotAsync(pageData.ContentMeta.MasterId, zoneName, ct);
 			}
 			else
 			{
@@ -99,6 +98,10 @@ public class ContentZoneViewComponent : ViewComponent
 		// Store this zone's ID in ViewData so nested zones can use it as their parent
 		if (vm.Id != Guid.Empty)
 			ViewData["ContentZone:ParentZoneId"] = vm.Id;
+
+		// Thread edit mode down so nested zones (e.g. inside a Layout widget) are editable too.
+		if (editMode)
+			ViewData["ContentZone:EditMode"] = true;
 
 		if (editMode)
 		{

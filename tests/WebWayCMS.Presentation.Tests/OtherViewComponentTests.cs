@@ -125,6 +125,33 @@ public class ContentZoneViewComponentTests
 	}
 
 	[Test]
+	public async Task NestedSlot_WithoutPageData_GetsOrCreatesByZoneSlot()
+	{
+		_component.ViewComponentContext.ViewData["ContentZone:ParentZoneId"] = Guid.NewGuid();
+		_model.GetOrCreateViewModelByZoneSlotAsync(Arg.Any<Guid>(), "Sub", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
+
+		var result = await _component.InvokeAsync(zoneName: "Sub");
+
+		Assert.That(result, Is.InstanceOf<ViewViewComponentResult>());
+	}
+
+	[Test]
+	public async Task InheritedEditMode_FromViewData_RendersEditView()
+	{
+		_component.ViewComponentContext.ViewData["ContentZone:EditMode"] = true;
+		_model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns(ZoneVm());
+		_registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>());
+
+		var result = await _component.InvokeAsync(zoneName: "X", IsGlobal: true);
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Edit"));
+			Assert.That(_component.ViewComponentContext.ViewData.ContainsKey("ComponentsByCategory"), Is.True);
+		});
+	}
+
+	[Test]
 	public async Task GlobalZone_GetsOrCreatesByName()
 	{
 		_model.GetOrCreateViewModelAsync("Footer", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
