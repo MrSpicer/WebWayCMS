@@ -16,25 +16,25 @@ namespace WebWayCMS.Core.Tests;
 [TestFixture]
 public class CoreInternalsTests
 {
-	[Test]
-	public void Mapper_NullMaps_Throws()
-	{
-		Assert.That(() => new Mapper(null!), Throws.ArgumentNullException);
-	}
+    [Test]
+    public void Mapper_NullMaps_Throws()
+    {
+        Assert.That(() => new Mapper(null!), Throws.ArgumentNullException);
+    }
 
-	[Test]
-	public void PageRegistryHandler_NullViewDiscovery_Throws()
-	{
-		var registry = Substitute.For<IPageControllerRegistry>();
+    [Test]
+    public void PageRegistryHandler_NullViewDiscovery_Throws()
+    {
+        var registry = Substitute.For<IPageControllerRegistry>();
 
-		Assert.That(() => new PageRegistryHandler(registry, null!), Throws.ArgumentNullException);
-	}
+        Assert.That(() => new PageRegistryHandler(registry, null!), Throws.ArgumentNullException);
+    }
 
-	[Test]
-	public void PageRegistryHandler_ConstructsWithValidArguments()
-	{
-		Assert.That(() => new PageRegistryHandler(
-			Substitute.For<IPageControllerRegistry>(),
-			Substitute.For<IViewDiscoveryService>()), Throws.Nothing);
-	}
+    [Test]
+    public void PageRegistryHandler_ConstructsWithValidArguments()
+    {
+        Assert.That(() => new PageRegistryHandler(
+            Substitute.For<IPageControllerRegistry>(),
+            Substitute.For<IViewDiscoveryService>()), Throws.Nothing);
+    }
 }

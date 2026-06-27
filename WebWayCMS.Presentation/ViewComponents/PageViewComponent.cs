@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+
 using WebWayCMS.Attributes;
 using WebWayCMS.Models.Page;
 
@@ -45,7 +46,7 @@ public class PageViewComponent : ViewComponent
         {
             filteredNodes = filteredNodes.Where(n => !n.Route.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
         }
-        
+
         return filteredNodes
             .Select(n => new PageNavigationItem
             {

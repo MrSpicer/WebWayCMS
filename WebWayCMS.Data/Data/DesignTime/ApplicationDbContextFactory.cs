@@ -1,8 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.DependencyInjection;
+
 using WebWayCMS.Data.DbContexts;
 
 namespace WebWayCMS.Data.DesignTime;

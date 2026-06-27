@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Services;
@@ -121,7 +122,7 @@ public sealed class ContentService<T> : IContentService<T> where T : class, ICon
             return true;
         }
 
-       return await UpdateAsync(entity, ct);
+        return await UpdateAsync(entity, ct);
     }
 
     public async Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default)
@@ -170,13 +171,13 @@ public sealed class ContentService<T> : IContentService<T> where T : class, ICon
             return await UpdateAsync(entity, ct);
         }
 
-        if(deleteHistory)
+        if (deleteHistory)
         {
             var historyItems = await _set
                 .Where(e => e.ContentMeta.MasterId == entity.ContentMeta.MasterId)
                 .ToListAsync(ct);
 
-            if(softDelete)
+            if (softDelete)
             {
                 foreach (var item in historyItems)
                 {

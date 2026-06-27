@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+
 using WebWayCMS.Data.DbContexts;
 
 namespace WebWayCMS.Data.DesignTime;

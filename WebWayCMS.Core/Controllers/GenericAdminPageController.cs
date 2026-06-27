@@ -1,7 +1,8 @@
-using WebWayCMS.Attributes;
-using WebWayCMS.Controllers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
+using WebWayCMS.Attributes;
+using WebWayCMS.Controllers;
 
 namespace WebWayCMS.Controllers;
 

@@ -3,9 +3,10 @@
 #nullable disable
 
 using System;
+
 using Microsoft.AspNetCore.Mvc.Rendering;
 
-namespace  WebWayCMS.Presentation.Areas.Identity.Pages.Account.Manage
+namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account.Manage
 {
     /// <summary>
     ///     This API supports the ASP.NET Core Identity default UI infrastructure and is not intended to be used

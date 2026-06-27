@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+
 using WebWayCMS.Attributes;
 
 namespace WebWayCMS.Models.ContentBlock;

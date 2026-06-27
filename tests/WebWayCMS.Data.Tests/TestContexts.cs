@@ -12,26 +12,26 @@ namespace WebWayCMS.Data.Tests;
 /// </summary>
 internal static class TestContexts
 {
-	public static ContentBlockContext ContentBlock(string db) =>
-		new(Options<ContentBlockContext>(db));
+    public static ContentBlockContext ContentBlock(string db) =>
+        new(Options<ContentBlockContext>(db));
 
-	public static PageContext Page(string db) =>
-		new(Options<PageContext>(db));
+    public static PageContext Page(string db) =>
+        new(Options<PageContext>(db));
 
-	public static ContentZoneContext ContentZone(string db) =>
-		new(Options<ContentZoneContext>(db));
+    public static ContentZoneContext ContentZone(string db) =>
+        new(Options<ContentZoneContext>(db));
 
-	public static ArticleContext Article(string db) =>
-		new(Options<ArticleContext>(db));
+    public static ArticleContext Article(string db) =>
+        new(Options<ArticleContext>(db));
 
-	public static ApplicationDbContext Application(string db) =>
-		new(Options<ApplicationDbContext>(db));
+    public static ApplicationDbContext Application(string db) =>
+        new(Options<ApplicationDbContext>(db));
 
-	private static DbContextOptions<T> Options<T>(string db) where T : DbContext =>
-		new DbContextOptionsBuilder<T>()
-			.UseInMemoryDatabase(db)
-			.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-			.Options;
+    private static DbContextOptions<T> Options<T>(string db) where T : DbContext =>
+        new DbContextOptionsBuilder<T>()
+            .UseInMemoryDatabase(db)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
 
-	public static string NewDb() => Guid.NewGuid().ToString();
+    public static string NewDb() => Guid.NewGuid().ToString();
 }

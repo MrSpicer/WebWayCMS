@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
 using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.DbContexts;

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.DbContexts;

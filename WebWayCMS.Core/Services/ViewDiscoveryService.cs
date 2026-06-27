@@ -101,8 +101,8 @@ public sealed class ViewDiscoveryService : IViewDiscoveryService
         }
 
         var result = views.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
-        
-        _logger.Debug("Discovered {Count} views for ViewComponent '{ComponentName}': {Views}", 
+
+        _logger.Debug("Discovered {Count} views for ViewComponent '{ComponentName}': {Views}",
             result.Count, componentName, string.Join(", ", result));
 
         return result;
@@ -230,7 +230,7 @@ public sealed class ViewDiscoveryService : IViewDiscoveryService
             foreach (var file in Directory.GetFiles(directoryPath, "*.cshtml", SearchOption.TopDirectoryOnly))
             {
                 var fileName = Path.GetFileNameWithoutExtension(file);
-                
+
                 // Skip files that start with underscore (partials/layouts)
                 if (!fileName.StartsWith("_"))
                 {
