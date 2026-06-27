@@ -10,6 +10,7 @@ using WebWayCMS.Data;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
+using WebWayCMS.Mcp;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.TagHelpers;         // FormFieldsTagHelper
@@ -54,6 +55,7 @@ public static class ServiceCollectionExtensions
 	{
 		ConfigureDatabaseServices(services, configuration);
 		AddCmsCore(services);
+		services.AddWebWayCmsMcp(configuration);
 		return services;
 	}
 

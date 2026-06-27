@@ -26,6 +26,25 @@
   Razor Pages, and the database/Identity-seeding + migration orchestration in
   `WebWayCMS/CMSExtensions.cs` (`[ExcludeFromCodeCoverage]`; validated by running the app).
 
+## MCP Server
+
+- `WebWayCMS.Mcp` exposes the admin feature set (content CRUD, child entities, version history,
+  registries) to AI agents over MCP. Its tools delegate to the same `IAdminHandlerRegistry` /
+  `IAdminCrudHandler` dispatch the admin UI uses, so every current and future content type is covered
+  generically — there is no per-type tool code.
+- Wired into the host in `WebWayCMS/ServiceCollectionExtensions.cs` (`AddWebWayCmsMcp`) and mapped in
+  `WebWayCMS/CMSExtensions.cs` (`MapWebWayCmsMcp`). Built on the official `ModelContextProtocol.AspNetCore` SDK.
+- **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (via user-secrets
+  or env, never source). The endpoint is mapped at `Path` (default `/mcp`) and gated by a
+  `Authorization: Bearer <ApiKey>` check — that token is the security boundary (the endpoint runs with
+  effective admin authority).
+- To connect Claude Code to a running instance, add to `.mcp.json` once the server is enabled:
+  `{ "mcpServers": { "webwaycms": { "type": "http", "url": "https://localhost:7046/mcp",
+  "headers": { "Authorization": "Bearer <key>" } } } }`.
+- The SDK/transport wiring (`McpServiceCollectionExtensions`, `McpApplicationBuilderExtensions`,
+  the API-key endpoint filter) is `[ExcludeFromCodeCoverage]` and validated by running; the toolset
+  logic is unit-tested to the 100% gate.
+
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes
  - Do not Remove todo notes from the code unless the todo not has been completed. If you are unsure. ask

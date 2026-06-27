@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebWayCMS.Mcp.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <ProjectReference Include="..\WebWayCMS.Core\WebWayCMS.Core.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Forms\WebWayCMS.Forms.csproj" />
+  </ItemGroup>
+</Project>

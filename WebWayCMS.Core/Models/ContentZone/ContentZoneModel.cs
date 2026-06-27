@@ -419,7 +419,21 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
     {
         var vm = (ContentZoneItemUpsertViewModel)model;
         if (vm.Id == null || vm.Id == Guid.Empty)
-            return new AdminSaveResult(false, "Item ID is required for editing.");
+        {
+            // No id supplied: create a new item under the parent zone (parentKey is the zone id).
+            if (!Guid.TryParse(parentKey, out var zoneId))
+                return new AdminSaveResult(false, "A valid content zone id is required.");
+
+            var newItem = new ContentZoneItemDTO
+            {
+                ContentZoneId = zoneId,
+                ComponentName = vm.ComponentName,
+                ComponentPropertiesJson = string.IsNullOrWhiteSpace(vm.ComponentPropertiesJson) ? "{}" : vm.ComponentPropertiesJson,
+                IsActive = vm.IsActive,
+            };
+            await _model.AddItemAsync(zoneId, newItem, ct);
+            return new AdminSaveResult(true);
+        }
 
         var existing = await _model.GetItemByIdAsync(vm.Id.Value, ct);
         if (existing == null)

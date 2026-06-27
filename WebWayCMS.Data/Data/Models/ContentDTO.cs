@@ -38,4 +38,21 @@ public record ContentDTO
     public int Version { get; set; }
 
     public List<CustomField> CustomFields { get; set; } = new();
+
+
+    // public ContentType ContentType { get; set; } = new();
+
+    // public List<Metadata> Metadata { get; set; } = new List<Metadata>();
+}
+
+public record ContentType
+{
+    //this should probably be a reference to a record. each content type should register a content type record with a unique name
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+public class Metadata
+{
+
 }

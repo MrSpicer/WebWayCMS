@@ -14,5 +14,6 @@
     <ProjectReference Include="..\WebWayCMS.ContentZones\WebWayCMS.ContentZones.csproj" />
     <ProjectReference Include="..\WebWayCMS.Core\WebWayCMS.Core.csproj" />
     <ProjectReference Include="..\WebWayCMS.Presentation\WebWayCMS.Presentation.csproj" />
+    <ProjectReference Include="..\WebWayCMS.Mcp\WebWayCMS.Mcp.csproj" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,7 @@
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Mcp;
 using WebWayCMS.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Builder;
@@ -299,6 +300,10 @@ public static class CMSExtensions
 
 		app.UseAuthentication();
 		app.UseAuthorization();
+
+		// MCP server endpoint (opt-in via the "Mcp" config section; gated by its own API key).
+		app.MapWebWayCmsMcp();
+
 		app.MapRazorPages();
 
 		// Attribute-routed controllers (e.g. AdminContentController's "admin/{contentType}")

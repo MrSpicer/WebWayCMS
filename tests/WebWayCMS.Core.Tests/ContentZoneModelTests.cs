@@ -393,6 +393,39 @@ public class ContentZoneModelTests
 		});
 	}
 
+	[Test]
+	public async Task ChildHandler_SaveChildUpsert_CreatesNewItem_WhenNoId()
+	{
+		var child = _model.ChildHandler!;
+		var zoneId = Guid.NewGuid();
+		ContentZoneItemDTO? captured = null;
+		_service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+			.Returns(c => { captured = c.Arg<ContentZoneItemDTO>(); return captured; });
+
+		// No id + valid zone key + explicit properties JSON -> creates the item.
+		var created = await child.SaveChildUpsertAsync(zoneId.ToString(),
+			new ContentZoneItemUpsertViewModel { Id = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "{\"ContentBlockID\":\"x\"}", IsActive = true });
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(created.Success, Is.True);
+			Assert.That(captured!.ContentZoneId, Is.EqualTo(zoneId));
+			Assert.That(captured!.ComponentName, Is.EqualTo("ContentBlock"));
+			Assert.That(captured!.ComponentPropertiesJson, Is.EqualTo("{\"ContentBlockID\":\"x\"}"));
+			Assert.That(captured!.IsActive, Is.True);
+		});
+
+		// Blank properties JSON defaults to "{}".
+		var createdBlank = await child.SaveChildUpsertAsync(zoneId.ToString(),
+			new ContentZoneItemUpsertViewModel { Id = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "  " });
+
+		Assert.Multiple(() =>
+		{
+			Assert.That(createdBlank.Success, Is.True);
+			Assert.That(captured!.ComponentPropertiesJson, Is.EqualTo("{}"));
+		});
+	}
+
 	// --- Registry handler ---
 
 	[Test]
