@@ -17,7 +17,7 @@ public sealed class PageContextFactory : IDesignTimeDbContextFactory<PageContext
     {
         var options = new DbContextOptionsBuilder<PageContext>()
             .UseNpgsql(
-                "Host=localhost;Database=webwaycms_designtime;Username=postgres;Password=postgres",
+                DesignTimeConnection.String,
                 b => b.MigrationsHistoryTable("__EFMigrationsHistory_Page"))
             .Options;
         return new PageContext(options);

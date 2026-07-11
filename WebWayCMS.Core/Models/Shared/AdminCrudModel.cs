@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Security;
 
 namespace WebWayCMS.Models.Shared;
 
@@ -22,7 +23,21 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public abstract Task<object> GetIndexViewModelAsync(CancellationToken ct = default);
     public abstract Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default);
     public abstract object CreateEmptyUpsertViewModel();
-    public abstract Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sanitizes any rich-text fields on <paramref name="model"/> before persisting, then delegates to
+    /// <see cref="SaveUpsertCoreAsync"/>. This is the single save choke point for both the admin UI and
+    /// the MCP tools, so every content type's rich-text content is sanitized on save.
+    /// </summary>
+    public Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+    {
+        RichTextSanitizer.Sanitize(model);
+        return SaveUpsertCoreAsync(model, ct);
+    }
+
+    /// <summary>Persists the (already sanitized) upsert view model. Implemented per content type.</summary>
+    protected abstract Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default);
+
     public abstract Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
     public abstract Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 

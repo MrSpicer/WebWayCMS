@@ -10,6 +10,8 @@ namespace WebWayCMS.Controllers.Admin;
 [Route("admin")]
 public class AdminContentController : Controller
 {
+    private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();
+
     private readonly IAdminHandlerRegistry _registry;
 
     public AdminContentController(IAdminHandlerRegistry registry)
@@ -22,10 +24,17 @@ public class AdminContentController : Controller
     private IActionResult HandlerNotFound(string contentType) =>
         NotFound($"No admin handler registered for content type '{contentType}'.");
 
-    private bool HasWriteAccess(string[]? writeRoles) =>
-        writeRoles == null
+    private bool HasWriteAccess(string[]? writeRoles)
+    {
+        var granted = writeRoles == null
             ? User.IsInRole("Admin")
             : writeRoles.Any(r => User.IsInRole(r));
+
+        if (!granted)
+            Logger.Warning("Denied admin write access to {Path}", Request.Path);
+
+        return granted;
+    }
 
     // ─── Top-level CRUD ───────────────────────────────────────────────────────
 

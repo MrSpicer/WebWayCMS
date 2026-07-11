@@ -239,7 +239,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public override object CreateEmptyUpsertViewModel() => new ContentZoneUpsertViewModel();
 
-    public override async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ContentZoneUpsertViewModel)model;
         var isEdit = vm.Id.HasValue && vm.Id != Guid.Empty;

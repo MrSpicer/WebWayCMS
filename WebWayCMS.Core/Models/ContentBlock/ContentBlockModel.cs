@@ -101,7 +101,7 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
 
     public override object CreateEmptyUpsertViewModel() => new ContentBlockUpsertViewModel();
 
-    public override async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ContentBlockUpsertViewModel)model;
         var result = await SaveUpsertAsync(vm, ct);

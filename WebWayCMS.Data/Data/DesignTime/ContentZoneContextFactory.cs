@@ -17,7 +17,7 @@ public sealed class ContentZoneContextFactory : IDesignTimeDbContextFactory<Cont
     {
         var options = new DbContextOptionsBuilder<ContentZoneContext>()
             .UseNpgsql(
-                "Host=localhost;Database=webwaycms_designtime;Username=postgres;Password=postgres",
+                DesignTimeConnection.String,
                 b => b.MigrationsHistoryTable("__EFMigrationsHistory_ContentZone"))
             .Options;
         return new ContentZoneContext(options);

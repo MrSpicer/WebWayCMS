@@ -26,6 +26,13 @@ public static class McpApplicationBuilderExtensions
         if (!options.Enabled)
             return app;
 
+        // The API key is the MCP endpoint's only security boundary (it runs with effective admin
+        // authority). Fail loud at startup rather than silently exposing a 401-only endpoint if the
+        // server was enabled without a key.
+        if (string.IsNullOrEmpty(options.ApiKey))
+            throw new InvalidOperationException(
+                "Mcp:Enabled is true but Mcp:ApiKey is not configured. Supply an API key (user-secrets or environment) or disable the MCP server.");
+
         app.MapMcp(options.Path)
             .AddEndpointFilter(new McpApiKeyEndpointFilter(options.ApiKey));
 

@@ -57,6 +57,23 @@ source) before building or running the host:
 
 The watch system monitors source files and automatically rebuilds when you save changes.
 
+### Content-Security-Policy configuration
+
+The CMS emits a `Content-Security-Policy` header with secure defaults that keep the admin UI working
+out of the box. A host can tune it from the `"Csp"` section of its `appsettings.json` without touching
+CMS code. Directives you don't list keep the CMS default; set one to an empty string to drop it.
+
+```jsonc
+"Csp": {
+  "Enabled": true,        // set false to disable the header entirely
+  "ReportOnly": false,    // true emits Content-Security-Policy-Report-Only (monitor without enforcing)
+  "Directives": {
+    "script-src": "'self' https://cdn.ckeditor.com https://my-cdn.example",
+    "img-src": "'self' data: https://my-cdn.example"
+  }
+}
+```
+
 ## Testing
 
 Tests live under `tests/`, one project per source project (NUnit + NSubstitute), each isolated to
@@ -92,16 +109,4 @@ Tear the running stack down with (pass `-v` to also delete the Postgres data vol
 
 ```
 ./scripts/TearDownIntegrationhost.sh
-```
-
-## Docker
-
-### Build Image
-```
-./Scripts/DockerBuild.sh
-```
-
-### Run with Docker Compose
-```
-./Scripts/DockerRun.sh
 ```

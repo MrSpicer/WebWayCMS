@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
@@ -87,6 +88,18 @@ public class ServiceCollectionExtensionsTests
             Assert.That(app.Services.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value.ForwardedHeaders, Is.Not.EqualTo(ForwardedHeaders.None));
             Assert.That(app.Services.GetRequiredService<IOptions<RouteOptions>>().Value.ConstraintMap.ContainsKey("notreserved"), Is.True);
             Assert.That(app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value.Password.RequiredLength, Is.EqualTo(12));
+
+            var identityOptions = app.Services.GetRequiredService<IOptions<IdentityOptions>>().Value;
+            Assert.That(identityOptions.Lockout.MaxFailedAccessAttempts, Is.EqualTo(5));
+            Assert.That(identityOptions.Lockout.DefaultLockoutTimeSpan, Is.EqualTo(TimeSpan.FromMinutes(15)));
+            Assert.That(identityOptions.Lockout.AllowedForNewUsers, Is.True);
+
+            var appCookie = app.Services
+                .GetRequiredService<IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>()
+                .Get(IdentityConstants.ApplicationScheme);
+            Assert.That(appCookie.Cookie.HttpOnly, Is.True);
+            Assert.That(appCookie.Cookie.SecurePolicy, Is.EqualTo(CookieSecurePolicy.Always));
+            Assert.That(appCookie.Cookie.SameSite, Is.EqualTo(SameSiteMode.Strict));
         });
     }
 

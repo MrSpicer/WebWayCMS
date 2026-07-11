@@ -15,6 +15,8 @@ namespace WebWayCMS.Controllers.Api;
 [Authorize(Roles = "Admin")]
 public class ContentZoneApiController : ControllerBase
 {
+    private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<ContentZoneApiController>();
+
     private readonly IContentZoneService _service;
 
     public ContentZoneApiController(IContentZoneService service)
@@ -116,7 +118,8 @@ public class ContentZoneApiController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = "Failed to save item.", details = ex.Message });
+            Logger.Error(ex, "Failed to save content zone item.");
+            return StatusCode(500, new { error = "Failed to save item." });
         }
     }
 
@@ -137,7 +140,8 @@ public class ContentZoneApiController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = "Failed to delete item.", details = ex.Message });
+            Logger.Error(ex, "Failed to delete content zone item.");
+            return StatusCode(500, new { error = "Failed to delete item." });
         }
     }
 

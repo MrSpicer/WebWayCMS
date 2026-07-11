@@ -29,7 +29,7 @@ public sealed class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Ap
 
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(
-                "Host=localhost;Database=webwaycms_designtime;Username=postgres;Password=postgres",
+                DesignTimeConnection.String,
                 b => b.MigrationsHistoryTable("__EFMigrationsHistory_Application"))
             .UseApplicationServiceProvider(appServices)
             .Options;

@@ -1,11 +1,13 @@
 using System.Reflection;
 
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -58,6 +60,7 @@ public static class ServiceCollectionExtensions
     {
         ConfigureDatabaseServices(services, configuration);
         AddCmsCore(services);
+        services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
         services.AddWebWayCmsMcp(configuration);
         return services;
     }
@@ -67,6 +70,17 @@ public static class ServiceCollectionExtensions
         ConfigureForwardedHeaders(services);
         MapTypes(services);
         ConfigureAuthorization(services);
+        ConfigureRateLimiting(services);
+    }
+
+    private static void ConfigureRateLimiting(IServiceCollection services)
+    {
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+                AuthRateLimiting.GetPartition);
+        });
     }
 
     private static void ConfigureForwardedHeaders(IServiceCollection services)
@@ -74,7 +88,11 @@ public static class ServiceCollectionExtensions
         services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            // Trust all upstream proxies within Docker's internal network
+            // SECURITY: clearing the known-proxy allow-list makes the app trust X-Forwarded-* from ANY
+            // caller. This is only safe when the app is never reachable directly — i.e. it always sits
+            // behind a trusted reverse proxy on an isolated network (the Docker/Swarm deployment model).
+            // If the app can be reached directly, a client can spoof its source IP and scheme; in that
+            // case populate KnownProxies/KnownIPNetworks with the real proxy addresses instead.
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
         });
@@ -243,10 +261,23 @@ public static class ServiceCollectionExtensions
                     identityOptions.Password.RequireNonAlphanumeric = true;
                     identityOptions.Password.RequireUppercase = true;
                     identityOptions.Password.RequiredLength = 12;
+
+                    // Explicit lockout policy: throttle credential brute force.
+                    identityOptions.Lockout.AllowedForNewUsers = true;
+                    identityOptions.Lockout.MaxFailedAccessAttempts = 5;
+                    identityOptions.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
                 }
                 )
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<ApplicationDbContext>()
             .AddDefaultUI();
+
+        // Harden the authentication cookie explicitly rather than relying on framework defaults.
+        services.ConfigureApplicationCookie(cookieOptions =>
+        {
+            cookieOptions.Cookie.HttpOnly = true;
+            cookieOptions.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            cookieOptions.Cookie.SameSite = SameSiteMode.Strict;
+        });
     }
 }

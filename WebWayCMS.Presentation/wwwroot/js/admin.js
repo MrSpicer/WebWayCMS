@@ -125,7 +125,8 @@ function initRichTextEditor() {
 		GeneralHtmlSupport
 	} = CKEDITOR;
 
-	// License key injected server-side via window.__APP_CONFIG__ or a meta tag.
+	// License key injected server-side via the ckeditor-license-key meta tag (see _AdminLayout).
+	// window.__APP_CONFIG__ is still honored if a host chooses to set it.
 	const ckLicenseKey = (window.__APP_CONFIG__ && window.__APP_CONFIG__.ckEditorLicenseKey)
 		|| (document.querySelector('meta[name="ckeditor-license-key"]')?.content)
 		|| '';

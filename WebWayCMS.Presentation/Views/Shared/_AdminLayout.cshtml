@@ -24,12 +24,9 @@
 	@await RenderSectionAsync("Styles", required: false)
 
 	<meta name="csrf-token" content="@Antiforgery.GetAndStoreTokens(Context).RequestToken" />
+	@* CKEditor license key is read from this meta tag by admin.js — kept out of an inline <script>
+	   so the Content-Security-Policy script-src needs no 'unsafe-inline'. *@
 	<meta name="ckeditor-license-key" content="@Configuration["CKEditor:LicenseKey"]" />
-	<script>
-		window.__APP_CONFIG__ = Object.assign({}, window.__APP_CONFIG__, {
-			ckEditorLicenseKey: "@Configuration["CKEditor:LicenseKey"]"
-		});
-	</script>
 </head>
 
 <body class="admin-shell">

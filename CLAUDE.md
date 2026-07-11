@@ -7,9 +7,7 @@
 ## Commands
 
 - **Build:** `dotnet build`
-- **Run dev (hot reload + Sass watch):** `./Scripts/HotReloadRun.sh`
 - **Rebuild Ef Migrations (destructive):** `./Scripts/RebuildEFMigrations.sh`
-- **Docker build:** `./Scripts/DockerBuild.sh`
 - **Run all tests + coverage gate:** `./Scripts/RunTests.sh` (or `dotnet test WebWayCMS.sln`)
 - **Run one project's tests:** `dotnet test tests/WebWayCMS.Core.Tests/WebWayCMS.Core.Tests.csproj`
 - **Run integration host end-to-end (dev secrets + docker compose; builds the libraries from source via project references, polls `http://localhost:45847`):** `./scripts/StartIntegrationHost.sh`
@@ -45,9 +43,45 @@
   the API-key endpoint filter) is `[ExcludeFromCodeCoverage]` and validated by running; the toolset
   logic is unit-tested to the 100% gate.
 
+## CKEditor License
+
+- The admin rich-text editor (CKEditor) license is owned by the **CMS**, not the host. It is bound
+  from a `"CKEditor"` config section into `CKEditorOptions` (in `WebWayCMS.Presentation`), wired via
+  `AddWebWayCmsCKEditor` and consumed by `_AdminLayout.cshtml`.
+- A built-in default key is embedded **at build/pack time** as assembly metadata from the
+  `CKEDITOR_LICENSE_KEY` environment variable (or `-p:CKEditorLicenseKey=...`) — never committed to
+  source. Pack the libraries with that variable set to ship the default:
+  `CKEDITOR_LICENSE_KEY=<key> ./scripts/PackLocalPackages.sh`.
+- **Precedence:** host config `CKEditor:LicenseKey` (if non-empty) → CMS-embedded default → empty
+  (CKEditor evaluation mode). Hosts get a working editor with zero config and may still override.
+- Unlike the MCP `ApiKey`, a CKEditor license key is a JWT that ships to the browser anyway (read
+  client-side in `admin.js`), so embedding a default is by design and not a server-side secret.
+- The DI wiring (`CKEditorServiceCollectionExtensions`) and the reflection read of the embedded key
+  are `[ExcludeFromCodeCoverage]`; the precedence logic in `CKEditorOptionsConfigurator` is
+  unit-tested to the 100% gate.
+
+## Security
+
+- **Rich-text sanitization:** CKEditor HTML is sanitized server-side on save (`RichTextSanitizer` in
+  `WebWayCMS.Core`, using `HtmlSanitizer`/`Ganss.Xss`). It runs generically at the single save choke
+  point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
+  MCP tools, on every `string` property marked `[FormProperty(EditorType = EditorType.RichText)]`.
+  Stored content is therefore safe to render with `@Html.Raw`.
+- **Content-Security-Policy** is emitted by the middleware in `CMSExtensions.cs` and is
+  **host-configurable via the `"Csp"` config section** (`CspOptions`): `Enabled` (default true),
+  `ReportOnly` (default false), and a `Directives` map. The CMS ships secure defaults that keep the
+  admin UI working (CKEditor/Bulma/FontAwesome CDNs); a host overrides or adds individual directives,
+  and directives it does not mention keep the CMS default (set a directive to empty to drop it). The
+  default `script-src` allows no `'unsafe-inline'`, so keep admin scripts in files, not inline
+  `<script>` blocks. The policy string is built by the unit-tested `CspPolicyBuilder`.
+- **Auth rate limiting:** the Identity login/register/password-reset endpoints are throttled per client
+  IP (`AuthRateLimiting`, wired via `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.
+- **Identity hardening:** explicit account lockout (5 attempts / 15 min) and auth-cookie flags
+  (`HttpOnly`, `Secure=Always`, `SameSite=Strict`) are set in `ConfigureAuthorization`.
+
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes
- - Do not Remove todo notes from the code unless the todo not has been completed. If you are unsure. ask
+ - Do not Remove todo notes from the code unless the todo has been completed. If you are unsure. ask
  - If Tests fail that were previously passing, do not modify those tests without permission from a human
  - When multiple good options exist ask the user which they would prefer
  - always ask clarifying questions when planning if you have any uncertainty.

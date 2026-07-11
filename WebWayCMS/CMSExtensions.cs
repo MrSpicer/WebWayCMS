@@ -288,18 +288,30 @@ public static class CMSExtensions
         app.UseHsts();
         app.UseHttpsRedirection();
 
+        // Content-Security-Policy is host-configurable via the "Csp" section (see CspOptions); the CMS
+        // ships secure defaults that keep the admin UI working. Resolve and build the header once at
+        // startup so the per-request middleware only writes it.
+        var cspOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<CspOptions>>().Value;
+        var cspHeaderName = CspPolicyBuilder.HeaderName(cspOptions);
+        var cspHeaderValue = CspPolicyBuilder.Build(cspOptions);
+
         app.Use(async (context, next) =>
         {
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             context.Response.Headers["X-Frame-Options"] = "DENY";
             context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
+            if (cspHeaderValue.Length > 0)
+                context.Response.Headers[cspHeaderName] = cspHeaderValue;
             await next();
         });
 
         app.UseStaticFiles();
 
         app.UseRouting();
+
+        // Throttle the Identity auth endpoints per client IP (see AuthRateLimiting).
+        app.UseRateLimiter();
 
         app.UseAuthentication();
         app.UseAuthorization();

@@ -161,7 +161,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
 
     public override object CreateEmptyUpsertViewModel() => new ArticleListUpsertViewModel();
 
-    public override async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ArticleListUpsertViewModel)model;
         var result = await SaveArticleListUpsertAsync(vm, ct);

@@ -17,7 +17,7 @@ public sealed class ArticleContextFactory : IDesignTimeDbContextFactory<ArticleC
     {
         var options = new DbContextOptionsBuilder<ArticleContext>()
             .UseNpgsql(
-                "Host=localhost;Database=webwaycms_designtime;Username=postgres;Password=postgres",
+                DesignTimeConnection.String,
                 b => b.MigrationsHistoryTable("__EFMigrationsHistory_Article"))
             .Options;
         return new ArticleContext(options);
