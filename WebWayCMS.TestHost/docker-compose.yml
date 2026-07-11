@@ -24,6 +24,10 @@ services:
 
   db:
     image: postgres:18-alpine
+    # Published on the non-standard host port 16196 (container still listens on 5432)
+    # so it doesn't collide with a local Postgres on the standard 5432 port.
+    ports:
+      - "16196:5432"
     environment:
       POSTGRES_DB: integration-host
       POSTGRES_USER: integration-host

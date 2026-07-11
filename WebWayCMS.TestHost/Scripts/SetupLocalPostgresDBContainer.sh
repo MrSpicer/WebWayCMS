@@ -17,8 +17,8 @@ DB_USER="${DB_USER:-integration-host}"
 read -p "Database password [integration-host]: " DB_PASS
 DB_PASS="${DB_PASS:-integration-host}"
 
-read -p "Host port [5432]: " DB_PORT
-DB_PORT="${DB_PORT:-5432}"
+read -p "Host port [16196]: " DB_PORT
+DB_PORT="${DB_PORT:-16196}"
 
 # Check for Docker
 if ! command -v docker &>/dev/null; then
