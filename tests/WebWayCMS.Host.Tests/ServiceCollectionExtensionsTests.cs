@@ -60,7 +60,7 @@ public class ServiceCollectionExtensionsTests
 
         builder.Services.AddWebWayCms(builder.Configuration);
 
-        Assert.That(builder.Services.Any(d => d.ServiceType == typeof(WebWayCMS.Data.DbContexts.PageContext)), Is.True);
+        Assert.That(builder.Services.Any(d => d.ServiceType == typeof(WebWayCMS.Data.DbContexts.CmsDbContext)), Is.True);
     }
 
     [Test]

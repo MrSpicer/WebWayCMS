@@ -10,11 +10,7 @@ dotnet tool restore
 echo "Removing existing migrations..."
 rm -rf WebWayCMS.Data/Migrations/*
 
-echo "Creating new migrations..."
-dotnet ef migrations add InitialIdentity     -p "$DATA" -s "$DATA" -c ApplicationDbContext  -o Migrations/Identity
-dotnet ef migrations add InitialArticle      -p "$DATA" -s "$DATA" -c ArticleContext        -o Migrations/Article
-dotnet ef migrations add InitialContentBlock -p "$DATA" -s "$DATA" -c ContentBlockContext   -o Migrations/ContentBlock
-dotnet ef migrations add InitialContentZone  -p "$DATA" -s "$DATA" -c ContentZoneContext    -o Migrations/ContentZone
-dotnet ef migrations add InitialPage         -p "$DATA" -s "$DATA" -c PageContext           -o Migrations/Page
+echo "Creating new migration..."
+dotnet ef migrations add InitialCreate -p "$DATA" -s "$DATA" -c CmsDbContext -o Migrations
 
 echo "Migrations rebuilt successfully."

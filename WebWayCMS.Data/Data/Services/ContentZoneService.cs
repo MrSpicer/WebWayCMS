@@ -10,9 +10,9 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed class ContentZoneService : IContentZoneService
 {
-    private readonly ContentZoneContext _context;
+    private readonly CmsDbContext _context;
 
-    public ContentZoneService(ContentZoneContext context)
+    public ContentZoneService(CmsDbContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
     }
@@ -22,23 +22,23 @@ public sealed class ContentZoneService : IContentZoneService
         if (string.IsNullOrWhiteSpace(name))
             return null;
 
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .AsNoTracking()
             .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
             .FirstOrDefaultAsync(ct);
     }
 
     public async Task<ContentZoneDTO?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .AsNoTracking()
             .FirstOrDefaultAsync(z => z.ContentId == id, ct);
@@ -46,14 +46,14 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<List<ContentZoneDTO>> GetAllAsync(CancellationToken ct = default)
     {
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .AsNoTracking()
             .Where(z => !z.ContentMeta.IsDeleted
-                && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
             .OrderBy(z => z.Name)
             .ToListAsync(ct);
     }
@@ -76,7 +76,7 @@ public sealed class ContentZoneService : IContentZoneService
             meta.PublicationDate = now;
 
         meta.MasterId = meta.Id;
-        _context.ContentZones.Add(zone);
+        _context.Set<ContentZoneDTO>().Add(zone);
         await _context.SaveChangesAsync(ct);
         return zone;
     }
@@ -85,7 +85,7 @@ public sealed class ContentZoneService : IContentZoneService
     {
         if (zone == null) throw new ArgumentNullException(nameof(zone));
 
-        var existing = await _context.ContentZones.FirstOrDefaultAsync(z => z.ContentId == zone.ContentId, ct);
+        var existing = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == zone.ContentId, ct);
         if (existing == null) return false;
 
         var newMeta = existing.ContentMeta with
@@ -106,17 +106,17 @@ public sealed class ContentZoneService : IContentZoneService
             Name = zone.Name,
             Description = zone.Description
         };
-        _context.ContentZones.Add(newVersion);
+        _context.Set<ContentZoneDTO>().Add(newVersion);
         await _context.SaveChangesAsync(ct);
         return true;
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var existing = await _context.ContentZones.FirstOrDefaultAsync(z => z.ContentId == id, ct);
+        var existing = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == id, ct);
         if (existing == null) return false;
 
-        _context.ContentZones.Remove(existing);
+        _context.Set<ContentZoneDTO>().Remove(existing);
         _context.Remove(existing.ContentMeta);
         await _context.SaveChangesAsync(ct);
         return true;
@@ -126,7 +126,7 @@ public sealed class ContentZoneService : IContentZoneService
     {
         if (item == null) throw new ArgumentNullException(nameof(item));
 
-        var zone = await _context.ContentZones.FirstOrDefaultAsync(z => z.ContentId == zoneId, ct);
+        var zone = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == zoneId, ct);
         if (zone == null)
             throw new InvalidOperationException($"Content zone with ID {zoneId} not found.");
 
@@ -145,13 +145,13 @@ public sealed class ContentZoneService : IContentZoneService
         // Auto-assign ordinal if not set
         if (item.Ordinal == 0)
         {
-            var maxOrdinal = await _context.ContentZoneItems
+            var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
                 .Where(i => i.ContentZoneId == zoneId)
                 .MaxAsync(i => (int?)i.Ordinal, ct) ?? 0;
             item.Ordinal = maxOrdinal + 1;
         }
 
-        _context.ContentZoneItems.Add(item);
+        _context.Set<ContentZoneItemDTO>().Add(item);
         await _context.SaveChangesAsync(ct);
         return item;
     }
@@ -160,7 +160,7 @@ public sealed class ContentZoneService : IContentZoneService
     {
         if (item == null) throw new ArgumentNullException(nameof(item));
 
-        var existing = await _context.ContentZoneItems.FirstOrDefaultAsync(i => i.ContentId == item.ContentId, ct);
+        var existing = await _context.Set<ContentZoneItemDTO>().FirstOrDefaultAsync(i => i.ContentId == item.ContentId, ct);
         if (existing == null) return false;
 
         var newMeta = existing.ContentMeta with
@@ -179,17 +179,17 @@ public sealed class ContentZoneService : IContentZoneService
             IsActive = item.IsActive
             // Ordinal, ContentZoneId, MasterId preserved from existing
         };
-        _context.ContentZoneItems.Add(newVersion);
+        _context.Set<ContentZoneItemDTO>().Add(newVersion);
         await _context.SaveChangesAsync(ct);
         return true;
     }
 
     public async Task<bool> RemoveItemAsync(Guid itemId, CancellationToken ct = default)
     {
-        var existing = await _context.ContentZoneItems.FirstOrDefaultAsync(i => i.ContentId == itemId, ct);
+        var existing = await _context.Set<ContentZoneItemDTO>().FirstOrDefaultAsync(i => i.ContentId == itemId, ct);
         if (existing == null) return false;
 
-        _context.ContentZoneItems.Remove(existing);
+        _context.Set<ContentZoneItemDTO>().Remove(existing);
         _context.Remove(existing.ContentMeta);
         await _context.SaveChangesAsync(ct);
         return true;
@@ -197,16 +197,16 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<ContentZoneItemDTO?> GetItemByIdAsync(Guid itemId, CancellationToken ct = default)
     {
-        return await _context.ContentZoneItems
+        return await _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(i => i.ContentId == itemId, ct);
     }
 
     public async Task<bool> ReorderItemsAsync(Guid zoneId, List<Guid> itemIdsInOrder, CancellationToken ct = default)
     {
-        var items = await _context.ContentZoneItems
+        var items = await _context.Set<ContentZoneItemDTO>()
             .Where(i => i.ContentZoneId == zoneId
-                && !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                && !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
             .ToListAsync(ct);
 
         for (int i = 0; i < itemIdsInOrder.Count; i++)
@@ -225,23 +225,23 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
     {
-        return await _context.ContentZoneAssignments
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
     }
 
     public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _context.ContentZoneAssignments
+        var assignment = await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
 
         if (assignment != null)
         {
-            var latestZone = await _context.ContentZones
+            var latestZone = await _context.Set<ContentZoneDTO>()
                 .Include(z => z.Items.Where(i =>
                     i.IsActive &&
-                    !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                     .OrderBy(i => i.Ordinal))
                 .AsNoTracking()
                 .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
@@ -257,16 +257,16 @@ public sealed class ContentZoneService : IContentZoneService
         try
         {
             // Re-check inside transaction to avoid duplicate creation
-            assignment = await _context.ContentZoneAssignments
+            assignment = await _context.Set<ContentZoneAssignmentDTO>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
 
             if (assignment != null)
             {
-                var latestZone = await _context.ContentZones
+                var latestZone = await _context.Set<ContentZoneDTO>()
                     .Include(z => z.Items.Where(i =>
                         i.IsActive &&
-                        !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                        !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                         .OrderBy(i => i.Ordinal))
                     .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
                     .OrderByDescending(z => z.ContentMeta.Version)
@@ -277,7 +277,7 @@ public sealed class ContentZoneService : IContentZoneService
             }
 
             var zone = NewPublishedZone(slotName);
-            _context.ContentZones.Add(zone);
+            _context.Set<ContentZoneDTO>().Add(zone);
 
             var newAssignment = new ContentZoneAssignmentDTO
             {
@@ -287,7 +287,7 @@ public sealed class ContentZoneService : IContentZoneService
                 ParentPageMasterId = pageMasterId,
                 ParentZoneId = null
             };
-            _context.ContentZoneAssignments.Add(newAssignment);
+            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
             await _context.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
@@ -303,23 +303,23 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<ContentZoneAssignmentDTO?> GetByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
     {
-        return await _context.ContentZoneAssignments
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
     }
 
     public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _context.ContentZoneAssignments
+        var assignment = await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
 
         if (assignment != null)
         {
-            var latestZone = await _context.ContentZones
+            var latestZone = await _context.Set<ContentZoneDTO>()
                 .Include(z => z.Items.Where(i =>
                     i.IsActive &&
-                    !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                     .OrderBy(i => i.Ordinal))
                 .AsNoTracking()
                 .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
@@ -333,16 +333,16 @@ public sealed class ContentZoneService : IContentZoneService
         using var transaction = await _context.Database.BeginTransactionAsync(ct);
         try
         {
-            assignment = await _context.ContentZoneAssignments
+            assignment = await _context.Set<ContentZoneAssignmentDTO>()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
 
             if (assignment != null)
             {
-                var latestZone = await _context.ContentZones
+                var latestZone = await _context.Set<ContentZoneDTO>()
                     .Include(z => z.Items.Where(i =>
                         i.IsActive &&
-                        !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                        !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                         .OrderBy(i => i.Ordinal))
                     .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
                     .OrderByDescending(z => z.ContentMeta.Version)
@@ -353,7 +353,7 @@ public sealed class ContentZoneService : IContentZoneService
             }
 
             var zone = NewPublishedZone(slotName);
-            _context.ContentZones.Add(zone);
+            _context.Set<ContentZoneDTO>().Add(zone);
 
             var newAssignment = new ContentZoneAssignmentDTO
             {
@@ -363,7 +363,7 @@ public sealed class ContentZoneService : IContentZoneService
                 ParentPageMasterId = null,
                 ParentZoneId = parentZoneId
             };
-            _context.ContentZoneAssignments.Add(newAssignment);
+            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
             await _context.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
@@ -379,7 +379,7 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageMasterId, CancellationToken ct = default)
     {
-        return await _context.ContentZoneAssignments
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .Where(a => a.ParentPageMasterId == pageMasterId)
             .ToListAsync(ct);
@@ -387,55 +387,55 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageMasterId, CancellationToken ct = default)
     {
-        var assignments = await _context.ContentZoneAssignments
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .Where(a => a.ParentPageMasterId == pageMasterId)
             .ToListAsync(ct);
 
         var masterIds = assignments.Select(a => a.ContentZoneId).ToList();
 
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .AsNoTracking()
             .Where(z => masterIds.Contains(z.ContentMeta.MasterId) && !z.ContentMeta.IsDeleted
-                && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
             .OrderBy(z => z.Name)
             .ToListAsync(ct);
     }
 
     public async Task<List<ContentZoneDTO>> GetAllByParentZoneAsync(Guid parentZoneId, CancellationToken ct = default)
     {
-        var assignments = await _context.ContentZoneAssignments
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .Where(a => a.ParentZoneId == parentZoneId)
             .ToListAsync(ct);
 
         var masterIds = assignments.Select(a => a.ContentZoneId).ToList();
 
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .AsNoTracking()
             .Where(z => masterIds.Contains(z.ContentMeta.MasterId) && !z.ContentMeta.IsDeleted
-                && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
             .OrderBy(z => z.Name)
             .ToListAsync(ct);
     }
 
     public async Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default)
     {
-        var zone = await _context.ContentZones
+        var zone = await _context.Set<ContentZoneDTO>()
             .Include(z => z.Items.Where(i =>
                 i.IsActive &&
-                !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                 .OrderBy(i => i.Ordinal))
             .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
             .FirstOrDefaultAsync(ct);
 
         if (zone != null)
@@ -444,13 +444,13 @@ public sealed class ContentZoneService : IContentZoneService
         using var transaction = await _context.Database.BeginTransactionAsync(ct);
         try
         {
-            zone = await _context.ContentZones
+            zone = await _context.Set<ContentZoneDTO>()
                 .Include(z => z.Items.Where(i =>
                     i.IsActive &&
-                    !_context.ContentZoneItems.Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
+                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
                     .OrderBy(i => i.Ordinal))
                 .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                    && !_context.ContentZones.Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+                    && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
                 .FirstOrDefaultAsync(ct);
 
             if (zone != null)
@@ -460,7 +460,7 @@ public sealed class ContentZoneService : IContentZoneService
             }
 
             zone = NewPublishedZone(name);
-            _context.ContentZones.Add(zone);
+            _context.Set<ContentZoneDTO>().Add(zone);
             await _context.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return zone;
@@ -478,7 +478,7 @@ public sealed class ContentZoneService : IContentZoneService
         if (ids.Count == 0)
             return [];
 
-        var parentIds = await _context.ContentZoneAssignments
+        var parentIds = await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .Where(a => a.ParentZoneId != null && ids.Contains(a.ParentZoneId.Value))
             .Select(a => a.ParentZoneId!.Value)
@@ -490,7 +490,7 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct = default)
     {
-        return await _context.ContentZones
+        return await _context.Set<ContentZoneDTO>()
             .AsNoTracking()
             .Where(z => z.ContentMeta.MasterId == masterId)
             .OrderByDescending(z => z.ContentMeta.Version)
@@ -499,7 +499,7 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemMasterId, CancellationToken ct = default)
     {
-        return await _context.ContentZoneItems
+        return await _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
             .Where(i => i.ContentMeta.MasterId == itemMasterId)
             .OrderByDescending(i => i.ContentMeta.Version)
@@ -511,7 +511,7 @@ public sealed class ContentZoneService : IContentZoneService
         var ids = masterIds.ToList();
         if (ids.Count == 0) return [];
 
-        return await _context.ContentZoneAssignments
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
             .Where(a => ids.Contains(a.ContentZoneId))
             .GroupBy(a => a.ContentZoneId)

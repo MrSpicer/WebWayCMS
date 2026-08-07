@@ -10,26 +10,26 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed class PageService : IPageService
 {
-    private readonly PageContext _context;
+    private readonly CmsDbContext _context;
 
-    public PageService(PageContext context)
+    public PageService(CmsDbContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
     public async Task<List<PageDTO>> GetAllAsync(CancellationToken ct = default)
     {
-        return await _context.Pages
+        return await _context.Set<PageDTO>()
             .AsNoTracking()
             .Where(p => !p.ContentMeta.IsDeleted
-                && !_context.Pages.Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
+                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
             .OrderBy(p => p.Route)
             .ToListAsync(ct);
     }
 
     public async Task<PageDTO?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        return await _context.Pages
+        return await _context.Set<PageDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.ContentId == id, ct);
     }
@@ -38,15 +38,15 @@ public sealed class PageService : IPageService
     {
         route = NormalizeRoute(route);
 
-        return await _context.Pages
+        return await _context.Set<PageDTO>()
             .AsNoTracking()
             .Where(p => p.Route == route && !p.ContentMeta.IsDeleted && p.ContentMeta.IsPublished
-                && !_context.Pages.Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
+                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
             .FirstOrDefaultAsync(ct);
     }
 
     public async Task<List<PageDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct = default)
-        => await _context.Pages
+        => await _context.Set<PageDTO>()
             .AsNoTracking()
             .Where(p => p.ContentMeta.MasterId == masterId)
             .OrderByDescending(p => p.ContentMeta.Version)
@@ -72,7 +72,7 @@ public sealed class PageService : IPageService
         if (meta.PublicationDate == default)
             meta.PublicationDate = now;
 
-        _context.Pages.Add(page);
+        _context.Set<PageDTO>().Add(page);
         await _context.SaveChangesAsync(ct);
         return page;
     }
@@ -82,7 +82,7 @@ public sealed class PageService : IPageService
         if (page == null) throw new ArgumentNullException(nameof(page));
 
         var meta = page.ContentMeta;
-        if (!await _context.Pages.AnyAsync(p => p.ContentId == page.ContentId, ct))
+        if (!await _context.Set<PageDTO>().AnyAsync(p => p.ContentId == page.ContentId, ct))
             return false;
 
         meta.Version++;
@@ -95,29 +95,29 @@ public sealed class PageService : IPageService
 
         if (meta.IsPublished)
         {
-            var previousPublished = await _context.Pages
+            var previousPublished = await _context.Set<PageDTO>()
                 .Where(p => p.ContentMeta.MasterId == meta.MasterId && p.ContentMeta.IsPublished)
                 .ToListAsync(ct);
             foreach (var prev in previousPublished)
                 prev.ContentMeta.IsPublished = false;
-            _context.Pages.UpdateRange(previousPublished);
+            _context.Set<PageDTO>().UpdateRange(previousPublished);
         }
 
-        _context.Pages.Add(page);
+        _context.Set<PageDTO>().Add(page);
         await _context.SaveChangesAsync(ct);
         return true;
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _context.Pages.FirstOrDefaultAsync(p => p.ContentId == id, ct);
+        var entity = await _context.Set<PageDTO>().FirstOrDefaultAsync(p => p.ContentId == id, ct);
         if (entity == null) return false;
 
-        var allVersions = await _context.Pages
+        var allVersions = await _context.Set<PageDTO>()
             .Where(p => p.ContentMeta.MasterId == entity.ContentMeta.MasterId)
             .ToListAsync(ct);
 
-        _context.Pages.RemoveRange(allVersions);
+        _context.Set<PageDTO>().RemoveRange(allVersions);
         _context.RemoveRange(allVersions.Select(v => v.ContentMeta));
         await _context.SaveChangesAsync(ct);
         return true;
@@ -125,9 +125,9 @@ public sealed class PageService : IPageService
 
     public async Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _context.Pages.FirstOrDefaultAsync(p => p.ContentId == id, ct);
+        var entity = await _context.Set<PageDTO>().FirstOrDefaultAsync(p => p.ContentId == id, ct);
         if (entity == null) return false;
-        _context.Pages.Remove(entity);
+        _context.Set<PageDTO>().Remove(entity);
         _context.Remove(entity.ContentMeta);
         await _context.SaveChangesAsync(ct);
         return true;
@@ -137,10 +137,10 @@ public sealed class PageService : IPageService
     {
         route = NormalizeRoute(route);
 
-        var query = _context.Pages
+        var query = _context.Set<PageDTO>()
             .Where(p => p.Route == route
                 && !p.ContentMeta.IsDeleted
-                && !_context.Pages.Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version));
+                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version));
 
         if (excludeMasterId.HasValue)
             query = query.Where(p => p.ContentMeta.MasterId != excludeMasterId.Value);

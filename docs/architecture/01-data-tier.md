@@ -4,30 +4,27 @@
 - `WebWayCMS.Data.Models`
 - `WebWayCMS.Data.DbContexts`
 - `WebWayCMS.Data.Services`
-- `WebWayCMS.Data.DesignTime` (`IDesignTimeDbContextFactory<T>` per context, for the EF tooling)
-- `WebWayCMS.Data.Migrations.*` (auto-generated, do not edit)
+- `WebWayCMS.Data.DesignTime` (`IDesignTimeDbContextFactory<CmsDbContext>`, for the EF tooling)
+- `WebWayCMS.Data.Migrations` (auto-generated, do not edit)
 
-**Depends on:** PostgreSQL/Npgsql, EF Core 10, ASP.NET Identity (`ApplicationDbContext`)
+**Depends on:** PostgreSQL/Npgsql, EF Core 10, ASP.NET Identity (`CmsDbContext`)
 **Consumed by:** Content Domain Models, Admin CRUD Framework, CMS Bootstrap, Tests
 
 ---
 
-## 1. Why Five DbContexts on One Connection String
+## 1. Single Unified DbContext
 
-The CMS uses five separate EF Core `DbContext` classes, all connected to the same PostgreSQL database via `DefaultConnection`. Each context owns a distinct set of tables and maintains its own `__EFMigrationsHistory` table, allowing independent migration lifecycles.
+The CMS uses a single EF Core `DbContext`, `CmsDbContext`, which inherits from `IdentityDbContext`
+and holds all entity sets: Identity tables (users, roles, claims), the shared `Content` table, and
+every content-type-specific table (`Articles`, `ArticleLists`, `ContentBlocks`, `ContentZones`,
+`ContentZoneItems`, `ContentZoneAssignments`, `Pages`). All tables live in one PostgreSQL database
+connected via `DefaultConnection`, and a single `__EFMigrationsHistory` table tracks the migration
+history.
 
-| DbContext | Tables | Migration History Table |
-|-----------|--------|------------------------|
-| `ApplicationDbContext` | ASP.NET Identity tables | `__EFMigrationsHistory_Application` |
-| `ArticleContext` | `Content` (shared, owner), `Articles`, `ArticleLists` | `__EFMigrationsHistory_Article` |
-| `ContentBlockContext` | `ContentBlocks` (FK → `Content`) | `__EFMigrationsHistory_ContentBlock` |
-| `ContentZoneContext` | `ContentZones`, `ContentZoneItems` (FK → `Content`), `ContentZoneAssignments` | `__EFMigrationsHistory_ContentZone` |
-| `PageContext` | `Pages` (FK → `Content`) | `__EFMigrationsHistory_Page` |
-
-This aggregate-per-context pattern keeps content types independently evolvable. The one cross-context
-coupling is the shared `Content` table: `ArticleContext` owns/creates it, and the other content
-contexts map it with `ExcludeFromMigrations` so they can declare their FK without re-creating it.
-`ArticleContext` therefore migrates first (see `CMSExtensions.ApplyCmsPendingMigrations`).
+Entity configuration is organised by concern through extension methods on `ModelBuilder`
+(`ConfigureContent`, `ConfigureArticles`, `ConfigureContentBlocks`, `ConfigureContentZones`,
+`ConfigurePages`) defined in `ContentModelConfiguration`. This keeps the context class minimal
+while preserving logical separation of the configuration for each entity group.
 
 ---
 
@@ -139,17 +136,18 @@ public class CustomField
 
 ---
 
-## 4. DbContext Catalog
+## 4. DbContext
 
-**`ApplicationDbContext`** — inherits from `IdentityDbContext<IdentityUser>`. Owns Identity tables. Does not interact with content DTOs.
+**`CmsDbContext`** — inherits from `IdentityDbContext<IdentityUser>`. Owns all CMS tables:
+- Identity tables (inherited from `IdentityDbContext`)
+- `Content` table (shared by all content types)
+- `Articles`, `ArticleLists` — article content
+- `ContentBlocks` — reusable content blocks
+- `ContentZones`, `ContentZoneItems`, `ContentZoneAssignments` — zone and widget infrastructure
+- `Pages` — dynamic page routing
 
-**`ArticleContext`** — owns `DbSet<ArticleDTO>` and `DbSet<ArticleListDTO>`. Both types share this context; `ContentService<ArticleDTO>` and `ContentService<ArticleListDTO>` are each scoped to it.
-
-**`ContentBlockContext`** — owns `DbSet<ContentBlockDTO>`.
-
-**`ContentZoneContext`** — owns `DbSet<ContentZoneDTO>`, `DbSet<ContentZoneItemDTO>`, `DbSet<ContentZoneAssignmentDTO>`. The Include navigation from zone → items is defined here.
-
-**`PageContext`** — owns `DbSet<PageDTO>`.
+Entity configuration is delegated to extension methods (`modelBuilder.ConfigureContent()`,
+`modelBuilder.ConfigureArticles()`, etc.) in `ContentModelConfiguration` for separation of concerns.
 
 ---
 
@@ -264,68 +262,38 @@ This is an existence-based filter: exclude any row where a newer version (higher
    }
    ```
 
-2. **Create a DbContext** in `WebWayCMS.Data/Data/DbContexts/`, mapping the shared `Content` table
-   (excluded from this context's migrations) and the shared-key link:
+2. **Add a DbSet and entity configuration** in `CmsDbContext` and `ContentModelConfiguration`:
    ```csharp
-   public class MyThingContext : DbContext
-   {
-       public DbSet<MyThingDTO> MyThings => Set<MyThingDTO>();
-       public MyThingContext(DbContextOptions<MyThingContext> options) : base(options) { }
+   // In CmsDbContext.cs — add the DbSet
+   public DbSet<MyThingDTO> MyThings { get; set; } = null!;
 
-       protected override void OnModelCreating(ModelBuilder mb)
+   // Add `modelBuilder.ConfigureMyThings();` to OnModelCreating
+   ```
+   ```csharp
+   // In ContentModelConfiguration.cs — add the extension method
+   public static void ConfigureMyThings(this ModelBuilder modelBuilder)
+   {
+       modelBuilder.Entity<MyThingDTO>(entity =>
        {
-           mb.ConfigureContent(ownsTable: false);
-           mb.Entity<MyThingDTO>(e =>
-           {
-               e.ConfigureContentLink();
-               e.ToTable("MyThings");
-           });
-       }
+           entity.ConfigureContentLink();
+           entity.Property(e => e.Body).IsRequired();
+           entity.ToTable("MyThings");
+       });
    }
    ```
 
-3. **Add a design-time factory** in `WebWayCMS.Data/Data/DesignTime/`. `WebWayCMS.Data` is a class
-   library with no host app, so the EF tools instantiate each context through an
-   `IDesignTimeDbContextFactory<T>` (the connection string is a placeholder — `migrations add` never
-   opens a connection). Copy an existing factory (e.g. `PageContextFactory.cs`) and swap the context
-   type and history table:
-   ```csharp
-   [ExcludeFromCodeCoverage]
-   public sealed class MyThingContextFactory : IDesignTimeDbContextFactory<MyThingContext>
-   {
-       public MyThingContext CreateDbContext(string[] args) =>
-           new(new DbContextOptionsBuilder<MyThingContext>()
-               .UseNpgsql("Host=localhost;Database=webwaycms_designtime;Username=postgres;Password=postgres",
-                   b => b.MigrationsHistoryTable("__EFMigrationsHistory_MyThing"))
-               .Options);
-   }
-   ```
-   > **Model parity:** the factory must build the *same* model the host builds at runtime,
-   > otherwise the generated migration won't match and `Migrate()` throws
-   > `PendingModelChangesWarning` at startup. If a context's model depends on options supplied
-   > by the host's service registration, the factory has to supply them too via
-   > `.UseApplicationServiceProvider(...)`. See `ApplicationDbContextFactory`: ASP.NET Identity's
-   > `IdentityDbContext.OnModelCreating` reads `IdentityOptions.Stores.MaxLengthForKeys` (set to
-   > 128 at runtime by `AddEntityFrameworkStores`) to size the Identity key columns, so the
-   > factory configures that option to keep the snapshot in sync.
-
-4. **Add a migration** (from the repo root). `WebWayCMS.Data` is both the target and startup project —
-   no external host app is involved:
+3. **Add a migration** (from the repo root):
    ```bash
-   dotnet ef migrations add InitialMyThing --context MyThingContext \
+   dotnet ef migrations add AddMyThing \
      --project WebWayCMS.Data --startup-project WebWayCMS.Data \
-     --output-dir Migrations/MyThing
+     --context CmsDbContext --output-dir Migrations
    ```
    To regenerate every CMS migration at once, run `./Scripts/RebuildEFMigrations.sh`.
 
-5. **Register in DI** (`Program.cs` or `ServiceCollectionExtensions.cs`):
+4. **Register in DI** (`ServiceCollectionExtensions.cs`):
    ```csharp
-   services.AddDbContext<MyThingContext>(options =>
-       options.UseNpgsql(connectionString,
-           b => b.MigrationsHistoryTable("__EFMigrationsHistory_MyThing")));
-
    services.AddScoped<IContentService<MyThingDTO>>(sp =>
-       new ContentService<MyThingDTO>(sp.GetRequiredService<MyThingContext>()));
+       new ContentService<MyThingDTO>(sp.GetRequiredService<CmsDbContext>()));
    ```
 
 Migrations are applied automatically at startup via `app.EnsureCMS()`.

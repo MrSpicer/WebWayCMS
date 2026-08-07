@@ -16,7 +16,7 @@ public class ContentZoneServiceTests
     [SetUp]
     public void SetUp() => _db = TestContexts.NewDb();
 
-    private ContentZoneContext NewContext() => TestContexts.ContentZone(_db);
+    private CmsDbContext NewContext() => TestContexts.Cms(_db);
 
     private ContentZoneService NewService() => new(NewContext());
 
@@ -63,21 +63,21 @@ public class ContentZoneServiceTests
     private async Task SeedZonesAsync(params ContentZoneDTO[] zones)
     {
         await using var ctx = NewContext();
-        ctx.ContentZones.AddRange(zones);
+        ctx.Set<ContentZoneDTO>().AddRange(zones);
         await ctx.SaveChangesAsync();
     }
 
     private async Task SeedItemsAsync(params ContentZoneItemDTO[] items)
     {
         await using var ctx = NewContext();
-        ctx.ContentZoneItems.AddRange(items);
+        ctx.Set<ContentZoneItemDTO>().AddRange(items);
         await ctx.SaveChangesAsync();
     }
 
     private async Task SeedAssignmentsAsync(params ContentZoneAssignmentDTO[] assignments)
     {
         await using var ctx = NewContext();
-        ctx.ContentZoneAssignments.AddRange(assignments);
+        ctx.Set<ContentZoneAssignmentDTO>().AddRange(assignments);
         await ctx.SaveChangesAsync();
     }
 
@@ -201,7 +201,7 @@ public class ContentZoneServiceTests
         var ok = await NewService().UpdateAsync(new ContentZoneDTO { ContentId = zone.ContentMeta.Id, Name = "New", ContentMeta = new ContentDTO { Id = zone.ContentMeta.Id, MasterId = m, Title = "New" } });
 
         await using var verify = NewContext();
-        var versions = await verify.ContentZones.Where(z => z.ContentMeta.MasterId == m).OrderBy(z => z.ContentMeta.Version).ToListAsync();
+        var versions = await verify.Set<ContentZoneDTO>().Where(z => z.ContentMeta.MasterId == m).OrderBy(z => z.ContentMeta.Version).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
@@ -290,7 +290,7 @@ public class ContentZoneServiceTests
         var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO { ContentId = existing.ContentMeta.Id, ComponentName = "New", IsActive = true });
 
         await using var verify = NewContext();
-        var versions = await verify.ContentZoneItems.Where(i => i.ContentMeta.MasterId == m).OrderBy(i => i.ContentMeta.Version).ToListAsync();
+        var versions = await verify.Set<ContentZoneItemDTO>().Where(i => i.ContentMeta.MasterId == m).OrderBy(i => i.ContentMeta.Version).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
@@ -337,7 +337,7 @@ public class ContentZoneServiceTests
         var ok = await NewService().ReorderItemsAsync(zoneId, new List<Guid> { b.ContentMeta.Id, a.ContentMeta.Id, Guid.NewGuid() });
 
         await using var verify = NewContext();
-        var items = await verify.ContentZoneItems.Where(i => i.ContentZoneId == zoneId).ToListAsync();
+        var items = await verify.Set<ContentZoneItemDTO>().Where(i => i.ContentZoneId == zoneId).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);

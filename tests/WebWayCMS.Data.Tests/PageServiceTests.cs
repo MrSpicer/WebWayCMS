@@ -16,7 +16,7 @@ public class PageServiceTests
     [SetUp]
     public void SetUp() => _db = TestContexts.NewDb();
 
-    private PageContext NewContext() => TestContexts.Page(_db);
+    private CmsDbContext NewContext() => TestContexts.Cms(_db);
 
     private PageService NewService() => new(NewContext());
 
@@ -52,7 +52,7 @@ public class PageServiceTests
     private async Task SeedAsync(params PageDTO[] pages)
     {
         await using var ctx = NewContext();
-        ctx.Pages.AddRange(pages);
+        ctx.Set<PageDTO>().AddRange(pages);
         await ctx.SaveChangesAsync();
     }
 
@@ -190,7 +190,7 @@ public class PageServiceTests
         var ok = await NewService().UpdateAsync(PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = true }, "/About/"));
 
         await using var verify = NewContext();
-        var versions = await verify.Pages.Where(p => p.ContentMeta.MasterId == m).ToListAsync();
+        var versions = await verify.Set<PageDTO>().Where(p => p.ContentMeta.MasterId == m).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
@@ -244,7 +244,7 @@ public class PageServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
-            Assert.That(verify.Pages.Any(p => p.ContentMeta.MasterId == m), Is.False);
+            Assert.That(verify.Set<PageDTO>().Any(p => p.ContentMeta.MasterId == m), Is.False);
         });
     }
 
@@ -262,7 +262,7 @@ public class PageServiceTests
         });
 
         await using var verify = NewContext();
-        Assert.That(verify.Pages.Count(p => p.ContentMeta.MasterId == m), Is.EqualTo(1));
+        Assert.That(verify.Set<PageDTO>().Count(p => p.ContentMeta.MasterId == m), Is.EqualTo(1));
     }
 
     [Test]

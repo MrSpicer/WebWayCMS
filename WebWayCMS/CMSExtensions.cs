@@ -57,13 +57,7 @@ public static class CMSExtensions
             {
                 using var scope = app.Services.CreateScope();
                 var services = scope.ServiceProvider;
-                // Order matters: ArticleContext owns the shared "Content" table, so it must migrate
-                // before the other content contexts whose tables hold a foreign key into "Content".
-                Migrate<ApplicationDbContext>(services, logger);
-                Migrate<ArticleContext>(services, logger);
-                Migrate<ContentBlockContext>(services, logger);
-                Migrate<ContentZoneContext>(services, logger);
-                Migrate<PageContext>(services, logger);
+                Migrate<CmsDbContext>(services, logger);
                 return app;
             }
             catch (Exception ex) when (IsTransientDbStartupException(ex) && attempt < maxAttempts)

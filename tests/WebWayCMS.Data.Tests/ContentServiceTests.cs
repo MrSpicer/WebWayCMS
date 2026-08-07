@@ -16,7 +16,7 @@ public class ContentServiceTests
     [SetUp]
     public void SetUp() => _db = TestContexts.NewDb();
 
-    private ContentBlockContext NewContext() => TestContexts.ContentBlock(_db);
+    private CmsDbContext NewContext() => TestContexts.Cms(_db);
 
     private ContentService<ContentBlockDTO> NewService() => new(NewContext());
 
@@ -54,7 +54,7 @@ public class ContentServiceTests
     private async Task SeedAsync(params ContentBlockDTO[] blocks)
     {
         await using var ctx = NewContext();
-        ctx.ContentBlocks.AddRange(blocks);
+        ctx.Set<ContentBlockDTO>().AddRange(blocks);
         await ctx.SaveChangesAsync();
     }
 
@@ -201,7 +201,7 @@ public class ContentServiceTests
         var ok = await NewService().UpdateAsync(update);
 
         await using var verify = NewContext();
-        var versions = await verify.ContentBlocks.Where(b => b.ContentMeta.MasterId == m).OrderBy(b => b.ContentMeta.Version).ToListAsync();
+        var versions = await verify.Set<ContentBlockDTO>().Where(b => b.ContentMeta.MasterId == m).OrderBy(b => b.ContentMeta.Version).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
@@ -358,7 +358,7 @@ public class ContentServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
-            Assert.That(verify.ContentBlocks.Any(b => b.ContentId == block.ContentMeta.Id), Is.False);
+            Assert.That(verify.Set<ContentBlockDTO>().Any(b => b.ContentId == block.ContentMeta.Id), Is.False);
         });
     }
 
@@ -372,7 +372,7 @@ public class ContentServiceTests
         var ok = await NewService().DeleteAsync(block.ContentMeta.Id, softDelete: true);
 
         await using var verify = NewContext();
-        var latest = await verify.ContentBlocks.Where(b => b.ContentMeta.MasterId == m).OrderByDescending(b => b.ContentMeta.Version).FirstAsync();
+        var latest = await verify.Set<ContentBlockDTO>().Where(b => b.ContentMeta.MasterId == m).OrderByDescending(b => b.ContentMeta.Version).FirstAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
@@ -394,7 +394,7 @@ public class ContentServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
-            Assert.That(verify.ContentBlocks.Any(b => b.ContentMeta.MasterId == m), Is.False);
+            Assert.That(verify.Set<ContentBlockDTO>().Any(b => b.ContentMeta.MasterId == m), Is.False);
         });
     }
 
@@ -408,7 +408,7 @@ public class ContentServiceTests
         var ok = await NewService().DeleteAsync(anyId, softDelete: true, deleteHistory: true);
 
         await using var verify = NewContext();
-        var versions = await verify.ContentBlocks.Where(b => b.ContentMeta.MasterId == m).ToListAsync();
+        var versions = await verify.Set<ContentBlockDTO>().Where(b => b.ContentMeta.MasterId == m).ToListAsync();
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);

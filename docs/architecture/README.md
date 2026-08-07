@@ -70,8 +70,7 @@ The libraries are distributed as NuGet packages: a host references the single um
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Data Tier                                                          │
 │  IContent (has-a ContentDTO) ← PageDTO · ArticleDTO · etc.          │
-│  ApplicationDbContext · ArticleContext · PageContext · etc.          │
-│  IContentService<T> · IPageService · IContentZoneService            │
+│  CmsDbContext · IContentService<T> · IPageService · IContentZoneService│
 └─────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
@@ -89,7 +88,7 @@ The libraries are distributed as NuGet packages: a host references the single um
 ## Area Summaries
 
 ### [Area 1: Data Tier](01-data-tier.md)
-Five independent EF Core `DbContext` classes share one PostgreSQL connection string with separate migration history tables. The shared `ContentDTO` (composed via `IContent`, persisted to one `Content` table owned by `ArticleContext`) defines the universal versioning pattern (Id/MasterId/Version). `IContentService<T>` provides generic versioned CRUD; `IPageService` adds route-specific logic; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation.
+A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. The shared `ContentDTO` (composed via `IContent`, persisted to one `Content` table) defines the universal versioning pattern (Id/MasterId/Version). `IContentService<T>` provides generic versioned CRUD; `IPageService` adds route-specific logic; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation.
 
 ### [Area 2: Form Generation & Configuration Metadata](02-form-generation.md)
 Pure-reflection subsystem that drives all admin form rendering from C# attributes. `[FormProperty]` decorates config class properties with editor type, validation hints, and layout options. `FormPropertyBuilder` reflects these into `List<FormPropertyInfo>`. `FormFieldsTagHelper` (`<form-fields for="@Model">`) renders Bulma-styled HTML from that list — no per-type Razor form boilerplate needed.
@@ -107,7 +106,7 @@ The business logic tier. `VersionedModel<T>` provides version history assembly. 
 Single `AdminContentController` handles all content type admin routes by delegating to registered `IAdminCrudHandler` implementations via `AdminHandlerRegistry`. Supports top-level CRUD, child resource CRUD (via `IAdminCrudChildHandler`), version history, drag-reorder, and registry endpoints — all routed without per-type controllers. `ContentZoneApiController` provides a JSON API for inline zone editing.
 
 ### [Area 7: CMS Bootstrap & Application Startup](07-cms-bootstrap.md)
-The composition root. `AddWebWayCms` registers all five DbContexts, services, singletons, domain models (as both interfaces and handlers), the in-house `IMapper`, and MVC application parts (including compiled Razor views). `EnsureCMS` runs four startup tasks in sequence: migrate all contexts (with retry), seed roles and admin user, seed default pages, configure the middleware pipeline.
+The composition root. `AddWebWayCms` registers a single `CmsDbContext`, all services, singletons, domain models (as both interfaces and handlers), the in-house `IMapper`, and MVC application parts (including compiled Razor views). `EnsureCMS` runs four startup tasks in sequence: migrate, seed roles and admin user, seed default pages, configure the middleware pipeline.
 
 ### [Area 8: Identity & Authentication](08-identity-auth.md)
 Three roles: `Admin` (full access), `Editor` (content write access on permitted types), `User` (authenticated, no admin access). `UserService` singleton provides `IsUserAdmin`/`IsUserAuthor` for view-layer role checks. Admin user is seeded from `AdminUser:Email`/`AdminUser:Password` secrets at startup. Password policy requires 12+ characters with digits, upper, lower, and non-alphanumeric characters.

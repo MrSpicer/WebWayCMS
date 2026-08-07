@@ -40,11 +40,7 @@ public class CMSExtensionsTests
         var builder = WebApplication.CreateBuilder();
 
         var db = Guid.NewGuid().ToString();
-        builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseInMemoryDatabase("app-" + db));
-        builder.Services.AddDbContext<ArticleContext>(o => o.UseInMemoryDatabase("art-" + db));
-        builder.Services.AddDbContext<ContentBlockContext>(o => o.UseInMemoryDatabase("cb-" + db));
-        builder.Services.AddDbContext<ContentZoneContext>(o => o.UseInMemoryDatabase("cz-" + db));
-        builder.Services.AddDbContext<PageContext>(o => o.UseInMemoryDatabase("pg-" + db));
+        builder.Services.AddDbContext<CmsDbContext>(o => o.UseInMemoryDatabase(db));
 
         builder.Services.AddWebWayCms();
         return builder.Build();

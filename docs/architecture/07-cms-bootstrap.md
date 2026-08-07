@@ -16,15 +16,11 @@ Called once in `Program.cs`. Performs the following registrations in order:
 **Forwarded headers:**
 - Configures `ForwardedHeadersOptions` to trust `X-Forwarded-For` and `X-Forwarded-Proto` from all upstream proxies (cleared known networks/proxies for Docker internal networking)
 
-**DbContexts** (5 contexts, all pointing to `DefaultConnection`):
+**DbContexts** (1 context, pointing to `DefaultConnection`):
 
 | Context | Migration Table |
 |---------|----------------|
-| `ApplicationDbContext` | `__EFMigrationsHistory_Application` |
-| `ArticleContext` | `__EFMigrationsHistory_Article` |
-| `ContentBlockContext` | `__EFMigrationsHistory_ContentBlock` |
-| `ContentZoneContext` | `__EFMigrationsHistory_ContentZone` |
-| `PageContext` | `__EFMigrationsHistory_Page` |
+| `CmsDbContext` | `__EFMigrationsHistory` |
 
 Database developer page exception filter is added in `DEBUG` builds.
 
@@ -39,10 +35,10 @@ Database developer page exception filter is added in `DEBUG` builds.
 - `PageRouteTransformer` — scoped (because it injects `IPageService`)
 - Route constraint: `"notreserved"` → `NotReservedConstraint`
 
-**Content services (scoped, bound to correct DbContexts):**
-- `IContentService<ArticleDTO>` → `ContentService<ArticleDTO>` (uses `ArticleContext`)
-- `IContentService<ArticleListDTO>` → `ContentService<ArticleListDTO>` (uses `ArticleContext`)
-- `IContentService<ContentBlockDTO>` → `ContentService<ContentBlockDTO>` (uses `ContentBlockContext`)
+**Content services (scoped, bound to the unified CmsDbContext):**
+- `IContentService<ArticleDTO>` → `ContentService<ArticleDTO>` (uses `CmsDbContext`)
+- `IContentService<ArticleListDTO>` → `ContentService<ArticleListDTO>` (uses `CmsDbContext`)
+- `IContentService<ContentBlockDTO>` → `ContentService<ContentBlockDTO>` (uses `CmsDbContext`)
 - `IContentZoneService` → `ContentZoneService`
 - `IPageService` → `PageService`
 
@@ -70,7 +66,7 @@ Database developer page exception filter is added in `DEBUG` builds.
 **Identity:**
 - `AddDefaultIdentity<IdentityUser>` with password policy (see [Area 8](08-identity-auth.md))
 - `.AddRoles<IdentityRole>()`
-- `.AddEntityFrameworkStores<ApplicationDbContext>()`
+- `.AddEntityFrameworkStores<CmsDbContext>()`
 - `.AddDefaultUI()` — embeds Identity Razor Pages
 
 ---
@@ -92,11 +88,9 @@ Each step is idempotent — calling `EnsureCMS` on a fully-initialized database 
 
 ## 3. Migration Retry Logic
 
-`ApplyCmsPendingMigrations` applies pending migrations for all five contexts. It retries up to 10 times with exponential backoff (starting at 3s, capping at 30s) when a `SocketException` is detected in the exception chain — the signal that the database container is not yet available.
+`ApplyCmsPendingMigrations` applies pending migrations for the unified context. It retries up to 10 times with exponential backoff (starting at 3s, capping at 30s) when a `SocketException` is detected in the exception chain — the signal that the database container is not yet available.
 
-Retry is limited to transient network errors (`SocketException`); other exceptions terminate startup immediately unless `throwOnError = false`.
-
-Migrations are applied in a deterministic order: Application → Article → ContentBlock → ContentZone → Page.
+Migrations are applied in a single pass; the unified context owns all tables and does not require ordering.
 
 ---
 

@@ -1,11 +1,11 @@
 # Area 8: Identity & Authentication
 
 **Namespaces:**
-- `WebWayCMS.Data.DbContexts` — `ApplicationDbContext`
+- `WebWayCMS.Data.DbContexts` — `CmsDbContext`
 - `WebWayCMS.Services` — `UserService`, `DevEmailSender`
 - `WebWayCMS.Areas.Identity` — scaffolded ASP.NET Identity Razor Pages
 
-**Depends on:** ASP.NET Identity, EF Core (`ApplicationDbContext`)
+**Depends on:** ASP.NET Identity, EF Core (`CmsDbContext`)
 **Consumed by:** All admin controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in views and admin write checks, `CMSExtensions` for seeding
 
 ---

@@ -6,39 +6,28 @@ using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Tests;
 
-/// <summary>
-/// Exercises the contexts that no service touches directly, so their constructors and
-/// OnModelCreating configuration are covered.
-/// </summary>
 [TestFixture]
 public class DbContextTests
 {
     [Test]
-    public async Task ArticleContext_ConfiguresArticlesAndArticleLists()
+    public async Task CmsDbContext_ConfiguresAllEntitySets()
     {
         var db = TestContexts.NewDb();
-        await using (var ctx = TestContexts.Article(db))
+        var listId = Guid.NewGuid();
+        var articleId = Guid.NewGuid();
+        await using (var ctx = TestContexts.Cms(db))
         {
-            var listId = Guid.NewGuid();
-            var articleId = Guid.NewGuid();
-            ctx.ArticleLists.Add(new ArticleListDTO { ContentId = listId, ContentMeta = new ContentDTO { Id = listId, Title = "List" } });
-            ctx.Articles.Add(new ArticleDTO { ContentId = articleId, Body = "b", ArticleListMasterId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = articleId, Title = "Article" } });
+            ctx.Set<ArticleListDTO>().Add(new ArticleListDTO { ContentId = listId, ContentMeta = new ContentDTO { Id = listId, Title = "List" } });
+            ctx.Set<ArticleDTO>().Add(new ArticleDTO { ContentId = articleId, Body = "b", ArticleListMasterId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = articleId, Title = "Article" } });
             await ctx.SaveChangesAsync();
         }
 
-        await using var verify = TestContexts.Article(db);
-        Assert.Multiple(async () =>
+        await using var verify = TestContexts.Cms(db);
+        Assert.Multiple(() =>
         {
-            Assert.That(await verify.Articles.CountAsync(), Is.EqualTo(1));
-            Assert.That(await verify.ArticleLists.CountAsync(), Is.EqualTo(1));
+            Assert.That(verify.Users, Is.Not.Null);
+            Assert.That(verify.Set<ArticleDTO>().Count(), Is.EqualTo(1));
+            Assert.That(verify.Set<ArticleListDTO>().Count(), Is.EqualTo(1));
         });
-    }
-
-    [Test]
-    public void ApplicationDbContext_CanBeConstructed()
-    {
-        using var ctx = TestContexts.Application(TestContexts.NewDb());
-
-        Assert.That(ctx.Users, Is.Not.Null);
     }
 }

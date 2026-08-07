@@ -18,7 +18,7 @@ The page system drives dynamic URL routing — every database-managed page is di
 On every request, `PageRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all route `{**slug}` registered in `Program.cs`. It:
 
 1. Normalises the request path (lowercase, strips trailing slash).
-2. Looks up the path in the `PageContext` database via `IPageService`. If no exact match, it progressively strips trailing segments to find the nearest parent page and stores the remainder as `CMS:SubRoute` in `HttpContext.Items`.
+2. Looks up the path in the database via `IPageService`. If no exact match, it progressively strips trailing segments to find the nearest parent page and stores the remainder as `CMS:SubRoute` in `HttpContext.Items`.
 3. Resolves the matching page's `ControllerName` against `IPageControllerRegistry` (which holds every class decorated with `[PageController]`).
 4. Deserialises the page's `ConfigurationJson` into the controller's declared config type and stores both the `PageDTO` and the config object in `HttpContext.Items`.
 5. Returns `{ controller = ControllerName, action = "Index" }` — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.

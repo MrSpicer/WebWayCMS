@@ -94,13 +94,11 @@ Each content type table uses a **shared primary key 1:1** relationship: its `Con
 both its PK and the FK into the single `Content` table, and `ContentId == ContentMeta.Id`. Shared
 fields are read/written through `dto.ContentMeta.X` (e.g. `article.ContentMeta.Title`).
 
-**Single shared table across contexts.** All content `DbContext`s map `ContentDTO` to one `Content`
-table. Exactly one context (`ArticleContext`) *owns* it and emits its DDL; every other context maps
-it with `ToTable("Content", t => t.ExcludeFromMigrations())` so it can declare the FK without
-re-creating the table. Because of this, `ArticleContext` must migrate before the other content
-contexts (see `CMSExtensions.ApplyCmsPendingMigrations`). The reusable
-`ContentModelConfiguration.ConfigureContent(modelBuilder, ownsTable)` and
-`entity.ConfigureContentLink()` helpers encapsulate this wiring.
+**Single shared table in the unified context.** All content types map to the same `Content` table
+via the shared `CmsDbContext`. The reusable `ContentModelConfiguration.ConfigureContent(modelBuilder)`
+and `entity.ConfigureContentLink()` helpers encapsulate this wiring. Entity configuration lives in
+extension methods on `ModelBuilder` (`ConfigureArticles`, `ConfigureContentBlocks`,
+`ConfigureContentZones`, `ConfigurePages`) for separation of concerns.
 
 
 ## Built-in Content Types
@@ -155,36 +153,23 @@ public record MyContentDTO : IContent
 }
 ```
 
-### 2. Create the DbContext
+### 2. Configure the entity in the unified DbContext
 
-`MySite/Data/DbContexts/MyContentContext.cs`
+Add your DbSet to `CmsDbContext` and its configuration to `ContentModelConfiguration`:
 
 ```csharp
-using Microsoft.EntityFrameworkCore;
-using MySite.Data.Models;
-using WebWayCMS.Data.DbContexts; // ContentModelConfiguration helpers
+// In CmsDbContext.OnModelCreating, add:
+modelBuilder.ConfigureMyContents();
 
-namespace MySite.Data.DbContexts;
-
-public class MyContentContext : DbContext
+// In ContentModelConfiguration.cs:
+public static void ConfigureMyContents(this ModelBuilder modelBuilder)
 {
-    public MyContentContext(DbContextOptions<MyContentContext> options) : base(options) { }
-
-    public DbSet<MyContentDTO> MyContents { get; set; }
-
-    protected override void OnModelCreating(ModelBuilder mb)
+    modelBuilder.Entity<MyContentDTO>(entity =>
     {
-        // The shared "Content" table is owned/migrated by the CMS's ArticleContext, so map it here
-        // with ownsTable: false (ExcludeFromMigrations) — this context only declares the FK into it.
-        mb.ConfigureContent(ownsTable: false);
-
-        mb.Entity<MyContentDTO>(e =>
-        {
-            e.ConfigureContentLink();           // shared-key 1:1 to ContentDTO + AutoInclude
-            e.Property(e => e.Body).IsRequired();
-            e.ToTable("MyContents");
-        });
-    }
+        entity.ConfigureContentLink();
+        entity.Property(e => e.Body).IsRequired();
+        entity.ToTable("MyContents");
+    });
 }
 ```
 
@@ -197,19 +182,25 @@ public class MyContentContext : DbContext
 dotnet ef migrations add AddMyContent \
   -s MySite/MySite.csproj \
   -p MySite/MySite.csproj \
-  -c MyContentContext \
+  -c CmsDbContext \
   -o Migrations/MyContent
 ```
 
-Then apply:
+### 4. Register services
 
-```bash
-dotnet ef database update \
-  -s MySite/MySite.csproj \
-  -c MyContentContext
+In `MySite/Program.cs`, before `builder.Services.AddWebWayCms(...)`:
+
+```csharp
+// Generic content service — injects the unified CmsDbContext
+builder.Services.AddScoped<IContentService<MyContentDTO>>(sp =>
+    new ContentService<MyContentDTO>(sp.GetRequiredService<CmsDbContext>()));
+
+// Model / handler
+builder.Services.AddScoped<MyContentModel>();
+builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyContentModel>());
 ```
 
-### 4. Create ViewModels
+### 5. Create ViewModels
 
 `MySite/Models/MyContent/MyContentViewModel.cs`
 
@@ -364,14 +355,9 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 In `MySite/Program.cs`, before `builder.Services.AddWebWayCms(...)`:
 
 ```csharp
-// DbContext
-builder.Services.AddDbContext<MyContentContext>(opts =>
-    opts.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"),
-        npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory_MyContent")));
-
-// Generic content service
+// Generic content service — reuses the unified CmsDbContext
 builder.Services.AddScoped<IContentService<MyContentDTO>>(sp =>
-    new ContentService<MyContentDTO>(sp.GetRequiredService<MyContentContext>()));
+    new ContentService<MyContentDTO>(sp.GetRequiredService<CmsDbContext>()));
 
 // Model / handler
 builder.Services.AddScoped<MyContentModel>();

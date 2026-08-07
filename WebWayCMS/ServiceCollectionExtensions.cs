@@ -103,25 +103,8 @@ public static class ServiceCollectionExtensions
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
-        // Main application DB (Identity + app data)
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory_Application")));
-
-        // Article DB/context can share the same connection or be configured separately in appsettings
-        services.AddDbContext<ArticleContext>(options =>
-            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory_Article")));
-
-        // ContentBlock DB/context
-        services.AddDbContext<ContentBlockContext>(options =>
-            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory_ContentBlock")));
-
-        // ContentZone DB/context
-        services.AddDbContext<ContentZoneContext>(options =>
-            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory_ContentZone")));
-
-        // Page DB/context
-        services.AddDbContext<PageContext>(options =>
-            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory_Page")));
+        services.AddDbContext<CmsDbContext>(options =>
+            options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory")));
 
 #if DEBUG
         services.AddDatabaseDeveloperPageExceptionFilter();
@@ -152,23 +135,23 @@ public static class ServiceCollectionExtensions
         });
 
         // Generic content service registrations to enable consumers to request IContentService<T>
-        // Note: Each T must be bound to the correct DbContext through constructor injection of DbContext.
+        // Note: Each T uses the unified CmsDbContext through constructor injection of DbContext.
         services.AddScoped<IContentService<ArticleDTO>>(sp =>
         {
-            var ctx = sp.GetRequiredService<ArticleContext>();
+            var ctx = sp.GetRequiredService<CmsDbContext>();
             return new ContentService<ArticleDTO>(ctx);
         });
 
         services.AddScoped<IContentService<ArticleListDTO>>(sp =>
         {
-            var ctx = sp.GetRequiredService<ArticleContext>();
+            var ctx = sp.GetRequiredService<CmsDbContext>();
             return new ContentService<ArticleListDTO>(ctx);
         });
 
 
         services.AddScoped<IContentService<ContentBlockDTO>>(sp =>
         {
-            var ctx = sp.GetRequiredService<ContentBlockContext>();
+            var ctx = sp.GetRequiredService<CmsDbContext>();
             return new ContentService<ContentBlockDTO>(ctx);
         });
 
@@ -269,7 +252,7 @@ public static class ServiceCollectionExtensions
                 }
                 )
             .AddRoles<IdentityRole>()
-            .AddEntityFrameworkStores<ApplicationDbContext>()
+            .AddEntityFrameworkStores<CmsDbContext>()
             .AddDefaultUI();
 
         // Harden the authentication cookie explicitly rather than relying on framework defaults.
