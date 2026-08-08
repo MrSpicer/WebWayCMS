@@ -54,7 +54,7 @@ public class ContentBlockViewComponentTests
 public class ContentZoneViewComponentTests
 {
     private IContentZoneModel _model = null!;
-    private IContentZoneComponentRegistry _registry = null!;
+    private IWidgetRegistry _registry = null!;
     private ContentZoneViewComponent _component = null!;
     private Microsoft.AspNetCore.Http.DefaultHttpContext _http = null!;
 
@@ -62,7 +62,7 @@ public class ContentZoneViewComponentTests
     public void SetUp()
     {
         _model = Substitute.For<IContentZoneModel>();
-        _registry = Substitute.For<IContentZoneComponentRegistry>();
+        _registry = Substitute.For<IWidgetRegistry>();
         _component = new ContentZoneViewComponent(_model, _registry);
         _http = ViewComponentHarness.Attach(_component);
     }
@@ -140,7 +140,7 @@ public class ContentZoneViewComponentTests
     {
         _component.ViewComponentContext.ViewData["ContentZone:EditMode"] = true;
         _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns(ZoneVm());
-        _registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>());
+        _registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>());
 
         var result = await _component.InvokeAsync(zoneName: "X", IsGlobal: true);
 
@@ -175,7 +175,7 @@ public class ContentZoneViewComponentTests
     public async Task EditMode_RendersEditViewAndSetsComponents()
     {
         _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns(ZoneVm());
-        _registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>());
+        _registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>());
 
         var result = await _component.InvokeAsync(zoneName: "X", IsGlobal: true, editMode: true);
 

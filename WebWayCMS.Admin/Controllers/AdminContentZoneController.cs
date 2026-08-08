@@ -11,9 +11,9 @@ namespace WebWayCMS.Controllers.Admin;
 public class AdminContentZoneController : Controller
 {
     private readonly IContentZoneModel _model;
-    private readonly IContentZoneComponentRegistry _registry;
+    private readonly IWidgetRegistry _registry;
 
-    public AdminContentZoneController(IContentZoneModel model, IContentZoneComponentRegistry registry)
+    public AdminContentZoneController(IContentZoneModel model, IWidgetRegistry registry)
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));

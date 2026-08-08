@@ -28,7 +28,7 @@ public class ContentZoneModelTests
 {
     private IContentZoneService _service = null!;
     private IPageService _pageService = null!;
-    private IContentZoneComponentRegistry _registry = null!;
+    private IWidgetRegistry _registry = null!;
     private IViewDiscoveryService _viewDiscovery = null!;
     private ContentZoneModel _model = null!;
 
@@ -37,7 +37,7 @@ public class ContentZoneModelTests
     {
         _service = Substitute.For<IContentZoneService>();
         _pageService = Substitute.For<IPageService>();
-        _registry = Substitute.For<IContentZoneComponentRegistry>();
+        _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
         _model = new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery);
     }
@@ -125,10 +125,10 @@ public class ContentZoneModelTests
 
         _registry.CreateDefaultConfiguration("WithDefault").Returns(new SampleZoneConfig());
         _registry.CreateDefaultConfiguration("NoDefault").Returns((object?)null);
-        _registry.GetByName("Typed").Returns(new ContentZoneComponentInfo { Name = "Typed", ConfigurationType = typeof(SampleZoneConfig) });
-        _registry.GetByName("Untyped").Returns((ContentZoneComponentInfo?)null);
-        _registry.GetByName("Bad").Returns((ContentZoneComponentInfo?)null);
-        _registry.GetByName("TypedNull").Returns(new ContentZoneComponentInfo { Name = "TypedNull", ConfigurationType = typeof(SampleZoneConfig) });
+        _registry.GetByName("Typed").Returns(new WidgetRegistrationInfo { Name = "Typed", ConfigurationTypeName = typeof(SampleZoneConfig).FullName });
+        _registry.GetByName("Untyped").Returns((WidgetRegistrationInfo?)null);
+        _registry.GetByName("Bad").Returns((WidgetRegistrationInfo?)null);
+        _registry.GetByName("TypedNull").Returns(new WidgetRegistrationInfo { Name = "TypedNull", ConfigurationTypeName = typeof(SampleZoneConfig).FullName });
 
         var vm = await _model.GetViewModelByIdAsync(zoneId);
 
@@ -431,7 +431,7 @@ public class ContentZoneModelTests
     [Test]
     public void RegistryHandler_GetAll_Json()
     {
-        _registry.GetAllComponents().Returns(new List<ContentZoneComponentInfo>
+        _registry.GetAllComponents().Returns(new List<WidgetRegistrationInfo>
         {
             new() { Name = "C", DisplayName = "C", Description = "d", Category = "General" }
         });
@@ -442,7 +442,7 @@ public class ContentZoneModelTests
     [Test]
     public void RegistryHandler_GetProperties_EmptyNameAndNotFound()
     {
-        _registry.GetByName("X").Returns((ContentZoneComponentInfo?)null);
+        _registry.GetByName("X").Returns((WidgetRegistrationInfo?)null);
 
         Assert.Multiple(() =>
         {
@@ -454,7 +454,7 @@ public class ContentZoneModelTests
     [Test]
     public void RegistryHandler_GetProperties_ViewPickerWithAndWithoutViews_AndPlainProperty()
     {
-        _registry.GetByName("C").Returns(new ContentZoneComponentInfo
+        _registry.GetByName("C").Returns(new WidgetRegistrationInfo
         {
             Name = "C",
             DisplayName = "C",

@@ -2,8 +2,8 @@
 @using WebWayCMS.Models.ContentZone
 @using WebWayCMS.ContentZones
 @{
-    var componentsByCategory = ViewData["ComponentsByCategory"] as IReadOnlyDictionary<string, IReadOnlyList<ContentZoneComponentInfo>>
-        ?? new Dictionary<string, IReadOnlyList<ContentZoneComponentInfo>>();
+    var componentsByCategory = ViewData["ComponentsByCategory"] as IReadOnlyDictionary<string, IReadOnlyList<WidgetRegistrationInfo>>
+        ?? new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>();
 
     // Generate a unique ID for this zone's modal (for multiple zones on one page)
     var modalId = $"cz-modal-{Guid.NewGuid():N}";

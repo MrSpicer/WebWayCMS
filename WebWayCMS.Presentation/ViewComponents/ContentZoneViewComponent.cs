@@ -16,9 +16,9 @@ namespace WebWayCMS.ViewComponents;
 public class ContentZoneViewComponent : ViewComponent
 {
     private readonly IContentZoneModel _model;
-    private readonly IContentZoneComponentRegistry _registry;
+    private readonly IWidgetRegistry _registry;
 
-    public ContentZoneViewComponent(IContentZoneModel model, IContentZoneComponentRegistry registry)
+    public ContentZoneViewComponent(IContentZoneModel model, IWidgetRegistry registry)
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));

@@ -5,6 +5,7 @@ namespace WebWayCMS.ContentZones;
 /// Implementations scan assemblies for ViewComponents decorated with
 /// <see cref="Attributes.ContentZoneComponentAttribute"/> and build metadata.
 /// </summary>
+[System.Obsolete("Use IWidgetRegistry instead.")]
 public interface IContentZoneComponentRegistry
 {
     /// <summary>

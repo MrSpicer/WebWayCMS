@@ -18,14 +18,14 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 {
     private readonly IContentZoneService _service;
     private readonly IPageService _pageService;
-    private readonly IContentZoneComponentRegistry _registry;
+    private readonly IWidgetRegistry _registry;
     private readonly ContentZoneChildHandler _childHandler;
     private readonly ContentZoneRegistryHandler _registryHandler;
 
     public ContentZoneModel(
         IContentZoneService service,
         IPageService pageService,
-        IContentZoneComponentRegistry registry,
+        IWidgetRegistry registry,
         IViewDiscoveryService viewDiscoveryService)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
@@ -334,7 +334,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     {
         if (string.IsNullOrWhiteSpace(json) || json == "{}")
         {
-            // Try to create a default configuration instance
             var defaultConfig = _registry.CreateDefaultConfiguration(componentName);
             if (defaultConfig != null)
                 return defaultConfig;
@@ -343,20 +342,21 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
         try
         {
-            // Get the component info to find the configuration type
             var componentInfo = _registry.GetByName(componentName);
-            if (componentInfo?.ConfigurationType != null)
+            if (!string.IsNullOrEmpty(componentInfo?.ConfigurationTypeName))
             {
-                // Deserialize to the actual configuration type
-                var config = JsonSerializer.Deserialize(json, componentInfo.ConfigurationType, new JsonSerializerOptions
+                var configType = ResolveType(componentInfo.ConfigurationTypeName);
+                if (configType != null)
                 {
-                    PropertyNameCaseInsensitive = true
-                });
-                if (config != null)
-                    return config;
+                    var config = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    if (config != null)
+                        return config;
+                }
             }
 
-            // Fallback: deserialize to dictionary
             var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
             return dict ?? new Dictionary<string, object>();
         }
@@ -364,6 +364,25 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         {
             return new { };
         }
+    }
+
+    private static Type? ResolveType(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        var type = Type.GetType(typeName, throwOnError: false);
+        if (type != null)
+            return type;
+
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            type = asm.GetType(typeName, throwOnError: false);
+            if (type != null)
+                return type;
+        }
+
+        return null;
     }
 }
 
@@ -463,13 +482,13 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 /// <summary>Exposes the content zone component registry as admin JSON endpoints.</summary>
 internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
 {
-    private readonly IContentZoneComponentRegistry _registry;
+    private readonly IWidgetRegistry _registry;
     private readonly IViewDiscoveryService _viewDiscoveryService;
     private readonly Serilog.ILogger _logger =
         Serilog.Log.ForContext<ContentZoneRegistryHandler>();
 
     public ContentZoneRegistryHandler(
-        IContentZoneComponentRegistry registry,
+        IWidgetRegistry registry,
         IViewDiscoveryService viewDiscoveryService)
     {
         _registry = registry;

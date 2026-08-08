@@ -142,7 +142,7 @@ function initContentZones() {
             }
 
             try {
-                const response = await fetch('/admin/contentzones/registry/' + encodeURIComponent(componentName) + '/properties');
+                const response = await fetch('/admin/widgets/registry/' + encodeURIComponent(componentName) + '/properties');
                 if (!response.ok) throw new Error('Failed to load properties');
 
                 const data = await response.json();

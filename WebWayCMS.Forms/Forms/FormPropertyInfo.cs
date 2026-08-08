@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using WebWayCMS.Attributes;
 
 namespace WebWayCMS.Forms;
@@ -36,6 +38,7 @@ public class FormPropertyInfo
     /// <summary>
     /// Gets or sets the CLR type of the property.
     /// </summary>
+    [JsonIgnore]
     public Type PropertyType { get; set; } = typeof(string);
 
     /// <summary>

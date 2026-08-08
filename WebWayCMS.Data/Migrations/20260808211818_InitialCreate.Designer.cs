@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260806141200_InitialCreate")]
+    [Migration("20260808211818_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -464,6 +464,60 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("Pages", (string)null);
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
+                {
+                    b.Property<Guid>("ContentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ComponentName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ConfigurationTypeName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("IconClass")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PropertyDefinitionsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("ContentId");
+
+                    b.HasIndex("Category");
+
+                    b.HasIndex("ComponentName")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("WidgetRegistrations", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -632,6 +686,17 @@ namespace WebWayCMS.Data.Migrations
                     b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
                         .WithOne()
                         .HasForeignKey("WebWayCMS.Data.Models.PageDTO", "ContentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ContentMeta");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
+                        .WithOne()
+                        .HasForeignKey("WebWayCMS.Data.Models.WidgetRegistrationDTO", "ContentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

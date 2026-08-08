@@ -1,0 +1,96 @@
+@using WebWayCMS.Models.WidgetRegistration
+@using WebWayCMS.ContentZones
+
+@model WidgetRegistrationIndexViewModel
+
+@{
+    ViewData["Title"] = "Widget Registrations";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Widgets</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="widgets" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Widget</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (!Model.Registrations.Any())
+        {
+            <div class="card admin-empty-state mt-4">
+                <div class="card-content has-text-centered py-6">
+                    <span class="icon is-large has-text-grey-light mb-4">
+                        <i class="fas fa-puzzle-piece fa-3x" aria-hidden="true"></i>
+                    </span>
+                    <p class="title is-5">No widget registrations</p>
+                    <p class="subtitle is-6 has-text-grey">Register ViewComponents to make them available in content zones.</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="widgets" class="button is-primary mt-2">New Widget</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of widget registrations</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Display Name</th>
+                            <th scope="col">Component</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Active</th>
+                            <th scope="col">Version</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var w in Model.Registrations)
+                        {
+                            <tr>
+                                <td>
+                                    @w.DisplayName
+                                    @if (!string.IsNullOrEmpty(w.Description))
+                                    {
+                                        <br /><small class="has-text-grey">@w.Description</small>
+                                    }
+                                </td>
+                                <td><code>@w.ComponentName</code></td>
+                                <td><span class="tag is-info is-light">@w.Category</span></td>
+                                <td>
+                                    @if (w.IsActive)
+                                    {
+                                        <span class="tag is-success is-light">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag is-warning is-light">Inactive</span>
+                                    }
+                                </td>
+                                <td><span class="tag is-light">v@(w.ContentMeta.Version)</span></td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="widgets" asp-route-masterId="@w.ContentMeta.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.ContentId" class="button is-small">Edit</a>
+                                        <button type="button" class="button is-small is-danger is-light"
+                                                data-delete-trigger
+                                                data-delete-name="@w.DisplayName"
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "widgets", id = w.ContentId })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>

@@ -23,7 +23,7 @@ public class AdminContentZoneControllerTests
     public void Constructor_NullArguments_Throw()
     {
         var model = Substitute.For<IContentZoneModel>();
-        var registry = Substitute.For<IContentZoneComponentRegistry>();
+        var registry = Substitute.For<IWidgetRegistry>();
 
         Assert.Multiple(() =>
         {
@@ -36,7 +36,7 @@ public class AdminContentZoneControllerTests
     public async Task ZoneEdit_NotFoundAndView()
     {
         var model = Substitute.For<IContentZoneModel>();
-        var controller = new AdminContentZoneController(model, Substitute.For<IContentZoneComponentRegistry>());
+        var controller = new AdminContentZoneController(model, Substitute.For<IWidgetRegistry>());
         new MvcHarness().Configure(controller, new[] { "Admin" });
 
         model.GetViewModelByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())

@@ -281,6 +281,32 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "WidgetRegistrations",
+                columns: table => new
+                {
+                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    ConfigurationTypeName = table.Column<string>(type: "text", nullable: true),
+                    PropertyDefinitionsJson = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_WidgetRegistrations", x => x.ContentId);
+                    table.ForeignKey(
+                        name: "FK_WidgetRegistrations_Content_ContentId",
+                        column: x => x.ContentId,
+                        principalTable: "Content",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ContentZoneAssignments",
                 columns: table => new
                 {
@@ -421,6 +447,22 @@ namespace WebWayCMS.Data.Migrations
                 name: "IX_Pages_Route",
                 table: "Pages",
                 column: "Route");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_WidgetRegistrations_Category",
+                table: "WidgetRegistrations",
+                column: "Category");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_WidgetRegistrations_ComponentName",
+                table: "WidgetRegistrations",
+                column: "ComponentName",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_WidgetRegistrations_IsActive",
+                table: "WidgetRegistrations",
+                column: "IsActive");
         }
 
         /// <inheritdoc />
@@ -458,6 +500,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "Pages");
+
+            migrationBuilder.DropTable(
+                name: "WidgetRegistrations");
 
             migrationBuilder.DropTable(
                 name: "AspNetRoles");

@@ -81,7 +81,7 @@ public class ServiceCollectionExtensionsTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(app.Services.GetService<IContentZoneComponentRegistry>(), Is.Not.Null);
+            Assert.That(app.Services.GetService<IWidgetRegistry>(), Is.Not.Null);
             Assert.That(app.Services.GetService<IPageControllerRegistry>(), Is.Not.Null);
             Assert.That(app.Services.GetService<IMapper>(), Is.Not.Null);
             // Configure<T> lambdas execute on options resolution.
@@ -124,7 +124,7 @@ public class ServiceCollectionExtensionsTests
             Assert.That(p.GetService<IContentZoneModel>(), Is.Not.Null);
             Assert.That(p.GetService<IArticleModel>(), Is.Not.Null);
             Assert.That(p.GetService<PageRouteTransformer>(), Is.Not.Null);
-            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(4));
+            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(5));
         });
     }
 }
