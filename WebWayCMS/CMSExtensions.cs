@@ -19,27 +19,105 @@ namespace WebWayCMS;
 
 public static class CMSExtensions
 {
-    public static WebApplication EnsureCMS(this WebApplication app, bool throwOnError = true)
+    /// <summary>
+    /// Applies pending migrations, seeds the default home page, and configures the rendering
+    /// middleware pipeline. Does NOT seed admin roles/user, the admin page, or MCP.
+    /// </summary>
+    public static WebApplication EnsureCmsRendering(this WebApplication app, bool throwOnError = true)
+    {
+        app.ApplyCmsPendingMigrations(throwOnError);
+        app.EnsureDefaultHomePage(false, throwOnError);
+        app.ConfigureRenderingPipeline(throwOnError);
+        return app;
+    }
+
+    /// <summary>
+    /// Applies pending migrations, seeds roles/admin user and default pages (home + admin),
+    /// and configures the full admin middleware pipeline including MCP.
+    /// </summary>
+    public static WebApplication EnsureCmsAdmin(this WebApplication app, bool throwOnError = true)
     {
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
-        app.EnsureDefaultHomePage(throwOnError);
-        app.ConfigureMiddleware(throwOnError);
+        app.EnsureDefaultHomePage(true, throwOnError);
+        app.ConfigureAdminPipeline(throwOnError);
         return app;
     }
+
     /// <summary>
-    /// Applies any pending EF Core migrations for the CMS related contexts. Safe to call multiple times.
-    /// Controlled by optional environment variable WEBWAYCMS_APPLY_MIGRATIONS (default true) or ASPNETCORE_ENVIRONMENT.
+    /// Backwards-compatible entry point. Delegates to <see cref="EnsureCmsAdmin"/>.
     /// </summary>
-    /// <param name="app">The WebApplication.</param>
-    /// <param name="throwOnError">If true, rethrows the exception after logging. Defaults to true (startup should fail if migrations fail).</param>
-    /// <returns>The same <see cref="WebApplication"/> instance for chaining.</returns>
-    // Relational EF Core migrations require a live database (the InMemory provider cannot run them),
-    // so this method and its migration helpers are validated by running the app, not by unit tests.
+    public static WebApplication EnsureCMS(this WebApplication app, bool throwOnError = true)
+    {
+        return EnsureCmsAdmin(app, throwOnError);
+    }
+
+    // ─── Middleware pipelines ─────────────────────────────────────────────────
+
+    private static WebApplication ConfigureRenderingPipeline(this WebApplication app, bool throwOnError = false)
+    {
+        ConfigureSharedMiddleware(app);
+        app.MapCmsEndpoints();
+        return app;
+    }
+
+    private static WebApplication ConfigureAdminPipeline(this WebApplication app, bool throwOnError = false)
+    {
+        ConfigureSharedMiddleware(app);
+        app.MapWebWayCmsMcp();
+        app.MapCmsEndpoints();
+        return app;
+    }
+
+    private static void ConfigureSharedMiddleware(WebApplication app)
+    {
+        app.UseForwardedHeaders();
+        app.UseHsts();
+        app.UseHttpsRedirection();
+
+        var cspOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<CspOptions>>().Value;
+        var cspHeaderName = CspPolicyBuilder.HeaderName(cspOptions);
+        var cspHeaderValue = CspPolicyBuilder.Build(cspOptions);
+
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            context.Response.Headers["X-Frame-Options"] = "DENY";
+            context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+            context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
+            if (cspHeaderValue.Length > 0)
+                context.Response.Headers[cspHeaderName] = cspHeaderValue;
+            await next();
+        });
+
+        app.UseStaticFiles();
+
+        app.UseRouting();
+
+        app.UseRateLimiter();
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+    }
+
+    private static void MapCmsEndpoints(this WebApplication app)
+    {
+        app.MapRazorPages();
+
+        app.MapControllers();
+
+        app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");
+
+        app.MapControllerRoute(
+            name: "default",
+            pattern: "{controller=Home}/{action=Index}/{id?}");
+    }
+
+    // ─── Migration helpers ────────────────────────────────────────────────────
+
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static WebApplication ApplyCmsPendingMigrations(this WebApplication app, bool throwOnError = true)
     {
-        // Allow skipping via env var (e.g. for read-only replicas or integration tests)
         var skip = Environment.GetEnvironmentVariable("WEBWAYCMS_SKIP_MIGRATIONS");
         if (string.Equals(skip, "true", StringComparison.OrdinalIgnoreCase))
         {
@@ -81,7 +159,6 @@ public static class CMSExtensions
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static bool IsTransientDbStartupException(Exception ex)
     {
-        // DNS not yet resolved or connection refused — typical Swarm startup race
         var inner = ex.InnerException;
         while (inner != null)
         {
@@ -112,8 +189,8 @@ public static class CMSExtensions
         context.Database.Migrate();
     }
 
-    // Identity role/admin seeding requires a live Identity store and exercises framework failure
-    // branches that are only meaningful against a real database; validated by running the app.
+    // ─── Role / admin seeding ─────────────────────────────────────────────────
+
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static WebApplication EnsureCmsRolesAndAdminSeeded(this WebApplication app, bool throwOnError = false)
     {
@@ -188,11 +265,11 @@ public static class CMSExtensions
         return app;
     }
 
-    // Default page seeding requires the page database and is validated by running the app.
+    // ─── Default page seeding ─────────────────────────────────────────────────
+
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static WebApplication EnsureDefaultHomePage(this WebApplication app, bool throwOnError = false)
+    private static WebApplication EnsureDefaultHomePage(this WebApplication app, bool seedAdminPage, bool throwOnError = false)
     {
-        // Allow skipping via env var
         if (string.Equals(Environment.GetEnvironmentVariable("WEBWAYCMS_SKIP_DEFAULTPAGE"), "true", StringComparison.OrdinalIgnoreCase))
         {
             Log.ForContext(typeof(CMSExtensions)).Information("Skipping default home page seeding due to WEBWAYCMS_SKIP_DEFAULTPAGE=true");
@@ -207,7 +284,6 @@ public static class CMSExtensions
         {
             var pageService = services.GetRequiredService<IPageService>();
 
-            // Check if any pages exist
             var existingPages = pageService.GetByRouteAsync("/").GetAwaiter().GetResult();
 
             if (existingPages == null)
@@ -236,28 +312,31 @@ public static class CMSExtensions
                 var homePageResult = pageService.CreateAsync(homePage).GetAwaiter().GetResult();
                 logger.Information("Created default Home page with ID {PageId}", homePageResult.ContentMeta.Id);
 
-                var adminPage = new PageDTO
+                if (seedAdminPage)
                 {
-                    Route = "/admin",
-                    ControllerName = "GenericAdminPage",
-                    ViewName = "Dashboard",
-                    ConfigurationJson = "{}",
-                    ContentMeta = new ContentDTO
+                    var adminPage = new PageDTO
                     {
-                        Id = Guid.NewGuid(),
-                        Title = "Admin",
-                        Slug = "admin",
-                        IsPublished = true,
-                        PublicationDate = DateTime.UtcNow,
-                        CreationDate = DateTime.UtcNow,
-                        ModificationDate = DateTime.UtcNow,
-                        CreatedBy = Guid.Empty,
-                        LastModifiedBy = Guid.Empty
-                    }
-                };
+                        Route = "/admin",
+                        ControllerName = "GenericAdminPage",
+                        ViewName = "Dashboard",
+                        ConfigurationJson = "{}",
+                        ContentMeta = new ContentDTO
+                        {
+                            Id = Guid.NewGuid(),
+                            Title = "Admin",
+                            Slug = "admin",
+                            IsPublished = true,
+                            PublicationDate = DateTime.UtcNow,
+                            CreationDate = DateTime.UtcNow,
+                            ModificationDate = DateTime.UtcNow,
+                            CreatedBy = Guid.Empty,
+                            LastModifiedBy = Guid.Empty
+                        }
+                    };
 
-                var adminPageResult = pageService.CreateAsync(adminPage).GetAwaiter().GetResult();
-                logger.Information("Created default Admin page with ID {PageId}", adminPageResult.ContentMeta.Id);
+                    var adminPageResult = pageService.CreateAsync(adminPage).GetAwaiter().GetResult();
+                    logger.Information("Created default Admin page with ID {PageId}", adminPageResult.ContentMeta.Id);
+                }
             }
             else
             {
@@ -272,61 +351,6 @@ public static class CMSExtensions
                 throw;
             }
         }
-
-        return app;
-    }
-
-    private static WebApplication ConfigureMiddleware(this WebApplication app, bool throwOnError = false)
-    {
-        app.UseForwardedHeaders();
-        app.UseHsts();
-        app.UseHttpsRedirection();
-
-        // Content-Security-Policy is host-configurable via the "Csp" section (see CspOptions); the CMS
-        // ships secure defaults that keep the admin UI working. Resolve and build the header once at
-        // startup so the per-request middleware only writes it.
-        var cspOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<CspOptions>>().Value;
-        var cspHeaderName = CspPolicyBuilder.HeaderName(cspOptions);
-        var cspHeaderValue = CspPolicyBuilder.Build(cspOptions);
-
-        app.Use(async (context, next) =>
-        {
-            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["X-Frame-Options"] = "DENY";
-            context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
-            context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
-            if (cspHeaderValue.Length > 0)
-                context.Response.Headers[cspHeaderName] = cspHeaderValue;
-            await next();
-        });
-
-        app.UseStaticFiles();
-
-        app.UseRouting();
-
-        // Throttle the Identity auth endpoints per client IP (see AuthRateLimiting).
-        app.UseRateLimiter();
-
-        app.UseAuthentication();
-        app.UseAuthorization();
-
-        // MCP server endpoint (opt-in via the "Mcp" config section; gated by its own API key).
-        app.MapWebWayCmsMcp();
-
-        app.MapRazorPages();
-
-        // Attribute-routed controllers (e.g. AdminContentController's "admin/{contentType}")
-        // must be registered as endpoints so they out-rank the catch-all page route below;
-        // otherwise "/admin/page" is captured by the dynamic page route as a sub-route of the
-        // "/admin" page instead of being handled by its controller.
-        app.MapControllers();
-
-        //todo: this should not be slug. pages have routes
-        app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");
-
-        app.MapControllerRoute(
-            name: "default",
-            pattern: "{controller=Home}/{action=Index}/{id?}");
 
         return app;
     }

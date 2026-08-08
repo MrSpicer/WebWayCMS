@@ -18,8 +18,8 @@ using Serilog;
 using Serilog.Events;
 
 using WebWayCMS.ContentZones;
-using WebWayCMS.Controllers;        // GenericPageController
-using WebWayCMS.Controllers.Admin;  // AdminContentController
+using WebWayCMS.Controllers;
+using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data;
 using WebWayCMS.Data.DbContexts;
@@ -33,44 +33,61 @@ using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
 using WebWayCMS.Routing;
-using WebWayCMS.TagHelpers;         // FormFieldsTagHelper
-using WebWayCMS.ViewComponents;     // ContentZoneViewComponent
+using WebWayCMS.TagHelpers;
+using WebWayCMS.ViewComponents;
 
 namespace WebWayCMS;
 
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers CMS (Data, Models, Services) components and adds MVC application part for Controllers/ViewComponents.
+    /// Registers CMS rendering services (data, models, routing, content zones, Identity)
+    /// and adds MVC application parts for public-facing controllers, ViewComponents, and tag helpers.
+    /// Does NOT register admin controllers, admin views, admin handlers, or MCP.
     /// </summary>
-    public static IServiceCollection AddWebWayCms(this IServiceCollection services)
+    public static IServiceCollection AddWebWayCmsRendering(this IServiceCollection services, IConfiguration configuration)
     {
-        // Backwards-compatible overload assumes database contexts already configured by host.
-        AddCmsCore(services);
+        ConfigureDatabaseServices(services, configuration);
+        ConfigureForwardedHeaders(services);
+        MapRenderingTypes(services);
+        ConfigureAuthorization(services);
+        ConfigureRateLimiting(services);
+        services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
         return services;
     }
 
     /// <summary>
-    /// Registers CMS services and configures EF Core DbContexts using the provided configuration.
+    /// Registers the full CMS including admin surface (controllers, views, handlers, MCP).
+    /// Calls <see cref="AddWebWayCmsRendering"/> internally, then layers on admin-only registrations.
     /// </summary>
-    /// <param name="services">The DI service collection.</param>
-    /// <param name="configuration">Application configuration for resolving connection string.</param>
-    /// <returns>The same service collection for chaining.</returns>
-    public static IServiceCollection AddWebWayCms(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddWebWayCmsAdmin(this IServiceCollection services, IConfiguration configuration)
     {
-        ConfigureDatabaseServices(services, configuration);
-        AddCmsCore(services);
-        services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
+        AddWebWayCmsRendering(services, configuration);
+        MapAdminTypes(services);
         services.AddWebWayCmsMcp(configuration);
         return services;
     }
 
-    private static void AddCmsCore(IServiceCollection services)
+    /// <summary>
+    /// Backwards-compatible overload that assumes database contexts already configured by host.
+    /// Registers the full CMS with admin surface.
+    /// </summary>
+    public static IServiceCollection AddWebWayCms(this IServiceCollection services)
     {
         ConfigureForwardedHeaders(services);
-        MapTypes(services);
+        AddRenderingCoreTypes(services);
         ConfigureAuthorization(services);
         ConfigureRateLimiting(services);
+        MapAdminTypes(services);
+        return services;
+    }
+
+    /// <summary>
+    /// Backwards-compatible overload. Registers the full CMS with admin surface and EF Core.
+    /// </summary>
+    public static IServiceCollection AddWebWayCms(this IServiceCollection services, IConfiguration configuration)
+    {
+        return AddWebWayCmsAdmin(services, configuration);
     }
 
     private static void ConfigureRateLimiting(IServiceCollection services)
@@ -88,11 +105,6 @@ public static class ServiceCollectionExtensions
         services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            // SECURITY: clearing the known-proxy allow-list makes the app trust X-Forwarded-* from ANY
-            // caller. This is only safe when the app is never reachable directly — i.e. it always sits
-            // behind a trusted reverse proxy on an isolated network (the Docker/Swarm deployment model).
-            // If the app can be reached directly, a client can spoof its source IP and scheme; in that
-            // case populate KnownProxies/KnownIPNetworks with the real proxy addresses instead.
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
         });
@@ -111,31 +123,26 @@ public static class ServiceCollectionExtensions
 #endif
     }
 
-    private static void MapTypes(IServiceCollection services)
+    private static void AddRenderingCoreTypes(IServiceCollection services)
     {
 #if DEBUG
         services.AddSingleton<Microsoft.AspNetCore.Identity.UI.Services.IEmailSender, WebWayCMS.Services.DevEmailSender>();
 #endif
-        // Needed for UserService to inspect current HttpContext/User
         services.AddHttpContextAccessor();
         services.AddSingleton<WebWayCMS.Services.UserService>();
 
-        // ViewComponent view discovery service
         services.AddScoped<WebWayCMS.Services.IViewDiscoveryService, WebWayCMS.Services.ViewDiscoveryService>();
 
-        // Content Zone Component Registry - scans assemblies for registered ViewComponents
         services.AddSingleton<IContentZoneComponentRegistry>(sp =>
         {
             var assemblies = new[]
             {
-                typeof(ContentZoneViewComponent).Assembly,  // CMS.Presentation: [ContentZoneComponent] ViewComponents
-				Assembly.GetEntryAssembly()
+                typeof(ContentZoneViewComponent).Assembly,
+                Assembly.GetEntryAssembly()
             }.Where(a => a != null).Distinct().Cast<Assembly>();
             return new ContentZoneComponentRegistry(assemblies);
         });
 
-        // Generic content service registrations to enable consumers to request IContentService<T>
-        // Note: Each T uses the unified CmsDbContext through constructor injection of DbContext.
         services.AddScoped<IContentService<ArticleDTO>>(sp =>
         {
             var ctx = sp.GetRequiredService<CmsDbContext>();
@@ -148,82 +155,58 @@ public static class ServiceCollectionExtensions
             return new ContentService<ArticleListDTO>(ctx);
         });
 
-
         services.AddScoped<IContentService<ContentBlockDTO>>(sp =>
         {
             var ctx = sp.GetRequiredService<CmsDbContext>();
             return new ContentService<ContentBlockDTO>(ctx);
         });
 
-        // ContentZone service registration
         services.AddScoped<IContentZoneService, ContentZoneService>();
-
-        // Page service and model registrations
         services.AddScoped<IPageService, PageService>();
 
-        // Page Controller Registry - scans assemblies for registered page controllers
         services.AddSingleton<IPageControllerRegistry>(sp =>
         {
             var assemblies = new[]
             {
-                typeof(GenericPageController).Assembly,  // CMS.Core: [PageController] controllers
-				Assembly.GetEntryAssembly()
+                typeof(GenericPageController).Assembly,
+                Assembly.GetEntryAssembly()
             }.Where(a => a != null).Distinct().Cast<Assembly>();
             return new PageControllerRegistry(assemblies);
         });
 
-        // PageRouteTransformer for dynamic page routing
         services.AddScoped<PageRouteTransformer>();
 
-        // Register concrete model types once; expose via both their domain interface and IAdminCrudHandler
-        // so all consumers share the same scoped instance.
         services.AddScoped<ContentBlockModel>();
         services.AddScoped<IContentBlockModel>(sp => sp.GetRequiredService<ContentBlockModel>());
-        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentBlockModel>());
 
         services.AddScoped<PageModel>();
         services.AddScoped<IPageModel>(sp => sp.GetRequiredService<PageModel>());
-        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<PageModel>());
 
         services.AddScoped<ArticleListModel>();
         services.AddScoped<IArticleListModel>(sp => sp.GetRequiredService<ArticleListModel>());
-        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ArticleListModel>());
 
         services.AddScoped<ContentZoneModel>();
         services.AddScoped<IContentZoneModel>(sp => sp.GetRequiredService<ContentZoneModel>());
-        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentZoneModel>());
 
         services.AddScoped<IArticleModel, ArticleModel>();
 
-        // Dynamic page sub-route resolvers: components that can serve a path beneath a
-        // matched page (e.g. an article slug). PageRouteTransformer consults these and
-        // 404s sub-routes that no resolver can resolve.
         services.AddScoped<ISubRouteContent, ArticleSubRouteResolver>();
 
-        // Admin CRUD handler registry
-        services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
-        services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
-
-        // Object mapper (in-house) configured from this assembly's profile
         var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
         services.AddSingleton<IMapper>(mapperConfig.CreateMapper());
 
-        // Register CMS.Core (controllers), CMS.Forms (tag helpers), CMS.Presentation (ViewComponents + compiled views)
-        // Sub-route validation is performed inside PageRouteTransformer (it only resolves a
-        // page for a sub-route some ISubRouteContent resolver can serve), so no global filter
-        // is needed here.
-        services.Configure<MvcOptions>(_ => { }); // no-op to ensure MVC services available if host only calls minimal AddControllersWithViews later
+        services.Configure<MvcOptions>(_ => { });
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>
         {
-            var coreAsm = typeof(AdminContentController).Assembly; // CMS.Core
+            var coreAsm = typeof(GenericPageController).Assembly;
             if (!apm.ApplicationParts.Any(p => p.Name == coreAsm.GetName().Name))
                 apm.ApplicationParts.Add(new AssemblyPart(coreAsm));
 
-            var formsAsm = typeof(FormFieldsTagHelper).Assembly; // CMS.Forms
+            var formsAsm = typeof(FormFieldsTagHelper).Assembly;
             if (!apm.ApplicationParts.Any(p => p.Name == formsAsm.GetName().Name))
                 apm.ApplicationParts.Add(new AssemblyPart(formsAsm));
 
-            var presentationAsm = typeof(ContentZoneViewComponent).Assembly; // CMS.Presentation
+            var presentationAsm = typeof(ContentZoneViewComponent).Assembly;
             if (!apm.ApplicationParts.Any(p => p.Name == presentationAsm.GetName().Name))
             {
                 apm.ApplicationParts.Add(new AssemblyPart(presentationAsm));
@@ -232,9 +215,57 @@ public static class ServiceCollectionExtensions
         });
     }
 
-    static void ConfigureAuthorization(IServiceCollection services)
+    private static void MapRenderingTypes(IServiceCollection services)
     {
-        // Identity and authentication
+        AddRenderingCoreTypes(services);
+    }
+
+    private static void MapAdminTypes(IServiceCollection services)
+    {
+        services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
+        services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
+
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentBlockModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<PageModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ArticleListModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentZoneModel>());
+
+        services.AddSingleton<IPageControllerRegistry>(sp =>
+        {
+            var assemblies = new[]
+            {
+                typeof(GenericPageController).Assembly,
+                typeof(AdminContentController).Assembly,
+                Assembly.GetEntryAssembly()
+            }.Where(a => a != null).Distinct().Cast<Assembly>();
+            return new PageControllerRegistry(assemblies);
+        });
+
+        services.AddSingleton<IContentZoneComponentRegistry>(sp =>
+        {
+            var assemblies = new[]
+            {
+                typeof(ContentZoneViewComponent).Assembly,
+                typeof(AdminContentController).Assembly,
+                Assembly.GetEntryAssembly()
+            }.Where(a => a != null).Distinct().Cast<Assembly>();
+            return new ContentZoneComponentRegistry(assemblies);
+        });
+
+        services.Configure<MvcOptions>(_ => { });
+        services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>
+        {
+            var adminAsm = typeof(AdminContentController).Assembly;
+            if (!apm.ApplicationParts.Any(p => p.Name == adminAsm.GetName().Name))
+            {
+                apm.ApplicationParts.Add(new AssemblyPart(adminAsm));
+                apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(adminAsm));
+            }
+        });
+    }
+
+    private static void ConfigureAuthorization(IServiceCollection services)
+    {
         services.AddDefaultIdentity<IdentityUser>(
                 identityOptions =>
                 {
@@ -245,7 +276,6 @@ public static class ServiceCollectionExtensions
                     identityOptions.Password.RequireUppercase = true;
                     identityOptions.Password.RequiredLength = 12;
 
-                    // Explicit lockout policy: throttle credential brute force.
                     identityOptions.Lockout.AllowedForNewUsers = true;
                     identityOptions.Lockout.MaxFailedAccessAttempts = 5;
                     identityOptions.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
@@ -255,7 +285,6 @@ public static class ServiceCollectionExtensions
             .AddEntityFrameworkStores<CmsDbContext>()
             .AddDefaultUI();
 
-        // Harden the authentication cookie explicitly rather than relying on framework defaults.
         services.ConfigureApplicationCookie(cookieOptions =>
         {
             cookieOptions.Cookie.HttpOnly = true;

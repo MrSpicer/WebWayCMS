@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using NUnit.Framework;
@@ -10,9 +11,10 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Host.Tests;
 
 /// <summary>
-/// Covers the public EnsureCMS entry point and the middleware pipeline wiring (ConfigureMiddleware).
-/// Migration and Identity/page seeding are excluded from coverage (they require a live database) and
-/// are skipped here via the WEBWAYCMS_SKIP_* switches so the pipeline can be exercised in isolation.
+/// Covers the public EnsureCMS / EnsureCmsRendering / EnsureCmsAdmin entry points and the
+/// middleware pipeline wiring. Migration and Identity/page seeding are excluded from coverage
+/// (they require a live database) and are skipped here via the WEBWAYCMS_SKIP_* switches so
+/// the pipeline can be exercised in isolation.
 /// </summary>
 [TestFixture]
 public class CMSExtensionsTests
@@ -62,5 +64,73 @@ public class CMSExtensionsTests
         using var app = BuildApp();
 
         Assert.That(() => app.EnsureCMS(throwOnError: false), Throws.Nothing);
+    }
+
+    [Test]
+    public void EnsureCmsRendering_WiresMiddlewarePipeline_AndReturnsApp()
+    {
+        using var app = BuildRenderingApp();
+
+        var result = app.EnsureCmsRendering();
+
+        Assert.That(result, Is.SameAs(app));
+    }
+
+    [Test]
+    public void EnsureCmsRendering_CanBeInvokedWithThrowOnErrorFalse()
+    {
+        using var app = BuildRenderingApp();
+
+        Assert.That(() => app.EnsureCmsRendering(throwOnError: false), Throws.Nothing);
+    }
+
+    [Test]
+    public void AddWebWayCmsRendering_RegistersServicesForRenderingPipeline()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                { "ConnectionStrings:DefaultConnection", "Host=localhost;Database=test;Username=test;Password=test" }
+            })
+            .Build();
+
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddWebWayCmsRendering(config);
+
+        var app = builder.Build();
+
+        Assert.That(() => app.EnsureCmsRendering(throwOnError: false), Throws.Nothing);
+    }
+
+    [Test]
+    public void AddWebWayCms_WithConfiguration_DelegatesToAddWebWayCmsAdmin()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                { "ConnectionStrings:DefaultConnection", "Host=localhost;Database=test;Username=test;Password=test" }
+            })
+            .Build();
+
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddWebWayCms(config);
+
+        var app = builder.Build();
+
+        Assert.That(() => app.EnsureCMS(throwOnError: false), Throws.Nothing);
+    }
+
+    private static WebApplication BuildRenderingApp()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                { "ConnectionStrings:DefaultConnection", "Host=localhost;Database=test;Username=test;Password=test" }
+            })
+            .Build();
+
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddWebWayCmsRendering(config);
+        return builder.Build();
     }
 }

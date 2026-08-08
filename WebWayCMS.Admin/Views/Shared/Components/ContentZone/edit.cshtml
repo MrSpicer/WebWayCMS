@@ -30,7 +30,7 @@
 @if (!Context.Items.ContainsKey("ContentZoneEditCssLoaded"))
 {
     Context.Items["ContentZoneEditCssLoaded"] = true;
-    <link rel="stylesheet" href="~/_content/WebWayCMS.Presentation/css/content-zone-edit.css" />
+    <link rel="stylesheet" href="~/_content/WebWayCMS.Admin/css/content-zone-edit.css" />
 }
 
 <div class="content-zone content-zone-edit" id="@containerId" data-zone-name="@Model.Name" data-modal-id="@modalId">
@@ -136,5 +136,5 @@
 @if (!Context.Items.ContainsKey("ContentZoneEditJsLoaded"))
 {
     Context.Items["ContentZoneEditJsLoaded"] = true;
-    <script src="~/_content/WebWayCMS.Presentation/js/content-zone-edit.js"></script>
+    <script src="~/_content/WebWayCMS.Admin/js/content-zone-edit.js"></script>
 }
