@@ -47,7 +47,7 @@
                     <caption class="is-sr-only">List of pages</caption>
                     <thead>
                         <tr>
-                            <th scope="col">Route</th>
+                            <th scope="col">Path</th>
                             <th scope="col">Title</th>
                             <th scope="col">Published</th>
                             <th scope="col"><span class="is-sr-only">Actions</span></th>
@@ -74,14 +74,14 @@
                         {
                             <span class="has-text-grey-light" aria-hidden="true">└─ </span>
                         }
-                        @node.Route
+                        @node.Path
                         <a asp-controller="AdminContent"
                            asp-action="Create"
                            asp-route-contentType="pages"
-                           asp-route-parentRoute="@node.Route"
+                           asp-route-parentRoute="@node.Path"
                            class="has-text-grey-light ml-2"
-                           title="Create child page under @node.Route"
-                           aria-label="Create child page under @node.Route">
+                           title="Create child page under @node.Path"
+                           aria-label="Create child page under @node.Path">
                             <i class="fas fa-plus-circle" aria-hidden="true"></i>
                         </a>
                     </span>
@@ -113,7 +113,7 @@
                     @if (node.PageId.HasValue)
                     {
                         <div class="buttons are-small">
-                            <a href="@node.Route" target="_blank" class="button is-small is-light" rel="noopener">View</a>
+                            <a href="@node.Path" target="_blank" class="button is-small is-light" rel="noopener">View</a>
                             @if (node.PageMasterId.HasValue)
                             {
                                 <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-masterId="@node.PageMasterId" class="button is-small is-info is-light">Versions</a>

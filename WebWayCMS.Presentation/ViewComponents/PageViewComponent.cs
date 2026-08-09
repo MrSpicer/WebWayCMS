@@ -40,18 +40,18 @@ public class PageViewComponent : ViewComponent
 
         if (config.AdminPages)
         {
-            filteredNodes = filteredNodes.Where(n => n.Route.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
+            filteredNodes = filteredNodes.Where(n => n.Path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
         }
         else
         {
-            filteredNodes = filteredNodes.Where(n => !n.Route.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
+            filteredNodes = filteredNodes.Where(n => !n.Path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
         }
 
         return filteredNodes
             .Select(n => new PageNavigationItem
             {
                 Title = n.Title,
-                Route = n.Route,
+                Path = n.Path,
                 IsPublished = n.IsPublished,
                 Children = MapNodes(n.Children, config)
             })

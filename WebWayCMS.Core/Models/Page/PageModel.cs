@@ -82,7 +82,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var activeRoute = routes.FirstOrDefault();
         if (activeRoute != null)
         {
-            vm.Route = activeRoute.Pattern;
             var defaults = DeserializeDefaults(activeRoute.DefaultsJson);
             if (defaults != null && defaults.TryGetValue("controller", out var controllerName))
                 vm.ControllerName = controllerName;
@@ -117,11 +116,17 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             ? TryDeserializeConfig(model.ConfigurationJson, controllerInfo.ConfigurationType)
             : null;
 
+        var routePattern = await DeriveRoutePatternForSaveAsync(
+            model.Slug ?? string.Empty,
+            model.ParentRoutePrefix,
+            savedDto.ContentMeta.MasterId,
+            ct);
+
         if (savedDto.ContentMeta.IsPublished)
         {
             await _routeRegistration.RegisterContentRoutesAsync(
                 this,
-                model.Route,
+                routePattern,
                 model.ControllerName,
                 config ?? new { },
                 savedDto.ContentMeta.Id,
@@ -166,7 +171,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var activeRoute = routes.FirstOrDefault();
         if (activeRoute != null)
         {
-            vm.Route = activeRoute.Pattern;
             var defaults = DeserializeDefaults(activeRoute.DefaultsJson);
             if (defaults != null && defaults.TryGetValue("controller", out var controllerName))
                 vm.ControllerName = controllerName;
@@ -198,7 +202,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             parentRoute = parentRoute.TrimEnd('/');
             if (!parentRoute.StartsWith('/'))
                 parentRoute = "/" + parentRoute;
-            vm.Route = parentRoute == "/" ? "/" : parentRoute + "/";
+            vm.ParentRoutePrefix = parentRoute;
         }
         return vm;
     }
@@ -210,9 +214,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var vm = (PageUpsertViewModel)model;
 
         var excludeMasterId = vm.MasterId.HasValue && vm.MasterId != Guid.Empty ? vm.MasterId : null;
-        var routeAvailable = await _routeService.IsPatternAvailableAsync(vm.Route, excludeMasterId, ct);
+        var routePattern = DeriveRoutePatternFromSlug(vm.Slug ?? string.Empty, vm.ParentRoutePrefix);
+        var routeAvailable = await _routeService.IsPatternAvailableAsync(routePattern, excludeMasterId, ct);
         if (!routeAvailable)
-            return new AdminSaveResult(false, "This route is already in use by another page.", "Route");
+            return new AdminSaveResult(false, "A page with this slug already exists at this location.", "Slug");
 
         var result = await SavePageUpsertAsync(vm, ct);
         return result.Success
@@ -270,7 +275,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 {
                     rootNode = new PageTreeNode
                     {
-                        Route = "/",
+                        Path = "/",
                         Title = page.ContentMeta.Title,
                         PageId = page.ContentMeta.Id,
                         PageMasterId = page.ContentMeta.MasterId,
@@ -305,7 +310,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 {
                     node = new PageTreeNode
                     {
-                        Route = currentPath,
+                        Path = currentPath,
                         Title = isLeaf ? page.ContentMeta.Title : segments[i],
                         PageId = isLeaf ? page.ContentMeta.Id : null,
                         PageMasterId = isLeaf ? page.ContentMeta.MasterId : null,
@@ -370,6 +375,36 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         {
             return null;
         }
+    }
+
+    private static string DeriveRoutePatternFromSlug(string slug, string? parentRoutePrefix)
+    {
+        if (!string.IsNullOrWhiteSpace(parentRoutePrefix))
+        {
+            parentRoutePrefix = parentRoutePrefix.TrimEnd('/');
+            return parentRoutePrefix + "/" + slug;
+        }
+        if (string.Equals(slug, "home", StringComparison.OrdinalIgnoreCase))
+            return "/";
+        return "/" + slug;
+    }
+
+    private async Task<string> DeriveRoutePatternForSaveAsync(
+        string slug, string? parentRoutePrefix, Guid contentMasterId, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(parentRoutePrefix))
+            return DeriveRoutePatternFromSlug(slug, parentRoutePrefix);
+
+        var existingRoutes = await _routeService.GetByOwningContentAsync(contentMasterId, ct);
+        var existing = existingRoutes?.FirstOrDefault();
+        if (existing != null)
+        {
+            var lastSlash = existing.Pattern.LastIndexOf('/');
+            var prefix = lastSlash > 0 ? existing.Pattern[..lastSlash] : null;
+            return DeriveRoutePatternFromSlug(slug, prefix);
+        }
+
+        return DeriveRoutePatternFromSlug(slug, null);
     }
 }
 

@@ -241,7 +241,7 @@ public class PageViewComponentTests
 
     private static PageTreeNode Node(string route, bool published = true, bool hidden = false, params PageTreeNode[] children) => new()
     {
-        Route = route,
+        Path = route,
         Title = route,
         PageId = Guid.NewGuid(),
         IsPublished = published,
@@ -260,7 +260,7 @@ public class PageViewComponentTests
                 Node("/draft", published: false),
                 Node("/hidden", hidden: true),
                 Node("/admin/x"),
-                new() { Route = "/intermediate", PageId = null } // no PageId -> filtered out
+                new() { Path = "/intermediate", PageId = null } // no PageId -> filtered out
 			}
         });
 
@@ -270,8 +270,8 @@ public class PageViewComponentTests
         Assert.Multiple(() =>
         {
             Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
-            Assert.That(vm.Items.Select(i => i.Route), Is.EqualTo(new[] { "/a" }));
-            Assert.That(vm.Items[0].Children.Single().Route, Is.EqualTo("/a/b"));
+            Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/a" }));
+            Assert.That(vm.Items[0].Children.Single().Path, Is.EqualTo("/a/b"));
         });
     }
 
@@ -289,7 +289,7 @@ public class PageViewComponentTests
         Assert.Multiple(() =>
         {
             Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Menu"));
-            Assert.That(vm.Items.Select(i => i.Route), Is.EqualTo(new[] { "/admin/x" }));
+            Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/admin/x" }));
         });
     }
 

@@ -117,9 +117,9 @@ public class PageModelTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(vm.Pages.Any(p => p.Route == "/"), Is.True);
-            var branch = vm.Pages.First(p => p.Route == "/a");
-            Assert.That(branch.Children.Any(c => c.Route == "/a/b"), Is.True);
+            Assert.That(vm.Pages.Any(p => p.Path == "/"), Is.True);
+            var branch = vm.Pages.First(p => p.Path == "/a");
+            Assert.That(branch.Children.Any(c => c.Path == "/a/b"), Is.True);
         });
     }
 
@@ -138,7 +138,7 @@ public class PageModelTests
 
         var vm = await _model.GetPageIndexAsync();
 
-        Assert.That(vm.Pages.Single(p => p.Route == "/").Title, Is.EqualTo("Second"));
+        Assert.That(vm.Pages.Single(p => p.Path == "/").Title, Is.EqualTo("Second"));
     }
 
     [Test]
@@ -156,7 +156,7 @@ public class PageModelTests
 
         var vm = await _model.GetPageIndexAsync();
 
-        Assert.That(vm.Pages.Single(p => p.Route == "/a").Title, Is.EqualTo("RealA"));
+        Assert.That(vm.Pages.Single(p => p.Path == "/a").Title, Is.EqualTo("RealA"));
     }
 
     [Test]
@@ -171,13 +171,13 @@ public class PageModelTests
         });
 
         var vm = await _model.GetPageIndexAsync();
-        var x = vm.Pages.Single(p => p.Route == "/x");
-        var y = x.Children.Single(c => c.Route == "/x/y");
+        var x = vm.Pages.Single(p => p.Path == "/x");
+        var y = x.Children.Single(c => c.Path == "/x/y");
 
         Assert.Multiple(() =>
         {
             Assert.That(x.PageId, Is.Null, "intermediate node has no page id");
-            Assert.That(y.Children.Single().Route, Is.EqualTo("/x/y/z"));
+            Assert.That(y.Children.Single().Path, Is.EqualTo("/x/y/z"));
             Assert.That(y.Children.Single().Title, Is.EqualTo("Deep"));
         });
     }
@@ -212,12 +212,13 @@ public class PageModelTests
         _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
         _service.UpdateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
         _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
 
         Assert.Multiple(async () =>
         {
-            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = null, Title = "T", Route = "/r", ControllerName = "C" })).Success, Is.True);
-            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Route = "/r", ControllerName = "C" })).Success, Is.True);
-            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Route = "/r", ControllerName = "C" })).Success, Is.False);
+            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = null, Title = "T", Slug = "r", ControllerName = "C" })).Success, Is.True);
+            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Slug = "r", ControllerName = "C" })).Success, Is.True);
+            Assert.That((await _model.SavePageUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Slug = "r", ControllerName = "C" })).Success, Is.False);
         });
     }
 
@@ -274,11 +275,11 @@ public class PageModelTests
             Assert.That(await _model.GetUpsertViewModelAsync(page.ContentMeta.Id, Query()), Is.Not.Null);
             Assert.That(await _model.GetUpsertViewModelAsync(Guid.NewGuid(), Query()), Is.Null);
             var withParent = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "blog/"))))!;
-            Assert.That(withParent.Route, Is.EqualTo("/blog/"));
+            Assert.That(withParent.ParentRoutePrefix, Is.EqualTo("/blog"));
             var rootParent = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "/"))))!;
-            Assert.That(rootParent.Route, Is.EqualTo("/"));
+            Assert.That(rootParent.ParentRoutePrefix, Is.EqualTo("/"));
             var plain = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query()))!;
-            Assert.That(plain.Route, Is.Empty);
+            Assert.That(plain.ParentRoutePrefix, Is.Null);
         });
     }
 
@@ -290,14 +291,15 @@ public class PageModelTests
         var savedDto = new PageDTO { ContentId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), IsPublished = false } };
         _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
         _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
 
-        var conflict = await _model.SaveUpsertAsync(new PageUpsertViewModel { Title = "T", Route = "/x", ControllerName = "C", MasterId = Guid.NewGuid() });
-        var ok = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = null, Title = "T", Route = "/y", ControllerName = "C" });
+        var conflict = await _model.SaveUpsertAsync(new PageUpsertViewModel { Title = "T", Slug = "x", ControllerName = "C", MasterId = Guid.NewGuid() });
+        var ok = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = null, Title = "T", Slug = "y", ControllerName = "C" });
 
         Assert.Multiple(() =>
         {
             Assert.That(conflict.Success, Is.False);
-            Assert.That(conflict.ErrorField, Is.EqualTo("Route"));
+            Assert.That(conflict.ErrorField, Is.EqualTo("Slug"));
             Assert.That(ok.Success, Is.True);
         });
     }
@@ -309,7 +311,7 @@ public class PageModelTests
         _registry.GetByName(Arg.Any<string>()).Returns((PageControllerInfo?)null);
         _service.UpdateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Route = "/x", ControllerName = "C" });
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Slug = "x", ControllerName = "C" });
 
         Assert.That(result.Success, Is.False);
     }

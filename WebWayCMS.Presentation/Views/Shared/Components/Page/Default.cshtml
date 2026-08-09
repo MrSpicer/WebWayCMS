@@ -12,14 +12,14 @@
 @functions {
     async Task RenderNavItem(PageNavigationItem item)
     {
-        <a class="navbar-item" href="@item.Route">@item.Title</a>
+        <a class="navbar-item" href="@item.Path">@item.Title</a>
         @if (item.Children.Any())
         {
             <ul>
                 @foreach (var child in item.Children)
                 {
                     <li>
-                        <a class="navbar-item" href="@child.Route">@child.Title</a>
+                        <a class="navbar-item" href="@child.Path">@child.Title</a>
                     </li>
                 }
             </ul>

@@ -196,7 +196,7 @@ public class MappingTests
     public void Map_PageUpsert_ToDto_IdSetIsPreserved()
     {
         var id = Guid.NewGuid();
-        var vm = new PageUpsertViewModel { Id = id, Title = null!, Slug = null!, Route = null!, ControllerName = null!, ConfigurationJson = null!, PublicationDate = new DateTime(2024, 1, 1), PublicationEndDate = new DateTime(2024, 2, 1) };
+        var vm = new PageUpsertViewModel { Id = id, Title = null!, Slug = null!, ControllerName = null!, ConfigurationJson = null!, PublicationDate = new DateTime(2024, 1, 1), PublicationEndDate = new DateTime(2024, 2, 1) };
 
         var dto = _mapper.Map<PageDTO>(vm);
 
