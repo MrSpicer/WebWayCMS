@@ -260,6 +260,33 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "PageControllerRegistrations",
+                columns: table => new
+                {
+                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ControllerName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ControllerTypeName = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
+                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    ConfigurationTypeName = table.Column<string>(type: "text", nullable: true),
+                    PropertyDefinitionsJson = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PageControllerRegistrations", x => x.ContentId);
+                    table.ForeignKey(
+                        name: "FK_PageControllerRegistrations_Content_ContentId",
+                        column: x => x.ContentId,
+                        principalTable: "Content",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Pages",
                 columns: table => new
                 {
@@ -444,6 +471,22 @@ namespace WebWayCMS.Data.Migrations
                 columns: new[] { "ContentZoneId", "Ordinal" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_PageControllerRegistrations_Category",
+                table: "PageControllerRegistrations",
+                column: "Category");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageControllerRegistrations_ControllerName",
+                table: "PageControllerRegistrations",
+                column: "ControllerName",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageControllerRegistrations_IsActive",
+                table: "PageControllerRegistrations",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Pages_Route",
                 table: "Pages",
                 column: "Route");
@@ -497,6 +540,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ContentZoneItems");
+
+            migrationBuilder.DropTable(
+                name: "PageControllerRegistrations");
 
             migrationBuilder.DropTable(
                 name: "Pages");

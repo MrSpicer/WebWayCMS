@@ -3,150 +3,56 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
-using WebWayCMS.Attributes;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
 
 namespace WebWayCMS.Pages;
 
-/// <summary>
-/// Scans assemblies for Controllers decorated with <see cref="PageControllerAttribute"/>
-/// and provides metadata for the admin UI.
-/// </summary>
 public class PageControllerRegistry : IPageControllerRegistry
 {
-    private readonly List<PageControllerInfo> _controllers;
-    private readonly Dictionary<string, PageControllerInfo> _controllersByName;
-    private readonly Dictionary<string, List<PageControllerInfo>> _controllersByCategory;
+    private const int RefreshIntervalMinutes = 5;
 
-    public PageControllerRegistry(IEnumerable<Assembly> assemblies)
+    private readonly IServiceScopeFactory _scopeFactory;
+
+    private List<PageControllerInfo> _controllers = new();
+    private Dictionary<string, PageControllerInfo> _controllersByName = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, List<PageControllerInfo>> _controllersByCategory = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _lastRefresh = DateTime.MinValue;
+
+    public PageControllerRegistry(IServiceScopeFactory scopeFactory)
     {
-        _controllers = new List<PageControllerInfo>();
-        _controllersByName = new Dictionary<string, PageControllerInfo>(StringComparer.OrdinalIgnoreCase);
-        _controllersByCategory = new Dictionary<string, List<PageControllerInfo>>(StringComparer.OrdinalIgnoreCase);
-
-        ScanAssemblies(assemblies);
+        _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
     }
 
-    public PageControllerRegistry()
-        : this(new[] { typeof(PageControllerRegistry).Assembly, Assembly.GetEntryAssembly()! }.Where(a => a != null).Distinct())
+    public IReadOnlyList<PageControllerInfo> GetAllControllers()
     {
+        EnsureLoaded();
+        return _controllers.AsReadOnly();
     }
-
-    private void ScanAssemblies(IEnumerable<Assembly> assemblies)
-    {
-        foreach (var assembly in assemblies)
-        {
-            try
-            {
-                ScanAssembly(assembly);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to scan assembly {assembly.FullName}: {ex.Message}");
-            }
-        }
-
-        foreach (var categoryControllers in _controllersByCategory.Values)
-        {
-            categoryControllers.Sort((a, b) =>
-            {
-                var orderCompare = a.Order.CompareTo(b.Order);
-                return orderCompare != 0 ? orderCompare : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
-            });
-        }
-
-        _controllers.Sort((a, b) =>
-        {
-            var catCompare = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
-            if (catCompare != 0) return catCompare;
-            var orderCompare = a.Order.CompareTo(b.Order);
-            return orderCompare != 0 ? orderCompare : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
-        });
-    }
-
-    private void ScanAssembly(Assembly assembly)
-    {
-        var controllerTypes = assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract
-                && typeof(Controller).IsAssignableFrom(t)
-                && !typeof(ViewComponent).IsAssignableFrom(t));
-
-        foreach (var type in controllerTypes)
-        {
-            var attribute = type.GetCustomAttribute<PageControllerAttribute>();
-            if (attribute == null)
-                continue;
-
-            var controllerName = GetControllerName(type);
-            var info = BuildControllerInfo(type, attribute, controllerName);
-
-            _controllers.Add(info);
-            _controllersByName[controllerName] = info;
-
-            if (!_controllersByCategory.TryGetValue(info.Category, out var categoryList))
-            {
-                categoryList = new List<PageControllerInfo>();
-                _controllersByCategory[info.Category] = categoryList;
-            }
-            categoryList.Add(info);
-        }
-    }
-
-    private static string GetControllerName(Type type)
-    {
-        const string suffix = "Controller";
-        var name = type.Name;
-        return name.EndsWith(suffix, StringComparison.Ordinal)
-            ? name[..^suffix.Length]
-            : name;
-    }
-
-    private static PageControllerInfo BuildControllerInfo(Type type, PageControllerAttribute attribute, string controllerName)
-    {
-        var info = new PageControllerInfo
-        {
-            Name = controllerName,
-            DisplayName = string.IsNullOrEmpty(attribute.DisplayName) ? FormPropertyBuilder.InsertSpaces(controllerName) : attribute.DisplayName,
-            Description = attribute.Description,
-            Category = attribute.Category,
-            IconClass = attribute.IconClass,
-            Order = attribute.Order,
-            ControllerType = type,
-            ConfigurationType = attribute.ConfigurationType
-        };
-
-        if (attribute.ConfigurationType != null)
-        {
-            info.Properties = FormPropertyBuilder.BuildPropertyInfos(attribute.ConfigurationType);
-        }
-
-        return info;
-    }
-
-    #region IPageControllerRegistry Implementation
-
-    public IReadOnlyList<PageControllerInfo> GetAllControllers() => _controllers.AsReadOnly();
 
     public PageControllerInfo? GetByName(string controllerName)
     {
         if (string.IsNullOrEmpty(controllerName))
             return null;
-
+        EnsureLoaded();
         _controllersByName.TryGetValue(controllerName, out var info);
         return info;
     }
 
     public IReadOnlyList<string> GetCategories()
     {
-        return _controllersByCategory.Keys.OrderBy(c => c).ToList().AsReadOnly();
+        EnsureLoaded();
+        return _controllersByCategory.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly();
     }
 
     public IReadOnlyList<PageControllerInfo> GetByCategory(string category)
     {
         if (string.IsNullOrEmpty(category))
             return Array.Empty<PageControllerInfo>();
-
+        EnsureLoaded();
         return _controllersByCategory.TryGetValue(category, out var list)
             ? list.AsReadOnly()
             : Array.Empty<PageControllerInfo>();
@@ -252,5 +158,121 @@ public class PageControllerRegistry : IPageControllerRegistry
         return errors;
     }
 
-    #endregion
+    public void Invalidate()
+    {
+        _lastRefresh = DateTime.MinValue;
+    }
+
+    private void EnsureLoaded()
+    {
+        if ((DateTime.UtcNow - _lastRefresh).TotalMinutes < RefreshIntervalMinutes
+            && _controllers.Count > 0)
+            return;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<IPageControllerRegistrationService>();
+            var dtos = service.GetActiveAsync().GetAwaiter().GetResult();
+            BuildFromDtos(dtos);
+            _lastRefresh = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load page controller registrations from database: {ex.Message}");
+        }
+    }
+
+    private void BuildFromDtos(List<PageControllerRegistrationDTO> dtos)
+    {
+        _controllers = new List<PageControllerInfo>(dtos.Count);
+        _controllersByName = new Dictionary<string, PageControllerInfo>(StringComparer.OrdinalIgnoreCase);
+        _controllersByCategory = new Dictionary<string, List<PageControllerInfo>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dto in dtos)
+        {
+            var controllerType = ResolveType(dto.ControllerTypeName) ?? typeof(object);
+            Type? configurationType = null;
+            if (!string.IsNullOrWhiteSpace(dto.ConfigurationTypeName))
+                configurationType = ResolveType(dto.ConfigurationTypeName);
+
+            var info = new PageControllerInfo
+            {
+                Name = dto.ControllerName,
+                DisplayName = dto.DisplayName,
+                Description = dto.Description,
+                Category = dto.Category,
+                IconClass = dto.IconClass,
+                Order = dto.Order,
+                ControllerType = controllerType,
+                ConfigurationType = configurationType,
+                Properties = DeserializePropertyDefinitions(dto.PropertyDefinitionsJson)
+            };
+
+            _controllers.Add(info);
+            _controllersByName[info.Name] = info;
+
+            if (!_controllersByCategory.TryGetValue(info.Category, out var categoryList))
+            {
+                categoryList = new List<PageControllerInfo>();
+                _controllersByCategory[info.Category] = categoryList;
+            }
+            categoryList.Add(info);
+        }
+
+        _controllers.Sort((a, b) =>
+        {
+            var catCompare = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
+            if (catCompare != 0) return catCompare;
+            var orderCompare = a.Order.CompareTo(b.Order);
+            return orderCompare != 0 ? orderCompare : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    private static List<FormPropertyInfo> DeserializePropertyDefinitions(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json == "[]")
+            return new List<FormPropertyInfo>();
+
+        try
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var list = JsonSerializer.Deserialize<List<FormPropertyInfo>>(json, options);
+            return list ?? new List<FormPropertyInfo>();
+        }
+        catch
+        {
+            return new List<FormPropertyInfo>();
+        }
+    }
+
+    internal static Type? ResolveType(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        try
+        {
+            var type = Type.GetType(typeName, throwOnError: false);
+            if (type != null)
+                return type;
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = asm.GetType(typeName, throwOnError: false);
+                if (type != null)
+                    return type;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

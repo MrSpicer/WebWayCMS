@@ -13,6 +13,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Controllers;
+using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
@@ -34,6 +36,7 @@ public static class CMSExtensions
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureDefaultHomePage(false, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
+        app.EnsurePageControllerRegistrationsSeeded(throwOnError);
         app.ConfigureRenderingPipeline(throwOnError);
         return app;
     }
@@ -48,6 +51,7 @@ public static class CMSExtensions
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
         app.EnsureDefaultHomePage(true, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
+        app.EnsurePageControllerRegistrationsSeeded(throwOnError);
         app.ConfigureAdminPipeline(throwOnError);
         return app;
     }
@@ -492,6 +496,145 @@ public static class CMSExtensions
     private static string GetWidgetComponentName(Type type)
     {
         const string suffix = "ViewComponent";
+        var name = type.Name;
+        return name.EndsWith(suffix, StringComparison.Ordinal)
+            ? name[..^suffix.Length]
+            : name;
+    }
+
+    // ─── Page controller registration seeding ─────────────────────────────────
+
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    private static WebApplication EnsurePageControllerRegistrationsSeeded(this WebApplication app, bool throwOnError = false)
+    {
+        if (string.Equals(Environment.GetEnvironmentVariable("WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.ForContext(typeof(CMSExtensions)).Information("Skipping page controller registration seeding due to WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true");
+            return app;
+        }
+
+        using var scope = app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var logger = Log.ForContext(typeof(CMSExtensions));
+
+        try
+        {
+            var contentService = services.GetRequiredService<IContentService<PageControllerRegistrationDTO>>();
+            var pageControllerService = services.GetRequiredService<IPageControllerRegistrationService>();
+            var existing = pageControllerService.GetActiveAsync().GetAwaiter().GetResult();
+
+            var existingNames = new HashSet<string>(
+                existing.Select(p => p.ControllerName),
+                StringComparer.OrdinalIgnoreCase);
+
+            var assemblies = new[]
+            {
+                typeof(GenericPageController).Assembly,
+                typeof(AdminContentController).Assembly,
+                Assembly.GetEntryAssembly()!
+            }.Where(a => a != null).Distinct();
+
+            foreach (var assembly in assemblies)
+            {
+                try
+                {
+                    SeedAssemblyPageControllers(assembly, contentService, existingNames, logger);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warning(ex, "Failed to scan assembly {Assembly} for page controller registrations", assembly.FullName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "An error occurred seeding page controller registrations.");
+            if (throwOnError)
+                throw;
+        }
+
+        return app;
+    }
+
+    private static void SeedAssemblyPageControllers(
+        Assembly assembly,
+        IContentService<PageControllerRegistrationDTO> contentService,
+        HashSet<string> existingNames,
+        ILogger logger)
+    {
+        var controllerTypes = assembly.GetTypes()
+            .Where(t => t.IsClass && !t.IsAbstract
+                && typeof(Microsoft.AspNetCore.Mvc.Controller).IsAssignableFrom(t)
+                && !typeof(Microsoft.AspNetCore.Mvc.ViewComponent).IsAssignableFrom(t));
+
+        foreach (var type in controllerTypes)
+        {
+            var attribute = type.GetCustomAttribute<PageControllerAttribute>();
+            if (attribute == null)
+                continue;
+
+            var controllerName = GetControllerName(type);
+            if (existingNames.Contains(controllerName))
+                continue;
+
+            var propertyDefinitionsJson = "[]";
+            if (attribute.ConfigurationType != null)
+            {
+                try
+                {
+                    var properties = FormPropertyBuilder.BuildPropertyInfos(attribute.ConfigurationType);
+                    propertyDefinitionsJson = JsonSerializer.Serialize(properties);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warning(ex, "Failed to build property definitions for page controller '{ControllerName}'", controllerName);
+                }
+            }
+
+            var dto = new PageControllerRegistrationDTO
+            {
+                ContentMeta = new ContentDTO
+                {
+                    Id = Guid.NewGuid(),
+                    Title = attribute.DisplayName ?? FormPropertyBuilder.InsertSpaces(controllerName),
+                    Slug = controllerName.ToLowerInvariant(),
+                    IsPublished = true,
+                    PublicationDate = DateTime.UtcNow,
+                    CreationDate = DateTime.UtcNow,
+                    ModificationDate = DateTime.UtcNow,
+                    CreatedBy = Guid.Empty,
+                    LastModifiedBy = Guid.Empty,
+                },
+                ControllerName = controllerName,
+                ControllerTypeName = type.FullName ?? type.Name,
+                DisplayName = string.IsNullOrEmpty(attribute.DisplayName)
+                    ? FormPropertyBuilder.InsertSpaces(controllerName)
+                    : attribute.DisplayName,
+                Description = attribute.Description ?? string.Empty,
+                Category = attribute.Category ?? "General",
+                IconClass = attribute.IconClass ?? string.Empty,
+                Order = attribute.Order,
+                ConfigurationTypeName = attribute.ConfigurationType?.FullName,
+                PropertyDefinitionsJson = propertyDefinitionsJson,
+                IsActive = true,
+            };
+
+            try
+            {
+                contentService.CreateAsync(dto).GetAwaiter().GetResult();
+                existingNames.Add(controllerName);
+                logger.Information("Seeded page controller registration '{ControllerName}' as '{DisplayName}'", controllerName, dto.DisplayName);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning(ex, "Failed to seed page controller registration '{ControllerName}'", controllerName);
+            }
+        }
+    }
+
+    private static string GetControllerName(Type type)
+    {
+        const string suffix = "Controller";
         var name = type.Name;
         return name.EndsWith(suffix, StringComparison.Ordinal)
             ? name[..^suffix.Length]

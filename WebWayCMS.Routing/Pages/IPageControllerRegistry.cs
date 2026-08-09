@@ -13,4 +13,5 @@ public interface IPageControllerRegistry
     IReadOnlyList<PageControllerInfo> GetByCategory(string category);
     object? CreateDefaultConfiguration(string controllerName);
     IReadOnlyList<string> ValidateConfiguration(string controllerName, object configuration);
+    void Invalidate();
 }

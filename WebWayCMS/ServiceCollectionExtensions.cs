@@ -31,6 +31,7 @@ using WebWayCMS.Models.Article;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Page;
+using WebWayCMS.Models.PageControllerRegistration;
 using WebWayCMS.Models.WidgetRegistration;
 using WebWayCMS.Pages;
 using WebWayCMS.Routing;
@@ -157,6 +158,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentZoneService, ContentZoneService>();
         services.AddScoped<IPageService, PageService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
+        services.AddScoped<IPageControllerRegistrationService, PageControllerRegistrationService>();
 
         services.AddScoped<IContentService<WidgetRegistrationDTO>>(sp =>
         {
@@ -164,15 +166,13 @@ public static class ServiceCollectionExtensions
             return new ContentService<WidgetRegistrationDTO>(ctx);
         });
 
-        services.AddSingleton<IPageControllerRegistry>(sp =>
+        services.AddScoped<IContentService<PageControllerRegistrationDTO>>(sp =>
         {
-            var assemblies = new[]
-            {
-                typeof(GenericPageController).Assembly,
-                Assembly.GetEntryAssembly()
-            }.Where(a => a != null).Distinct().Cast<Assembly>();
-            return new PageControllerRegistry(assemblies);
+            var ctx = sp.GetRequiredService<CmsDbContext>();
+            return new ContentService<PageControllerRegistrationDTO>(ctx);
         });
+
+        services.AddSingleton<IPageControllerRegistry, PageControllerRegistry>();
 
         services.AddScoped<PageRouteTransformer>();
 
@@ -189,6 +189,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentZoneModel>(sp => sp.GetRequiredService<ContentZoneModel>());
 
         services.AddScoped<WidgetRegistrationModel>();
+        services.AddScoped<PageControllerRegistrationModel>();
 
         services.AddScoped<IArticleModel, ArticleModel>();
 
@@ -232,17 +233,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ArticleListModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentZoneModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<WidgetRegistrationModel>());
-
-        services.AddSingleton<IPageControllerRegistry>(sp =>
-        {
-            var assemblies = new[]
-            {
-                typeof(GenericPageController).Assembly,
-                typeof(AdminContentController).Assembly,
-                Assembly.GetEntryAssembly()
-            }.Where(a => a != null).Distinct().Cast<Assembly>();
-            return new PageControllerRegistry(assemblies);
-        });
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<PageControllerRegistrationModel>());
 
         services.Configure<MvcOptions>(_ => { });
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>

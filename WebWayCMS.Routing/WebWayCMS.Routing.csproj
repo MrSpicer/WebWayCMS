@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="WebWayCMS.Routing.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\WebWayCMS.Data\WebWayCMS.Data.csproj" />
     <ProjectReference Include="..\WebWayCMS.Forms\WebWayCMS.Forms.csproj" />
