@@ -5,6 +5,9 @@
 @inject IContentService<ArticleDTO> ArticleService
 @inject IContentService<ContentBlockDTO> ContentBlockService
 @inject IContentZoneService ContentZoneService
+@inject ICMSRouteService CmsRouteService
+@inject IPageControllerRegistrationService PageTypeService
+@inject IWidgetRegistrationService WidgetService
 
 @{
     ViewData["Title"] = "Dashboard";
@@ -21,6 +24,12 @@
     var totalArticles  = allArticles.Count;
     var totalBlocks    = allContentBlocks.Count;
     var totalZones     = allZones.Count;
+
+    var activeRoutes     = await CmsRouteService.GetActiveRoutesAsync();
+    var activePageTypes  = await PageTypeService.GetActiveAsync();
+    var ptypeCategories  = await PageTypeService.GetActiveByCategoryAsync();
+    var activeWidgets    = await WidgetService.GetActiveAsync();
+    var widgetCategories = await WidgetService.GetActiveByCategoryAsync();
 
     var recentPages    = allPages.OrderByDescending(p => p.ContentMeta.ModificationDate).Take(8).ToList();
     var recentArticles = allArticles.OrderByDescending(a => a.ContentMeta.ModificationDate).Take(5).ToList();
@@ -61,8 +70,12 @@
             </div>
         </div>
 
+        <style>
+            .stats-row .box { height: 100%; margin-bottom: 0; }
+        </style>
+
         @* Stats Row *@
-        <div class="columns mb-5">
+        <div class="columns mb-5 stats-row">
             <div class="column">
                 <div class="box">
                     <div class="level is-mobile">
@@ -130,6 +143,79 @@
                         <div class="level-right">
                             <span class="icon is-large has-text-danger">
                                 <i class="fas fa-2x fa-layer-group"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Second Stats Row — New Content Types *@
+        <div class="columns mb-5 stats-row">
+            <div class="column is-4">
+                <div class="box">
+                    <div class="level is-mobile">
+                        <div class="level-left">
+                            <div>
+                                <p class="heading">Routes</p>
+                                <p class="title">@activeRoutes.Count</p>
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <span class="icon is-large has-text-primary">
+                                <i class="fas fa-2x fa-route"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-4">
+                <div class="box">
+                    <div class="level is-mobile">
+                        <div class="level-left">
+                            <div>
+                                <p class="heading">Page Types</p>
+                                <p class="title">@activePageTypes.Count</p>
+                                @if (ptypeCategories.Any())
+                                {
+                                    <div class="tags mt-2">
+                                        @foreach (var cat in ptypeCategories)
+                                        {
+                                            <span class="tag is-link is-light">@cat.Key @cat.Value.Count</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <span class="icon is-large has-text-link">
+                                <i class="fas fa-2x fa-file-code"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="column is-4">
+                <div class="box">
+                    <div class="level is-mobile">
+                        <div class="level-left">
+                            <div>
+                                <p class="heading">Widgets</p>
+                                <p class="title">@activeWidgets.Count</p>
+                                @if (widgetCategories.Any())
+                                {
+                                    <div class="tags mt-2">
+                                        @foreach (var cat in widgetCategories)
+                                        {
+                                            <span class="tag is-danger is-light">@cat.Key @cat.Value.Count</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="level-right">
+                            <span class="icon is-large has-text-danger">
+                                <i class="fas fa-2x fa-puzzle-piece"></i>
                             </span>
                         </div>
                     </div>
