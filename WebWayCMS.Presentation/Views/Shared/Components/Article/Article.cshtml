@@ -11,10 +11,14 @@
         return;
     }
 
-    // Build slug-based detail link from the current page route
-    var pageData = Context.Items["CMS:PageData"] as WebWayCMS.Data.Models.PageDTO;
-    var pageRoute = pageData?.Route?.TrimEnd('/') ?? "";
-    var articleSlug = (Model.Slug ?? Model.Id?.ToString() ?? "").TrimStart('/');
+    var routeData = Context.Items["CMS:RouteData"] as WebWayCMS.Data.Models.CMSRouteDTO;
+    var pageRoute = routeData?.Pattern ?? "";
+    var braceIdx = pageRoute.IndexOf('{');
+    if (braceIdx >= 0)
+        pageRoute = pageRoute.Substring(0, braceIdx);
+    pageRoute = pageRoute.TrimEnd('/');
+    var rawSlug = System.Net.WebUtility.UrlDecode(Model.Slug ?? "");
+    var articleSlug = rawSlug.TrimStart('/');
     var detailLink = $"{pageRoute}/{articleSlug}";
 
     var listSlug = ViewData["ArticleListSlug"] as string ?? "";

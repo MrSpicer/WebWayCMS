@@ -6,7 +6,7 @@ namespace WebWayCMS.Controllers;
 
 /// <summary>
 /// Base class for dynamic page controllers. Provides typed access to the page
-/// data and configuration stored in HttpContext.Items by <see cref="Routing.PageRouteTransformer"/>.
+/// data and configuration stored in HttpContext.Items by <see cref="Routing.CMSRouteTransformer"/>.
 /// </summary>
 /// <typeparam name="TConfig">The configuration model type.</typeparam>
 public abstract class PageControllerBase<TConfig> : Controller where TConfig : class, new()

@@ -10,7 +10,7 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     [FormProperty(Label = "Route", EditorType = EditorType.Text, IsRequired = true, Order = 2,
         Placeholder = "/about",
         HelpText = "Must start with \"/\", no trailing slash (except root \"/\"). Lowercase letters, numbers, hyphens, and slashes only.",
-        Pattern = @"^\/[a-z0-9\-\/]*[a-z0-9\-]$|^\/$")]
+        Pattern = @"^\/[a-z0-9\-\/]*[a-z0-9\-\/]$|^\/$")]
     public string Route { get; set; } = string.Empty;
 
     [Required]

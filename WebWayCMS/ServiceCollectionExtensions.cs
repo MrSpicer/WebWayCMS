@@ -25,9 +25,11 @@ using WebWayCMS.Data;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Mcp;
 using WebWayCMS.Models.Article;
+using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Page;
@@ -35,6 +37,7 @@ using WebWayCMS.Models.PageControllerRegistration;
 using WebWayCMS.Models.WidgetRegistration;
 using WebWayCMS.Pages;
 using WebWayCMS.Routing;
+using WebWayCMS.Services;
 using WebWayCMS.TagHelpers;
 using WebWayCMS.ViewComponents;
 
@@ -42,11 +45,6 @@ namespace WebWayCMS;
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers CMS rendering services (data, models, routing, content zones, Identity)
-    /// and adds MVC application parts for public-facing controllers, ViewComponents, and tag helpers.
-    /// Does NOT register admin controllers, admin views, admin handlers, or MCP.
-    /// </summary>
     public static IServiceCollection AddWebWayCmsRendering(this IServiceCollection services, IConfiguration configuration)
     {
         ConfigureDatabaseServices(services, configuration);
@@ -58,10 +56,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Registers the full CMS including admin surface (controllers, views, handlers, MCP).
-    /// Calls <see cref="AddWebWayCmsRendering"/> internally, then layers on admin-only registrations.
-    /// </summary>
     public static IServiceCollection AddWebWayCmsAdmin(this IServiceCollection services, IConfiguration configuration)
     {
         AddWebWayCmsRendering(services, configuration);
@@ -70,10 +64,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Backwards-compatible overload that assumes database contexts already configured by host.
-    /// Registers the full CMS with admin surface.
-    /// </summary>
     public static IServiceCollection AddWebWayCms(this IServiceCollection services)
     {
         ConfigureForwardedHeaders(services);
@@ -84,9 +74,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Backwards-compatible overload. Registers the full CMS with admin surface and EF Core.
-    /// </summary>
     public static IServiceCollection AddWebWayCms(this IServiceCollection services, IConfiguration configuration)
     {
         return AddWebWayCmsAdmin(services, configuration);
@@ -172,9 +159,18 @@ public static class ServiceCollectionExtensions
             return new ContentService<PageControllerRegistrationDTO>(ctx);
         });
 
+        services.AddScoped<IContentService<CMSRouteDTO>>(sp =>
+        {
+            var ctx = sp.GetRequiredService<CmsDbContext>();
+            return new ContentService<CMSRouteDTO>(ctx);
+        });
+
         services.AddSingleton<IPageControllerRegistry, PageControllerRegistry>();
 
-        services.AddScoped<PageRouteTransformer>();
+        services.AddScoped<ICMSRouteService, CMSRouteService>();
+        services.AddScoped<IRouteRegistrationService, RouteRegistrationService>();
+        services.AddScoped<IDefaultContentSeeder, DefaultContentSeeder>();
+        services.AddScoped<CMSRouteTransformer>();
 
         services.AddScoped<ContentBlockModel>();
         services.AddScoped<IContentBlockModel>(sp => sp.GetRequiredService<ContentBlockModel>());
@@ -190,10 +186,12 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<WidgetRegistrationModel>();
         services.AddScoped<PageControllerRegistrationModel>();
+        services.AddScoped<CMSRouteModel>();
+
+        services.AddScoped<ArticleViewComponent>();
+        services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<ArticleViewComponent>());
 
         services.AddScoped<IArticleModel, ArticleModel>();
-
-        services.AddScoped<ISubRouteContent, ArticleSubRouteResolver>();
 
         var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
         services.AddSingleton<IMapper>(mapperConfig.CreateMapper());
@@ -234,6 +232,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<ContentZoneModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<WidgetRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<PageControllerRegistrationModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<CMSRouteModel>());
 
         services.Configure<MvcOptions>(_ => { });
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Services;
 
 namespace WebWayCMS.Controllers.Api;
 
@@ -18,10 +19,12 @@ public class ContentZoneApiController : ControllerBase
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<ContentZoneApiController>();
 
     private readonly IContentZoneService _service;
+    private readonly IRouteRegistrationService _routeRegistration;
 
-    public ContentZoneApiController(IContentZoneService service)
+    public ContentZoneApiController(IContentZoneService service, IRouteRegistrationService routeRegistration)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
     }
 
     /// <summary>
@@ -99,6 +102,16 @@ public class ContentZoneApiController : ControllerBase
                 if (!updated)
                     return NotFound(new { error = "Item not found." });
 
+                var existingItem = await _service.GetItemByIdAsync(item.ContentId, ct);
+                if (existingItem != null)
+                {
+                    var pageMasterId = request.ParentPageMasterId
+                        ?? await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+                    await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                        item.ComponentName, existingItem.ContentMeta.MasterId,
+                        pageMasterId, item.IsActive, ct);
+                }
+
                 return Ok(new { success = true, itemId = item.ContentId, zoneId = zoneId });
             }
             else
@@ -113,6 +126,13 @@ public class ContentZoneApiController : ControllerBase
                 };
 
                 var createdItem = await _service.AddItemAsync(zoneId, item, ct);
+
+                var pageMasterId = request.ParentPageMasterId
+                    ?? await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+                await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                    item.ComponentName, createdItem.ContentMeta.MasterId,
+                    pageMasterId, createdItem.IsActive, ct);
+
                 return Ok(new { success = true, itemId = createdItem.ContentId, zoneId = zoneId });
             }
         }
@@ -132,6 +152,14 @@ public class ContentZoneApiController : ControllerBase
     {
         try
         {
+            var item = await _service.GetItemByIdAsync(itemId, ct);
+            if (item != null)
+            {
+                var pageMasterId = await _service.GetParentPageMasterForZoneAsync(item.ContentZoneId, ct);
+                await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                    item.ComponentName, item.ContentMeta.MasterId, pageMasterId, false, ct);
+            }
+
             var deleted = await _service.RemoveItemAsync(itemId, ct);
             if (!deleted)
                 return NotFound(new { error = "Item not found." });

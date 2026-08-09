@@ -158,10 +158,9 @@
                                     <thead>
                                         <tr>
                                             <th>Title</th>
-                                            <th>Route</th>
-                                            <th>Status</th>
-                                            <th>Modified</th>
-                                            <th></th>
+                                             <th>Status</th>
+                                             <th>Modified</th>
+                                             <th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -169,7 +168,6 @@
                                         {
                                             <tr>
                                                 <td>@p.ContentMeta.Title</td>
-                                                <td><code>@p.Route</code></td>
                                                 <td>
                                                     @if (p.ContentMeta.IsPublished)
                                                     {
@@ -183,7 +181,7 @@
                                                 <td>@p.ContentMeta.ModificationDate.ToString("MMM d, yyyy")</td>
                                                 <td>
                                                     <div class="buttons are-small">
-                                                        <a href="@p.Route" target="_blank" class="button is-info is-light">View</a>
+                                                        <a href="https://localhost:7046/" target="_blank" class="button is-info is-light">View</a>
                                                         <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@p.ContentMeta.Id" class="button is-light">Edit</a>
                                                     </div>
                                                 </td>

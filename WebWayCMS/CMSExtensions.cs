@@ -21,6 +21,7 @@ using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
 using WebWayCMS.Mcp;
 using WebWayCMS.Routing;
+using WebWayCMS.Services;
 using WebWayCMS.ViewComponents;
 
 namespace WebWayCMS;
@@ -118,7 +119,7 @@ public static class CMSExtensions
 
         app.MapControllers();
 
-        app.MapDynamicControllerRoute<PageRouteTransformer>("{**slug}");
+        app.MapDynamicControllerRoute<CMSRouteTransformer>("{**slug}");
 
         app.MapControllerRoute(
             name: "default",
@@ -282,78 +283,14 @@ public static class CMSExtensions
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static WebApplication EnsureDefaultHomePage(this WebApplication app, bool seedAdminPage, bool throwOnError = false)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("WEBWAYCMS_SKIP_DEFAULTPAGE"), "true", StringComparison.OrdinalIgnoreCase))
-        {
-            Log.ForContext(typeof(CMSExtensions)).Information("Skipping default home page seeding due to WEBWAYCMS_SKIP_DEFAULTPAGE=true");
-            return app;
-        }
-
         using var scope = app.Services.CreateScope();
         var services = scope.ServiceProvider;
         var logger = Log.ForContext(typeof(CMSExtensions));
 
         try
         {
-            var pageService = services.GetRequiredService<IPageService>();
-
-            var existingPages = pageService.GetByRouteAsync("/").GetAwaiter().GetResult();
-
-            if (existingPages == null)
-            {
-                logger.Information("No page was found in database. Creating default Home page at route '/'.");
-
-                var homePage = new PageDTO
-                {
-                    Route = "/",
-                    ControllerName = "GenericPage",
-                    ConfigurationJson = "{}",
-                    ContentMeta = new ContentDTO
-                    {
-                        Id = Guid.NewGuid(),
-                        Title = "Home",
-                        Slug = "home",
-                        IsPublished = true,
-                        PublicationDate = DateTime.UtcNow,
-                        CreationDate = DateTime.UtcNow,
-                        ModificationDate = DateTime.UtcNow,
-                        CreatedBy = Guid.Empty,
-                        LastModifiedBy = Guid.Empty
-                    }
-                };
-
-                var homePageResult = pageService.CreateAsync(homePage).GetAwaiter().GetResult();
-                logger.Information("Created default Home page with ID {PageId}", homePageResult.ContentMeta.Id);
-
-                if (seedAdminPage)
-                {
-                    var adminPage = new PageDTO
-                    {
-                        Route = "/admin",
-                        ControllerName = "GenericAdminPage",
-                        ViewName = "Dashboard",
-                        ConfigurationJson = "{}",
-                        ContentMeta = new ContentDTO
-                        {
-                            Id = Guid.NewGuid(),
-                            Title = "Admin",
-                            Slug = "admin",
-                            IsPublished = true,
-                            PublicationDate = DateTime.UtcNow,
-                            CreationDate = DateTime.UtcNow,
-                            ModificationDate = DateTime.UtcNow,
-                            CreatedBy = Guid.Empty,
-                            LastModifiedBy = Guid.Empty
-                        }
-                    };
-
-                    var adminPageResult = pageService.CreateAsync(adminPage).GetAwaiter().GetResult();
-                    logger.Information("Created default Admin page with ID {PageId}", adminPageResult.ContentMeta.Id);
-                }
-            }
-            else
-            {
-                logger.Debug("Pages already exist, skipping default home page creation.");
-            }
+            var seeder = services.GetRequiredService<IDefaultContentSeeder>();
+            seeder.SeedDefaultPagesAsync().GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

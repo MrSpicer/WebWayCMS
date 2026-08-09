@@ -11,9 +11,6 @@ public sealed class PageDTOEntityConfiguration : IEntityTypeConfiguration<PageDT
     public void Configure(EntityTypeBuilder<PageDTO> entity)
     {
         entity.ConfigureContentLink();
-        entity.Property(e => e.Route).IsRequired().HasMaxLength(512);
-        entity.HasIndex(e => e.Route);
-        entity.Property(e => e.ControllerName).IsRequired().HasMaxLength(256);
         entity.Property(e => e.ConfigurationJson).HasMaxLength(4000);
         entity.ToTable("Pages");
     }

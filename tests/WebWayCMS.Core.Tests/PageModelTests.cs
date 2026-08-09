@@ -21,6 +21,8 @@ public class PageModelTests
     private IMapper _mapper = null!;
     private IPageControllerRegistry _registry = null!;
     private IViewDiscoveryService _viewDiscovery = null!;
+    private IRouteRegistrationService _routeRegistration = null!;
+    private ICMSRouteService _cmsRouteService = null!;
     private PageModel _model = null!;
 
     [SetUp]
@@ -30,18 +32,39 @@ public class PageModelTests
         _mapper = TestSupport.CreateMapper();
         _registry = Substitute.For<IPageControllerRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
-        _model = new PageModel(_service, _mapper, _registry, _viewDiscovery);
+        _routeRegistration = Substitute.For<IRouteRegistrationService>();
+        _cmsRouteService = Substitute.For<ICMSRouteService>();
+        _model = new PageModel(_service, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService);
     }
 
-    private static PageDTO Page(string route, string title = "T", bool published = true, bool hidden = false)
+    private static PageDTO Page(string title = "T", bool published = true, bool hidden = false,
+        Guid? masterId = null)
     {
         var id = Guid.NewGuid();
         return new PageDTO
         {
             ContentId = id,
-            Route = route,
-            ControllerName = "Generic",
-            ContentMeta = new ContentDTO { Id = id, MasterId = Guid.NewGuid(), Title = title, IsPublished = published, IsHidden = hidden }
+            ContentMeta = new ContentDTO
+            {
+                Id = id,
+                MasterId = masterId ?? Guid.NewGuid(),
+                Title = title,
+                IsPublished = published,
+                IsHidden = hidden
+            }
+        };
+    }
+
+    private static CMSRouteDTO RouteFor(Guid contentMasterId, string pattern)
+    {
+        var id = Guid.NewGuid();
+        return new CMSRouteDTO
+        {
+            ContentId = id,
+            Pattern = pattern,
+            OwningContentMasterId = contentMasterId,
+            OwningContentType = "Page",
+            ContentMeta = new ContentDTO { Id = id, MasterId = contentMasterId, IsPublished = true }
         };
     }
 
@@ -53,10 +76,12 @@ public class PageModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_service, null!, _registry, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_service, _mapper, null!, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_service, _mapper, _registry, null!), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_service, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_service, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_service, _mapper, _registry, null!, _routeRegistration, _cmsRouteService), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_service, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_service, _mapper, _registry, _viewDiscovery, _routeRegistration, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -74,23 +99,18 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task GetByRouteAsync_Delegates()
-    {
-        var page = Page("/x");
-        _service.GetByRouteAsync("/x", Arg.Any<CancellationToken>()).Returns(page);
-
-        Assert.That(await _model.GetByRouteAsync("/x"), Is.SameAs(page));
-    }
-
-    [Test]
     public async Task GetPageIndexAsync_BuildsTreeWithRootIntermediateAndLeaf()
     {
-        // "/" root, "/a/b" creates intermediate "/a" + leaf "/a/b", and a duplicate root update.
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>
+        var page1 = Page(title: "Home");
+        var page2 = Page(title: "Leaf");
+        var page3 = Page(title: "Branch");
+
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page1, page2, page3 });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
-            Page("/"),
-            Page("/a/b", title: "Leaf"),
-            Page("/a", title: "Branch"),
+            RouteFor(page1.ContentMeta.MasterId, "/"),
+            RouteFor(page2.ContentMeta.MasterId, "/a/b"),
+            RouteFor(page3.ContentMeta.MasterId, "/a"),
         });
 
         var vm = await _model.GetPageIndexAsync();
@@ -106,10 +126,14 @@ public class PageModelTests
     [Test]
     public async Task GetPageIndexAsync_DuplicateRootUpdatesExistingNode()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>
+        var first = Page(title: "First");
+        var second = Page(title: "Second");
+
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { first, second });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
-            Page("/", title: "First"),
-            Page("/", title: "Second"),
+            RouteFor(first.ContentMeta.MasterId, "/"),
+            RouteFor(second.ContentMeta.MasterId, "/"),
         });
 
         var vm = await _model.GetPageIndexAsync();
@@ -120,11 +144,14 @@ public class PageModelTests
     [Test]
     public async Task GetPageIndexAsync_IntermediateThenLeafForSameSegmentUpdatesNode()
     {
-        // "/a" appears as intermediate first (via /a/b) then as its own leaf page.
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>
+        var page1 = Page(title: "Deep");
+        var page2 = Page(title: "RealA");
+
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page1, page2 });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
-            Page("/a/b"),
-            Page("/a", title: "RealA"),
+            RouteFor(page1.ContentMeta.MasterId, "/a/b"),
+            RouteFor(page2.ContentMeta.MasterId, "/a"),
         });
 
         var vm = await _model.GetPageIndexAsync();
@@ -135,8 +162,13 @@ public class PageModelTests
     [Test]
     public async Task GetPageIndexAsync_DeepPath_CreatesIntermediateNonLeafNodes()
     {
-        // No "/x" or "/x/y" pages exist, so they are created as intermediate (non-leaf) nodes.
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { Page("/x/y/z", title: "Deep") });
+        var page = Page(title: "Deep");
+
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(page.ContentMeta.MasterId, "/x/y/z"),
+        });
 
         var vm = await _model.GetPageIndexAsync();
         var x = vm.Pages.Single(p => p.Route == "/x");
@@ -151,25 +183,12 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task GetPageIndexAsync_DuplicateLeafRoute_UpdatesExistingLeaf()
-    {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>
-        {
-            Page("/dup", title: "First"),
-            Page("/dup", title: "Second"),
-        });
-
-        var vm = await _model.GetPageIndexAsync();
-
-        Assert.That(vm.Pages.Single(p => p.Route == "/dup").Title, Is.EqualTo("Second"));
-    }
-
-    [Test]
     public async Task GetPageUpsertAsync_NullId_FoundAndNotFound()
     {
-        var page = Page("/x");
+        var page = Page();
         _service.GetByIdAsync(page.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(page);
         _service.GetByIdAsync(Arg.Is<Guid>(g => g != page.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
 
         Assert.Multiple(async () =>
         {
@@ -187,9 +206,12 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task SavePageUpsertAsync_CreateUpdateSuccessAndFailure()
+    public async Task SavePageUpsertAsync_CreateAndUpdate()
     {
+        var savedDto = new PageDTO { ContentId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), IsPublished = false } };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
         _service.UpdateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
 
         Assert.Multiple(async () =>
         {
@@ -200,29 +222,27 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task DeletePageAsync_And_IsRouteAvailable_Delegate()
+    public async Task DeletePageAsync_DelegatesAndUnregistersRoute()
     {
+        var page = Page();
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(page);
         _service.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
-        _service.IsRouteAvailableAsync("/x", null, Arg.Any<CancellationToken>()).Returns(true);
 
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await _model.DeletePageAsync(Guid.NewGuid()), Is.True);
-            Assert.That(await _model.IsRouteAvailableAsync("/x"), Is.True);
-        });
+        Assert.That(await _model.DeletePageAsync(Guid.NewGuid()), Is.True);
     }
 
     [Test]
     public async Task VersionHistory_RestoreAndDeleteVersion()
     {
         var master = Guid.NewGuid();
-        _service.GetAllVersionsAsync(master, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { Page("/x") });
+        _service.GetAllVersionsAsync(master, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { Page() });
         Assert.That(await _model.GetVersionHistoryAsync(master), Is.Not.Null);
 
-        var historical = Page("/x");
+        var historical = Page();
         _service.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
-        var latest = Page("/x");
+        var latest = Page(masterId: historical.ContentMeta.MasterId);
         _service.GetAllVersionsAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { latest });
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         Assert.That((await _model.GetPageUpsertForRestoreAsync(historical.ContentMeta.Id))!.Id, Is.EqualTo(latest.ContentMeta.Id));
 
         _service.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -235,7 +255,7 @@ public class PageModelTests
         _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
         Assert.That(await _model.GetPageUpsertForRestoreAsync(Guid.NewGuid()), Is.Null);
 
-        var historical = Page("/x");
+        var historical = Page();
         _service.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
         _service.GetAllVersionsAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
         Assert.That(await _model.GetPageUpsertForRestoreAsync(historical.ContentMeta.Id), Is.Null);
@@ -244,21 +264,19 @@ public class PageModelTests
     [Test]
     public async Task AdminHandler_UpsertViewModel_EditFoundMissingAndCreateWithParentRoute()
     {
-        var page = Page("/x");
+        var page = Page();
         _service.GetByIdAsync(page.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(page);
         _service.GetByIdAsync(Arg.Is<Guid>(g => g != page.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetUpsertViewModelAsync(page.ContentMeta.Id, Query()), Is.Not.Null);
             Assert.That(await _model.GetUpsertViewModelAsync(Guid.NewGuid(), Query()), Is.Null);
-            // create with parentRoute lacking slashes
             var withParent = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "blog/"))))!;
             Assert.That(withParent.Route, Is.EqualTo("/blog/"));
-            // create with root parentRoute
             var rootParent = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "/"))))!;
             Assert.That(rootParent.Route, Is.EqualTo("/"));
-            // create with no parentRoute
             var plain = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query()))!;
             Assert.That(plain.Route, Is.Empty);
         });
@@ -267,7 +285,11 @@ public class PageModelTests
     [Test]
     public async Task AdminHandler_SaveUpsert_RouteConflictAndSuccess()
     {
-        _service.IsRouteAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(false, true);
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(false, true);
+        _registry.GetByName(Arg.Any<string>()).Returns((PageControllerInfo?)null);
+        var savedDto = new PageDTO { ContentId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), IsPublished = false } };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
 
         var conflict = await _model.SaveUpsertAsync(new PageUpsertViewModel { Title = "T", Route = "/x", ControllerName = "C", MasterId = Guid.NewGuid() });
         var ok = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = null, Title = "T", Route = "/y", ControllerName = "C" });
@@ -283,7 +305,8 @@ public class PageModelTests
     [Test]
     public async Task AdminHandler_SaveUpsert_SaveFailureSurfaces()
     {
-        _service.IsRouteAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _registry.GetByName(Arg.Any<string>()).Returns((PageControllerInfo?)null);
         _service.UpdateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(false);
 
         var result = await _model.SaveUpsertAsync(new PageUpsertViewModel { Id = Guid.NewGuid(), Title = "T", Route = "/x", ControllerName = "C" });
@@ -295,6 +318,7 @@ public class PageModelTests
     public async Task AdminHandler_IndexCreateEmptyDeleteApiRestoreAndDeleteVersion()
     {
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _service.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         _service.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 

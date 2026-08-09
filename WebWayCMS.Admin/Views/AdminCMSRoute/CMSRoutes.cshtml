@@ -1,0 +1,84 @@
+@using WebWayCMS.Models.CMSRoute
+
+@model CMSRouteIndexViewModel
+
+@{
+    ViewData["Title"] = "CMS Routes";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">CMS Routes</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="cmsroutes" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Route</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section pt-4">
+    <div class="container">
+        @if (!Model.Routes.Any())
+        {
+            <div class="card admin-empty-state mt-4">
+                <div class="card-content has-text-centered py-6">
+                    <span class="icon is-large has-text-grey-light mb-4">
+                        <i class="fas fa-route fa-3x" aria-hidden="true"></i>
+                    </span>
+                    <p class="title is-5">No routes yet</p>
+                    <p class="subtitle is-6 has-text-grey">Create routes to map URL patterns to controllers.</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="cmsroutes" class="button is-primary mt-2">New Route</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of CMS routes</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Pattern</th>
+                            <th scope="col">Owning Type</th>
+                            <th scope="col">Published</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var route in Model.Routes)
+                        {
+                            <tr>
+                                <td><code>@route.Pattern</code></td>
+                                <td>@route.OwningContentType</td>
+                                <td>
+                                    @if (route.IsPublished)
+                                    {
+                                        <span class="tag is-success">Published</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag is-light">Draft</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="cmsroutes" asp-route-id="@route.Id" class="button is-small">Edit</a>
+                                        <button type="button" class="button is-small is-danger is-light"
+                                                data-delete-trigger
+                                                data-delete-name="@route.Pattern"
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "cmsroutes", id = route.Id })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>

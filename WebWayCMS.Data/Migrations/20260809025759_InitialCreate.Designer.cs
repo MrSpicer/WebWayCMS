@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260809000509_InitialCreate")]
+    [Migration("20260809025759_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -263,6 +263,50 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("ArticleLists", (string)null);
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.CMSRouteDTO", b =>
+                {
+                    b.Property<Guid>("ContentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConstraintsJson")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("DataTokensJson")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("DefaultsJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("OwningContentMasterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OwningContentType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("ContentId");
+
+                    b.HasIndex("OwningContentMasterId");
+
+                    b.HasIndex("Pattern")
+                        .IsUnique();
+
+                    b.ToTable("CMSRoutes", (string)null);
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentBlockDTO", b =>
                 {
                     b.Property<Guid>("ContentId")
@@ -503,22 +547,10 @@ namespace WebWayCMS.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
-                    b.Property<string>("ControllerName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Route")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
                     b.Property<string>("ViewName")
                         .HasColumnType("text");
 
                     b.HasKey("ContentId");
-
-                    b.HasIndex("Route");
 
                     b.ToTable("Pages", (string)null);
                 });
@@ -644,6 +676,17 @@ namespace WebWayCMS.Data.Migrations
                     b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
                         .WithOne()
                         .HasForeignKey("WebWayCMS.Data.Models.ArticleListDTO", "ContentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ContentMeta");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.CMSRouteDTO", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentDTO", "ContentMeta")
+                        .WithOne()
+                        .HasForeignKey("WebWayCMS.Data.Models.CMSRouteDTO", "ContentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

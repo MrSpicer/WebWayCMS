@@ -30,6 +30,8 @@ public class ContentZoneModelTests
     private IPageService _pageService = null!;
     private IWidgetRegistry _registry = null!;
     private IViewDiscoveryService _viewDiscovery = null!;
+    private ICMSRouteService _routeService = null!;
+    private IRouteRegistrationService _routeRegistration = null!;
     private ContentZoneModel _model = null!;
 
     [SetUp]
@@ -37,9 +39,11 @@ public class ContentZoneModelTests
     {
         _service = Substitute.For<IContentZoneService>();
         _pageService = Substitute.For<IPageService>();
+        _routeService = Substitute.For<ICMSRouteService>();
+        _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
-        _model = new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery);
+        _model = new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, _routeService, _routeRegistration);
     }
 
     private static ContentZoneDTO Zone(Guid? id = null, string name = "Zone", params ContentZoneItemDTO[] items)
@@ -75,10 +79,12 @@ public class ContentZoneModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneModel(null!, _pageService, _registry, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, null!, _registry, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, null!, _viewDiscovery), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(null!, _pageService, _registry, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, null!, _registry, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _pageService, null!, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, null!, _routeService, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, null!, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, _routeService, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -239,7 +245,7 @@ public class ContentZoneModelTests
         var pageId = Guid.NewGuid();
         var zoneId = Guid.NewGuid();
         _service.GetAllByPageAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { new() { Route = "/r" } });
+        _routeService.GetByOwningContentAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { new() { Pattern = "/r" } });
         _service.GetAllByParentZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
         _service.GetByIdAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO { Name = "Parent" });
 

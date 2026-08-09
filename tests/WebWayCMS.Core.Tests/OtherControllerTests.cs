@@ -13,6 +13,7 @@ using WebWayCMS.Controllers.Api;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -54,19 +55,27 @@ public class AdminContentZoneControllerTests
 public class ContentZoneApiControllerTests
 {
     private IContentZoneService _service = null!;
+    private IRouteRegistrationService _routeRegistration = null!;
     private ContentZoneApiController _controller = null!;
 
     [SetUp]
     public void SetUp()
     {
         _service = Substitute.For<IContentZoneService>();
-        _controller = new ContentZoneApiController(_service);
+        _routeRegistration = Substitute.For<IRouteRegistrationService>();
+        _controller = new ContentZoneApiController(_service, _routeRegistration);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
     }
 
     [Test]
     public void Constructor_Null_Throws()
-        => Assert.That(() => new ContentZoneApiController(null!), Throws.ArgumentNullException);
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => new ContentZoneApiController(null!, _routeRegistration), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, null!), Throws.ArgumentNullException);
+        });
+    }
 
     [Test]
     public async Task SaveItem_ValidationErrors()

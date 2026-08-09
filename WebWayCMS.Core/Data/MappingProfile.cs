@@ -2,6 +2,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models;
 using WebWayCMS.Models.Article;
+using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.Page;
 
@@ -173,8 +174,6 @@ public sealed class MappingProfile : Profile
             Version = s.ContentMeta.Version,
             Title = s.ContentMeta.Title ?? string.Empty,
             Slug = s.ContentMeta.Slug ?? string.Empty,
-            Route = s.Route ?? string.Empty,
-            ControllerName = s.ControllerName ?? string.Empty,
             ConfigurationJson = s.ConfigurationJson ?? "{}",
             ViewName = s.ViewName,
             PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
@@ -193,8 +192,6 @@ public sealed class MappingProfile : Profile
             return new PageDTO
             {
                 ContentId = meta.Id,
-                Route = s.Route ?? string.Empty,
-                ControllerName = s.ControllerName ?? string.Empty,
                 ConfigurationJson = s.ConfigurationJson ?? "{}",
                 ViewName = s.ViewName,
                 ContentMeta = meta
@@ -207,21 +204,56 @@ public sealed class MappingProfile : Profile
             MasterId = s.ContentMeta.MasterId,
             Version = s.ContentMeta.Version,
             Title = s.ContentMeta.Title ?? string.Empty,
-            Route = s.Route ?? string.Empty,
-            ControllerName = s.ControllerName ?? string.Empty,
             IsPublished = s.ContentMeta.IsPublished,
             CreationDate = s.ContentMeta.CreationDate,
             ModificationDate = s.ContentMeta.ModificationDate
+        });
+
+        // CMSRoute mappings
+        CreateMap<CMSRouteDTO, CMSRouteUpsertViewModel>(s => new CMSRouteUpsertViewModel
+        {
+            Id = s.ContentMeta.Id,
+            MasterId = s.ContentMeta.MasterId,
+            Version = s.ContentMeta.Version,
+            Title = s.ContentMeta.Title ?? string.Empty,
+            Slug = s.ContentMeta.Slug ?? string.Empty,
+            Pattern = s.Pattern ?? string.Empty,
+            DefaultsJson = s.DefaultsJson ?? "{}",
+            ConstraintsJson = s.ConstraintsJson ?? "{}",
+            DataTokensJson = s.DataTokensJson ?? "{}",
+            Order = s.Order,
+            OwningContentType = s.OwningContentType,
+            PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
+            PublicationEndDate = s.ContentMeta.PublicationEndDate,
+            IsPublished = s.ContentMeta.IsPublished,
+            IsArchived = s.ContentMeta.IsArchived,
+            IsHidden = s.ContentMeta.IsHidden,
+            IsDeleted = s.ContentMeta.IsDeleted,
+            CreationDate = s.ContentMeta.CreationDate,
+            ModificationDate = s.ContentMeta.ModificationDate
+        });
+
+        CreateMap<CMSRouteUpsertViewModel, CMSRouteDTO>(s =>
+        {
+            var meta = NewContentMeta(s);
+            return new CMSRouteDTO
+            {
+                ContentId = meta.Id,
+                Pattern = s.Pattern ?? string.Empty,
+                DefaultsJson = s.DefaultsJson ?? "{}",
+                ConstraintsJson = s.ConstraintsJson ?? "{}",
+                DataTokensJson = s.DataTokensJson ?? "{}",
+                Order = s.Order,
+                OwningContentMasterId = s.MasterId,
+                OwningContentType = s.OwningContentType,
+                ContentMeta = meta
+            };
         });
     }
 
     private static Guid NewId(BaseContentViewModel s)
         => s.Id is { } id && id != Guid.Empty ? id : Guid.NewGuid();
 
-    /// <summary>
-    /// Builds the shared <see cref="ContentDTO"/> for an upsert view model, mirroring the flat
-    /// fields the view model carries. The Id matches the content type's ContentId via NewId.
-    /// </summary>
     private static ContentDTO NewContentMeta(BaseContentViewModel s)
         => new()
         {

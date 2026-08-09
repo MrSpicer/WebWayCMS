@@ -223,6 +223,30 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "CMSRoutes",
+                columns: table => new
+                {
+                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Pattern = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
+                    DefaultsJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
+                    ConstraintsJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    DataTokensJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    OwningContentMasterId = table.Column<Guid>(type: "uuid", nullable: true),
+                    OwningContentType = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CMSRoutes", x => x.ContentId);
+                    table.ForeignKey(
+                        name: "FK_CMSRoutes_Content_ContentId",
+                        column: x => x.ContentId,
+                        principalTable: "Content",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ContentBlocks",
                 columns: table => new
                 {
@@ -291,8 +315,6 @@ namespace WebWayCMS.Data.Migrations
                 columns: table => new
                 {
                     ContentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Route = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
-                    ControllerName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ViewName = table.Column<string>(type: "text", nullable: true),
                     ConfigurationJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false)
                 },
@@ -432,6 +454,17 @@ namespace WebWayCMS.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_CMSRoutes_OwningContentMasterId",
+                table: "CMSRoutes",
+                column: "OwningContentMasterId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CMSRoutes_Pattern",
+                table: "CMSRoutes",
+                column: "Pattern",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Content_MasterId",
                 table: "Content",
                 column: "MasterId");
@@ -487,11 +520,6 @@ namespace WebWayCMS.Data.Migrations
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Pages_Route",
-                table: "Pages",
-                column: "Route");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_WidgetRegistrations_Category",
                 table: "WidgetRegistrations",
                 column: "Category");
@@ -531,6 +559,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "AspNetUserTokens");
+
+            migrationBuilder.DropTable(
+                name: "CMSRoutes");
 
             migrationBuilder.DropTable(
                 name: "ContentBlocks");

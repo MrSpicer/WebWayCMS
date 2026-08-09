@@ -50,6 +50,8 @@ public interface IContentZoneService
     /// <summary>
     /// Removes an item from a content zone.
     /// </summary>
+    Task<Guid?> GetParentPageMasterForZoneAsync(Guid zoneId, CancellationToken ct = default);
+
     Task<bool> RemoveItemAsync(Guid itemId, CancellationToken ct = default);
 
     /// <summary>

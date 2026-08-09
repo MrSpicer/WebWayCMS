@@ -195,6 +195,32 @@ public sealed class ContentZoneService : IContentZoneService
         return true;
     }
 
+    public async Task<Guid?> GetParentPageMasterForZoneAsync(Guid zoneId, CancellationToken ct = default)
+    {
+        var visited = new HashSet<Guid>();
+        Guid? currentZoneId = zoneId;
+
+        while (currentZoneId.HasValue)
+        {
+            if (!visited.Add(currentZoneId.Value))
+                return null;
+
+            var assignment = await _context.Set<ContentZoneAssignmentDTO>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.ContentZoneId == currentZoneId.Value, ct);
+
+            if (assignment == null)
+                return null;
+
+            if (assignment.ParentPageMasterId.HasValue)
+                return assignment.ParentPageMasterId.Value;
+
+            currentZoneId = assignment.ParentZoneId;
+        }
+
+        return null;
+    }
+
     public async Task<ContentZoneItemDTO?> GetItemByIdAsync(Guid itemId, CancellationToken ct = default)
     {
         return await _context.Set<ContentZoneItemDTO>()

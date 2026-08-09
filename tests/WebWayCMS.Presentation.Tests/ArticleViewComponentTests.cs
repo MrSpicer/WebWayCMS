@@ -49,7 +49,7 @@ public class ArticleViewComponentTests
     [Test]
     public async Task SubRoute_RendersArticleWhenFound()
     {
-        _http.Items["CMS:SubRoute"] = "my-slug";
+        _component.ViewComponentContext!.ViewContext.RouteData.Values["slug"] = "my-slug";
         _articleModel.GetBySlugAsync("my-slug", Arg.Any<CancellationToken>()).Returns(new ArticleViewModel());
 
         var result = await _component.InvokeAsync(new ArticleContentZoneConfiguration());
@@ -60,7 +60,7 @@ public class ArticleViewComponentTests
     [Test]
     public async Task SubRoute_NotFound_FallsThroughToList()
     {
-        _http.Items["CMS:SubRoute"] = "missing";
+        _component.ViewComponentContext!.ViewContext.RouteData.Values["slug"] = "missing";
         _articleModel.GetBySlugAsync("missing", Arg.Any<CancellationToken>()).Returns((ArticleViewModel?)null);
         _listModel.GetIndexViewModelAsync(Arg.Any<CancellationToken>()).Returns(new ArticleListViewModel());
 

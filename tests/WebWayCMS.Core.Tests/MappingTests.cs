@@ -177,17 +177,18 @@ public class MappingTests
     [Test]
     public void Map_Page_AllDirections_FullAndNull()
     {
-        var full = new PageDTO { Route = "/r", ControllerName = "C", ConfigurationJson = "{}", ViewName = "V", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
-        var nulls = new PageDTO { Route = null!, ControllerName = null!, ConfigurationJson = null!, ContentMeta = new ContentDTO { Title = null!, Slug = null!, PublicationDate = default } };
+        var full = new PageDTO { ConfigurationJson = "{}", ViewName = "V", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
+        var nulls = new PageDTO { ConfigurationJson = null!, ContentMeta = new ContentDTO { Title = null!, Slug = null!, PublicationDate = default } };
 
         Assert.Multiple(() =>
         {
-            Assert.That(_mapper.Map<PageUpsertViewModel>(full).Route, Is.EqualTo("/r"));
+            Assert.That(_mapper.Map<PageUpsertViewModel>(full).ConfigurationJson, Is.EqualTo("{}"));
+            Assert.That(_mapper.Map<PageUpsertViewModel>(full).ViewName, Is.EqualTo("V"));
             Assert.That(_mapper.Map<PageUpsertViewModel>(full).PublicationDate, Is.Not.Null);
             Assert.That(_mapper.Map<PageUpsertViewModel>(nulls).ConfigurationJson, Is.EqualTo("{}"));
             Assert.That(_mapper.Map<PageUpsertViewModel>(nulls).PublicationDate, Is.Null);
-            Assert.That(_mapper.Map<PageItemViewModel>(full).Route, Is.EqualTo("/r"));
-            Assert.That(_mapper.Map<PageItemViewModel>(nulls).ControllerName, Is.Empty);
+            Assert.That(_mapper.Map<PageItemViewModel>(full).Title, Is.EqualTo("T"));
+            Assert.That(_mapper.Map<PageItemViewModel>(nulls).Title, Is.Empty);
         });
     }
 

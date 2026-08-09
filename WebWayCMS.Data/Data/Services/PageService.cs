@@ -5,9 +5,6 @@ using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Services;
 
-/// <summary>
-/// Service for managing dynamic pages with versioning support.
-/// </summary>
 public sealed class PageService : IPageService
 {
     private readonly CmsDbContext _context;
@@ -22,8 +19,10 @@ public sealed class PageService : IPageService
         return await _context.Set<PageDTO>()
             .AsNoTracking()
             .Where(p => !p.ContentMeta.IsDeleted
-                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
-            .OrderBy(p => p.Route)
+                && !_context.Set<PageDTO>().Any(p2 =>
+                    p2.ContentMeta.MasterId == p.ContentMeta.MasterId
+                    && p2.ContentMeta.Version > p.ContentMeta.Version))
+            .OrderBy(p => p.ContentMeta.Title)
             .ToListAsync(ct);
     }
 
@@ -32,17 +31,6 @@ public sealed class PageService : IPageService
         return await _context.Set<PageDTO>()
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.ContentId == id, ct);
-    }
-
-    public async Task<PageDTO?> GetByRouteAsync(string route, CancellationToken ct = default)
-    {
-        route = NormalizeRoute(route);
-
-        return await _context.Set<PageDTO>()
-            .AsNoTracking()
-            .Where(p => p.Route == route && !p.ContentMeta.IsDeleted && p.ContentMeta.IsPublished
-                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version))
-            .FirstOrDefaultAsync(ct);
     }
 
     public async Task<List<PageDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct = default)
@@ -64,7 +52,6 @@ public sealed class PageService : IPageService
         page.ContentId = meta.Id;
         meta.MasterId = meta.Id;
         meta.Version = 0;
-        page.Route = NormalizeRoute(page.Route);
 
         var now = DateTime.UtcNow;
         meta.CreationDate = now;
@@ -88,7 +75,6 @@ public sealed class PageService : IPageService
         meta.Version++;
         meta.Id = Guid.NewGuid();
         page.ContentId = meta.Id;
-        page.Route = NormalizeRoute(page.Route);
         meta.ModificationDate = DateTime.UtcNow;
         if (meta.IsPublished && meta.PublicationDate == default)
             meta.PublicationDate = DateTime.UtcNow;
@@ -131,38 +117,5 @@ public sealed class PageService : IPageService
         _context.Remove(entity.ContentMeta);
         await _context.SaveChangesAsync(ct);
         return true;
-    }
-
-    public async Task<bool> IsRouteAvailableAsync(string route, Guid? excludeMasterId = null, CancellationToken ct = default)
-    {
-        route = NormalizeRoute(route);
-
-        var query = _context.Set<PageDTO>()
-            .Where(p => p.Route == route
-                && !p.ContentMeta.IsDeleted
-                && !_context.Set<PageDTO>().Any(p2 => p2.ContentMeta.MasterId == p.ContentMeta.MasterId && p2.ContentMeta.Version > p.ContentMeta.Version));
-
-        if (excludeMasterId.HasValue)
-            query = query.Where(p => p.ContentMeta.MasterId != excludeMasterId.Value);
-
-        return !await query.AnyAsync(ct);
-    }
-
-    private static string NormalizeRoute(string route)
-    {
-        if (string.IsNullOrWhiteSpace(route))
-            return "/";
-
-        route = route.Trim().ToLowerInvariant();
-
-        // Ensure leading slash
-        if (!route.StartsWith('/'))
-            route = "/" + route;
-
-        // Remove trailing slash (but keep root "/")
-        if (route.Length > 1 && route.EndsWith('/'))
-            route = route.TrimEnd('/');
-
-        return route;
     }
 }

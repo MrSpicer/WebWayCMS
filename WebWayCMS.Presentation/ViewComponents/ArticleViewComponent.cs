@@ -1,6 +1,10 @@
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Interfaces;
 using WebWayCMS.Models.Article;
 
 namespace WebWayCMS.ViewComponents;
@@ -13,7 +17,7 @@ namespace WebWayCMS.ViewComponents;
     IconClass = "fa-newspaper",
     Order = 2
 )]
-public class ArticleViewComponent : ViewComponent
+public class ArticleViewComponent : ViewComponent, IRoutableViewComponent
 {
     private readonly IArticleListModel _listModel;
     private readonly IArticleModel _articleModel;
@@ -28,43 +32,42 @@ public class ArticleViewComponent : ViewComponent
     {
         config ??= new ArticleContentZoneConfiguration();
 
-        // 1. Admin upsert form mode
         if (config.UpsertModel != null)
         {
             return View("UpsertForm", config.UpsertModel);
         }
 
-        // 2. Direct article object passed in
         if (config.Article != null)
         {
             return View(config.ViewName ?? "Article", config.Article);
         }
 
-        // 3. Check for sub-route in HttpContext (detail view via slug)
-        if (HttpContext.Items.TryGetValue("CMS:SubRoute", out var subRouteObj) && subRouteObj is string subRoute && !string.IsNullOrEmpty(subRoute))
+        if (ViewContext.RouteData.Values.TryGetValue("slug", out var slugObj)
+            && slugObj is string slug && !string.IsNullOrEmpty(slug))
         {
-            var article = await _articleModel.GetBySlugAsync(subRoute);
+            var decodedSlug = System.Net.WebUtility.UrlDecode(slug);
+            var article = await _articleModel.GetBySlugAsync(decodedSlug)
+                ?? await _articleModel.GetBySlugAsync(slug);
             if (article != null)
             {
                 return View("Article", article);
             }
         }
 
-        // 4. Single mode with explicit article ID
-        if (string.Equals(config.Mode, "Single", StringComparison.OrdinalIgnoreCase) && config.Id.HasValue && config.Id.Value != Guid.Empty)
+        if (string.Equals(config.Mode, "Single", StringComparison.OrdinalIgnoreCase)
+            && config.Id.HasValue && config.Id.Value != Guid.Empty)
         {
             var loadedArticle = await _articleModel.GetPostViewModelAsync(config.Id.Value);
             return View(config.ViewName ?? "Article", loadedArticle);
         }
 
-        // 5. List mode with ArticleListId
-        if (string.Equals(config.Mode, "List", StringComparison.OrdinalIgnoreCase) && config.ArticleListId.HasValue && config.ArticleListId.Value != Guid.Empty)
+        if (string.Equals(config.Mode, "List", StringComparison.OrdinalIgnoreCase)
+            && config.ArticleListId.HasValue && config.ArticleListId.Value != Guid.Empty)
         {
             var listVm = await _listModel.GetArticlesForListAsync(config.ArticleListId.Value);
             return View(config.ViewName ?? "List", listVm);
         }
 
-        // 6. Fallback: ID set -> single (legacy), else -> full list (legacy)
         if (config.Id.HasValue && config.Id.Value != Guid.Empty)
         {
             var loadedArticle = await _articleModel.GetPostViewModelAsync(config.Id.Value);
@@ -73,5 +76,31 @@ public class ArticleViewComponent : ViewComponent
 
         var vm = await _listModel.GetIndexViewModelAsync(CancellationToken.None);
         return View(config.ViewName ?? "List", vm);
+    }
+
+    string IRoutableViewComponent.ComponentName => "Article";
+
+    Task<IReadOnlyList<CMSRouteDTO>> IRoutableViewComponent.GenerateRoutesAsync(
+        string parentRoute, Guid contentZoneItemMasterId, CancellationToken ct)
+    {
+        var route = new CMSRouteDTO
+        {
+            Pattern = "{slug}",
+            ConstraintsJson = JsonSerializer.Serialize(
+                new Dictionary<string, string>
+                {
+                    { "slug", "regex(.+)" }
+                }),
+            DefaultsJson = JsonSerializer.Serialize(
+                new Dictionary<string, string>
+                {
+                    { "_widget", "Article" }
+                }),
+            OwningContentMasterId = contentZoneItemMasterId,
+            OwningContentType = "ArticleWidget",
+            Order = 1
+        };
+
+        return Task.FromResult<IReadOnlyList<CMSRouteDTO>>(new List<CMSRouteDTO> { route }.AsReadOnly());
     }
 }

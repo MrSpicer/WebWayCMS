@@ -19,6 +19,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     private readonly IContentZoneService _service;
     private readonly IPageService _pageService;
     private readonly IWidgetRegistry _registry;
+    private readonly ICMSRouteService _routeService;
+    private readonly IRouteRegistrationService _routeRegistration;
     private readonly ContentZoneChildHandler _childHandler;
     private readonly ContentZoneRegistryHandler _registryHandler;
 
@@ -26,11 +28,15 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         IContentZoneService service,
         IPageService pageService,
         IWidgetRegistry registry,
-        IViewDiscoveryService viewDiscoveryService)
+        IViewDiscoveryService viewDiscoveryService,
+        ICMSRouteService routeService,
+        IRouteRegistrationService routeRegistration)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _pageService = pageService ?? throw new ArgumentNullException(nameof(pageService));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
+        _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _childHandler = new ContentZoneChildHandler(this);
         _registryHandler = new ContentZoneRegistryHandler(
             registry,
@@ -189,8 +195,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         {
             filterPageId = pageId;
             zones = await _service.GetAllByPageAsync(pageId, ct);
-            var pages = await _pageService.GetAllVersionsAsync(pageId, ct);
-            filterPageRoute = pages.FirstOrDefault()?.Route;
+            var routes = await _routeService.GetByOwningContentAsync(pageId, ct);
+            filterPageRoute = routes.FirstOrDefault()?.Pattern;
         }
         else if (Guid.TryParse(query["zoneId"], out var zoneId))
         {
@@ -296,6 +302,14 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
     public override IAdminCrudChildHandler? ChildHandler => _childHandler;
 
+    internal async Task RegisterWidgetRouteIfRoutableAsync(
+        string componentName, Guid itemMasterId, Guid zoneId, bool isActive, CancellationToken ct)
+    {
+        var pageMasterId = await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+        await _routeRegistration.TryRegisterWidgetRoutesAsync(
+            componentName, itemMasterId, pageMasterId, isActive, ct);
+    }
+
     // VersionedModel abstract implementations
 
     protected override string VersionHistoryContentType => "contentzones";
@@ -389,9 +403,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 /// <summary>Manages items within a content zone (child entities).</summary>
 internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 {
-    private readonly IContentZoneModel _model;
+    private readonly ContentZoneModel _model;
 
-    public ContentZoneChildHandler(IContentZoneModel model)
+    public ContentZoneChildHandler(ContentZoneModel model)
     {
         _model = model;
     }
@@ -441,7 +455,6 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         var vm = (ContentZoneItemUpsertViewModel)model;
         if (vm.Id == null || vm.Id == Guid.Empty)
         {
-            // No id supplied: create a new item under the parent zone (parentKey is the zone id).
             if (!Guid.TryParse(parentKey, out var zoneId))
                 return new AdminSaveResult(false, "A valid content zone id is required.");
 
@@ -452,7 +465,10 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
                 ComponentPropertiesJson = string.IsNullOrWhiteSpace(vm.ComponentPropertiesJson) ? "{}" : vm.ComponentPropertiesJson,
                 IsActive = vm.IsActive,
             };
-            await _model.AddItemAsync(zoneId, newItem, ct);
+            var createdItem = await _model.AddItemAsync(zoneId, newItem, ct);
+            await _model.RegisterWidgetRouteIfRoutableAsync(
+                createdItem.ComponentName, createdItem.ContentMeta.MasterId, zoneId,
+                createdItem.IsActive, ct);
             return new AdminSaveResult(true);
         }
 
@@ -467,11 +483,26 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             IsActive = vm.IsActive,
         };
         var ok = await _model.UpdateItemAsync(updated, ct);
+        if (ok)
+        {
+            await _model.RegisterWidgetRouteIfRoutableAsync(
+                updated.ComponentName, existing.ContentMeta.MasterId, existing.ContentZoneId,
+                updated.IsActive && vm.IsActive, ct);
+        }
         return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
     }
 
-    public Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default)
-        => _model.RemoveItemAsync(id, ct);
+    public async Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default)
+    {
+        var item = await _model.GetItemByIdAsync(id, ct);
+        if (item != null)
+        {
+            await _model.RegisterWidgetRouteIfRoutableAsync(
+                item.ComponentName, item.ContentMeta.MasterId, item.ContentZoneId,
+                false, ct);
+        }
+        return await _model.RemoveItemAsync(id, ct);
+    }
 
     public bool SupportsReorder => false;
 

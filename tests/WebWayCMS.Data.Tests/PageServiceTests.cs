@@ -20,15 +20,13 @@ public class PageServiceTests
 
     private PageService NewService() => new(NewContext());
 
-    private static PageDTO PageRow(Guid master, int version, string route, bool published = true,
+    private static PageDTO PageRow(Guid master, int version, bool published = true,
         bool deleted = false)
     {
         var id = Guid.NewGuid();
         return new PageDTO
         {
             ContentId = id,
-            Route = route,
-            ControllerName = "Article",
             ContentMeta = new ContentDTO
             {
                 Id = id,
@@ -41,11 +39,9 @@ public class PageServiceTests
         };
     }
 
-    private static PageDTO PageRow(ContentDTO meta, string route) => new()
+    private static PageDTO PageRow(ContentDTO meta) => new()
     {
         ContentId = meta.Id,
-        Route = route,
-        ControllerName = "Article",
         ContentMeta = meta
     };
 
@@ -63,30 +59,30 @@ public class PageServiceTests
     }
 
     [Test]
-    public async Task GetAllAsync_ReturnsLatestNonDeletedOrderedByRoute()
+    public async Task GetAllAsync_ReturnsLatestNonDeleted()
     {
         var m1 = Guid.NewGuid();
         var m2 = Guid.NewGuid();
         var m3 = Guid.NewGuid();
         await SeedAsync(
-            PageRow(m1, 0, "/b"),
-            PageRow(m1, 1, "/b"),
-            PageRow(m2, 0, "/a"),
-            PageRow(m3, 0, "/c", deleted: true));
+            PageRow(m1, 0),
+            PageRow(m1, 1),
+            PageRow(m2, 0),
+            PageRow(m3, 0, deleted: true));
 
         var all = await NewService().GetAllAsync();
 
         Assert.Multiple(() =>
         {
-            Assert.That(all.Select(p => p.Route), Is.EqualTo(new[] { "/a", "/b" }));
-            Assert.That(all.Single(p => p.Route == "/b").ContentMeta.Version, Is.EqualTo(1));
+            Assert.That(all, Has.Count.EqualTo(2));
+            Assert.That(all.Single(p => p.ContentMeta.MasterId == m1).ContentMeta.Version, Is.EqualTo(1));
         });
     }
 
     [Test]
     public async Task GetByIdAsync_FoundAndNotFound()
     {
-        var page = PageRow(Guid.NewGuid(), 0, "/x");
+        var page = PageRow(Guid.NewGuid(), 0);
         await SeedAsync(page);
 
         Assert.Multiple(async () =>
@@ -97,35 +93,10 @@ public class PageServiceTests
     }
 
     [Test]
-    public async Task GetByRouteAsync_ReturnsPublishedLatestMatch()
-    {
-        var m = Guid.NewGuid();
-        await SeedAsync(PageRow(m, 0, "/about"), PageRow(m, 1, "/about"));
-
-        var page = await NewService().GetByRouteAsync("/about");
-
-        Assert.That(page!.ContentMeta.Version, Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task GetByRouteAsync_UnpublishedOrDeleted_NotReturned()
-    {
-        await SeedAsync(
-            PageRow(Guid.NewGuid(), 0, "/draft", published: false),
-            PageRow(Guid.NewGuid(), 0, "/gone", deleted: true));
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await NewService().GetByRouteAsync("/draft"), Is.Null);
-            Assert.That(await NewService().GetByRouteAsync("/gone"), Is.Null);
-        });
-    }
-
-    [Test]
     public async Task GetAllVersionsAsync_OrderedDesc()
     {
         var m = Guid.NewGuid();
-        await SeedAsync(PageRow(m, 0, "/a"), PageRow(m, 1, "/a"), PageRow(m, 2, "/a"));
+        await SeedAsync(PageRow(m, 0), PageRow(m, 1), PageRow(m, 2));
 
         var versions = await NewService().GetAllVersionsAsync(m);
 
@@ -139,9 +110,9 @@ public class PageServiceTests
     }
 
     [Test]
-    public async Task CreateAsync_NormalizesRouteAndInitializesVersioning()
+    public async Task CreateAsync_InitializesVersioning()
     {
-        var created = await NewService().CreateAsync(new PageDTO { ControllerName = "Article", Route = "About", ContentMeta = new ContentDTO { Title = "t" } });
+        var created = await NewService().CreateAsync(new PageDTO { ContentMeta = new ContentDTO { Title = "t" } });
 
         Assert.Multiple(() =>
         {
@@ -149,7 +120,6 @@ public class PageServiceTests
             Assert.That(created.ContentId, Is.EqualTo(created.ContentMeta.Id));
             Assert.That(created.ContentMeta.MasterId, Is.EqualTo(created.ContentMeta.Id));
             Assert.That(created.ContentMeta.Version, Is.EqualTo(0));
-            Assert.That(created.Route, Is.EqualTo("/about"));
             Assert.That(created.ContentMeta.PublicationDate, Is.Not.EqualTo(default(DateTime)));
         });
     }
@@ -159,7 +129,7 @@ public class PageServiceTests
     {
         var id = Guid.NewGuid();
         var when = new DateTime(2020, 5, 5, 0, 0, 0, DateTimeKind.Utc);
-        var created = await NewService().CreateAsync(new PageDTO { ControllerName = "Article", Route = "/x", ContentMeta = new ContentDTO { Id = id, Title = "t", PublicationDate = when } });
+        var created = await NewService().CreateAsync(new PageDTO { ContentMeta = new ContentDTO { Id = id, Title = "t", PublicationDate = when } });
 
         Assert.Multiple(() =>
         {
@@ -177,17 +147,17 @@ public class PageServiceTests
     [Test]
     public async Task UpdateAsync_NonExistent_ReturnsFalse()
     {
-        Assert.That(await NewService().UpdateAsync(PageRow(Guid.NewGuid(), 0, "/x")), Is.False);
+        Assert.That(await NewService().UpdateAsync(PageRow(Guid.NewGuid(), 0)), Is.False);
     }
 
     [Test]
     public async Task UpdateAsync_Published_CreatesVersionAndUnpublishesPrevious()
     {
         var m = Guid.NewGuid();
-        var existing = PageRow(m, 0, "/about", published: true);
+        var existing = PageRow(m, 0, published: true);
         await SeedAsync(existing);
 
-        var ok = await NewService().UpdateAsync(PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = true }, "/About/"));
+        var ok = await NewService().UpdateAsync(PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = true }));
 
         await using var verify = NewContext();
         var versions = await verify.Set<PageDTO>().Where(p => p.ContentMeta.MasterId == m).ToListAsync();
@@ -196,7 +166,6 @@ public class PageServiceTests
             Assert.That(ok, Is.True);
             Assert.That(versions, Has.Count.EqualTo(2));
             Assert.That(versions.Count(p => p.ContentMeta.IsPublished), Is.EqualTo(1));
-            Assert.That(versions.Single(p => p.ContentMeta.IsPublished).Route, Is.EqualTo("/about"));
         });
     }
 
@@ -204,10 +173,10 @@ public class PageServiceTests
     public async Task UpdateAsync_Unpublished_SkipsUnpublishStep()
     {
         var m = Guid.NewGuid();
-        var existing = PageRow(m, 0, "/about", published: false);
+        var existing = PageRow(m, 0, published: false);
         await SeedAsync(existing);
 
-        var ok = await NewService().UpdateAsync(PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = false }, "/about"));
+        var ok = await NewService().UpdateAsync(PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = false }));
 
         Assert.That(ok, Is.True);
     }
@@ -216,10 +185,10 @@ public class PageServiceTests
     public async Task UpdateAsync_PublishedWithDefaultPublicationDate_SetsIt()
     {
         var m = Guid.NewGuid();
-        var existing = PageRow(m, 0, "/about", published: false);
+        var existing = PageRow(m, 0, published: false);
         await SeedAsync(existing);
 
-        var update = PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = true, PublicationDate = default }, "/about");
+        var update = PageRow(new ContentDTO { Id = existing.ContentMeta.Id, MasterId = m, Version = 0, Title = "t", IsPublished = true, PublicationDate = default });
         await NewService().UpdateAsync(update);
 
         Assert.That(update.ContentMeta.PublicationDate, Is.Not.EqualTo(default(DateTime)));
@@ -235,7 +204,7 @@ public class PageServiceTests
     public async Task DeleteAsync_RemovesAllVersions()
     {
         var m = Guid.NewGuid();
-        await SeedAsync(PageRow(m, 0, "/a"), PageRow(m, 1, "/a"));
+        await SeedAsync(PageRow(m, 0), PageRow(m, 1));
         var id = (await NewService().GetAllVersionsAsync(m)).First().ContentMeta.Id;
 
         var ok = await NewService().DeleteAsync(id);
@@ -252,7 +221,7 @@ public class PageServiceTests
     public async Task DeleteVersionAsync_NotFoundAndFound()
     {
         var m = Guid.NewGuid();
-        await SeedAsync(PageRow(m, 0, "/a"), PageRow(m, 1, "/a"));
+        await SeedAsync(PageRow(m, 0), PageRow(m, 1));
         var id = (await NewService().GetAllVersionsAsync(m)).First().ContentMeta.Id;
 
         Assert.Multiple(async () =>
@@ -263,41 +232,5 @@ public class PageServiceTests
 
         await using var verify = NewContext();
         Assert.That(verify.Set<PageDTO>().Count(p => p.ContentMeta.MasterId == m), Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task IsRouteAvailableAsync_TakenRoute_ReturnsFalse()
-    {
-        await SeedAsync(PageRow(Guid.NewGuid(), 0, "/about"));
-
-        Assert.That(await NewService().IsRouteAvailableAsync("/about/"), Is.False);
-    }
-
-    [Test]
-    public async Task IsRouteAvailableAsync_FreeRoute_ReturnsTrue()
-    {
-        Assert.That(await NewService().IsRouteAvailableAsync("/free"), Is.True);
-    }
-
-    [Test]
-    public async Task IsRouteAvailableAsync_ExcludingOwnMaster_ReturnsTrue()
-    {
-        var m = Guid.NewGuid();
-        await SeedAsync(PageRow(m, 0, "/about"));
-
-        Assert.That(await NewService().IsRouteAvailableAsync("/about", excludeMasterId: m), Is.True);
-    }
-
-    [Test]
-    public async Task NormalizeRoute_EmptyInput_BecomesRoot()
-    {
-        await SeedAsync(PageRow(Guid.NewGuid(), 0, "/"));
-
-        // "  " normalizes to "/" via the early-return path; "/" exercises the length-1 branch.
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await NewService().GetByRouteAsync("  "), Is.Not.Null);
-            Assert.That(await NewService().GetByRouteAsync("/"), Is.Not.Null);
-        });
     }
 }
