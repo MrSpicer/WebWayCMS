@@ -429,4 +429,63 @@ public class PageControllerRegistryTests
         Assert.That(PageControllerRegistry.ResolveType(""), Is.Null);
         Assert.That(PageControllerRegistry.ResolveType(null!), Is.Null);
     }
+
+    [Test]
+    public void ResolveType_FindsBuiltInTypeDirectly()
+    {
+        var type = PageControllerRegistry.ResolveType("System.String");
+
+        Assert.That(type, Is.Not.Null);
+        Assert.That(type, Is.EqualTo(typeof(string)));
+    }
+
+    [Test]
+    public void BuildFromDtos_NullPropertyDefinitionsJson_ReturnsEmptyList()
+    {
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        {
+            Dto("Test", "Test", propertyJson: null!)
+        });
+
+        var info = _registry.GetByName("Test");
+
+        Assert.That(info, Is.Not.Null);
+        Assert.That(info!.Properties, Is.Empty);
+    }
+
+    [Test]
+    public void BuildFromDtos_MalformedPropertyDefinitionsJson_ReturnsEmptyList()
+    {
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        {
+            Dto("Test", "Test", propertyJson: "{ not valid"),
+            Dto("NullJson", "NullJson", propertyJson: "null")
+        });
+
+        var info = _registry.GetByName("Test");
+        Assert.That(info, Is.Not.Null);
+        Assert.That(info!.Properties, Is.Empty);
+
+        var nullInfo = _registry.GetByName("NullJson");
+        Assert.That(nullInfo, Is.Not.Null);
+        Assert.That(nullInfo!.Properties, Is.Empty);
+    }
+
+    [Test]
+    public void Constructor_NullScopeFactory_ThrowsArgumentNullException()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            new PageControllerRegistry(null!));
+        Assert.That(ex!.ParamName, Is.EqualTo("scopeFactory"));
+    }
+
+    [Test]
+    public void ResolveType_InvalidTypeName_ReturnsNull()
+    {
+        Assert.That(PageControllerRegistry.ResolveType("["), Is.Null);
+        Assert.That(PageControllerRegistry.ResolveType("a,b,c,d"), Is.Null);
+        Assert.That(PageControllerRegistry.ResolveType(new string('x', 10000)), Is.Null);
+        Assert.That(PageControllerRegistry.ResolveType("a\r\nb"), Is.Null);
+        Assert.That(PageControllerRegistry.ResolveType("ab\u001Fcd"), Is.Null);
+    }
 }

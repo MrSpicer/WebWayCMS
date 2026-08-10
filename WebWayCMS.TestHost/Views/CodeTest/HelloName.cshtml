@@ -1,0 +1,35 @@
+@{
+    var name = ViewData["ParamName"] as string;
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="alert alert-primary border-primary border-2 text-center p-5">
+            <h1 class="display-4 mb-3">Hello, <strong class="text-decoration-underline">@name</strong>!</h1>
+            <p class="lead">This route captured the <code>{name}</code> parameter from the URL.</p>
+            <code class="fs-5">@ViewData["Pattern"]</code>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">Captured Values</div>
+            <div class="card-body">
+                <table class="table">
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td><code>name</code></td><td class="fw-bold text-primary">@name</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">What This Tests</div>
+            <div class="card-body">
+                <p>The <code>{param}</code> syntax in the route pattern captures a URL segment into a controller action parameter. This is the fundamental building block for dynamic code-based pages.</p>
+            </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="/code-test/hello/OpenCode" class="btn btn-outline-primary me-2">Try /hello/OpenCode</a>
+            <a href="/code-test" class="btn btn-secondary">Back to Index</a>
+        </div>
+    </div>
+</div>

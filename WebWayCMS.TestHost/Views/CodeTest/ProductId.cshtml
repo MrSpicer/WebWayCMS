@@ -1,0 +1,38 @@
+@{
+    var id = ViewData["ParamValue"] as int?;
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="alert alert-info border-info border-2 text-center p-5">
+            <h1 class="display-4 mb-3">Product #<strong>@id</strong></h1>
+            <p class="lead">The <code>{id:int}</code> constraint ensured only integer values match this route.</p>
+            <code class="fs-5">@ViewData["Pattern"]</code>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">Captured Values</div>
+            <div class="card-body">
+                <table class="table">
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td><code>id</code></td><td class="fw-bold text-info">@id</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="card mt-3 border-warning">
+            <div class="card-header bg-warning text-dark">Constraint Verification</div>
+            <div class="card-body">
+                <p>Try visiting <code>/code-test/product/abc</code> &mdash; it should <strong>404</strong> because "abc" is not an integer. The <code>:int</code> constraint rejects non-integer values.</p>
+                <div class="d-flex gap-2">
+                    <a href="/code-test/product/99" class="btn btn-outline-info btn-sm">Valid: /product/99</a>
+                    <a href="/code-test/product/abc" class="btn btn-outline-danger btn-sm">Invalid: /product/abc</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="/code-test" class="btn btn-secondary">Back to Index</a>
+        </div>
+    </div>
+</div>

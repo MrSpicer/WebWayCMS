@@ -1,0 +1,25 @@
+@{
+    ViewData["Title"] = "Multi Route A";
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="alert alert-primary border-primary border-2 text-center p-5">
+            <h1 class="display-4 mb-3">Multi Route <span class="badge bg-primary">A</span></h1>
+            <p class="lead">This is route <strong>/multi/a</strong> on the same controller that also serves <strong>/multi/b</strong>.</p>
+            <code class="fs-5">@ViewData["Pattern"]</code>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">What This Tests</div>
+            <div class="card-body">
+                <p><code>[CmsRoute]</code> has <code>AllowMultiple = true</code>, so a single controller can register multiple routes. Both <code>/multi/a</code> and <code>/multi/b</code> are handled by the same class but dispatch to different action methods.</p>
+            </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="/code-test/multi/b" class="btn btn-outline-primary me-2">Go to Route B</a>
+            <a href="/code-test" class="btn btn-secondary">Back to Index</a>
+        </div>
+    </div>
+</div>

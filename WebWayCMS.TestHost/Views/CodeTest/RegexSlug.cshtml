@@ -1,0 +1,40 @@
+@{
+    var slug = ViewData["ParamValue"] as string;
+}
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="alert alert-info border-info border-2 text-center p-5">
+            <h1 class="display-4 mb-3">Regex Slug: <strong class="text-decoration-underline">@slug</strong></h1>
+            <p class="lead">This value passed the <code>regex(^[a-z]+$)</code> constraint — only lowercase letters allowed.</p>
+            <code class="fs-5">@ViewData["Pattern"]</code>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">Captured Values</div>
+            <div class="card-body">
+                <table class="table">
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td><code>slug</code></td><td class="fw-bold text-info">@slug</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <div class="card mt-3 border-warning">
+            <div class="card-header bg-warning text-dark">Constraint Verification</div>
+            <div class="card-body">
+                <p>The <code>:regex(^[a-z]+$)</code> constraint only allows lowercase letters (a-z). Try these:</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="/code-test/constraints/regex/hello" class="btn btn-outline-info btn-sm">Valid: /hello</a>
+                    <a href="/code-test/constraints/regex/Hello" class="btn btn-outline-danger btn-sm">Invalid: /Hello (uppercase)</a>
+                    <a href="/code-test/constraints/regex/hello123" class="btn btn-outline-danger btn-sm">Invalid: /hello123 (digits)</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <a href="/code-test/constraints/regex/test" class="btn btn-outline-info me-2">Try /test</a>
+            <a href="/code-test" class="btn btn-secondary">Back to Index</a>
+        </div>
+    </div>
+</div>

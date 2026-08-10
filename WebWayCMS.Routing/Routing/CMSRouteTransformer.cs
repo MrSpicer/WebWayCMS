@@ -52,29 +52,53 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         if (!defaults.TryGetValue("controller", out var controllerName))
             return null!;
 
-        var controllerInfo = _registry.GetByName(controllerName);
-        if (controllerInfo == null)
-            return null!;
+        var isCodeBased = string.Equals(route.OwningContentType, "CodeBased", StringComparison.OrdinalIgnoreCase);
 
-        if (route.OwningContentType == "Page" && route.OwningContentMasterId.HasValue)
+        if (!isCodeBased)
         {
-            var pageVersion = await _pageService.GetAllVersionsAsync(
-                route.OwningContentMasterId.Value);
-            var latestPage = pageVersion.FirstOrDefault();
-            if (latestPage != null)
-                httpContext.Items[PageDataItemKey] = latestPage;
-        }
-        else
-        {
-            var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
-            if (dataTokens != null
-                && dataTokens.TryGetValue("ParentPageMasterId", out var pageMasterStr)
-                && Guid.TryParse(pageMasterStr, out var pageMasterId))
+            var controllerInfo = _registry.GetByName(controllerName);
+            if (controllerInfo == null)
+                return null!;
+
+            if (route.OwningContentType == "Page" && route.OwningContentMasterId.HasValue)
             {
-                var pageVersion = await _pageService.GetAllVersionsAsync(pageMasterId);
+                var pageVersion = await _pageService.GetAllVersionsAsync(
+                    route.OwningContentMasterId.Value);
                 var latestPage = pageVersion.FirstOrDefault();
                 if (latestPage != null)
                     httpContext.Items[PageDataItemKey] = latestPage;
+            }
+            else
+            {
+                var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
+                if (dataTokens != null
+                    && dataTokens.TryGetValue("ParentPageMasterId", out var pageMasterStr)
+                    && Guid.TryParse(pageMasterStr, out var pageMasterId))
+                {
+                    var pageVersion = await _pageService.GetAllVersionsAsync(pageMasterId);
+                    var latestPage = pageVersion.FirstOrDefault();
+                    if (latestPage != null)
+                        httpContext.Items[PageDataItemKey] = latestPage;
+                }
+            }
+
+            if (controllerInfo.ConfigurationType != null)
+            {
+                var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
+                var configJson = dataTokens?.GetValueOrDefault("ConfigurationJson");
+                if (!string.IsNullOrWhiteSpace(configJson))
+                {
+                    try
+                    {
+                        var config = JsonSerializer.Deserialize(configJson, controllerInfo.ConfigurationType,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        httpContext.Items[PageConfigItemKey] = config;
+                    }
+                    catch
+                    {
+                        httpContext.Items[PageConfigItemKey] = Activator.CreateInstance(controllerInfo.ConfigurationType);
+                    }
+                }
             }
         }
 
@@ -84,25 +108,6 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         {
             if (kvp.Key != "controller" && kvp.Key != "action")
                 httpContext.Items[SubRouteItemKey] = kvp.Value;
-        }
-
-        if (controllerInfo.ConfigurationType != null)
-        {
-            var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
-            var configJson = dataTokens?.GetValueOrDefault("ConfigurationJson");
-            if (!string.IsNullOrWhiteSpace(configJson))
-            {
-                try
-                {
-                    var config = JsonSerializer.Deserialize(configJson, controllerInfo.ConfigurationType,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    httpContext.Items[PageConfigItemKey] = config;
-                }
-                catch
-                {
-                    httpContext.Items[PageConfigItemKey] = Activator.CreateInstance(controllerInfo.ConfigurationType);
-                }
-            }
         }
 
         var routeValues = new RouteValueDictionary

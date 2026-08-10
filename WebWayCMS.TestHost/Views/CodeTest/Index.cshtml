@@ -1,0 +1,126 @@
+@{
+    ViewData["Title"] = "CmsRoute Tests";
+}
+
+<div class="text-center mb-4">
+    <h1 class="display-4">CmsRoute Attribute Tests</h1>
+    <p class="lead">Each link below demonstrates a different route pattern feature of the <code>[CmsRoute]</code> attribute.</p>
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+    <div class="col">
+        <div class="card h-100 border-success">
+            <div class="card-header bg-success text-white"><strong>Simple Literal Route</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests basic literal pattern matching — no parameters, just a static path.</p>
+                <code>/code-test/simple</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/simple" class="btn btn-success btn-sm">Test It</a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-primary">
+            <div class="card-header bg-primary text-white"><strong>Route Parameter</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{param}</code> syntax. Try different names in the URL.</p>
+                <code>/code-test/hello/{name}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/hello/World" class="btn btn-primary btn-sm">Test <code>/hello/World</code></a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-info">
+            <div class="card-header bg-info text-white"><strong>Int Constraint</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{param:int}</code> constraint. Non-integer values will 404.</p>
+                <code>/code-test/product/{id:int}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/product/42" class="btn btn-info btn-sm">Test <code>/product/42</code></a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-warning">
+            <div class="card-header bg-warning text-dark"><strong>Optional Parameter</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{param?}</code> syntax. Works with or without the parameter.</p>
+                <code>/code-test/search/{query?}</code>
+            </div>
+            <div class="card-footer">
+                <a href="/code-test/search/hello" class="btn btn-warning btn-sm me-1">With <code>/hello</code></a>
+                <a href="/code-test/search" class="btn btn-outline-warning btn-sm">Without</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-secondary">
+            <div class="card-header bg-secondary text-white"><strong>GUID Constraint</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{param:guid}</code> constraint. Must be a valid GUID format.</p>
+                <code>/code-test/item/{id:guid}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/item/3fa85f64-5717-4562-b3fc-2c963f66afa6" class="btn btn-secondary btn-sm">Test GUID</a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-dark">
+            <div class="card-header bg-dark text-white"><strong>Mixed Literal + Param</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests mixed literal and parameter in a single URL segment (<code>page-{slug}</code>).</p>
+                <code>/code-test/page-{slug}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/page-my-article" class="btn btn-dark btn-sm">Test <code>/page-my-article</code></a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-danger">
+            <div class="card-header bg-danger text-white"><strong>Catch-All Parameter</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{**param}</code> catch-all syntax. Captures everything after the prefix.</p>
+                <code>/code-test/docs/{**path}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/docs/guides/getting-started/intro" class="btn btn-danger btn-sm">Test Deep Path</a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-primary">
+            <div class="card-header bg-primary text-white"><strong>Multiple Routes — One Controller</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>AllowMultiple = true</code>. Two routes on the same controller class.</p>
+                <code>[CmsRoute("/multi/a")]</code> and <code>[CmsRoute("/multi/b")]</code>
+            </div>
+            <div class="card-footer">
+                <a href="/code-test/multi/a" class="btn btn-primary btn-sm me-1">Route A</a>
+                <a href="/code-test/multi/b" class="btn btn-outline-primary btn-sm">Route B</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-success">
+            <div class="card-header bg-success text-white"><strong>Custom Action Name</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests the <code>Action</code> property. Routes to a method with a different C# name.</p>
+                <code>[CmsRoute(..., Action = "Custom")]</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/custom-action" class="btn btn-success btn-sm">Test Custom</a></div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card h-100 border-info">
+            <div class="card-header bg-info text-white"><strong>Regex Constraint</strong></div>
+            <div class="card-body">
+                <p class="card-text">Tests <code>{param:regex(...)}</code> constraint. Only lowercase letters allowed.</p>
+                <code>/code-test/constraints/regex/{slug:regex(^[a-z]+$)}</code>
+            </div>
+            <div class="card-footer"><a href="/code-test/constraints/regex/hello" class="btn btn-info btn-sm">Test <code>/hello</code></a></div>
+        </div>
+    </div>
+</div>
