@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260809025759_InitialCreate")]
+    [Migration("20260810213436_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -282,6 +282,9 @@ namespace WebWayCMS.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsReserved")
+                        .HasColumnType("boolean");
 
                     b.Property<int>("Order")
                         .HasColumnType("integer");

@@ -280,6 +280,9 @@ namespace WebWayCMS.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<bool>("IsReserved")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 

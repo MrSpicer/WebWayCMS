@@ -18,4 +18,6 @@ public record CMSRouteDTO : IContent
     public Guid? OwningContentMasterId { get; set; }
 
     public string? OwningContentType { get; set; }
+
+    public bool IsReserved { get; set; }
 }

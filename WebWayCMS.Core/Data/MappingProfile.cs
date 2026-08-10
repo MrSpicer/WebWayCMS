@@ -223,6 +223,7 @@ public sealed class MappingProfile : Profile
             DataTokensJson = s.DataTokensJson ?? "{}",
             Order = s.Order,
             OwningContentType = s.OwningContentType,
+            IsReserved = s.IsReserved,
             PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
             PublicationEndDate = s.ContentMeta.PublicationEndDate,
             IsPublished = s.ContentMeta.IsPublished,
@@ -246,6 +247,7 @@ public sealed class MappingProfile : Profile
                 Order = s.Order,
                 OwningContentMasterId = s.MasterId,
                 OwningContentType = s.OwningContentType,
+                IsReserved = s.IsReserved,
                 ContentMeta = meta
             };
         });

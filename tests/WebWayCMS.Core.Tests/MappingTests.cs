@@ -3,6 +3,7 @@ using NUnit.Framework;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
+using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.Page;
 
@@ -205,6 +206,47 @@ public class MappingTests
             Assert.That(dto.ContentMeta.Id, Is.EqualTo(id));
             Assert.That(dto.ConfigurationJson, Is.EqualTo("{}"));
             Assert.That(dto.ContentMeta.PublicationEndDate, Is.Not.Null);
+        });
+    }
+
+    // --- CMSRoute ---
+
+    [Test]
+    public void Map_CMSRouteDto_ToUpsertViewModel_IncludesIsReserved()
+    {
+        var dto = new CMSRouteDTO
+        {
+            Pattern = "/test",
+            IsReserved = true,
+            ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s" }
+        };
+
+        var vm = _mapper.Map<CMSRouteUpsertViewModel>(dto);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.IsReserved, Is.True);
+            Assert.That(vm.Pattern, Is.EqualTo("/test"));
+        });
+    }
+
+    [Test]
+    public void Map_CMSRouteUpsert_ToDto_IncludesIsReserved()
+    {
+        var vm = new CMSRouteUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Pattern = "/test",
+            IsReserved = true
+        };
+
+        var dto = _mapper.Map<CMSRouteDTO>(vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.IsReserved, Is.True);
+            Assert.That(dto.Pattern, Is.EqualTo("/test"));
         });
     }
 }

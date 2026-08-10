@@ -44,6 +44,7 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
                 Version = r.ContentMeta.Version,
                 Pattern = r.Pattern,
                 OwningContentType = r.OwningContentType,
+                IsReserved = r.IsReserved,
                 IsPublished = r.ContentMeta.IsPublished,
                 CreationDate = r.ContentMeta.CreationDate,
                 ModificationDate = r.ContentMeta.ModificationDate

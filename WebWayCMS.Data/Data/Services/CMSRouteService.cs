@@ -22,6 +22,9 @@ public sealed class CMSRouteService : ICMSRouteService
 
         foreach (var route in activeRoutes.OrderBy(r => r.Order))
         {
+            if (route.IsReserved)
+                continue;
+
             var match = TryMatchPattern(route.Pattern, path);
             if (match != null)
             {

@@ -28,6 +28,10 @@ public sealed class CMSRouteUpsertViewModel : BaseContentViewModel
         HelpText = "Route precedence. Lower numbers are matched first.")]
     public int Order { get; set; }
 
+    [FormProperty(Label = "Reserved", EditorType = EditorType.Checkbox, Order = 7,
+        HelpText = "Reserved routes block other routes from using this pattern, but do not route themselves.")]
+    public bool IsReserved { get; set; }
+
     [FormProperty(Label = "Owning Content Type", EditorType = EditorType.Text, Order = 100,
         HelpText = "The content type that owns this route (e.g. Page, ArticleWidget).")]
     public string? OwningContentType { get; set; }

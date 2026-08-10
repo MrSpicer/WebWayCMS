@@ -233,7 +233,8 @@ namespace WebWayCMS.Data.Migrations
                     DataTokensJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     Order = table.Column<int>(type: "integer", nullable: false),
                     OwningContentMasterId = table.Column<Guid>(type: "uuid", nullable: true),
-                    OwningContentType = table.Column<string>(type: "text", nullable: true)
+                    OwningContentType = table.Column<string>(type: "text", nullable: true),
+                    IsReserved = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {

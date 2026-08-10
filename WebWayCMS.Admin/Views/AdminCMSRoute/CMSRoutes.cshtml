@@ -42,6 +42,7 @@
                         <tr>
                             <th scope="col">Pattern</th>
                             <th scope="col">Owning Type</th>
+                            <th scope="col">Reserved</th>
                             <th scope="col">Published</th>
                             <th scope="col"><span class="is-sr-only">Actions</span></th>
                         </tr>
@@ -52,6 +53,16 @@
                             <tr>
                                 <td><code>@route.Pattern</code></td>
                                 <td>@route.OwningContentType</td>
+                                <td>
+                                    @if (route.IsReserved)
+                                    {
+                                        <span class="tag is-warning">Reserved</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag" aria-hidden="true"></span>
+                                    }
+                                </td>
                                 <td>
                                     @if (route.IsPublished)
                                     {
