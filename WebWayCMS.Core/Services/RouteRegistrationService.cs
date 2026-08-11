@@ -20,7 +20,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
     }
 
     public async Task RegisterContentRoutesAsync(
-        IRoutableContent content, string routePattern, string controllerName, object configuration,
+        IRoutableContent content, string routePattern, string controllerName,
         Guid? viewModelId, Guid? viewModelMasterId, bool isPublished, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(routePattern))
@@ -32,17 +32,12 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             { "action", "Index" }
         };
 
-        var configJson = configuration != null
-            ? JsonSerializer.Serialize(configuration)
-            : "{}";
-
         var route = new CMSRouteDTO
         {
             Pattern = routePattern,
             DefaultsJson = JsonSerializer.Serialize(defaults),
             DataTokensJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
-                { "ConfigurationJson", configJson },
                 { "RouteContentType", content.RouteContentType }
             }),
             OwningContentMasterId = viewModelMasterId,

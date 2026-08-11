@@ -462,9 +462,12 @@ public static class CMSExtensions
             var pageControllerService = services.GetRequiredService<IPageControllerRegistrationService>();
             var existing = pageControllerService.GetActiveAsync().GetAwaiter().GetResult();
 
-            var existingNames = new HashSet<string>(
-                existing.Select(p => p.ControllerName),
+            var existingByName = new Dictionary<string, PageControllerRegistrationDTO>(
                 StringComparer.OrdinalIgnoreCase);
+            foreach (var p in existing)
+            {
+                existingByName[p.ControllerName] = p;
+            }
 
             var assemblies = new[]
             {
@@ -477,7 +480,7 @@ public static class CMSExtensions
             {
                 try
                 {
-                    SeedAssemblyPageControllers(assembly, contentService, existingNames, logger);
+                    SeedAssemblyPageControllers(assembly, contentService, existingByName, logger);
                 }
                 catch (Exception ex)
                 {
@@ -499,7 +502,7 @@ public static class CMSExtensions
     private static void SeedAssemblyPageControllers(
         Assembly assembly,
         IContentService<PageControllerRegistrationDTO> contentService,
-        HashSet<string> existingNames,
+        Dictionary<string, PageControllerRegistrationDTO> existingByName,
         ILogger logger)
     {
         var controllerTypes = assembly.GetTypes()
@@ -514,15 +517,19 @@ public static class CMSExtensions
                 continue;
 
             var controllerName = GetControllerName(type);
-            if (existingNames.Contains(controllerName))
-                continue;
+
+            var attributeConfigType = attribute.ConfigurationType;
+            var baseConfigType = ResolveConfigTypeFromBaseClass(type);
+            var effectiveConfigType = attributeConfigType ?? baseConfigType;
+            if (attributeConfigType != null && baseConfigType != null && attributeConfigType != baseConfigType)
+                logger.Warning("Page controller '{ControllerName}' declares ConfigurationType={AttributeType} but its PageControllerBase<T> generic parameter is {BaseType} — they differ.", controllerName, attributeConfigType.FullName, baseConfigType.FullName);
 
             var propertyDefinitionsJson = "[]";
-            if (attribute.ConfigurationType != null)
+            if (effectiveConfigType != null)
             {
                 try
                 {
-                    var properties = FormPropertyBuilder.BuildPropertyInfos(attribute.ConfigurationType);
+                    var properties = FormPropertyBuilder.BuildPropertyInfos(effectiveConfigType);
                     propertyDefinitionsJson = JsonSerializer.Serialize(properties);
                 }
                 catch (Exception ex)
@@ -531,12 +538,32 @@ public static class CMSExtensions
                 }
             }
 
+            var expectedConfigTypeName = effectiveConfigType?.FullName;
+
+            if (existingByName.TryGetValue(controllerName, out var existing))
+            {
+                if (existing.ConfigurationTypeName != expectedConfigTypeName
+                    || existing.PropertyDefinitionsJson != propertyDefinitionsJson)
+                {
+                    var updated = existing with
+                    {
+                        ConfigurationTypeName = expectedConfigTypeName,
+                        PropertyDefinitionsJson = propertyDefinitionsJson
+                    };
+                    contentService.UpdateAsync(updated).GetAwaiter().GetResult();
+                    logger.Information("Re-synced config metadata for page controller '{ControllerName}'", controllerName);
+                }
+                continue;
+            }
+
             var dto = new PageControllerRegistrationDTO
             {
                 ContentMeta = new ContentDTO
                 {
                     Id = Guid.NewGuid(),
-                    Title = attribute.DisplayName ?? FormPropertyBuilder.InsertSpaces(controllerName),
+                    Title = string.IsNullOrEmpty(attribute.DisplayName)
+                        ? FormPropertyBuilder.InsertSpaces(controllerName)
+                        : attribute.DisplayName,
                     Slug = controllerName.ToLowerInvariant(),
                     IsPublished = true,
                     PublicationDate = DateTime.UtcNow,
@@ -554,7 +581,7 @@ public static class CMSExtensions
                 Category = attribute.Category ?? "General",
                 IconClass = attribute.IconClass ?? string.Empty,
                 Order = attribute.Order,
-                ConfigurationTypeName = attribute.ConfigurationType?.FullName,
+                ConfigurationTypeName = expectedConfigTypeName,
                 PropertyDefinitionsJson = propertyDefinitionsJson,
                 IsActive = true,
             };
@@ -562,7 +589,7 @@ public static class CMSExtensions
             try
             {
                 contentService.CreateAsync(dto).GetAwaiter().GetResult();
-                existingNames.Add(controllerName);
+                existingByName[controllerName] = dto;
                 logger.Information("Seeded page controller registration '{ControllerName}' as '{DisplayName}'", controllerName, dto.DisplayName);
             }
             catch (Exception ex)
@@ -579,6 +606,22 @@ public static class CMSExtensions
         return name.EndsWith(suffix, StringComparison.Ordinal)
             ? name[..^suffix.Length]
             : name;
+    }
+
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    internal static Type? ResolveConfigTypeFromBaseClass(Type controllerType)
+    {
+        var baseType = controllerType.BaseType;
+        while (baseType != null)
+        {
+            if (baseType.IsGenericType
+                && baseType.GetGenericTypeDefinition() == typeof(PageControllerBase<>))
+            {
+                return baseType.GetGenericArguments()[0];
+            }
+            baseType = baseType.BaseType;
+        }
+        return null;
     }
 
     // ─── Code-based route seeding ─────────────────────────────────────────────

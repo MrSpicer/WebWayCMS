@@ -318,6 +318,29 @@ public class PageModelTests
     }
 
     [Test]
+    public async Task AdminHandler_SaveUpsert_ConfigValidationFailure_ReturnsError()
+    {
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _registry.ValidateConfiguration("C", Arg.Any<object>()).Returns(new List<string> { "Custom CSS is required." });
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "x",
+            ControllerName = "C",
+            ConfigurationJson = "{}"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ConfigurationJson"));
+            Assert.That(result.ErrorMessage, Does.Contain("Custom CSS is required."));
+        });
+    }
+
+    [Test]
     public async Task AdminHandler_IndexCreateEmptyDeleteApiRestoreAndDeleteVersion()
     {
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
@@ -640,7 +663,6 @@ public class PageModelTests
             Arg.Any<IRoutableContent>(),
             "/",
             Arg.Any<string>(),
-            Arg.Any<object>(),
             Arg.Any<Guid?>(),
             Arg.Any<Guid?>(),
             Arg.Any<bool>(),
@@ -708,7 +730,6 @@ public class PageModelTests
             Arg.Any<IRoutableContent>(),
             "/blog/child",
             Arg.Any<string>(),
-            Arg.Any<object>(),
             Arg.Any<Guid?>(),
             Arg.Any<Guid?>(),
             Arg.Any<bool>(),
@@ -781,7 +802,6 @@ public class PageModelTests
             Arg.Any<IRoutableContent>(),
             "/blog/new-slug",
             Arg.Any<string>(),
-            Arg.Any<object>(),
             Arg.Any<Guid?>(),
             Arg.Any<Guid?>(),
             Arg.Any<bool>(),

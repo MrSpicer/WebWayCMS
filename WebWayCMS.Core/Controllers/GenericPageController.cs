@@ -10,20 +10,10 @@ namespace WebWayCMS.Controllers;
 /// </summary>
 public class GenericPageConfiguration
 {
-    [FormProperty("View Name", EditorType.Text,
-        HelpText = "Override the view template for this page's JSON config block. Leave empty for default behavior.",
-        Order = 0)]
-    public string ViewName { get; set; } = string.Empty;
-
     [FormProperty("Custom CSS", EditorType.TextArea,
         HelpText = "Inline CSS styles to be injected into the page head. Do not include <style> tags.",
         Order = 10)]
     public string Style { get; set; } = string.Empty;
-
-    [FormProperty("Custom JavaScript", EditorType.TextArea,
-        HelpText = "Inline JavaScript to be injected at the bottom of the page. Do not include <script> tags.",
-        Order = 20)]
-    public string Script { get; set; } = string.Empty;
 
     [FormProperty("Meta Tags", EditorType.TextArea,
         HelpText = "HTML meta tags for SEO and social media. Include full tags, e.g., <meta name=\"description\" content=\"...\">",
@@ -38,6 +28,7 @@ public class GenericPageConfiguration
     DisplayName = "Generic Page",
     Description = "A simple page with configurable heading and content",
     Category = "General",
+    ConfigurationType = typeof(GenericPageConfiguration),
     Order = 0)]
 public class GenericPageController : PageControllerBase<GenericPageConfiguration>
 {

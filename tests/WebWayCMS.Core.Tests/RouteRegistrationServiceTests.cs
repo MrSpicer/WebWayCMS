@@ -26,7 +26,7 @@ public class RouteRegistrationServiceTests
     public async Task RegisterContentRoutesAsync_EmptyPattern_DoesNothing()
     {
         await _service.RegisterContentRoutesAsync(
-            new TestRoutableContent(), "", "TestCtrl", new { }, null, null, true);
+            new TestRoutableContent(), "", "TestCtrl", null, null, true);
 
         await _routeService.DidNotReceive().UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
     }
@@ -38,10 +38,12 @@ public class RouteRegistrationServiceTests
             .Returns(x => x.Arg<CMSRouteDTO>());
 
         await _service.RegisterContentRoutesAsync(
-            new TestRoutableContent(), "/test", "TestCtrl", new { Key = "Value" }, null, null, true);
+            new TestRoutableContent(), "/test", "TestCtrl", null, null, true);
 
         await _routeService.Received(1).UpsertAsync(
-            Arg.Is<CMSRouteDTO>(r => r.Pattern == "/test"),
+            Arg.Is<CMSRouteDTO>(r => r.Pattern == "/test"
+                && !r.DataTokensJson!.Contains("ConfigurationJson")
+                && r.DataTokensJson.Contains("RouteContentType")),
             Arg.Any<CancellationToken>());
     }
 
@@ -52,7 +54,7 @@ public class RouteRegistrationServiceTests
             .Returns(x => x.Arg<CMSRouteDTO>());
 
         await _service.RegisterContentRoutesAsync(
-            new TestRoutableContent(), "/draft", "TestCtrl", null, null, null, false);
+            new TestRoutableContent(), "/draft", "TestCtrl", null, null, false);
 
         await _routeService.Received(1).UpsertAsync(
             Arg.Is<CMSRouteDTO>(r => r.ContentMeta.IsPublished == false),

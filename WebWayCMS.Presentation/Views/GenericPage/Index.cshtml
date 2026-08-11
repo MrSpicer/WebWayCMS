@@ -3,7 +3,7 @@
 @{
     ViewData["Title"] = ViewContext.RouteData.Values["title"]?.ToString() ?? "Page";
 }
-@*
+
 @if (!string.IsNullOrWhiteSpace(Model.Meta))
 {
     @section Meta {
@@ -18,15 +18,6 @@
             @Html.Raw(Model.Style)
         </style>
     }
-} *@
+}
 
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
-
-@* @if (!string.IsNullOrWhiteSpace(Model.Script))
-{
-    @section Scripts {
-        <script>
-            @Html.Raw(Model.Script)
-        </script>
-    }
-} *@

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Routing;
 
+using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Pages;
 
@@ -83,21 +84,9 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
 
             if (controllerInfo.ConfigurationType != null)
             {
-                var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
-                var configJson = dataTokens?.GetValueOrDefault("ConfigurationJson");
-                if (!string.IsNullOrWhiteSpace(configJson))
-                {
-                    try
-                    {
-                        var config = JsonSerializer.Deserialize(configJson, controllerInfo.ConfigurationType,
-                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                        httpContext.Items[PageConfigItemKey] = config;
-                    }
-                    catch
-                    {
-                        httpContext.Items[PageConfigItemKey] = Activator.CreateInstance(controllerInfo.ConfigurationType);
-                    }
-                }
+                var pageData = httpContext.Items[PageDataItemKey] as PageDTO;
+                httpContext.Items[PageConfigItemKey] =
+                    DeserializeConfig(pageData?.ConfigurationJson, controllerInfo.ConfigurationType);
             }
         }
 
@@ -129,6 +118,22 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         catch
         {
             return null;
+        }
+    }
+
+    private static object DeserializeConfig(string? json, Type configurationType)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json == "{}")
+            return Activator.CreateInstance(configurationType)!;
+        try
+        {
+            return JsonSerializer.Deserialize(json, configurationType,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                ?? Activator.CreateInstance(configurationType)!;
+        }
+        catch
+        {
+            return Activator.CreateInstance(configurationType)!;
         }
     }
 }

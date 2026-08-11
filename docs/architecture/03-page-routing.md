@@ -58,9 +58,9 @@ content type).
      version into `HttpContext.Items["CMS:PageData"]`
    - otherwise, if `DataTokensJson` carries a `ParentPageMasterId`, load *that* page instead (this
      is how widget-owned routes still render inside their host page)
-   - if the controller declares a `ConfigurationType`, deserialize
-     `DataTokens["ConfigurationJson"]` into it and store it as `"CMS:PageConfig"`, falling back to
-     `Activator.CreateInstance(ConfigurationType)` on a parse failure
+   - if the controller declares a `ConfigurationType`, deserialize the loaded page's
+     `ConfigurationJson` column into it and store it as `"CMS:PageConfig"`, falling back to
+     `Activator.CreateInstance(ConfigurationType)` on a parse failure or when no page data is loaded
 7. **Dispatch** — store the matched route as `"CMS:RouteData"` and return
    `{ controller, action }` merged with every extracted route value
 
@@ -131,7 +131,7 @@ The transformer populates these keys for the dispatched controller:
 | Key | Type | Description |
 |-----|------|-------------|
 | `"CMS:PageData"` | `PageDTO` | The owning page record. Absent for code-based routes |
-| `"CMS:PageConfig"` | `object` (typed to `TConfig`) | Deserialized from `DataTokens["ConfigurationJson"]`; falls back to `Activator.CreateInstance(ConfigurationType)` on parse failure |
+| `"CMS:PageConfig"` | `object` (typed to `TConfig`) | Deserialized from the page record's `ConfigurationJson` column; falls back to `Activator.CreateInstance(ConfigurationType)` on parse failure or when no page data is loaded |
 | `"CMS:RouteData"` | `CMSRouteDTO` | The matched route row |
 
 `CMS:PageData` is also read by `ContentZoneViewComponent` to scope content zones to the current
@@ -176,8 +176,10 @@ it to render `Dashboard.cshtml` for the seeded `/admin` page.
 The attribute is a **seeding** input, not a runtime lookup. At startup,
 `CMSExtensions.EnsurePageControllerRegistrationsSeeded` scans the Core, Admin, and entry assemblies
 for `Controller` subclasses carrying `[PageController]` and inserts a
-`PageControllerRegistrationDTO` row for each `ControllerName` not already present. Existing rows
-are never overwritten — after the first run, the database is the source of truth and the admin UI
+`PageControllerRegistrationDTO` row for each `ControllerName` not already present. For existing rows
+the seeder re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` (the only two fields
+derived from code analysis); display metadata (DisplayName, Description, Category, Icon, Order) is
+never overwritten after the first run. The database is the source of truth and the admin UI
 at `/admin/pagetypes` is how you change page-type metadata.
 
 ---
@@ -300,7 +302,7 @@ patterns into segments — a page with no active route does not appear in the tr
 
 | Method | Purpose |
 |---|---|
-| `RegisterContentRoutesAsync(content, routePattern, controllerName, configuration, viewModelId, viewModelMasterId, isPublished, ct)` | Writes the owning content's route with `Defaults = {controller, action}` and `DataTokens = {ConfigurationJson, RouteContentType}` |
+| `RegisterContentRoutesAsync(content, routePattern, controllerName, viewModelId, viewModelMasterId, isPublished, ct)` | Writes the owning content's route with `Defaults = {controller, action}` and `DataTokens = {RouteContentType}` |
 | `UnregisterContentRoutesAsync(contentMasterId, ct)` | Unpublishes all routes owned by that content |
 | `RegisterWidgetRoutesAsync(...)` | Prefixes a widget's pattern with its parent page route, merges the parent's defaults, and injects `DataTokens["ParentPageMasterId"]` |
 | `TryRegisterWidgetRoutesAsync(componentName, contentZoneItemMasterId, parentPageMasterId, isActive, ct)` | Looks the component up among the registered `IRoutableViewComponent`s and registers its routes if it is one |

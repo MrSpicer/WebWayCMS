@@ -24,7 +24,7 @@ route `{**slug}` registered by the CMS inside `EnsureCMS()`. It:
 1. Normalises the request path (lowercase, strips a trailing slash).
 2. Matches the path against the active `CMSRoutes` patterns via `ICMSRouteService.MatchRouteAsync`, ordered by `Order`. First match wins; reserved routes are skipped.
 3. Reads `controller` (required) and `action` (default `"Index"`) from the matched route's `DefaultsJson`, and resolves the controller against `IPageControllerRegistry`.
-4. Loads the owning page (via the route's `OwningContentMasterId`) and deserialises the config carried in the route's `DataTokens["ConfigurationJson"]` into the controller's declared config type, storing both the `PageDTO` and the config object in `HttpContext.Items`.
+4. Loads the owning page (via the route's `OwningContentMasterId`) and deserialises the config from the page record's `ConfigurationJson` column into the controller's declared config type, storing both the `PageDTO` and the config object in `HttpContext.Items`.
 5. Returns `{ controller, action }` plus any route values captured by the pattern — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.
 
 The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The `Index()` action typically renders a Razor view with `PageConfig` as the model, and the view places one or more **ContentZones** for admin-managed widget regions.
@@ -104,7 +104,7 @@ public class MyPageController : PageControllerBase<MyPageConfiguration>
 }
 ```
 
-- `ConfigurationType` in `[PageController]` must match the generic type parameter on `PageControllerBase<T>`. This tells the route transformer which type to deserialise the stored configuration JSON into, and tells the admin UI which properties to render as form fields.
+- `ConfigurationType` in `[PageController]` must match the generic type parameter on `PageControllerBase<T>`. When only one of the two is specified the seeder resolves the effective type from the other; a warning is logged when both are present and differ. The configuration type tells the route transformer which type to deserialise the stored configuration JSON into, and tells the admin UI which properties to render as form fields.
 - Constructor injection works normally — add parameters and they will be resolved from DI.
 
 ### Step 3 — Create the Razor view
@@ -137,8 +137,9 @@ assemblies and seeds a `PageControllerRegistrations` row for each `[PageControll
 seen before. The new page type then appears in the admin page-creation UI under the `Category`
 specified in the attribute.
 
-> Seeding only *inserts*. Once a page type has been seeded, editing its `[PageController]`
-> attribute in code will not update the stored row — change it at `/admin/pagetypes` instead.
+> Seeding adds new page types and re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` on
+> existing rows. Display metadata (DisplayName, Description, Category, Icon, Order) is never
+> overwritten after the initial insert — edit it at `/admin/pagetypes` instead.
 > Set `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` to suppress seeding entirely.
 
 ### Step 5 — Give the page a URL

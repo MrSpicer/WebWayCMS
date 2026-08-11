@@ -111,11 +111,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var savedDto = await _service.GetByIdAsync(dto.ContentId, ct);
         if (savedDto == null) return (false, "Failed to read saved page.");
 
-        var controllerInfo = _controllerRegistry.GetByName(model.ControllerName);
-        var config = controllerInfo?.ConfigurationType != null
-            ? TryDeserializeConfig(model.ConfigurationJson, controllerInfo.ConfigurationType)
-            : null;
-
         var routePattern = await DeriveRoutePatternForSaveAsync(
             model.Slug ?? string.Empty,
             model.ParentRoutePrefix,
@@ -128,7 +123,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 this,
                 routePattern,
                 model.ControllerName,
-                config ?? new { },
                 savedDto.ContentMeta.Id,
                 savedDto.ContentMeta.MasterId,
                 isPublished: true,
@@ -218,6 +212,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var routeAvailable = await _routeService.IsPatternAvailableAsync(routePattern, excludeMasterId, ct);
         if (!routeAvailable)
             return new AdminSaveResult(false, "A page with this slug already exists at this location.", "Slug");
+
+        var validationErrors = _controllerRegistry.ValidateConfiguration(vm.ControllerName, vm.ConfigurationJson);
+        if (validationErrors.Count > 0)
+            return new AdminSaveResult(false, string.Join(" ", validationErrors), "ConfigurationJson");
 
         var result = await SavePageUpsertAsync(vm, ct);
         return result.Success
@@ -357,22 +355,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         try
         {
             return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(defaultsJson);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static object? TryDeserializeConfig(string json, Type configType)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "{}")
-            return null;
-        try
-        {
-            return System.Text.Json.JsonSerializer.Deserialize(json, configType,
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
         catch
         {

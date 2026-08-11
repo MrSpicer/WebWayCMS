@@ -14,6 +14,7 @@ namespace WebWayCMS.Controllers;
     DisplayName = "Generic Admin Page",
     Description = "A simple admin-only page with configurable heading and content",
     Category = "General",
+    ConfigurationType = typeof(GenericPageConfiguration),
     Order = 1)]
 public class GenericAdminPageController : PageControllerBase<GenericPageConfiguration>
 {

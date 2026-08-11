@@ -9,7 +9,7 @@ public class PageControllerInfo
 {
     /// <summary>
     /// Gets or sets the controller name (class name without "Controller" suffix).
-    /// This is the value stored in <see cref="Data.Models.PageDTO.ControllerName"/>.
+    /// This value matches the `controller` key stored in the route's `DefaultsJson`.
     /// </summary>
     public string Name { get; set; } = string.Empty;
 

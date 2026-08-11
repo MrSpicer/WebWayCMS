@@ -23,7 +23,12 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     Order = 90)]
     public string? ViewName { get; set; }
 
-    //todo: what in the AI hallucination is
+    /// <summary>
+    /// Hidden field that carries the serialized page-type configuration JSON.
+    /// Populated by <c>PageUpsert.js</c> on form submit from the dynamic config fields
+    /// rendered inside <c>#configurationArea</c>. The server deserializes this into the
+    /// controller's declared <see cref="WebWayCMS.Attributes.PageControllerAttribute.ConfigurationType"/>.
+    /// </summary>
     [FormProperty(EditorType = EditorType.Hidden, Order = 99)]
     public string ConfigurationJson { get; set; } = "{}";
 }

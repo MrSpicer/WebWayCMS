@@ -56,7 +56,7 @@
             currentConfig = {};
             loadControllerProperties(name);
         } else {
-            configArea.style.display = 'none';
+            configArea.classList.add('is-hidden');
             configFields.innerHTML = '';
             if (configJsonInput) configJsonInput.value = '{}';
             populateViewNames([]);
@@ -69,16 +69,20 @@
             .then(function (data) {
                 populateViewNames(data.availableViews);
                 if (data.properties && data.properties.length > 0) {
-                    configArea.style.display = '';
+                    configArea.classList.remove('is-hidden');
                     renderFields(data.properties);
+                    const heading = document.getElementById('configurationHeading');
+                    if (heading && data.displayName) {
+                        heading.textContent = data.displayName + ' Settings';
+                    }
                 } else {
-                    configArea.style.display = 'none';
+                    configArea.classList.add('is-hidden');
                     configFields.innerHTML = '';
                     if (configJsonInput) configJsonInput.value = '{}';
                 }
             })
             .catch(function () {
-                configArea.style.display = 'none';
+                configArea.classList.add('is-hidden');
                 configFields.innerHTML = '';
                 populateViewNames([]);
             });

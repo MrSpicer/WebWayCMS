@@ -6,7 +6,7 @@ namespace WebWayCMS.Services;
 public interface IRouteRegistrationService
 {
     Task RegisterContentRoutesAsync(
-        IRoutableContent content, string routePattern, string controllerName, object configuration,
+        IRoutableContent content, string routePattern, string controllerName,
         Guid? viewModelId, Guid? viewModelMasterId, bool isPublished, CancellationToken ct = default);
 
     Task UnregisterContentRoutesAsync(Guid contentMasterId, CancellationToken ct = default);
