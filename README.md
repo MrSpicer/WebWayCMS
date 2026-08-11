@@ -53,15 +53,15 @@ consume the whole thing as a NuGet package.
 
 ### How this compares
 
-> **A note on accuracy:** verify against each vendor's current docs before making a decision.
+> verify against each vendor's current docs.
 
 | | WebWayCMS | Sitefinity | Sitecore | Umbraco | Kentico |
 |---|---|---|---|---|---|
 | **License / cost** | Open source, free (Apache-2.0) | Commercial license | Commercial license | OSS core, free; paid Cloud/enterprise tiers | Commercial license |
 | **Database support** | PostgreSQL | SQL Server, Oracle | SQL Server (content); MongoDB used historically for xDB/analytics | SQL Server, SQLite | SQL Server |
-| **ORM / data layer** | Entity Framework Core | Telerik Data Access ORM (formerly OpenAccess ORM) — in-house, no longer independently developed but still core to the product | No default ORM — native item-based Sitecore API; Glass.Mapper is a popular third-party POCO mapper | NPoco (lightweight/micro-ORM); Umbraco has stated plans to migrate gradually to EF Core | Proprietary in-house ORM (object types / Info providers / ObjectQuery API) — explicitly not Entity Framework |
+| **ORM / data layer** | Entity Framework Core | Telerik Data Access ORM (formerly OpenAccess ORM) — in-house | No default ORM — native item-based Sitecore API; Third party| NPoco | Proprietary in-house ORM |
 | **Runtime** | .Net Core (.NET 10) | .NET Framework, with ASP.NET Core support added incrementally (hybrid two-tier architecture) | .NET Framework 4.8 (XP and XM Cloud backend); ASP.NET Core SDK available for headless front-end rendering | ASP.NET Core (.NET 8/9 depending on version) | Hybrid — Xperience 13 admin is ASP.NET Web Forms (.NET Framework), live site .NET Framework or .NET 6; newer "Xperience by Kentico" is ASP.NET Core |
-| **Split Admin Rendering** | Yes, configurable (full admin vs. rendering-only mode) | Not confirmed — no documented single-toggle equivalent found; supports scaled/multi-node deployments | Yes — dedicated CM (Content Management) / CD (Content Delivery) role split is a core, well-documented architecture | No native toggle for self-hosted; Umbraco Heartcore (headless SaaS) separates the authoring backoffice from delivery via API | Yes — Xperience 13 ships the admin app and live site as separate applications sharing one database (Kentico advises against fully isolating them) |
+| **Split Admin Rendering** | Yes, configurable (full admin vs. rendering-only mode) | (Framework) No | Yes  | No | Yes — (split projects) |
 | **Content versioning/history** | Yes | Yes | Yes | Yes | Yes |
 | **Visual/drag-and-drop page builder** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Headless** | Coming Soon!*  | Yes | Yes (native for XM Cloud) | Yes (Content Delivery API) | Yes |
@@ -69,7 +69,7 @@ consume the whole thing as a NuGet package.
 | **Localization / multilingual content** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Personalization / A-B testing** | Coming Soon!* | Yes, first-class | Yes, first-class | Limited, via marketplace packages | Yes, first-class |
 | **Content approval/workflow engine** | Coming Soon!* | Yes, configurable | Yes, configurable | Yes, configurable | Yes, configurable |
-| **AI Ready** | Yes — built-in MCP server, generic across all content types | Not confirmed — no official MCP/agent integration found | Yes — official "Marketer MCP" plus AI copilots/agents (Sitecore Stream) | Yes — official Developer MCP Server (docs.umbraco.com) | Not confirmed — no official MCP/agent integration found |
+| **AI Ready** | Yes — built-in MCP server, generic across all content types | No | Yes | Yes | No |
 
 *maybe
 
