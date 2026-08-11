@@ -83,28 +83,28 @@ if (!app.Environment.IsDevelopment())
     app.UseStatusCodePagesWithReExecute("/Error/{0}");
 }
 
-app.EnsureCMS();   // applies migrations, seeds roles/admin + the default Home page,
-                   // and configures the middleware pipeline + dynamic page routing
+app.UseWebWayCms(); // applies migrations, seeds roles/admin + the default Home page,
+                    // and configures the middleware pipeline + dynamic page routing
 app.Run();
 ```
 
 `AddWebWayCms(IConfiguration)` registers all CMS services and the single EF Core
 `CmsDbContext` (PostgreSQL — CMS tables and ASP.NET Identity tables share one
-database and one `__EFMigrationsHistory`). `EnsureCMS()` applies migrations, runs
+database and one `__EFMigrationsHistory`). `UseWebWayCms()` applies migrations, runs
 the startup seeders, and wires up the request pipeline including routing. No
 further plumbing is required.
 
 ### Rendering-only hosts
 
-`AddWebWayCms` / `EnsureCMS` are aliases for the full-stack pair
-`AddWebWayCmsAdmin` / `EnsureCmsAdmin`. If a host should render published content
+`AddWebWayCms` / `UseWebWayCms` are aliases for the full-stack pair
+`AddWebWayCmsAdmin` / `UseWebWayCmsAdmin`. If a host should render published content
 but never serve the admin UI — a public front-end in front of a separately
 deployed editing instance — call the rendering pair instead:
 
 ```csharp
 builder.Services.AddWebWayCmsRendering(builder.Configuration);
 // ...
-app.EnsureCmsRendering();
+app.UseWebWayCmsRendering();
 ```
 
 That skips the admin controllers, the admin handler registry, role/admin-user

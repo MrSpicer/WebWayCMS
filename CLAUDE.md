@@ -16,10 +16,10 @@
 ## Deployment Modes
 
 - The CMS boots in one of two modes, chosen by which pair of extension methods the host calls:
-  - **Full / admin:** `AddWebWayCms(config)` + `EnsureCMS()` (back-compat aliases for
-    `AddWebWayCmsAdmin` / `EnsureCmsAdmin`). Registers the admin CRUD surface from
+  - **Full / admin:** `AddWebWayCms(config)` + `UseWebWayCms()` (back-compat aliases for
+    `AddWebWayCmsAdmin` / `UseWebWayCmsAdmin`). Registers the admin CRUD surface from
     `WebWayCMS.Admin`, seeds roles + the admin user + the `/admin` page, and maps MCP.
-  - **Rendering-only:** `AddWebWayCmsRendering(config)` + `EnsureCmsRendering()`. Same database,
+  - **Rendering-only:** `AddWebWayCmsRendering(config)` + `UseWebWayCmsRendering()`. Same database,
     same public routing and content zones, but no admin controllers, no `IAdminHandlerRegistry`,
     no role/admin-user seeding, and no MCP endpoint.
 - The split is a DI/pipeline boundary, not an assembly boundary: the umbrella `WebWayCMS` package
@@ -35,7 +35,7 @@
 - EF-backed data services are tested against the EF Core InMemory provider; everything else uses
   NSubstitute mocks. Coverage excludes generated EF migrations, the scaffolded ASP.NET Identity
   Razor Pages, and the database/Identity-seeding + migration orchestration in
-  `WebWayCMS/CMSExtensions.cs` (`[ExcludeFromCodeCoverage]`; validated by running the app).
+  `WebWayCMS/Startup/` and `WebWayCMS/WebWayCmsApplicationBuilderExtensions.cs` (`[ExcludeFromCodeCoverage]`; validated by running the app).
 
 ## MCP Server
 
@@ -44,7 +44,7 @@
   `IAdminCrudHandler` dispatch the admin UI uses, so every current and future content type is covered
   generically — there is no per-type tool code.
 - Wired into the host in `WebWayCMS/ServiceCollectionExtensions.cs` (`AddWebWayCmsMcp`, called from
-  `AddWebWayCmsAdmin`) and mapped in `WebWayCMS/CMSExtensions.cs` (`MapWebWayCmsMcp`, called from the
+  `AddWebWayCmsAdmin`) and mapped in `WebWayCMS/Startup/CmsMiddlewarePipeline.cs` (`MapWebWayCmsMcp`, called from the
   admin pipeline only — a rendering-only host never maps it). Built on the official
   `ModelContextProtocol.AspNetCore` SDK.
 - **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (user-secrets
@@ -82,7 +82,7 @@
   point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
   MCP tools, on every `string` property marked `[FormProperty(EditorType = EditorType.RichText)]`.
   Stored content is therefore safe to render with `@Html.Raw`.
-- **Content-Security-Policy** is emitted by the middleware in `CMSExtensions.cs` and is
+- **Content-Security-Policy** is emitted by the middleware in `WebWayCMS/Startup/CmsMiddlewarePipeline.cs` and is
   **host-configurable via the `"Csp"` config section** (`CspOptions`): `Enabled` (default true),
   `ReportOnly` (default false), and a `Directives` map. The CMS ships secure defaults that keep the
   admin UI working (CKEditor/Bulma/FontAwesome CDNs); a host overrides or adds individual directives,

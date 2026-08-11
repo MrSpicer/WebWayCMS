@@ -7,9 +7,9 @@
 - `WebWayCMS` — `AuthRateLimiting`
 
 **Depends on:** ASP.NET Identity, EF Core (`CmsDbContext`), ASP.NET Core rate limiting
-**Consumed by:** All admin controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in views and admin write checks, `CMSExtensions` for seeding
+**Consumed by:** All admin controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in views and admin write checks, `CmsIdentitySeeder` for seeding
 
-> Roles and the admin user are seeded only by `EnsureCmsAdmin`. A rendering-only host still has
+> Roles and the admin user are seeded only by `UseWebWayCmsAdmin`. A rendering-only host still has
 > Identity wired up (login, cookies, lockout, rate limiting) but seeds no roles and no admin user.
 
 ---
@@ -73,7 +73,7 @@ In production, register a real `IEmailSender` implementation before calling `Add
 
 ## 4. Admin User Seeding
 
-`EnsureCmsRolesAndAdminSeeded` (called by `EnsureCMS`) is idempotent:
+`EnsureCmsRolesAndAdminSeeded` (called by `UseWebWayCms`) is idempotent:
 
 1. Creates roles `Admin`, `Editor`, `User` if they do not exist
 2. Reads `AdminUser:Email` and `AdminUser:Password` from configuration (user-secrets in development)

@@ -83,7 +83,7 @@ everything at runtime reads from the database.
 
 ### Stage 1 — Startup seeding
 
-`CMSExtensions.EnsureWidgetRegistrationsSeeded` scans:
+`CmsWidgetRegistrationSeeder.EnsureWidgetRegistrationsSeeded` scans:
 - `typeof(ContentZoneViewComponent).Assembly` — `WebWayCMS.Presentation`
 - `Assembly.GetEntryAssembly()` — the host Web project
 

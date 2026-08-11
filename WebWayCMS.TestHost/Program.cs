@@ -20,6 +20,6 @@ if (!app.Environment.IsDevelopment())
     app.UseStatusCodePagesWithReExecute("/Error/{0}");
 }
 
-app.EnsureCMS();   // applies migrations, seeds roles/admin + the default Home page,
-                   // and configures the middleware pipeline + dynamic page routing
+app.UseWebWayCms(); // applies migrations, seeds roles/admin + the default Home page,
+                     // and configures the middleware pipeline + dynamic page routing
 app.Run();

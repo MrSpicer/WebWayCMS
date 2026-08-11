@@ -17,7 +17,8 @@ The libraries are distributed as NuGet packages: a host references the single um
 | `WebWayCMS.Presentation` | Public ViewComponents, Views, Identity Areas, wwwroot |
 | `WebWayCMS.Admin` | Admin controllers, admin Razor views, AdminHandlerRegistry, admin wwwroot |
 | `WebWayCMS.Mcp` | MCP server: toolsets, transport wiring, API-key filter |
-| `WebWayCMS` | Bootstrap: ServiceCollectionExtensions, CMSExtensions, SerilogExtensions, CspOptions/CspPolicyBuilder, AuthRateLimiting |
+| `WebWayCMS` | Bootstrap: ServiceCollectionExtensions, WebWayCmsApplicationBuilderExtensions, SerilogExtensions, CspOptions/CspPolicyBuilder, AuthRateLimiting |
+| `WebWayCMS.Startup` | Internal startup classes: CmsMiddlewarePipeline, CmsMigrationRunner, CmsIdentitySeeder, CmsDefaultPageSeeder, CmsWidgetRegistrationSeeder, CmsPageControllerSeeder, CmsRouteSeeder, CmsStartupHelpers, CmsDatabaseRegistration, CmsRenderingRegistration, CmsAdminRegistration, CmsIdentityRegistration, CmsHttpInfrastructureRegistration |
 
 Project references between them (nothing else — dependencies only flow downward):
 
@@ -48,7 +49,8 @@ Project references between them (nothing else — dependencies only flow downwar
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  CMS Bootstrap & Application Startup                                │
-│  ServiceCollectionExtensions · CMSExtensions · SerilogExtensions    │
+│  ServiceCollectionExtensions · WebWayCmsApplicationBuilderExtensions    │
+│  (Startup/) · SerilogExtensions                                        │
 │  Rendering pair · Admin pair · CSP · rate limiting · MCP mapping    │
 └──┬──────────────┬──────────────┬──────────────┬─────────────────────┘
    │              │              │              │ registers / configures
@@ -131,7 +133,7 @@ The business logic tier. `VersionedModel<T>` provides version history assembly. 
 Single `AdminContentController` (in `WebWayCMS.Admin`) handles all content type admin routes by delegating to registered `IAdminCrudHandler` implementations via `AdminHandlerRegistry`. Supports top-level CRUD, child resource CRUD (via `IAdminCrudChildHandler`), version history, drag-reorder, and registry endpoints — all routed without per-type controllers. `ContentZoneApiController` provides a JSON API for inline zone editing. The MCP toolsets dispatch through the same registry.
 
 ### [Area 7: CMS Bootstrap & Application Startup](07-cms-bootstrap.md)
-The composition root. `AddWebWayCmsRendering` registers the single `CmsDbContext`, all services, registries, domain models, the in-house `IMapper`, and MVC application parts; `AddWebWayCmsAdmin` layers the admin surface and MCP on top. `EnsureCmsRendering`/`EnsureCmsAdmin` migrate the database, run the seeders (default pages, widget registrations, page-type registrations, code-based routes, and — admin only — roles and the admin user), then configure the middleware pipeline and map endpoints.
+The composition root. `AddWebWayCmsRendering` registers the single `CmsDbContext`, all services, registries, domain models, the in-house `IMapper`, and MVC application parts; `AddWebWayCmsAdmin` layers the admin surface and MCP on top. `UseWebWayCmsRendering`/`UseWebWayCmsAdmin` migrate the database, run the seeders (default pages, widget registrations, page-type registrations, code-based routes, and — admin only — roles and the admin user), then configure the middleware pipeline and map endpoints.
 
 ### [Area 8: Identity & Authentication](08-identity-auth.md)
 Three roles: `Admin` (full access), `Editor` (content write access on permitted types), `User` (authenticated, no admin access). `UserService` singleton provides `IsUserAdmin`/`IsUserAuthor` for view-layer role checks. Admin user is seeded from `AdminUser:Email`/`AdminUser:Password` secrets at startup. Password policy requires 12+ characters with digits, upper, lower, and non-alphanumeric characters, backed by account lockout, hardened auth cookies, and per-IP rate limiting on the auth endpoints.
@@ -143,7 +145,7 @@ CMS ships pre-compiled Razor views via `CompiledRazorAssemblyPart`. Built-in Vie
 The host project is the top of the dependency graph. It provides five extension surfaces: custom page types (`PageControllerBase<TConfig>` + `[PageController]`), custom widgets (`ViewComponent` + `[ContentZoneComponent]`), custom content types (DTO + entity configuration + `AdminCrudModel<T>`), code-based routes (`[CmsRoute]`), and custom mapping profiles. `ErrorController` handles both exception handler and status code page routes.
 
 ### [Area 11: Deployment Modes](11-deployment-modes.md)
-The CMS boots either full-stack or rendering-only. `AddWebWayCmsAdmin`/`EnsureCmsAdmin` (aliased as `AddWebWayCms`/`EnsureCMS`) register the `WebWayCMS.Admin` surface, seed roles and the admin user, and map MCP. `AddWebWayCmsRendering`/`EnsureCmsRendering` serve published content only. The split is a DI and pipeline boundary, not an assembly boundary.
+The CMS boots either full-stack or rendering-only. `AddWebWayCmsAdmin`/`UseWebWayCmsAdmin` (aliased as `AddWebWayCms`/`UseWebWayCms`) register the `WebWayCMS.Admin` surface, seed roles and the admin user, and map MCP. `AddWebWayCmsRendering`/`UseWebWayCmsRendering` serve published content only. The split is a DI and pipeline boundary, not an assembly boundary.
 
 ### [Area 12: MCP Server](12-mcp-server.md)
 `WebWayCMS.Mcp` exposes the admin feature set to AI agents over the Model Context Protocol. Opt-in via the `"Mcp"` config section, gated by a bearer API key that is the sole security boundary. Its toolsets dispatch generically through `IAdminHandlerRegistry`, so every content type is covered without per-type tool code.

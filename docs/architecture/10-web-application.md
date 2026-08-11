@@ -3,7 +3,7 @@
 **Namespaces:**
 - `MySite` — `Program.cs`, `MappingProfile` (the example host supplies only branding + startup)
 
-**Depends on:** the `WebWayCMS` NuGet package (Bootstrap: `AddWebWayCms`, `EnsureCMS`) and all CMS extension points
+**Depends on:** the `WebWayCMS` NuGet package (Bootstrap: `AddWebWayCms`, `UseWebWayCms`) and all CMS extension points
 **Consumed by:** Nothing (top of the dependency graph)
 
 > The host references the CMS as a NuGet package, not by project reference. Generic
@@ -142,17 +142,17 @@ if (!app.Environment.IsDevelopment())
     app.UseStatusCodePagesWithReExecute("/Error/{0}");   // (7) Status code handler (404, etc.)
 }
 
-app.EnsureCMS();                                         // (8) Migrations, seeding, middleware, route mapping
+app.UseWebWayCms();                                         // (8) Migrations, seeding, middleware, route mapping
 
 app.Run();
 ```
 
 **Step 1** must happen before step 2 so Web-project DI registrations can be overridden or extended by the CMS.
 
-Route registration lives inside `EnsureCMS()` (specifically its `MapCmsEndpoints` step), so the Web project never maps the dynamic CMS route or the conventional fallback itself — it just calls `EnsureCMS()`. The dynamic catch-all `{**slug}` matches everything not already claimed by an attribute-routed controller; if `CMSRouteTransformer` returns `null!`, routing falls through to the conventional `{controller=Home}/{action=Index}/{id?}` route. See [07-cms-bootstrap](07-cms-bootstrap.md) for the registration details and ordering.
+Route registration lives inside `UseWebWayCms()` (specifically its `MapCmsEndpoints` step), so the Web project never maps the dynamic CMS route or the conventional fallback itself — it just calls `UseWebWayCms()`. The dynamic catch-all `{**slug}` matches everything not already claimed by an attribute-routed controller; if `CMSRouteTransformer` returns `null!`, routing falls through to the conventional `{controller=Home}/{action=Index}/{id?}` route. See [07-cms-bootstrap](07-cms-bootstrap.md) for the registration details and ordering.
 
 A host that should render published content but never serve the admin UI calls
-`AddWebWayCmsRendering` / `EnsureCmsRendering` instead — see [Area 11](11-deployment-modes.md).
+`AddWebWayCmsRendering` / `UseWebWayCmsRendering` instead — see [Area 11](11-deployment-modes.md).
 
 ---
 

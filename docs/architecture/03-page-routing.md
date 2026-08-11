@@ -20,7 +20,7 @@ pattern plus JSON blobs for defaults, constraints, and data tokens. A single
 `DynamicRouteValueTransformer` matches the request path against those rows.
 
 All public URL traffic is caught by a catch-all route registered by the CMS inside
-`EnsureCmsAdmin()` / `EnsureCmsRendering()` (their `MapCmsEndpoints` step — see
+`UseWebWayCmsAdmin()` / `UseWebWayCmsRendering()` (their `MapCmsEndpoints` step — see
 [07-cms-bootstrap](07-cms-bootstrap.md)):
 
 ```csharp
@@ -33,7 +33,7 @@ There are three ways a row gets into `CMSRoutes`:
 |---|---|---|
 | A page, from its Slug | `"Page"` | `PageModel` → `IRouteRegistrationService.RegisterContentRoutesAsync` on save |
 | A routable widget placed in a zone | e.g. `"ArticleWidget"` | `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when the zone item is created |
-| A `[CmsRoute]`-decorated controller | `"CodeBased"` | `CMSExtensions.EnsureCodeBasedRoutesSeeded` at startup |
+| A `[CmsRoute]`-decorated controller | `"CodeBased"` | `CmsRouteSeeder.EnsureCodeBasedRoutesSeeded` at startup |
 
 Rows are also editable directly through the admin UI at `/admin/cmsroutes` (the `cmsroutes`
 content type).
@@ -174,7 +174,7 @@ it to render `Dashboard.cshtml` for the seeded `/admin` page.
 | `Order` | `int` | `0` | Sort order within category |
 
 The attribute is a **seeding** input, not a runtime lookup. At startup,
-`CMSExtensions.EnsurePageControllerRegistrationsSeeded` scans the Core, Admin, and entry assemblies
+`CmsPageControllerSeeder.EnsurePageControllerRegistrationsSeeded` scans the Core, Admin, and entry assemblies
 for `Controller` subclasses carrying `[PageController]` and inserts a
 `PageControllerRegistrationDTO` row for each `ControllerName` not already present. For existing rows
 the seeder re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` (the only two fields
@@ -252,7 +252,7 @@ public class CodeTestController : Controller { /* ... */ }
 
 `AllowMultiple = true`, so one controller can declare many routes.
 
-**Registration.** `CMSExtensions.EnsureCodeBasedRoutesSeeded` runs at startup in *both* bootstrap
+**Registration.** `CmsRouteSeeder.EnsureCodeBasedRoutesSeeded` runs at startup in *both* bootstrap
 modes (skip with `WEBWAYCMS_SKIP_CODEBASEDROUTES=true`). It scans the Core, Admin, Presentation,
 and entry assemblies for non-abstract `Controller` types carrying the attribute, normalizes each
 pattern, and inserts a row with `OwningContentType = "CodeBased"` and

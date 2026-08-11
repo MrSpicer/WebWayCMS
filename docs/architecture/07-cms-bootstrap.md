@@ -1,7 +1,8 @@
 # Area 7: CMS Bootstrap & Application Startup
 
 **Namespaces:**
-- `WebWayCMS` — `ServiceCollectionExtensions`, `CMSExtensions`, `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`
+- `WebWayCMS` — `ServiceCollectionExtensions`, `WebWayCmsApplicationBuilderExtensions`, `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`
+- `WebWayCMS.Startup` — `CmsMiddlewarePipeline`, `CmsMigrationRunner`, `CmsIdentitySeeder`, `CmsDefaultPageSeeder`, `CmsWidgetRegistrationSeeder`, `CmsPageControllerSeeder`, `CmsRouteSeeder`, `CmsStartupHelpers`, `CmsDatabaseRegistration`, `CmsRenderingRegistration`, `CmsAdminRegistration`, `CmsIdentityRegistration`, `CmsHttpInfrastructureRegistration`
 - `WebWayCMS.Logging` — `SerilogExtensions`
 
 **Depends on:** All 9 other CMS libraries (composition root)
@@ -12,13 +13,13 @@
 ## 1. Entry Points
 
 The CMS exposes two bootstrap pairs plus back-compat aliases. A host calls one `Add*` in
-`Program.cs` before `builder.Build()`, and the matching `Ensure*` after it.
+`Program.cs` before `builder.Build()`, and the matching `Use*` after it.
 
 | DI method | Pipeline method | Mode |
 |---|---|---|
-| `AddWebWayCmsRendering(services, config)` | `EnsureCmsRendering(app)` | Render published content only |
-| `AddWebWayCmsAdmin(services, config)` | `EnsureCmsAdmin(app)` | Full stack: rendering + admin UI + MCP |
-| `AddWebWayCms(services, config)` | `EnsureCMS(app)` | Aliases that delegate to the admin pair |
+| `AddWebWayCmsRendering(services, config)` | `UseWebWayCmsRendering(app)` | Render published content only |
+| `AddWebWayCmsAdmin(services, config)` | `UseWebWayCmsAdmin(app)` | Full stack: rendering + admin UI + MCP |
+| `AddWebWayCms(services, config)` | `UseWebWayCms(app)` | Aliases that delegate to the admin pair |
 
 There is also a parameterless `AddWebWayCms(services)` overload used by tests: it registers the core
 types, authorization, rate limiting, and the admin types, but **skips the database, `CspOptions`
@@ -41,7 +42,7 @@ Runs in this order:
 - Trusts `X-Forwarded-For` and `X-Forwarded-Proto`, clearing known networks/proxies for Docker
   internal networking
 
-**Core types** (`MapRenderingTypes` → `AddRenderingCoreTypes`):
+**Core types** (`AddRenderingCoreTypes`):
 
 | Registration | Lifetime |
 |---|---|
@@ -106,10 +107,10 @@ It calls `AddWebWayCmsRendering` first, then:
 
 ---
 
-## 4. `Ensure*` — Startup Task Sequence
+## 4. `UseWebWayCms*` — Startup Task Sequence
 
 ```
-EnsureCmsRendering                    EnsureCmsAdmin
+UseWebWayCmsRendering                 UseWebWayCmsAdmin
 ─────────────────────                 ─────────────────────
 1. ApplyCmsPendingMigrations          1. ApplyCmsPendingMigrations
                                       2. EnsureCmsRolesAndAdminSeeded
@@ -121,9 +122,9 @@ EnsureCmsRendering                    EnsureCmsAdmin
 6. ConfigureRenderingPipeline         7. ConfigureAdminPipeline
 ```
 
-`EnsureCMS(app)` simply calls `EnsureCmsAdmin(app)`.
+`UseWebWayCms(app)` simply calls `UseWebWayCmsAdmin(app)`.
 
-Every step is idempotent — calling `Ensure*` on a fully-initialized database is safe and fast. The
+Every step is idempotent — calling `UseWebWayCms*` on a fully-initialized database is safe and fast. The
 three registration seeders **only insert**: a widget, page type, or route pattern that already
 exists is skipped and never updated, so after the first run the database is authoritative.
 
@@ -241,7 +242,7 @@ Order matters: attribute-routed controllers are mapped **before** the dynamic ca
 `AdminContentController`'s `admin/{contentType}` out-ranks it. If `CMSRouteTransformer` returns
 `null!`, routing falls through to the conventional route and then to a 404. Keeping both
 registrations inside the CMS makes the package self-contained — the Web project only calls
-`EnsureCMS()`.
+`UseWebWayCms()`.
 
 ---
 
@@ -270,10 +271,10 @@ if (!app.Environment.IsDevelopment())
     app.UseStatusCodePagesWithReExecute("/Error/{0}");
 }
 
-app.EnsureCMS();  // Migrations, seeding, middleware, route mapping
+app.UseWebWayCms();  // Migrations, seeding, middleware, route mapping
 
 // Web-project-specific route mappings (optional) go here. The CMS dynamic route
-// and the conventional fallback route are already registered inside EnsureCMS().
+// and the conventional fallback route are already registered inside UseWebWayCms().
 
 app.Run();
 ```

@@ -165,7 +165,7 @@ dotnet test tests/WebWayCMS.Core.Tests/WebWayCMS.Core.Tests.csproj # run a singl
 ```
 
 Generated EF migrations, the scaffolded ASP.NET Identity Razor Pages, and the
-database/seeding orchestration in `CMSExtensions` (migrations, role seeding, widget/page-controller/
+database/seeding orchestration in `WebWayCmsApplicationBuilderExtensions` (migrations, role seeding, widget/page-controller/
 code-based-route assembly scanning and registration) are excluded from coverage (validated by
 running the app).
 

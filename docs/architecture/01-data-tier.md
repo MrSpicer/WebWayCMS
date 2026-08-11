@@ -390,7 +390,7 @@ order by Category → Order → DisplayName.
    ```
    `ContentService<T>` takes a plain `DbContext` and reaches entities via `Set<T>()`.
 
-Migrations are applied automatically at startup via `app.EnsureCMS()` (or `EnsureCmsRendering()`).
+Migrations are applied automatically at startup via `app.UseWebWayCms()` (or `UseWebWayCmsRendering()`).
 
 ---
 

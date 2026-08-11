@@ -1,7 +1,7 @@
 # Area 13: Security
 
 **Namespaces:**
-- `WebWayCMS` — `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`, the security-header middleware in `CMSExtensions`
+- `WebWayCMS` — `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`, the security-header middleware in `CmsMiddlewarePipeline`
 - `WebWayCMS.Security` — `RichTextSanitizer`
 - `WebWayCMS.Mcp` — `McpApiKeyEndpointFilter` (covered in [Area 12](12-mcp-server.md))
 
@@ -48,7 +48,7 @@ covered by construction** — including content types added later.
 
 ## 2. Content-Security-Policy
 
-The CSP header is emitted by the shared middleware in `CMSExtensions.ConfigureSharedMiddleware` and
+The CSP header is emitted by the shared middleware in `CmsMiddlewarePipeline.ConfigureSharedMiddleware` and
 is host-configurable through the `"Csp"` section.
 
 ### `CspOptions`

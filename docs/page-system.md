@@ -19,7 +19,7 @@ Routing is database-backed. A page's URL is a row in the `CMSRoutes` table, deri
 **Slug** and written whenever the page is saved.
 
 On every request, `CMSRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all
-route `{**slug}` registered by the CMS inside `EnsureCMS()`. It:
+route `{**slug}` registered by the CMS inside `UseWebWayCms()`. It:
 
 1. Normalises the request path (lowercase, strips a trailing slash).
 2. Matches the path against the active `CMSRoutes` patterns via `ICMSRouteService.MatchRouteAsync`, ordered by `Order`. First match wins; reserved routes are skipped.

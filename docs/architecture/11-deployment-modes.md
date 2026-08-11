@@ -1,7 +1,7 @@
 # Area 11: Deployment Modes
 
 **Namespaces:**
-- `WebWayCMS` — `ServiceCollectionExtensions`, `CMSExtensions`
+- `WebWayCMS` — `ServiceCollectionExtensions`, `WebWayCmsApplicationBuilderExtensions`
 - `WebWayCMS.Admin` — admin controllers, admin Razor views, `AdminHandlerRegistry`, admin `wwwroot`
 
 **Depends on:** every other area (this is a bootstrap concern)
@@ -15,9 +15,9 @@ A host chooses how much of the CMS to switch on by picking a pair of extension m
 
 | Mode | DI | Startup | What it serves |
 |---|---|---|---|
-| **Full / admin** | `AddWebWayCmsAdmin(config)` | `EnsureCmsAdmin()` | Public site **and** `/admin`, plus MCP |
-| **Rendering-only** | `AddWebWayCmsRendering(config)` | `EnsureCmsRendering()` | Public site only |
-| *(alias)* | `AddWebWayCms(config)` | `EnsureCMS()` | Delegates to the admin pair |
+| **Full / admin** | `AddWebWayCmsAdmin(config)` | `UseWebWayCmsAdmin()` | Public site **and** `/admin`, plus MCP |
+| **Rendering-only** | `AddWebWayCmsRendering(config)` | `UseWebWayCmsRendering()` | Public site only |
+| *(alias)* | `AddWebWayCms(config)` | `UseWebWayCms()` | Delegates to the admin pair |
 
 The typical reason to run rendering-only is to put a public front-end in front of the same database
 while the editing instance lives somewhere less exposed — no admin routes, no admin assets, and no
@@ -52,7 +52,7 @@ simply never exposed as admin handlers, and no controller can reach them.
 ## 3. What Each Mode Does at Startup
 
 ```
-EnsureCmsRendering                     EnsureCmsAdmin
+UseWebWayCmsRendering                  UseWebWayCmsAdmin
 ─────────────────────                  ─────────────────────
 ApplyCmsPendingMigrations              ApplyCmsPendingMigrations
                                        EnsureCmsRolesAndAdminSeeded
@@ -135,7 +135,7 @@ the flag and skips the admin page when it is `false`.
 ## 6. Choosing a Mode
 
 Use **full/admin** unless you have a specific reason not to — it is the default and the alias
-`AddWebWayCms`/`EnsureCMS` points at it.
+`AddWebWayCms`/`UseWebWayCms` points at it.
 
 Use **rendering-only** when the host is internet-facing and editing happens elsewhere. Pair it with
 the skip environment variables from §3 so the public replicas do not race each other to migrate and
@@ -145,7 +145,7 @@ seed.
 // Public front-end
 builder.Services.AddWebWayCmsRendering(builder.Configuration);
 // ...
-app.EnsureCmsRendering();
+app.UseWebWayCmsRendering();
 ```
 
 ---

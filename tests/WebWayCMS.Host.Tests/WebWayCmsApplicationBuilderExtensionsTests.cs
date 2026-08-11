@@ -11,13 +11,13 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Host.Tests;
 
 /// <summary>
-/// Covers the public EnsureCMS / EnsureCmsRendering / EnsureCmsAdmin entry points and the
+/// Covers the public UseWebWayCms / UseWebWayCmsRendering / UseWebWayCmsAdmin entry points and the
 /// middleware pipeline wiring. Migration and Identity/page seeding are excluded from coverage
 /// (they require a live database) and are skipped here via the WEBWAYCMS_SKIP_* switches so
 /// the pipeline can be exercised in isolation.
 /// </summary>
 [TestFixture]
-public class CMSExtensionsTests
+public class WebWayCmsApplicationBuilderExtensionsTests
 {
     private readonly string[] _skipVars = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE" };
     private readonly string[] _skipVarsExtended = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE",
@@ -57,41 +57,41 @@ public class CMSExtensionsTests
     }
 
     [Test]
-    public void EnsureCMS_WiresMiddlewarePipeline_AndReturnsApp()
+    public void UseWebWayCms_WiresMiddlewarePipeline_AndReturnsApp()
     {
         using var app = BuildApp();
 
-        var result = app.EnsureCMS();
+        var result = app.UseWebWayCms();
 
         Assert.That(result, Is.SameAs(app));
     }
 
     [Test]
-    public void EnsureCMS_CanBeInvokedWithThrowOnErrorFalse()
+    public void UseWebWayCms_CanBeInvokedWithThrowOnErrorFalse()
     {
         using var app = BuildApp();
 
-        Assert.That(() => app.EnsureCMS(throwOnError: false), Throws.Nothing);
+        Assert.That(() => app.UseWebWayCms(throwOnError: false), Throws.Nothing);
     }
 
     [Test]
-    public void EnsureCmsRendering_WiresMiddlewarePipeline_AndReturnsApp()
+    public void UseWebWayCmsRendering_WiresMiddlewarePipeline_AndReturnsApp()
     {
         SetUpExtendedSkips();
         using var app = BuildRenderingApp();
 
-        var result = app.EnsureCmsRendering();
+        var result = app.UseWebWayCmsRendering();
 
         Assert.That(result, Is.SameAs(app));
     }
 
     [Test]
-    public void EnsureCmsRendering_CanBeInvokedWithThrowOnErrorFalse()
+    public void UseWebWayCmsRendering_CanBeInvokedWithThrowOnErrorFalse()
     {
         SetUpExtendedSkips();
         using var app = BuildRenderingApp();
 
-        Assert.That(() => app.EnsureCmsRendering(throwOnError: false), Throws.Nothing);
+        Assert.That(() => app.UseWebWayCmsRendering(throwOnError: false), Throws.Nothing);
     }
 
     [Test]
@@ -110,7 +110,7 @@ public class CMSExtensionsTests
 
         var app = builder.Build();
 
-        Assert.That(() => app.EnsureCmsRendering(throwOnError: false), Throws.Nothing);
+        Assert.That(() => app.UseWebWayCmsRendering(throwOnError: false), Throws.Nothing);
     }
 
     [Test]
@@ -129,7 +129,7 @@ public class CMSExtensionsTests
 
         var app = builder.Build();
 
-        Assert.That(() => app.EnsureCMS(throwOnError: false), Throws.Nothing);
+        Assert.That(() => app.UseWebWayCms(throwOnError: false), Throws.Nothing);
     }
 
     private static WebApplication BuildRenderingApp()
@@ -145,74 +145,4 @@ public class CMSExtensionsTests
         builder.Services.AddWebWayCmsRendering(config);
         return builder.Build();
     }
-
-    [TestCase("/test", "/test")]
-    [TestCase("/", "/")]
-    [TestCase("", "/")]
-    [TestCase("  ", "/")]
-    [TestCase("/test/", "/test")]
-    [TestCase("test", "/test")]
-    [TestCase("TEST", "/test")]
-    public void NormalizeRoutePattern_NormalizesCorrectly(string input, string expected)
-    {
-        Assert.That(CMSExtensions.NormalizeRoutePattern(input), Is.EqualTo(expected));
-    }
-
-    [Test]
-    public void GetWidgetComponentName_StripsViewComponentSuffix()
-    {
-        Assert.That(CMSExtensions.GetWidgetComponentName(typeof(WidgetTestViewComponent)), Is.EqualTo("WidgetTest"));
-    }
-
-    [Test]
-    public void GetWidgetComponentName_NoSuffix_ReturnsFullName()
-    {
-        Assert.That(CMSExtensions.GetWidgetComponentName(typeof(PlainComponent)), Is.EqualTo("PlainComponent"));
-    }
-
-    [Test]
-    public void GetControllerName_StripsControllerSuffix()
-    {
-        Assert.That(CMSExtensions.GetControllerName(typeof(TestController)), Is.EqualTo("Test"));
-    }
-
-    [Test]
-    public void GetControllerName_NoSuffix_ReturnsFullName()
-    {
-        Assert.That(CMSExtensions.GetControllerName(typeof(PlainService)), Is.EqualTo("PlainService"));
-    }
-
-    [Test]
-    public void IsTransientDbStartupException_SocketExceptionInner_ReturnsTrue()
-    {
-        var ex = new Exception("outer", new System.Net.Sockets.SocketException());
-        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.True);
-    }
-
-    [Test]
-    public void IsTransientDbStartupException_DeepSocketExceptionInner_ReturnsTrue()
-    {
-        var ex = new Exception("outer", new InvalidOperationException("mid",
-            new System.Net.Sockets.SocketException()));
-        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.True);
-    }
-
-    [Test]
-    public void IsTransientDbStartupException_NoSocketException_ReturnsFalse()
-    {
-        var ex = new Exception("outer", new InvalidOperationException("inner"));
-        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.False);
-    }
-
-    [Test]
-    public void IsTransientDbStartupException_NoInnerException_ReturnsFalse()
-    {
-        var ex = new Exception("just a message");
-        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.False);
-    }
 }
-
-public class WidgetTestViewComponent { }
-public class PlainComponent { }
-public class TestController { }
-public class PlainService { }
