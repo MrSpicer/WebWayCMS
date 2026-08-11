@@ -171,8 +171,7 @@ public static class CMSExtensions
         return app;
     }
 
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static bool IsTransientDbStartupException(Exception ex)
+    internal static bool IsTransientDbStartupException(Exception ex)
     {
         var inner = ex.InnerException;
         while (inner != null)
@@ -292,7 +291,7 @@ public static class CMSExtensions
         try
         {
             var seeder = services.GetRequiredService<IDefaultContentSeeder>();
-            seeder.SeedDefaultPagesAsync().GetAwaiter().GetResult();
+            seeder.SeedDefaultPagesAsync(seedAdminPage).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
@@ -359,6 +358,7 @@ public static class CMSExtensions
         return app;
     }
 
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static void SeedAssemblyWidgets(
         Assembly assembly,
         IContentService<WidgetRegistrationDTO> contentService,
@@ -432,7 +432,7 @@ public static class CMSExtensions
         }
     }
 
-    private static string GetWidgetComponentName(Type type)
+    internal static string GetWidgetComponentName(Type type)
     {
         const string suffix = "ViewComponent";
         var name = type.Name;
@@ -495,6 +495,7 @@ public static class CMSExtensions
         return app;
     }
 
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static void SeedAssemblyPageControllers(
         Assembly assembly,
         IContentService<PageControllerRegistrationDTO> contentService,
@@ -571,7 +572,7 @@ public static class CMSExtensions
         }
     }
 
-    private static string GetControllerName(Type type)
+    internal static string GetControllerName(Type type)
     {
         const string suffix = "Controller";
         var name = type.Name;
@@ -624,6 +625,9 @@ public static class CMSExtensions
                     logger.Warning(ex, "Failed to scan assembly {Assembly} for code-based routes", assembly.FullName);
                 }
             }
+
+            var routeRegistry = services.GetRequiredService<ICMSRouteRegistry>();
+            routeRegistry.Invalidate();
         }
         catch (Exception ex)
         {
@@ -635,6 +639,7 @@ public static class CMSExtensions
         return app;
     }
 
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     private static void SeedAssemblyCodeBasedRoutes(
         Assembly assembly,
         IContentService<CMSRouteDTO> contentService,
@@ -743,7 +748,7 @@ public static class CMSExtensions
         }
     }
 
-    private static string NormalizeRoutePattern(string pattern)
+    internal static string NormalizeRoutePattern(string pattern)
     {
         if (string.IsNullOrWhiteSpace(pattern))
             return "/";

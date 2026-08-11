@@ -267,7 +267,13 @@
                                                 <td>@p.ContentMeta.ModificationDate.ToString("MMM d, yyyy")</td>
                                                 <td>
                                                     <div class="buttons are-small">
-                                                        <a href="https://localhost:7046/" target="_blank" class="button is-info is-light">View</a>
+                                                        @{
+                                                            var route = activeRoutes.FirstOrDefault(r => r.OwningContentType == "Page" && r.OwningContentMasterId == p.ContentMeta.MasterId);
+                                                        }
+                                                        @if (route != null)
+                                                        {
+                                                            <a href="@route.Pattern" target="_blank" rel="noopener" class="button is-info is-light">View</a>
+                                                        }
                                                         <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@p.ContentMeta.Id" class="button is-light">Edit</a>
                                                     </div>
                                                 </td>

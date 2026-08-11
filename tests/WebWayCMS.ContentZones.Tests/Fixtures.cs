@@ -49,36 +49,3 @@ public sealed class NoDefaultCtorConfig
 
     public NoDefaultCtorConfig(string value) => Value = value;
 }
-
-[ContentZoneComponent("Custom Display", typeof(SampleConfig), Category = "Content", Order = 2, Description = "d", IconClass = "fa")]
-public class ConfiguredViewComponent : ViewComponent
-{
-    public IViewComponentResult Invoke() => View();
-}
-
-// Same category as ConfiguredViewComponent but lower Order — exercises in-category ordering.
-[ContentZoneComponent(DisplayName = "", Category = "Content", Order = 1)]
-public class AlphaViewComponent : ViewComponent
-{
-    public IViewComponentResult Invoke() => View();
-}
-
-// A different category to exercise category sorting and the main-list category comparison.
-[ContentZoneComponent(Category = "Layout")]
-public class Banner : ViewComponent
-{
-    public IViewComponentResult Invoke() => View();
-}
-
-// Component whose configuration type cannot be instantiated by Activator.
-[ContentZoneComponent("No Ctor", typeof(NoDefaultCtorConfig), Category = "Content")]
-public class BrokenConfigViewComponent : ViewComponent
-{
-    public IViewComponentResult Invoke() => View();
-}
-
-// Not decorated — must be ignored by the scanner.
-public class IgnoredViewComponent : ViewComponent
-{
-    public IViewComponentResult Invoke() => View();
-}

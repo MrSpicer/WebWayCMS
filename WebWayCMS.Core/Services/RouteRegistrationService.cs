@@ -139,7 +139,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         parentRoute = parentRoute.TrimEnd('/');
         if (!widgetPattern.StartsWith('/'))
             widgetPattern = "/" + widgetPattern;
-        var fullPattern = parentRoute == "/" ? widgetPattern : parentRoute + widgetPattern;
+        var fullPattern = parentRoute.Length == 0 ? widgetPattern : parentRoute + widgetPattern;
         return NormalizePattern(fullPattern);
     }
 

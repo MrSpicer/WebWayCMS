@@ -15,6 +15,16 @@ using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
+public struct WidgetThrowingStruct
+{
+    public WidgetThrowingStruct() => throw new InvalidOperationException("Test exception for coverage");
+}
+
+public class WidgetConfigWithThrowingDefault
+{
+    public WidgetThrowingStruct Prop { get; set; }
+}
+
 [TestFixture]
 public class WidgetRegistrationModelTests
 {
@@ -268,6 +278,30 @@ public class WidgetRegistrationModelTests
         {
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Does.Contain("could not be resolved"));
+        });
+    }
+
+    [Test]
+    public async Task SaveUpsertCoreAsync_ThrowingDefaultValue_ReturnsError()
+    {
+        _service.CreateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Dto(componentName: "Throwing"));
+
+        var vm = new WidgetRegistrationUpsertViewModel
+        {
+            Title = "Throwing Widget",
+            ComponentName = "Throwing",
+            DisplayName = "Throwing Widget",
+            Category = "Content",
+            ConfigurationTypeName = typeof(WidgetConfigWithThrowingDefault).FullName,
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("Failed to build properties"));
         });
     }
 

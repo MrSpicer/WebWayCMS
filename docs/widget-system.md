@@ -15,7 +15,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 
 - A **Content Zone** is a named slot in a Razor view. Each zone stores an ordered list of widget instances in the database.
 - The `ContentZone` view component renders all widgets assigned to a zone path. When an admin is viewing the page it also renders an inline "Add Widget" button and edit controls.
-- **Widgets** are ViewComponent classes decorated with `[ContentZoneComponent]`. They are discovered automatically at startup by `ContentZoneComponentRegistry`, which scans both the CMS assembly and the entry assembly (`MySite`).
+- **Widgets** are ViewComponent classes decorated with `[ContentZoneComponent]`. At startup the CMS reflects over the `WebWayCMS.Presentation` assembly and the entry assembly (`MySite`) and **seeds a row per widget** into the `WidgetRegistrations` table. From then on the runtime registry, `IWidgetRegistry`, serves widget metadata from the database — so widgets can be renamed, re-categorised, or deactivated from the admin UI at `/admin/widgets` with no code change.
 - Each widget can declare a typed **configuration class**. Properties on that class decorated with `[FormProperty]` are rendered as form fields in the admin "Add Widget" modal.
 
 ---
@@ -25,8 +25,10 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 | Class | File | Role |
 |---|---|---|
 | `ContentZoneViewComponent` | `WebWayCMS.Presentation/ViewComponents/ContentZoneViewComponent.cs` | Renders a zone by name; switches to edit view for admins |
-| `ContentZoneComponentRegistry` | `WebWayCMS.ContentZones/ContentZones/ContentZoneComponentRegistry.cs` | Scans assemblies and caches widget metadata at startup |
-| `[ContentZoneComponent]` | `WebWayCMS.Forms/Attributes/ContentZoneComponentAttribute.cs` | Marks a ViewComponent as a widget available in the admin UI |
+| `IWidgetRegistry` / `WidgetRegistry` | `WebWayCMS.ContentZones/ContentZones/WidgetRegistry.cs` | Runtime widget metadata, loaded from the database with a 5-minute cache |
+| `IWidgetRegistrationService` | `WebWayCMS.Data/Data/Services/WidgetRegistrationService.cs` | Queries the `WidgetRegistrations` table |
+| `WidgetRegistrationModel` | `WebWayCMS.Core/Models/WidgetRegistration/WidgetRegistrationModel.cs` | The `widgets` admin content type |
+| `[ContentZoneComponent]` | `WebWayCMS.Forms/Attributes/ContentZoneComponentAttribute.cs` | Marks a ViewComponent as a widget; read once at startup to seed its registration row |
 | `[FormProperty]` / `EditorType` | `WebWayCMS.Forms/Attributes/FormPropertyAttribute.cs` | Drives config form field generation in the admin UI |
 
 ---
@@ -90,6 +92,7 @@ Available `EditorType` values:
 | `Url` | URL input with validation |
 | `Email` | Email input with validation |
 | `ViewPicker` | Dropdown of available views for the component |
+| `PageControllerPicker` | Dropdown populated client-side from the registered page types |
 | `Hidden` | Hidden field (included in config, not shown) |
 
 ### Step 2 — Create the ViewComponent
@@ -131,6 +134,10 @@ public class MyWidgetViewComponent : ViewComponent
 | `IconClass` | Font Awesome class for the admin UI icon (e.g. `"fa-star"`) |
 | `Order` | Sort order within the category; lower values appear first |
 
+These values are the **seed defaults** written into the widget's registration row the first time the
+CMS starts. After that, the row is authoritative — edit the widget at `/admin/widgets` rather than
+changing the attribute.
+
 ### Step 3 — Create the Razor view
 
 **`MySite/Views/Shared/Components/MyWidget/Default.cshtml`**
@@ -147,7 +154,17 @@ Additional named views (e.g. `Compact.cshtml`) can be added in the same folder a
 
 ### Step 4 — No registration required
 
-`ContentZoneComponentRegistry` scans `Assembly.GetEntryAssembly()` (i.e. `MySite`) automatically at startup. No changes to `ServiceCollectionExtensions.cs` or `Program.cs` are needed.
+At startup the CMS scans `Assembly.GetEntryAssembly()` (i.e. `MySite`) and seeds a
+`WidgetRegistrations` row for your widget. No changes to `ServiceCollectionExtensions.cs` or
+`Program.cs` are needed, and the widget appears in the "Add Widget" dropdown on the next request.
+
+Two consequences worth knowing:
+
+- **Seeding only inserts.** If you later change the attribute's `DisplayName`, `Category`, `Order`,
+  or `ConfigurationType`, the stored row is *not* updated. Edit the widget at `/admin/widgets`, or
+  delete its row and restart to re-seed. `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` suppresses seeding.
+- **Widgets can be turned off without a deploy.** Clearing `IsActive` on the registration row
+  removes the widget from the picker while leaving existing placements intact.
 
 ---
 

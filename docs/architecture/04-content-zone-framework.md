@@ -1,10 +1,12 @@
 # Area 4: Content Zone Component Framework
 
 **Namespaces:**
-- `WebWayCMS.ContentZones` — `ContentZoneComponentRegistry`, `IContentZoneComponentRegistry`, `ContentZoneComponentInfo`
+- `WebWayCMS.ContentZones` — `WidgetRegistry`, `IWidgetRegistry`, `WidgetRegistrationInfo`
+- `WebWayCMS.Data.Services` — `IWidgetRegistrationService`, `WidgetRegistrationService`
 - `WebWayCMS.Attributes` — `[ContentZoneComponent]`
 - `WebWayCMS.ViewComponents` — `ContentZoneViewComponent`
 - `WebWayCMS.Models.ContentZone` — `ContentZoneViewModel`, `ContentZoneObject`, `IContentZoneObject`, `ContentZoneUpsertViewModel`
+- `WebWayCMS.Models.WidgetRegistration` — `WidgetRegistrationModel` (the `widgets` admin content type)
 
 **Depends on:** Data Tier (`IContentZoneService`), Form Generation Metadata (`FormPropertyBuilder`), Page Routing Subsystem (`CMS:PageData` from `HttpContext`)
 **Consumed by:** Admin CRUD Framework (zone controller + inline API), any Razor view invoking `ContentZone` component
@@ -45,7 +47,7 @@ await Component.InvokeAsync("ContentZone", new
 
 **Read mode** (default): Renders each widget ViewComponent in order. Returns `Content(string.Empty)` for empty zones.
 
-**Edit mode**: Renders the `Edit` view instead of the default view. Populates `ViewData["ComponentsByCategory"]` with the registry's component list for the add-widget dropdown.
+**Edit mode**: Renders the `Edit` view instead of the default view. Populates `ViewData["ComponentsByCategory"]` with `IWidgetRegistry.GetComponentsByCategory()` for the add-widget dropdown.
 
 ---
 
@@ -74,28 +76,63 @@ This means zones do not need to be seeded or pre-created. They appear in the dat
 
 ---
 
-## 5. `ContentZoneComponentRegistry`
+## 5. The Widget Registry — Seed Once, Then Read From the Database
 
-`ContentZoneComponentRegistry` is a **singleton**. It scans:
-- `typeof(ContentZoneComponentRegistry).Assembly` — the CMS library
+Widget discovery happens in two distinct stages. Reflection runs **only at startup, as a seeder**;
+everything at runtime reads from the database.
+
+### Stage 1 — Startup seeding
+
+`CMSExtensions.EnsureWidgetRegistrationsSeeded` scans:
+- `typeof(ContentZoneViewComponent).Assembly` — `WebWayCMS.Presentation`
 - `Assembly.GetEntryAssembly()` — the host Web project
 
-Any non-abstract class inheriting from `ViewComponent` with `[ContentZoneComponent]` is registered. The component name is derived by stripping the `"ViewComponent"` suffix from the class name.
+Any non-abstract class inheriting from `ViewComponent` and carrying `[ContentZoneComponent]` is
+turned into a `WidgetRegistrationDTO` row in the `WidgetRegistrations` table. The component name is
+derived by stripping the `"ViewComponent"` suffix from the class name; the attribute's
+`ConfigurationType` is reflected through `FormPropertyBuilder.BuildPropertyInfos` and stored as
+`PropertyDefinitionsJson`.
+
+Seeding **only inserts**. A component name that already has a row is skipped, and the existing row
+is never updated — so editing a `[ContentZoneComponent]` attribute in code has no effect on an
+already-seeded widget. Change it at `/admin/widgets` instead. Set
+`WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` to suppress seeding.
+
+Because the registration is a row rather than a reflection result, widgets can be renamed,
+re-categorised, re-ordered, or deactivated (`IsActive = false`) by an admin with no code change.
+
+### Stage 2 — Runtime lookup: `IWidgetRegistry`
+
+`WidgetRegistry` is a **singleton** registered as `IWidgetRegistry`. It resolves
+`IWidgetRegistrationService` through an `IServiceScopeFactory`, calls `GetActiveAsync()`, and
+caches the result for **5 minutes**. `Invalidate()` drops the cache immediately — every mutation in
+`WidgetRegistrationModel` calls it, so admin edits take effect at once.
+
+`GetActiveAsync` returns rows where `IsActive && IsPublished && !IsDeleted`, latest version per
+`MasterId`, ordered by Category → Order → DisplayName.
 
 **Interface:**
 ```csharp
-IReadOnlyList<ContentZoneComponentInfo> GetAllComponents()
-ContentZoneComponentInfo? GetByName(string componentName)
+IReadOnlyList<WidgetRegistrationInfo> GetAllComponents()
+WidgetRegistrationInfo? GetByName(string componentName)
 IReadOnlyList<string> GetCategories()
-IReadOnlyList<ContentZoneComponentInfo> GetByCategory(string category)
-IReadOnlyDictionary<string, IReadOnlyList<ContentZoneComponentInfo>> GetComponentsByCategory()
+IReadOnlyList<WidgetRegistrationInfo> GetByCategory(string category)
+IReadOnlyDictionary<string, IReadOnlyList<WidgetRegistrationInfo>> GetComponentsByCategory()
 object? CreateDefaultConfiguration(string componentName)
 IReadOnlyList<string> ValidateConfiguration(string componentName, object configuration)
+void Invalidate()
 ```
 
-Components are sorted within each category by `Order` ascending, then `DisplayName` alphabetically.
+`WidgetRegistrationInfo` carries `Name`, `DisplayName`, `Description`, `Category`, `IconClass`,
+`Order`, `ConfigurationTypeName`, `Properties` (`List<FormPropertyInfo>`), and the derived
+`HasConfiguration`. The configuration CLR type is resolved from `ConfigurationTypeName` at load
+time by sweeping the loaded assemblies.
 
-`ValidateConfiguration` checks required fields, numeric range, max length, and regex pattern against the resolved `FormPropertyInfo` list. It accepts either a typed config object or a JSON string.
+`ValidateConfiguration` checks required fields, numeric range, max length, and regex pattern against
+the resolved `FormPropertyInfo` list. It accepts either a typed config object or a JSON string.
+
+> The older reflection-based `ContentZoneComponentRegistry` has been removed. `IWidgetRegistry`
+> (backed by the database) is the sole source of widget metadata at runtime.
 
 ---
 
@@ -109,6 +146,8 @@ Components are sorted within each category by `Order` ascending, then `DisplayNa
 | `ConfigurationType` | `Type?` | `null` | Config class; properties become the widget's config form |
 | `IconClass` | `string` | `""` | CSS icon class for admin UI display |
 | `Order` | `int` | `0` | Sort order within category |
+
+Remember these values are **seed defaults**, not live metadata — see §5.
 
 ---
 
@@ -153,7 +192,7 @@ Nesting depth is unlimited, but each level adds a database query. Avoid deep nes
 
 **Storage:** `ContentZoneItemDTO.ComponentPropertiesJson` — a JSON string written when the admin saves the widget's config form.
 
-**Admin form generation:** `ContentZoneComponentRegistry.GetByName(componentName).Properties` — built by `FormPropertyBuilder.BuildPropertyInfos(ConfigurationType)` at startup. The `FormFieldsTagHelper` renders this into an HTML form.
+**Admin form generation:** `IWidgetRegistry.GetByName(componentName).Properties` — deserialized from the registration row's `PropertyDefinitionsJson`, which `FormPropertyBuilder.BuildPropertyInfos(ConfigurationType)` produced at seed time. The `FormFieldsTagHelper` renders this into an HTML form.
 
 **Runtime deserialization:** `ContentZoneModel` deserializes the JSON into the `ConfigurationType` when building `ContentZoneViewModel`. The result is stored in `ContentZoneObject.Configuration`.
 

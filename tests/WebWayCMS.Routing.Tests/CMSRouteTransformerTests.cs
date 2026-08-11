@@ -178,16 +178,16 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_CodeBased_SetsSubRouteForRouteValues()
+    public async Task TransformAsync_CodeBased_ReturnsRouteValuesInDictionary()
     {
         var context = CreateHttpContext();
         var match = CreateMatchResult("CodeBased", "MyPage",
             routeValues: new Dictionary<string, string> { { "slug", "hello" } });
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
-        await _transformer.TransformAsync(context, new RouteValueDictionary());
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
-        Assert.That(context.Items[CMSRouteTransformer.SubRouteItemKey], Is.EqualTo("hello"));
+        Assert.That(result!["slug"], Is.EqualTo("hello"));
     }
 
     [Test]

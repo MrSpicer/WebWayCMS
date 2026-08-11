@@ -15,17 +15,21 @@ The page system drives dynamic URL routing — every database-managed page is di
 
 ## System Overview
 
-On every request, `PageRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all route `{**slug}` registered in `Program.cs`. It:
+Routing is database-backed. A page's URL is a row in the `CMSRoutes` table, derived from the page's
+**Slug** and written whenever the page is saved.
 
-1. Normalises the request path (lowercase, strips trailing slash).
-2. Looks up the path in the database via `IPageService`. If no exact match, it progressively strips trailing segments to find the nearest parent page and stores the remainder as `CMS:SubRoute` in `HttpContext.Items`.
-3. Resolves the matching page's `ControllerName` against `IPageControllerRegistry` (which holds every class decorated with `[PageController]`).
-4. Deserialises the page's `ConfigurationJson` into the controller's declared config type and stores both the `PageDTO` and the config object in `HttpContext.Items`.
-5. Returns `{ controller = ControllerName, action = "Index" }` — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.
+On every request, `CMSRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all
+route `{**slug}` registered by the CMS inside `EnsureCMS()`. It:
+
+1. Normalises the request path (lowercase, strips a trailing slash).
+2. Matches the path against the active `CMSRoutes` patterns via `ICMSRouteService.MatchRouteAsync`, ordered by `Order`. First match wins; reserved routes are skipped.
+3. Reads `controller` (required) and `action` (default `"Index"`) from the matched route's `DefaultsJson`, and resolves the controller against `IPageControllerRegistry`.
+4. Loads the owning page (via the route's `OwningContentMasterId`) and deserialises the config carried in the route's `DataTokens["ConfigurationJson"]` into the controller's declared config type, storing both the `PageDTO` and the config object in `HttpContext.Items`.
+5. Returns `{ controller, action }` plus any route values captured by the pattern — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.
 
 The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The `Index()` action typically renders a Razor view with `PageConfig` as the model, and the view places one or more **ContentZones** for admin-managed widget regions.
 
-`PageControllerRegistry` scans both the CMS assembly and `Assembly.GetEntryAssembly()` (the Web project) at startup, so any controller decorated with `[PageController]` is discovered automatically — no manual registration is needed.
+`[PageController]`-decorated controllers are discovered by reflection **once at startup** and seeded into the `PageControllerRegistrations` table; `IPageControllerRegistry` then serves them from the database with a 5-minute cache. So a new page type still needs no manual registration — but after the first run the database is the source of truth, and you edit page-type metadata at `/admin/pagetypes`.
 
 ---
 
@@ -33,10 +37,12 @@ The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage
 
 | Class | File | Role |
 |---|---|---|
-| `PageRouteTransformer` | `WebWayCMS.Routing/Routing/PageRouteTransformer.cs` | Resolves request path to a page record and populates `HttpContext.Items` |
+| `CMSRouteTransformer` | `WebWayCMS.Routing/Routing/CMSRouteTransformer.cs` | Matches the request path to a `CMSRoutes` row and populates `HttpContext.Items` |
+| `ICMSRouteService` | `WebWayCMS.Data/Data/Services/CMSRouteService.cs` | Stores and matches route patterns |
 | `PageControllerBase<TConfig>` | `WebWayCMS.Core/Controllers/PageControllerBase.cs` | Abstract base class; exposes `CurrentPage` and `PageConfig` |
 | `[PageController]` | `WebWayCMS.Forms/Attributes/PageControllerAttribute.cs` | Marks a controller as a page type; drives admin UI metadata |
-| `PageControllerRegistry` | `WebWayCMS.Routing/Pages/PageControllerRegistry.cs` | Scans assemblies at startup and caches page type metadata |
+| `PageControllerRegistry` | `WebWayCMS.Routing/Pages/PageControllerRegistry.cs` | Caches page-type metadata loaded from the database |
+| `IRouteRegistrationService` | `WebWayCMS.Core/Services/RouteRegistrationService.cs` | Writes a page's route row on save; unpublishes it on unpublish |
 | `GenericPageController` | `WebWayCMS.Core/Controllers/GenericPageController.cs` | Built-in default page type; canonical implementation example |
 
 ---
@@ -98,7 +104,7 @@ public class MyPageController : PageControllerBase<MyPageConfiguration>
 }
 ```
 
-- `ConfigurationType` in `[PageController]` must match the generic type parameter on `PageControllerBase<T>`. This tells the route transformer which type to deserialise `ConfigurationJson` into, and tells the admin UI which properties to render as form fields.
+- `ConfigurationType` in `[PageController]` must match the generic type parameter on `PageControllerBase<T>`. This tells the route transformer which type to deserialise the stored configuration JSON into, and tells the admin UI which properties to render as form fields.
 - Constructor injection works normally — add parameters and they will be resolved from DI.
 
 ### Step 3 — Create the Razor view
@@ -126,7 +132,28 @@ The view name must be `Index.cshtml` and the folder name must match the controll
 
 ### Step 4 — No registration required
 
-`PageControllerRegistry` scans `Assembly.GetEntryAssembly()` (the Web project) automatically at startup. The new page type will appear in the admin page-creation UI under the `Category` specified in the attribute.
+At startup the CMS scans `Assembly.GetEntryAssembly()` (the Web project) along with its own
+assemblies and seeds a `PageControllerRegistrations` row for each `[PageController]` it has not
+seen before. The new page type then appears in the admin page-creation UI under the `Category`
+specified in the attribute.
+
+> Seeding only *inserts*. Once a page type has been seeded, editing its `[PageController]`
+> attribute in code will not update the stored row — change it at `/admin/pagetypes` instead.
+> Set `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` to suppress seeding entirely.
+
+### Step 5 — Give the page a URL
+
+Page types are not URLs. Create a page in the admin UI at `/admin/pages`, pick your page type from
+the **Controller** dropdown, and set its **Slug**. The CMS derives the route pattern from the slug
+and writes it to `CMSRoutes`:
+
+- slug `about` at the root ⇒ `/about`
+- slug `team` created under `/about` ⇒ `/about/team`
+- the slug `home` is special-cased to the site root, `/`
+
+Unpublishing a page unpublishes its route, which removes the URL without deleting the page. For
+URLs that belong to the application rather than to editor-managed content, use `[CmsRoute]` on the
+controller instead — see [architecture/03-page-routing.md](architecture/03-page-routing.md#8-cmsroute--code-based-routes).
 
 ---
 
@@ -142,27 +169,38 @@ protected PageDTO? CurrentPage => HttpContext.Items["CMS:PageData"] as PageDTO;
 protected TConfig PageConfig => HttpContext.Items["CMS:PageConfig"] as TConfig ?? new TConfig();
 ```
 
-`PageDTO` fields available via `CurrentPage`:
+`PageDTO` is deliberately small — it carries only page-specific fields, plus the shared
+`ContentMeta`:
+
+| Property | Type | Description |
+|---|---|---|
+| `ContentId` | `Guid` | Shared primary key / FK into the `Content` table; equals `ContentMeta.Id` |
+| `ContentMeta` | `ContentDTO` | All shared fields (see below) |
+| `ViewName` | `string?` | Optional view override; when set, the controller renders this view instead of `Index` |
+| `ConfigurationJson` | `string` | Raw JSON for the page's controller configuration |
+
+Shared fields are read through `CurrentPage.ContentMeta`:
 
 | Property | Type | Description |
 |---|---|---|
 | `Id` | `Guid` | Primary key of this version |
 | `MasterId` | `Guid` | Stable identifier across all versions of the page |
 | `Title` | `string` | Page title |
-| `Slug` | `string` | URL-safe slug derived from the title |
-| `Route` | `string` | Full URL path (e.g. `/about/team`) |
-| `ControllerName` | `string` | Registered controller name |
-| `ConfigurationJson` | `string` | Raw JSON used to populate `PageConfig` |
-| `IsPublished` | `bool` | Publication state |
+| `Slug` | `string` | URL segment; the page's route pattern is derived from this |
+| `IsPublished` | `bool` | Publication state; unpublishing also unpublishes the page's route |
 | `IsHidden` | `bool` | Hidden from navigation but still accessible |
 | `Version` | `int` | Monotonically increasing version number |
 
-For the full set of shared fields (exposed via `PageDTO.ContentMeta`), see `ContentDTO` in [`docs/content-system.md`](content-system.md).
+There is **no `Route` or `ControllerName` on `PageDTO`** — both live on the page's `CMSRoutes` row
+(`Pattern`, and `controller` inside `DefaultsJson`). Read the matched row from
+`HttpContext.Items["CMS:RouteData"]` if a page type needs its own URL at runtime. For the full set
+of shared fields, see `ContentDTO` in [`docs/content-system.md`](content-system.md).
 
-**Sub-route access:** if the request path extends beyond the matched page route, the remainder is stored as a string in `HttpContext.Items["CMS:SubRoute"]`. Read it directly in your action when the page type handles its own child routing:
+**Route value access:** values captured by the route pattern are available as ordinary route values
+through `RouteData.Values`:
 
 ```csharp
-var subRoute = HttpContext.Items["CMS:SubRoute"] as string;
+var id = RouteData.Values["id"] as string;
 ```
 
 ---
@@ -198,4 +236,4 @@ See [`docs/widget-system.md`](widget-system.md) for full ContentZone documentati
 
 ---
 
-*For architectural reference — routing algorithm, registry internals, `HttpContext.Items` contract, `NotReservedConstraint`, and built-in page types — see [docs/architecture/03-page-routing.md](architecture/03-page-routing.md).*
+*For architectural reference — the matching algorithm and pattern syntax, `[CmsRoute]`, reserved routes, registry internals, the `HttpContext.Items` contract, `NotReservedConstraint`, and built-in page types — see [docs/architecture/03-page-routing.md](architecture/03-page-routing.md).*

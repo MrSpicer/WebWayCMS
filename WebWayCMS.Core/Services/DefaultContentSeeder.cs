@@ -18,7 +18,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
     }
 
-    public async Task SeedDefaultPagesAsync(CancellationToken ct = default)
+    public async Task SeedDefaultPagesAsync(bool seedAdminPage, CancellationToken ct = default)
     {
         if (string.Equals(Environment.GetEnvironmentVariable("WEBWAYCMS_SKIP_DEFAULTPAGE"), "true", StringComparison.OrdinalIgnoreCase))
         {
@@ -57,12 +57,23 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             logger.Information("Created default Home page with ID {PageId}", created.ContentMeta.Id);
 
             await SeedRouteAsync("/", "GenericPage", null, "Page", created.ContentMeta, ct, logger, "Home");
-
-            await SeedAdminPageAsync(ct, logger);
         }
         else
         {
             logger.Debug("Pages already exist, skipping default home page creation.");
+        }
+
+        if (seedAdminPage)
+        {
+            var existingAdminRoute = await _routeService.MatchRouteAsync("/admin", ct);
+            if (existingAdminRoute == null)
+            {
+                await SeedAdminPageAsync(ct, logger);
+            }
+            else
+            {
+                logger.Debug("Admin page already exists, skipping default admin page creation.");
+            }
         }
     }
 

@@ -7,6 +7,7 @@ using NUnit.Framework;
 
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
@@ -383,4 +384,412 @@ public class PageModelTests
 
         Assert.That(result, Is.InstanceOf<JsonResult>());
     }
+
+    [Test]
+    public void RoutableContent_RouteContentType_ReturnsPage()
+    {
+        IRoutableContent routable = _model;
+        Assert.That(routable.RouteContentType, Is.EqualTo("Page"));
+    }
+
+    [Test]
+    public async Task RoutableContent_GetRoutesAsync_ReturnsRoutes()
+    {
+        var masterId = Guid.NewGuid();
+        _cmsRouteService.GetByOwningContentAsync(masterId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/test" } });
+
+        IRoutableContent routable = _model;
+        var routes = await routable.GetRoutesAsync(masterId, CancellationToken.None);
+
+        Assert.That(routes, Has.Count.EqualTo(1));
+        Assert.That(routes[0].Pattern, Is.EqualTo("/test"));
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_BuildTree_PageWithoutRouteIsExcluded()
+    {
+        var pageWithRoute = Page(title: "HasRoute");
+        var pageWithoutRoute = Page(title: "NoRoute");
+
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { pageWithRoute, pageWithoutRoute });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(pageWithRoute.ContentMeta.MasterId, "/hasroute"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        Assert.That(vm.Pages, Has.Count.EqualTo(1));
+        Assert.That(vm.Pages[0].Title, Is.EqualTo("HasRoute"));
+    }
+
+    [Test]
+    public async Task GetPageUpsertAsync_WithRouteDefaults_DeserializesControllerName()
+    {
+        var page = Page();
+        _service.GetByIdAsync(page.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(page);
+        _cmsRouteService.GetByOwningContentAsync(page.ContentMeta.MasterId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO>
+            {
+                new()
+                {
+                    Pattern = "/test",
+                    OwningContentMasterId = page.ContentMeta.MasterId,
+                    DefaultsJson = "{\"controller\":\"MyController\",\"action\":\"Index\"}"
+                }
+            });
+
+        var vm = await _model.GetPageUpsertAsync(page.ContentMeta.Id);
+
+        Assert.That(vm, Is.Not.Null);
+        Assert.That(vm!.ControllerName, Is.EqualTo("MyController"));
+    }
+
+    [Test]
+    public async Task GetPageUpsertAsync_WithInvalidDefaultsJson_DoesNotSetController()
+    {
+        var page = Page();
+        _service.GetByIdAsync(page.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(page);
+        _cmsRouteService.GetByOwningContentAsync(page.ContentMeta.MasterId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO>
+            {
+                new()
+                {
+                    Pattern = "/test",
+                    OwningContentMasterId = page.ContentMeta.MasterId,
+                    DefaultsJson = "{invalid"
+                }
+            });
+
+        var vm = await _model.GetPageUpsertAsync(page.ContentMeta.Id);
+
+        Assert.That(vm, Is.Not.Null);
+        Assert.That(vm!.ControllerName, Is.Null.Or.Empty);
+    }
+
+    [Test]
+    public async Task GetPageUpsertAsync_WithEmptyDefaultsJson_DoesNotSetController()
+    {
+        var page = Page();
+        _service.GetByIdAsync(page.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(page);
+        _cmsRouteService.GetByOwningContentAsync(page.ContentMeta.MasterId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO>
+            {
+                new()
+                {
+                    Pattern = "/test",
+                    OwningContentMasterId = page.ContentMeta.MasterId,
+                    DefaultsJson = "{}"
+                }
+            });
+
+        var vm = await _model.GetPageUpsertAsync(page.ContentMeta.Id);
+
+        Assert.That(vm, Is.Not.Null);
+        Assert.That(vm!.ControllerName, Is.Null.Or.Empty);
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_WithConfigJson_TryDeserializeConfig()
+    {
+        var controllerInfo = new PageControllerInfo
+        {
+            Name = "C",
+            DisplayName = "C",
+            ConfigurationType = typeof(SampleSaveConfig)
+        };
+        _registry.GetByName("C").Returns(controllerInfo);
+
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = true
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "test",
+            ControllerName = "C",
+            ConfigurationJson = "{\"Value\":42}"
+        });
+
+        Assert.That(result.Success, Is.True);
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_WithInvalidConfigJson_TryDeserializeConfigCatches()
+    {
+        var controllerInfo = new PageControllerInfo
+        {
+            Name = "C",
+            DisplayName = "C",
+            ConfigurationType = typeof(SampleSaveConfig)
+        };
+        _registry.GetByName("C").Returns(controllerInfo);
+
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = true
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "test",
+            ControllerName = "C",
+            ConfigurationJson = "{invalid"
+        });
+
+        Assert.That(result.Success, Is.True);
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_WithEmptyConfigJson_TryDeserializeConfigReturnsNull()
+    {
+        var controllerInfo = new PageControllerInfo
+        {
+            Name = "C",
+            DisplayName = "C",
+            ConfigurationType = typeof(SampleSaveConfig)
+        };
+        _registry.GetByName("C").Returns(controllerInfo);
+
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = true
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "test",
+            ControllerName = "C",
+            ConfigurationJson = "{}"
+        });
+
+        Assert.That(result.Success, Is.True);
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_HomeSlug_DeriveRoutePatternToRoot()
+    {
+        var controllerInfo = new PageControllerInfo
+        {
+            Name = "C",
+            DisplayName = "C",
+            ConfigurationType = typeof(SampleSaveConfig)
+        };
+        _registry.GetByName("C").Returns(controllerInfo);
+
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = true
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "Home",
+            Slug = "home",
+            ControllerName = "C",
+            ConfigurationJson = "{\"Value\":42}"
+        });
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            Arg.Any<IRoutableContent>(),
+            "/",
+            Arg.Any<string>(),
+            Arg.Any<object>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_NotPublished_UnregistersRoutes()
+    {
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = false
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "draft",
+            ControllerName = "C"
+        });
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).UnregisterContentRoutesAsync(
+            Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_WithParentRoutePrefix_DerivesCorrectPattern()
+    {
+        var savedDto = new PageDTO
+        {
+            ContentId = Guid.NewGuid(),
+            ContentMeta = new ContentDTO
+            {
+                Id = Guid.NewGuid(),
+                MasterId = Guid.NewGuid(),
+                IsPublished = true
+            }
+        };
+        _service.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(savedDto);
+        _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            Id = null,
+            Title = "T",
+            Slug = "child",
+            ControllerName = "C",
+            ParentRoutePrefix = "/blog"
+        });
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            Arg.Any<IRoutableContent>(),
+            "/blog/child",
+            Arg.Any<string>(),
+            Arg.Any<object>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_BuildTree_DifferentContentTypeRoutesAreIgnored()
+    {
+        var page = Page(title: "T");
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            new()
+            {
+                Pattern = "/test",
+                OwningContentMasterId = page.ContentMeta.MasterId,
+                OwningContentType = "Widget",
+                ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = page.ContentMeta.MasterId }
+            }
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        Assert.That(vm.Pages, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_BuildTree_IntermediateNodeWithoutPage_NullPageId()
+    {
+        var deepPage = Page(title: "Deep");
+        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { deepPage });
+        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(deepPage.ContentMeta.MasterId, "/a/b"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+        var a = vm.Pages.Single(p => p.Path == "/a");
+
+        Assert.That(a.PageId, Is.Null);
+    }
+
+    [Test]
+    public async Task AdminHandler_SaveUpsert_ExistingRoutePreservesPrefix()
+    {
+        var page = Page();
+        var existingRoute = new CMSRouteDTO
+        {
+            Pattern = "/blog/old-slug",
+            OwningContentMasterId = page.ContentMeta.MasterId,
+            ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = page.ContentMeta.MasterId }
+        };
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _service.UpdateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(page);
+        _cmsRouteService.GetByOwningContentAsync(page.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { existingRoute });
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Id = page.ContentMeta.Id,
+            MasterId = page.ContentMeta.MasterId,
+            Title = "T",
+            Slug = "new-slug",
+            ControllerName = "C"
+        });
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            Arg.Any<IRoutableContent>(),
+            "/blog/new-slug",
+            Arg.Any<string>(),
+            Arg.Any<object>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
+    }
+}
+
+public class SampleSaveConfig
+{
+    public int Value { get; set; }
 }

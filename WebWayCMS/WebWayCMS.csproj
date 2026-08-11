@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="WebWayCMS.Host.Tests" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Serilog.AspNetCore" />
     <ProjectReference Include="..\WebWayCMS.Data\WebWayCMS.Data.csproj" />

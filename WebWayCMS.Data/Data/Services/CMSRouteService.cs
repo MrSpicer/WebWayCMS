@@ -8,17 +8,19 @@ namespace WebWayCMS.Data.Services;
 public sealed class CMSRouteService : ICMSRouteService
 {
     private readonly CmsDbContext _context;
+    private readonly ICMSRouteRegistry _registry;
 
-    public CMSRouteService(CmsDbContext context)
+    public CMSRouteService(CmsDbContext context, ICMSRouteRegistry registry)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
     }
 
-    public async Task<CMSRouteMatchResult?> MatchRouteAsync(string path, CancellationToken ct = default)
+    public Task<CMSRouteMatchResult?> MatchRouteAsync(string path, CancellationToken ct = default)
     {
         path = NormalizePattern(path);
 
-        var activeRoutes = await GetActiveRoutesAsync(ct);
+        var activeRoutes = _registry.GetActiveRoutes();
 
         foreach (var route in activeRoutes.OrderBy(r => r.Order))
         {
@@ -28,15 +30,15 @@ public sealed class CMSRouteService : ICMSRouteService
             var match = TryMatchPattern(route.Pattern, path);
             if (match != null)
             {
-                return new CMSRouteMatchResult
+                return Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult
                 {
                     Route = route,
                     RouteValues = match
-                };
+                });
             }
         }
 
-        return null;
+        return Task.FromResult<CMSRouteMatchResult?>(null);
     }
 
     public async Task<List<CMSRouteDTO>> GetActiveRoutesAsync(CancellationToken ct = default)
@@ -135,6 +137,7 @@ public sealed class CMSRouteService : ICMSRouteService
 
         _context.Set<CMSRouteDTO>().Add(route);
         await _context.SaveChangesAsync(ct);
+        _registry.Invalidate();
         return route;
     }
 
@@ -151,6 +154,7 @@ public sealed class CMSRouteService : ICMSRouteService
         _context.Set<CMSRouteDTO>().RemoveRange(allVersions);
         _context.RemoveRange(allVersions.Select(v => v.ContentMeta));
         await _context.SaveChangesAsync(ct);
+        _registry.Invalidate();
         return true;
     }
 
@@ -171,6 +175,7 @@ public sealed class CMSRouteService : ICMSRouteService
 
         _context.Set<CMSRouteDTO>().UpdateRange(activeRoutes);
         await _context.SaveChangesAsync(ct);
+        _registry.Invalidate();
         return true;
     }
 
@@ -214,7 +219,7 @@ public sealed class CMSRouteService : ICMSRouteService
         for (int i = 0; i < minSegments; i++)
         {
             var patternSeg = patternSegments[i];
-            var pathSeg = i < pathSegments.Length ? pathSegments[i] : string.Empty;
+            var pathSeg = pathSegments[i];
 
             if (patternSeg.StartsWith("{**"))
             {
@@ -312,11 +317,6 @@ public sealed class CMSRouteService : ICMSRouteService
 
     private static Dictionary<string, string>? TryMatchLiteralAndParamSegment(string patternSeg, string pathSeg)
     {
-        if (!patternSeg.Contains('{'))
-            return string.Equals(patternSeg, pathSeg, StringComparison.OrdinalIgnoreCase)
-                ? new Dictionary<string, string>()
-                : null;
-
         var patternParts = new List<(bool isParam, string value)>();
         var remaining = patternSeg;
         while (remaining.Length > 0)
@@ -344,8 +344,6 @@ public sealed class CMSRouteService : ICMSRouteService
             }
         }
 
-        var literalPrefixes = patternParts.Where(p => !p.isParam).Select(p => p.value).ToList();
-        var fullLiteral = string.Concat(literalPrefixes);
         var routeValues = new Dictionary<string, string>();
 
         if (patternParts.Count == 2 && !patternParts[0].isParam && patternParts[1].isParam)
@@ -373,9 +371,6 @@ public sealed class CMSRouteService : ICMSRouteService
             routeValues[paramName] = paramValue;
             return routeValues;
         }
-
-        if (string.Equals(patternSeg, pathSeg, StringComparison.OrdinalIgnoreCase))
-            return new Dictionary<string, string>();
 
         return null;
     }

@@ -1,12 +1,18 @@
 # Area 6: Admin CRUD Framework
 
 **Namespaces:**
-- `WebWayCMS.Controllers.Admin` — `AdminContentController`, `AdminContentZoneController`
-- `WebWayCMS.Controllers.Admin.Handlers` — `IAdminCrudHandler`, `IAdminCrudChildHandler`, `IAdminHandlerRegistry`, `IAdminRegistryHandler`, `AdminHandlerRegistry`, `AdminSaveResult`
-- `WebWayCMS.Controllers.Api` — `ContentZoneApiController`
+- `WebWayCMS.Controllers.Admin` — `AdminContentController`, `AdminContentZoneController` (in **`WebWayCMS.Admin`**)
+- `WebWayCMS.Controllers.Admin.Handlers` — `IAdminCrudHandler`, `IAdminCrudChildHandler`, `IAdminHandlerRegistry`, `IAdminRegistryHandler`, `AdminSaveResult` (contracts, in **`WebWayCMS.Core`**); `AdminHandlerRegistry` (implementation, in **`WebWayCMS.Admin`**)
+- `WebWayCMS.Controllers.Api` — `ContentZoneApiController` (in **`WebWayCMS.Admin`**)
 
-**Depends on:** Content Domain Models (resolves handlers), Content Zone Component Framework (zone controller uses registry), Identity (`[Authorize]`), Form Generation Metadata (tag helper in views)
-**Consumed by:** Nothing (leaf layer; handles HTTP requests)
+**Depends on:** Content Domain Models (resolves handlers), Content Zone Component Framework (zone controller uses `IWidgetRegistry`), Identity (`[Authorize]`), Form Generation Metadata (tag helper in views)
+**Consumed by:** The MCP toolsets, which dispatch through the same `IAdminHandlerRegistry`. Otherwise a leaf layer
+
+> **Where this lives.** The contracts (`IAdminCrudHandler` and friends) and `AdminCrudModel<T>` stay
+> in `WebWayCMS.Core`, so the domain models can implement them without depending on the admin
+> assembly. The controllers, Razor views, admin CSS/JS, and the `AdminHandlerRegistry`
+> implementation live in `WebWayCMS.Admin` and are only registered when a host calls
+> `AddWebWayCmsAdmin`. See [Area 11](11-deployment-modes.md).
 
 ---
 
@@ -14,7 +20,14 @@
 
 The admin CRUD framework handles all content management HTTP routes through a single `AdminContentController`. New content types do not require new controllers — they register an `IAdminCrudHandler` implementation in DI, and the framework routes automatically apply.
 
-`AdminHandlerRegistry` is the dispatch table: a dictionary keyed on `ContentType` string (case-insensitive), built from all `IAdminCrudHandler` instances in the DI container at startup.
+`AdminHandlerRegistry` is the dispatch table: a dictionary keyed on `ContentType` string (case-insensitive), built from all `IAdminCrudHandler` instances in the DI container.
+
+Seven handlers ship in the box: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`, `pagetypes`, `cmsroutes`.
+
+**The same registry backs the MCP server.** `WebWayCMS.Mcp`'s toolsets resolve
+`IAdminHandlerRegistry` and drive the identical handler methods, so any content type reachable in
+the admin UI is automatically reachable over MCP with no per-type tool code. See
+[Area 12](12-mcp-server.md).
 
 ---
 
@@ -98,7 +111,7 @@ public interface IAdminCrudChildHandler
 
 ## 4. `IAdminRegistryHandler`
 
-Optional extension point for handlers that need to expose a component/controller registry as JSON endpoints. `PageModel` uses this to feed the admin UI's page-type picker with available controllers and their config properties.
+Optional extension point for handlers that need to expose a registry as JSON endpoints. Three handlers use it: `PageModel` (via `PageRegistryHandler`, over `IPageControllerRegistry`) feeds the admin UI's page-type picker; `ContentZoneModel` (via `ContentZoneRegistryHandler`, over `IWidgetRegistry`) feeds the add-widget picker; and `WidgetRegistrationModel` exposes its own registry view.
 
 ```csharp
 public interface IAdminRegistryHandler
@@ -200,7 +213,7 @@ Child resources follow the same pattern with `ChildVersionHistory*` routes.
 
 ## 8. Child CRUD Routes — `{parentKey:notreserved}` Pattern
 
-The `{parentKey}` segment carries the parent identifier (slug or Guid string). The `notreserved` constraint prevents ambiguity with reserved action names (`edit`, `delete`, `create`, `registry`, `api`, `reorder`, `versions`). See [Area 3](03-page-routing.md#7-notreservedconstraint) for the constraint definition.
+The `{parentKey}` segment carries the parent identifier (slug or Guid string). The `notreserved` constraint prevents ambiguity with reserved action names (`edit`, `delete`, `create`, `registry`, `api`, `reorder`, `versions`). See [Area 3](03-page-routing.md#11-notreservedconstraint) for the constraint definition.
 
 Example URLs:
 - `/admin/articles/my-blog/articles` — list articles in the "my-blog" article list
@@ -211,7 +224,7 @@ Example URLs:
 
 ## 9. `AdminContentZoneController`
 
-Handles the admin inline zone editing view at `/admin/contentzones/edit/{zoneId}`. Delegates to `ContentZoneModel` for zone metadata and `IContentZoneComponentRegistry` for the available component list. This controller is separate from `AdminContentController` because zone editing uses a specialized split-panel UI rather than the standard upsert form.
+Handles the admin inline zone editing view (`~/Views/AdminContentZone/ZoneEdit.cshtml`). Delegates to `IContentZoneModel` for zone metadata and **`IWidgetRegistry`** for the available widget list. This controller is separate from `AdminContentController` because zone editing uses a specialized split-panel UI rather than the standard upsert form.
 
 ---
 
@@ -226,6 +239,8 @@ JSON-only API for the inline zone edit mode. Authenticated but not form-POST (no
 | DELETE | `/api/contentzones/items/{itemId}` | Remove a zone item |
 
 This differs from admin CRUD routes: it accepts and returns JSON, no model binding to ViewModels, and no redirect-after-post.
+
+Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync`, so placing a routable widget (one implementing `IRoutableViewComponent`, e.g. `Article`) registers its sub-routes beneath the host page's URL. See [Area 3](03-page-routing.md#10-irouteregistrationservice-and-routable-widgets).
 
 ---
 

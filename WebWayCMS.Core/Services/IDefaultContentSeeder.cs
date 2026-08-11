@@ -6,5 +6,5 @@ namespace WebWayCMS.Services;
 
 public interface IDefaultContentSeeder
 {
-    Task SeedDefaultPagesAsync(CancellationToken ct = default);
+    Task SeedDefaultPagesAsync(bool seedAdminPage, CancellationToken ct = default);
 }

@@ -3,10 +3,14 @@
 **Namespaces:**
 - `WebWayCMS.Data.DbContexts` — `CmsDbContext`
 - `WebWayCMS.Services` — `UserService`, `DevEmailSender`
-- `WebWayCMS.Areas.Identity` — scaffolded ASP.NET Identity Razor Pages
+- `WebWayCMS.Areas.Identity` — scaffolded ASP.NET Identity Razor Pages (in `WebWayCMS.Presentation`)
+- `WebWayCMS` — `AuthRateLimiting`
 
-**Depends on:** ASP.NET Identity, EF Core (`CmsDbContext`)
+**Depends on:** ASP.NET Identity, EF Core (`CmsDbContext`), ASP.NET Core rate limiting
 **Consumed by:** All admin controllers (`[Authorize(Roles = "Admin")]`), `UserService` consumed in views and admin write checks, `CMSExtensions` for seeding
+
+> Roles and the admin user are seeded only by `EnsureCmsAdmin`. A rendering-only host still has
+> Identity wired up (login, cookies, lockout, rate limiting) but seeds no roles and no admin user.
 
 ---
 
@@ -88,24 +92,70 @@ Seeding is skipped entirely if `WEBWAYCMS_SKIP_ROLESEED=true`.
 
 ---
 
-## 5. Password Policy
+## 5. Password Policy, Lockout, and Cookie Hardening
 
-Configured in `ServiceCollectionExtensions.ConfigureAuthorization`:
+All configured in `ServiceCollectionExtensions.ConfigureAuthorization`:
 
 ```csharp
-identityOptions.Password.RequireDigit = true;
-identityOptions.Password.RequireLowercase = true;
-identityOptions.Password.RequireNonAlphanumeric = true;
-identityOptions.Password.RequireUppercase = true;
-identityOptions.Password.RequiredLength = 12;
-identityOptions.SignIn.RequireConfirmedEmail = true;
+services.AddDefaultIdentity<IdentityUser>(identityOptions =>
+{
+    identityOptions.SignIn.RequireConfirmedEmail = true;
+
+    identityOptions.Password.RequireDigit = true;
+    identityOptions.Password.RequireLowercase = true;
+    identityOptions.Password.RequireNonAlphanumeric = true;
+    identityOptions.Password.RequireUppercase = true;
+    identityOptions.Password.RequiredLength = 12;
+
+    identityOptions.Lockout.AllowedForNewUsers = true;
+    identityOptions.Lockout.MaxFailedAccessAttempts = 5;
+    identityOptions.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+})
+    .AddRoles<IdentityRole>()
+    .AddEntityFrameworkStores<CmsDbContext>()
+    .AddDefaultUI();
+
+services.ConfigureApplicationCookie(cookieOptions =>
+{
+    cookieOptions.Cookie.HttpOnly = true;
+    cookieOptions.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    cookieOptions.Cookie.SameSite = SameSiteMode.Strict;
+});
 ```
 
-Minimum 12 characters; requires digits, lower, upper, and a non-alphanumeric character. Email confirmation is required before login — this is bypassed for the seeded admin user (`EmailConfirmed = true` is set directly on the seeded user entity).
+- **Passwords** — minimum 12 characters; requires digits, lower, upper, and a non-alphanumeric character.
+- **Email confirmation** is required before login. This is bypassed for the seeded admin user
+  (`EmailConfirmed = true` is set directly on the seeded user entity).
+- **Lockout** — 5 failed attempts locks the account for 15 minutes, including brand-new users.
+- **Auth cookie** — `HttpOnly` (no JS access), `Secure` always (never sent over plain HTTP), and
+  `SameSite=Strict` (not sent on cross-site navigations).
 
 ---
 
-## 6. Identity UI Area
+## 6. Auth Endpoint Rate Limiting
+
+`AuthRateLimiting` throttles the credential-accepting and email-triggering Identity endpoints per
+client IP, to slow credential brute force and password-reset email flooding.
+
+- **Limit:** `PermitLimit = 5` requests per `Window = 1 minute`, fixed window, partitioned on
+  `HttpContext.Connection.RemoteIpAddress` (`"unknown"` when unavailable)
+- **Limited paths** (prefix match, case-insensitive): `/Identity/Account/Login`,
+  `/Identity/Account/Register`, `/Identity/Account/ForgotPassword`,
+  `/Identity/Account/ResendEmailConfirmation`
+- **Everything else** gets `RateLimitPartition.GetNoLimiter("unlimited")` — no throttling
+- **Over the limit** returns HTTP **429**
+
+Wired by `ConfigureRateLimiting` (`AddRateLimiter` with `GlobalLimiter = AuthRateLimiting.GetPartition`)
+and activated by `UseRateLimiter()` in the shared middleware pipeline, immediately after
+`UseRouting()`. The path matching and partition selection are pure static methods so they can be
+unit-tested without a server.
+
+Because the partition key is the connection's remote IP, `UseForwardedHeaders()` running first in
+the pipeline is what makes this correct behind a reverse proxy.
+
+---
+
+## 7. Identity UI Area
 
 `AddDefaultUI()` in `ServiceCollectionExtensions` embeds ASP.NET Identity's default Razor Pages. The CMS ships scaffolded versions of the most commonly customized pages:
 
@@ -131,4 +181,4 @@ Areas/Identity/Pages/Account/
         ManageNavPages.cs
 ```
 
-These pages are compiled into the CMS assembly and served via `CompiledRazorAssemblyPart`. To customize them in the Web project, scaffold the specific page(s) into `MySite/Areas/Identity/Pages/` — Web project views take precedence over CMS library views.
+These pages live in **`WebWayCMS.Presentation`** (they did not move to `WebWayCMS.Admin`), are compiled into that assembly, and are served via `CompiledRazorAssemblyPart`. Both bootstrap modes therefore ship login and account management. To customize them in the Web project, scaffold the specific page(s) into `MySite/Areas/Identity/Pages/` — Web project views take precedence over CMS library views.

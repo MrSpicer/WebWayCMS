@@ -825,4 +825,83 @@ public class WidgetRegistryTests
 
         Assert.That(type, Is.Null);
     }
+
+    [Test]
+    public void Constructor_NullScopeFactory_ThrowsArgumentNullException()
+    {
+        Assert.That(() => new WidgetRegistry(null!), Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public void ValidateConfiguration_UnknownPropertyInDefinitions_SkipsGracefully()
+    {
+        var configType = typeof(SampleConfig).FullName;
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            WidgetDto("Sample", "Sample", configType: configType,
+                propertyJson: System.Text.Json.JsonSerializer.Serialize(
+                    new List<FormPropertyInfo>
+                    {
+                        new() { Name = "NonExistentProperty", IsRequired = true, Label = "Missing" }
+                    }))
+        });
+
+        var errors = _registry.ValidateConfiguration("Sample", new SampleConfig
+        {
+            Name = "valid",
+            Ref = Guid.NewGuid(),
+            RequiredNullable = "set",
+            Count = 5,
+            Code = "ok",
+            Digits = "123",
+            Letters = "abc",
+        });
+
+        Assert.That(errors, Is.Empty);
+    }
+
+    [Test]
+    public void DeserializeEmptyBracketsJson_ReturnsEmptyList()
+    {
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            WidgetDto("Brackets", "Brackets", propertyJson: "[]")
+        });
+
+        var result = _registry.GetByName("Brackets");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Properties, Is.Empty);
+    }
+
+    [Test]
+    public void ResolveType_ValidTypeName_ReturnsType()
+    {
+        var type = WidgetRegistry.ResolveType("System.String");
+
+        Assert.That(type, Is.Not.Null);
+        Assert.That(type, Is.EqualTo(typeof(string)));
+    }
+
+    [Test]
+    public void ResolveType_MalformedAssemblyQualifiedName_ReturnsNull()
+    {
+        var type = WidgetRegistry.ResolveType("SomeType, SomeAssembly, Version=not.a.version");
+
+        Assert.That(type, Is.Null);
+    }
+
+    [Test]
+    public void DeserializeNullJson_ReturnsEmptyList()
+    {
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            WidgetDto("NullJson", "NullJson", propertyJson: "null")
+        });
+
+        var result = _registry.GetByName("NullJson");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Properties, Is.Empty);
+    }
 }

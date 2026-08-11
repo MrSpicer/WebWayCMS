@@ -22,7 +22,11 @@ IContent { Guid ContentId; ContentDTO ContentMeta; }
     ├── ArticleDTO
     ├── ArticleListDTO
     ├── PageDTO
-    └── ContentZoneDTO
+    ├── ContentZoneDTO
+    ├── ContentZoneItemDTO
+    ├── CMSRouteDTO
+    ├── WidgetRegistrationDTO
+    └── PageControllerRegistrationDTO
 
 IContentService<T where T : class, IContent>
     └── ContentService<T>  (single generic implementation)
@@ -32,7 +36,10 @@ VersionedModel<TDto>  (abstract)
             ├── ContentBlockModel
             ├── ArticleListModel
             ├── PageModel
-            └── ContentZoneModel
+            ├── ContentZoneModel
+            ├── WidgetRegistrationModel
+            ├── PageControllerRegistrationModel
+            └── CMSRouteModel
         ArticleModel  (extends VersionedModel<ArticleDTO> directly — child resource, no standalone admin handler)
 
 IAdminCrudHandler  (interface)
@@ -86,6 +93,8 @@ public record ContentDTO
     public bool IsHidden { get; set; }
     public bool IsDeleted { get; set; }
 
+    public Guid? ParentMasterId { get; set; }   // FK to a parent's MasterId (child resources)
+
     public List<CustomField> CustomFields { get; set; } = new();
 }
 ```
@@ -95,21 +104,28 @@ both its PK and the FK into the single `Content` table, and `ContentId == Conten
 fields are read/written through `dto.ContentMeta.X` (e.g. `article.ContentMeta.Title`).
 
 **Single shared table in the unified context.** All content types map to the same `Content` table
-via the shared `CmsDbContext`. The reusable `ContentModelConfiguration.ConfigureContent(modelBuilder)`
-and `entity.ConfigureContentLink()` helpers encapsulate this wiring. Entity configuration lives in
-extension methods on `ModelBuilder` (`ConfigureArticles`, `ConfigureContentBlocks`,
-`ConfigureContentZones`, `ConfigurePages`) for separation of concerns.
+via the shared `CmsDbContext`. The context declares no `DbSet`s: it calls
+`ApplyConfigurationsFromAssembly`, and each entity has a sealed `IEntityTypeConfiguration<T>` class
+in `WebWayCMS.Data/Data/EntityConfiguration/`. Those configurations call the shared
+`entity.ConfigureContentLink()` helper, which wires the 1:1 shared-primary-key relationship.
 
 
 ## Built-in Content Types
 
+Seven top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
+admin URL segment (`/admin/{ContentType}`) and the key MCP tools use.
+
 | Content Type | ContentType | DTO | Model |
 |---|---|---|---|
-| Content Block | `contentblocks` | `ContentBlockDTO` | `ContentBlockModel` |
-| Article List | `articlelists` | `ArticleListDTO` | `ArticleListModel` |
-| Article (child) | child of `articlelists` | `ArticleDTO` | `ArticleModel` |
 | Page | `pages` | `PageDTO` | `PageModel` |
+| Content Block | `contentblocks` | `ContentBlockDTO` | `ContentBlockModel` |
+| Article List | `articles` | `ArticleListDTO` | `ArticleListModel` |
+| Article (child) | child type `articles` under `articles` | `ArticleDTO` | `ArticleModel` |
 | Content Zone | `contentzones` | `ContentZoneDTO` | `ContentZoneModel` |
+| Zone Item (child) | child type `items` under `contentzones` | `ContentZoneItemDTO` | *(handled by `ContentZoneModel`)* |
+| Widget Registration | `widgets` | `WidgetRegistrationDTO` | `WidgetRegistrationModel` |
+| Page Type Registration | `pagetypes` | `PageControllerRegistrationDTO` | `PageControllerRegistrationModel` |
+| CMS Route | `cmsroutes` | `CMSRouteDTO` | `CMSRouteModel` |
 
 ### ContentBlock
 
@@ -117,32 +133,39 @@ Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Refere
 
 ### Article / ArticleList
 
-`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListMasterId` as a FK. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`.
+`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListMasterId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/admin/articles/{listSlug}/articles`.
 
 ### Page
 
-Adds `string Route` (unique, must begin with `/`), `string ControllerName`, and `string ConfigurationJson` for per-page controller config. See `PageRouteTransformer` for how routes are resolved at request time.
+Adds `string? ViewName` (optional view override) and `string ConfigurationJson` (per-page controller config). A page has **no route or controller column** — its URL is a `CMSRouteDTO` row derived from `ContentMeta.Slug` when the page is saved. See [`docs/page-system.md`](page-system.md).
 
 ### ContentZone
 
-A named zone (`string Name`, `string Description`) that owns an ordered list of `ContentZoneItemDTO`. Each item stores `ComponentName` (a view component) and `ComponentPropertiesJson`. The `ContentZoneService` extends beyond `IContentService<T>` with zone-item management methods (`AddItemAsync`, `RemoveItemAsync`, `ReorderItemsAsync`).
+A named zone (`string Name`, `string Description`) that owns an ordered list of `ContentZoneItemDTO`. Each item stores `ComponentName` (a view component) and `ComponentPropertiesJson`. The `ContentZoneService` extends beyond `IContentService<T>` with zone-item management methods (`AddItemAsync`, `RemoveItemAsync`, `ReorderItemsAsync`) and assignment-based slot resolution.
+
+### Registry types: Widget, Page Type, CMS Route
+
+These three are infrastructure exposed as ordinary content types so admins can manage them:
+
+- **`widgets`** — one row per available widget, seeded from `[ContentZoneComponent]` at startup and served at runtime by `IWidgetRegistry`. See [`docs/widget-system.md`](widget-system.md).
+- **`pagetypes`** — one row per available page type, seeded from `[PageController]` and served by `IPageControllerRegistry`.
+- **`cmsroutes`** — one row per URL. Written by the routing layer when pages and routable widgets are saved, and by the `[CmsRoute]` seeder. `CMSRouteModel` sets `SupportsVersionHistory => false`, because `ICMSRouteService.UpsertAsync` replaces rows rather than versioning them.
 
 ---
 
 ## Adding a New Content Type
 
-New content types belong in the **Web project** (`MySite`), not the CMS library. This keeps the CMS library stable while allowing the host application to define its own content.
+The model class, ViewModels, mappings, and views for a new content type all live in the **Web
+project** (`MySite`). The DTO and its EF configuration are the exception — see the note in step 2.
 
 Follow these steps to wire in a new content type that gets full versioning and admin CRUD for free.
 
 ### 1. Create the DTO
 
-`MySite/Data/Models/MyContentDTO.cs`
+`WebWayCMS.Data/Data/Models/MyContentDTO.cs`
 
 ```csharp
-using WebWayCMS.Data.Models;
-
-namespace MySite.Data.Models;
+namespace WebWayCMS.Data.Models;
 
 public record MyContentDTO : IContent
 {
@@ -153,54 +176,44 @@ public record MyContentDTO : IContent
 }
 ```
 
-### 2. Configure the entity in the unified DbContext
+### 2. Add an entity configuration
 
-Add your DbSet to `CmsDbContext` and its configuration to `ContentModelConfiguration`:
+`CmsDbContext` declares no `DbSet`s. Instead it calls
+`ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`, so you add a configuration
+class and nothing else:
+
+`WebWayCMS.Data/Data/EntityConfiguration/MyContentDTOEntityConfiguration.cs`
 
 ```csharp
-// In CmsDbContext.OnModelCreating, add:
-modelBuilder.ConfigureMyContents();
-
-// In ContentModelConfiguration.cs:
-public static void ConfigureMyContents(this ModelBuilder modelBuilder)
+public sealed class MyContentDTOEntityConfiguration : IEntityTypeConfiguration<MyContentDTO>
 {
-    modelBuilder.Entity<MyContentDTO>(entity =>
+    public void Configure(EntityTypeBuilder<MyContentDTO> entity)
     {
-        entity.ConfigureContentLink();
+        entity.ConfigureContentLink();          // shared PK/FK into the Content table
         entity.Property(e => e.Body).IsRequired();
         entity.ToTable("MyContents");
-    });
+    }
 }
 ```
 
 > Shared fields (`Title`, `Slug`, `CustomFields`, versioning, …) live on the `Content` table, so
 > configure only your type-specific columns here.
 
+> **Why this part cannot live in the host.** `ApplyConfigurationsFromAssembly` scans only
+> `WebWayCMS.Data`, so a configuration class in `MySite` is never discovered and the table is never
+> created. A content type that needs its own table must have its DTO and configuration in
+> `WebWayCMS.Data`. If you only need a few extra fields on an existing type, use
+> `ContentDTO.CustomFields` (JSONB) instead — no schema change, no CMS-library edit.
+
 ### 3. Create a migration
 
 ```bash
 dotnet ef migrations add AddMyContent \
-  -s MySite/MySite.csproj \
-  -p MySite/MySite.csproj \
-  -c CmsDbContext \
-  -o Migrations/MyContent
+  --project WebWayCMS.Data --startup-project WebWayCMS.Data \
+  --context CmsDbContext --output-dir Migrations
 ```
 
-### 4. Register services
-
-In `MySite/Program.cs`, before `builder.Services.AddWebWayCms(...)`:
-
-```csharp
-// Generic content service — injects the unified CmsDbContext
-builder.Services.AddScoped<IContentService<MyContentDTO>>(sp =>
-    new ContentService<MyContentDTO>(sp.GetRequiredService<CmsDbContext>()));
-
-// Model / handler
-builder.Services.AddScoped<MyContentModel>();
-builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyContentModel>());
-```
-
-### 5. Create ViewModels
+### 4. Create ViewModels
 
 `MySite/Models/MyContent/MyContentViewModel.cs`
 
@@ -364,7 +377,10 @@ builder.Services.AddScoped<MyContentModel>();
 builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyContentModel>());
 ```
 
-`AdminHandlerRegistry` picks up any `IAdminCrudHandler` registered in DI regardless of which project it originates from. `AdminContentController` handles all routes for `mycontents` with no additional controller code needed.
+`AdminHandlerRegistry` picks up any `IAdminCrudHandler` registered in DI regardless of which project it originates from. `AdminContentController` handles all routes for `mycontents` with no additional controller code needed — and because the MCP toolsets dispatch through the same registry, the new type is also immediately available over MCP with no extra work.
+
+> Registering an `IAdminCrudHandler` only has an effect in a host that called `AddWebWayCmsAdmin`
+> (or its alias `AddWebWayCms`). A rendering-only host has no `AdminHandlerRegistry`.
 
 ---
 

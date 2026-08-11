@@ -167,6 +167,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IPageControllerRegistry, PageControllerRegistry>();
 
+        services.AddSingleton<ICMSRouteRegistry, CMSRouteRegistry>();
+
         services.AddScoped<ICMSRouteService, CMSRouteService>();
         services.AddScoped<IRouteRegistrationService, RouteRegistrationService>();
         services.AddScoped<IDefaultContentSeeder, DefaultContentSeeder>();

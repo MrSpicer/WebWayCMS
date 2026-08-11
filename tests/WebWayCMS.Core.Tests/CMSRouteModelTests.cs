@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using NSubstitute;
 
 using NUnit.Framework;
@@ -282,5 +284,39 @@ public class CMSRouteModelTests
         var result = await _model.GetApiListAsync();
 
         Assert.That(result.Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetVersionHistoryViewModelAsync_CallsGetAllVersionsAsync()
+    {
+        var result = await _model.GetVersionHistoryViewModelAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_CallsDeleteVersionCoreAsync()
+    {
+        var result = await _model.DeleteVersionAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void VersionHistoryContentType_ReturnsCmsroutes()
+    {
+        var prop = typeof(CMSRouteModel).GetProperty("VersionHistoryContentType",
+            BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+        Assert.That(prop, Is.Not.Null);
+        Assert.That(prop!.GetValue(_model), Is.EqualTo("cmsroutes"));
+    }
+
+    [Test]
+    public void GetVersionHistoryBackUrl_ReturnsAdminCmsroutes()
+    {
+        var method = typeof(CMSRouteModel).GetMethod("GetVersionHistoryBackUrl",
+            BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+        Assert.That(method, Is.Not.Null);
+        Assert.That(method!.Invoke(_model, new object?[] { null }), Is.EqualTo("/admin/cmsroutes"));
     }
 }

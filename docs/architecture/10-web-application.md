@@ -19,8 +19,9 @@
 |------------------------|------------------------|
 | Page types specific to this site | Generic page types (GenericPage, GenericAdminPage) |
 | Site-specific widgets | Widget framework infrastructure |
-| Site-specific content types | Content type framework (admin CRUD, versioning) |
-| Site CSS/JS/fonts/icons | Admin UI CSS/JS (served from CMS library's wwwroot) |
+| Site-specific code-based routes (`[CmsRoute]`) | The route table, transformer, and seeders |
+| Content-type models, ViewModels, admin views | Content type framework (admin CRUD, versioning) — **and the DTO + EF configuration**, which must live in `WebWayCMS.Data` |
+| Site CSS/JS/fonts/icons | Admin UI CSS/JS (served from `_content/WebWayCMS.Admin`) |
 | `Program.cs` startup | All service registrations, middleware, seeding |
 | Branding views (`_Layout`, nav/footer) | Generic chrome: error view, validation/login partials, `ErrorController` |
 | Mapping profiles for Web-specific types | CMS built-in type mappings |
@@ -29,9 +30,9 @@ When a feature is purely about this site's content or design, it goes in the Web
 
 ---
 
-## 2. The Four Extension Surfaces
+## 2. The Extension Surfaces
 
-The CMS provides four integration points for the Web project to customize behavior:
+The CMS provides five integration points for the Web project to customize behavior:
 
 ### 1. Custom Page Types
 Extend `PageControllerBase<TConfig>` and decorate with `[PageController]`:
@@ -41,12 +42,17 @@ public class BlogPageController : PageControllerBase<BlogPageConfiguration>
 {
     public override async Task<IActionResult> Index()
     {
-        var subRoute = HttpContext.Items["CMS:SubRoute"] as string;
+        // Route values captured from the URL pattern are in RouteData.Values
         // ...
     }
 }
 ```
-No registration required — `PageControllerRegistry` discovers it at startup. See [Area 3](03-page-routing.md).
+No registration required — the CMS reflects over the entry assembly at startup and seeds a
+`PageControllerRegistrations` row for it. After that first run the database row is authoritative;
+edit page-type metadata at `/admin/pagetypes`. See [Area 3](03-page-routing.md).
+
+A page type is not a URL. Create a page at `/admin/pages`, pick the type, and give it a Slug — the
+CMS derives the route pattern and writes it to `CMSRoutes`.
 
 ### 2. Custom Widgets
 Extend `ViewComponent` and decorate with `[ContentZoneComponent]`:
@@ -60,21 +66,42 @@ public class MyWidgetViewComponent : ViewComponent
     }
 }
 ```
-No registration required — `ContentZoneComponentRegistry` discovers it. See [Area 4](04-content-zone-framework.md).
+No registration required — the widget is seeded into `WidgetRegistrations` at startup and served
+thereafter by `IWidgetRegistry`. Manage it at `/admin/widgets`. See
+[Area 4](04-content-zone-framework.md).
 
 ### 3. Custom Content Types
-Create a DTO, DbContext, domain model, and register in DI:
+Create a domain model over the **unified `CmsDbContext`** and register it in DI:
 ```csharp
 // In Program.cs MapTypes():
-services.AddDbContext<MyThingContext>(options => options.UseNpgsql(...));
 services.AddScoped<IContentService<MyThingDTO>>(sp =>
-    new ContentService<MyThingDTO>(sp.GetRequiredService<MyThingContext>()));
+    new ContentService<MyThingDTO>(sp.GetRequiredService<CmsDbContext>()));
 services.AddScoped<MyThingModel>();
 services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyThingModel>());
 ```
+The host does **not** create its own `DbContext` — there is one context for the whole CMS.
+
+> The DTO and its `IEntityTypeConfiguration<T>` must live in `WebWayCMS.Data`, because
+> `CmsDbContext` only scans its own assembly for configurations. For host-specific fields on an
+> existing type, use `ContentDTO.CustomFields` (JSONB) instead. See
+> [Area 1](01-data-tier.md#8-how-to-add-a-new-content-types-data-layer).
+
 See [Area 5](05-content-domain-models.md) and [Area 6](06-admin-crud-framework.md).
 
-### 4. Custom Mappings
+### 4. Code-Based Routes
+For URLs that belong to the application rather than to editor-managed content, decorate a
+controller with one or more `[CmsRoute]` attributes:
+```csharp
+[CmsRoute("/search/{query?}", Order = 10, Action = "Search")]
+[CmsRoute("/product/{id:int}", Order = 20, Action = "Product")]
+public class CatalogController : Controller { /* ... */ }
+```
+The entry assembly is scanned at startup and each pattern is seeded into `CMSRoutes`. Seeding is
+idempotent by pattern and never updates an existing row. See
+[Area 3](03-page-routing.md#8-cmsroute--code-based-routes) and the worked example in
+`WebWayCMS.TestHost/Controllers/CodeTestController.cs`.
+
+### 5. Custom Mappings
 Add to `MySite/MappingProfile.cs`:
 ```csharp
 using WebWayCMS.Mapping;
@@ -122,7 +149,10 @@ app.Run();
 
 **Step 1** must happen before step 2 so Web-project DI registrations can be overridden or extended by the CMS.
 
-Route registration now lives inside `EnsureCMS()` (specifically its `ConfigureMiddleware` step), so the Web project no longer maps the dynamic page route or the conventional fallback itself — it just calls `EnsureCMS()`. The dynamic catch-all `{**slug}` matches everything; if the transformer returns `null!`, routing falls through to the conventional `{controller=Home}/{action=Index}/{id?}` route. See [07-cms-bootstrap](07-cms-bootstrap.md) for the registration details and ordering.
+Route registration lives inside `EnsureCMS()` (specifically its `MapCmsEndpoints` step), so the Web project never maps the dynamic CMS route or the conventional fallback itself — it just calls `EnsureCMS()`. The dynamic catch-all `{**slug}` matches everything not already claimed by an attribute-routed controller; if `CMSRouteTransformer` returns `null!`, routing falls through to the conventional `{controller=Home}/{action=Index}/{id?}` route. See [07-cms-bootstrap](07-cms-bootstrap.md) for the registration details and ordering.
+
+A host that should render published content but never serve the admin UI calls
+`AddWebWayCmsRendering` / `EnsureCmsRendering` instead — see [Area 11](11-deployment-modes.md).
 
 ---
 
@@ -144,37 +174,31 @@ Both actions render `Views/Shared/Error.cshtml` (must be provided by the Web pro
 
 ## 5. Frontend Assets
 
-`wwwroot/` structure:
+**The host owns only its public assets.** Everything the admin UI needs ships inside the packages
+and is served from the library `wwwroot`s over the RCL `_content` convention — the host adds no
+files for it:
 
-```
-wwwroot/
-├── css/
-│   ├── site.css          ← compiled from site.scss (run ./Scripts/HotReloadRun.sh)
-│   ├── animations.css
-│   └── print.css
-├── js/
-│   ├── site.js           ← main site JavaScript
-│   ├── admin.js          ← admin UI interactions (zone editing, drag-reorder, CKEditor init)
-│   ├── animations.js
-│   └── typewriter.js
-├── fonts/
-│   ├── InterVariable.woff2
-│   └── FiraCode-VF.woff2
-├── icons/
-│   └── sprite.svg        ← SVG icon sprite (reference via <use href="/icons/sprite.svg#icon-name">)
-├── favicon.ico
-├── favicon.svg
-└── robots.txt
-```
+| Asset | Served from |
+|---|---|
+| `admin.css`, `admin.js`, `bulma.min.css`, `content-zone-edit.css/js`, `page-upsert.js` | `~/_content/WebWayCMS.Admin/...` |
+| `bulma.min.css`, `validation.js` for the public/Identity pages | `~/_content/WebWayCMS.Presentation/...` |
+| CKEditor 5, Bulma, Font Awesome | CDNs, allow-listed by the default CSP |
 
-**Sass compilation:** `site.css` is generated from a `.scss` source file. The hot-reload script (`./Scripts/HotReloadRun.sh`) runs both `dotnet watch run` and a Sass watcher in parallel. Run this script for development — do not edit `site.css` directly.
+So a host's `wwwroot/` contains only its own branding — site CSS/JS, fonts, icons, favicon,
+`robots.txt`. There is no CMS-mandated structure and no CMS-provided Sass pipeline for it; compile
+site styles however the host prefers.
 
-**JS conventions:** No jQuery. Vanilla JS only. `admin.js` handles inline zone editing (drag-to-reorder, add/remove widgets, CKEditor initialization for RichText fields). `site.js` is the public-facing entry point.
+**Sass inside the CMS.** `WebWayCMS.Admin.csproj` has a `CompileSass` build target that runs
+`npx sass` over `Views/Shared/Components/ContentZone/edit.scss`, plus a `CopyViewScripts` target
+that copies view-adjacent JS into `wwwroot/js/`. That is a CMS build concern, not a host one.
 
-**Icon sprite:** SVG symbols bundled into `sprite.svg`. Reference icons in Razor views with:
-```html
-<svg><use href="/icons/sprite.svg#icon-name" /></svg>
-```
+**JS conventions:** No jQuery. Vanilla JS only. `admin.js` handles inline zone editing
+(drag-to-reorder, add/remove widgets, CKEditor initialization for RichText fields) and reads the
+CKEditor license key from the `ckeditor-license-key` meta tag rather than an inline `<script>`, so
+the CSP `script-src` needs no `'unsafe-inline'`.
+
+**Dev loop.** `./WebWayCMS.TestHost/Scripts/HotReloadRun.sh` runs `dotnet watch run` against the
+example host in Development, which picks up both C# and Razor edits.
 
 ---
 

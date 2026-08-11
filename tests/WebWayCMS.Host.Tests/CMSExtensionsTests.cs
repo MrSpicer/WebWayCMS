@@ -20,6 +20,8 @@ namespace WebWayCMS.Host.Tests;
 public class CMSExtensionsTests
 {
     private readonly string[] _skipVars = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE" };
+    private readonly string[] _skipVarsExtended = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE",
+        "WEBWAYCMS_SKIP_DEFAULTWIDGETS", "WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS", "WEBWAYCMS_SKIP_CODEBASEDROUTES" };
     private Dictionary<string, string?> _previous = new();
 
     [SetUp]
@@ -35,6 +37,12 @@ public class CMSExtensionsTests
     {
         foreach (var (k, v) in _previous)
             Environment.SetEnvironmentVariable(k, v);
+    }
+
+    private void SetUpExtendedSkips()
+    {
+        foreach (var v in _skipVarsExtended)
+            Environment.SetEnvironmentVariable(v, "true");
     }
 
     private static WebApplication BuildApp()
@@ -69,6 +77,7 @@ public class CMSExtensionsTests
     [Test]
     public void EnsureCmsRendering_WiresMiddlewarePipeline_AndReturnsApp()
     {
+        SetUpExtendedSkips();
         using var app = BuildRenderingApp();
 
         var result = app.EnsureCmsRendering();
@@ -79,6 +88,7 @@ public class CMSExtensionsTests
     [Test]
     public void EnsureCmsRendering_CanBeInvokedWithThrowOnErrorFalse()
     {
+        SetUpExtendedSkips();
         using var app = BuildRenderingApp();
 
         Assert.That(() => app.EnsureCmsRendering(throwOnError: false), Throws.Nothing);
@@ -87,6 +97,7 @@ public class CMSExtensionsTests
     [Test]
     public void AddWebWayCmsRendering_RegistersServicesForRenderingPipeline()
     {
+        SetUpExtendedSkips();
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -105,6 +116,7 @@ public class CMSExtensionsTests
     [Test]
     public void AddWebWayCms_WithConfiguration_DelegatesToAddWebWayCmsAdmin()
     {
+        SetUpExtendedSkips();
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -133,4 +145,74 @@ public class CMSExtensionsTests
         builder.Services.AddWebWayCmsRendering(config);
         return builder.Build();
     }
+
+    [TestCase("/test", "/test")]
+    [TestCase("/", "/")]
+    [TestCase("", "/")]
+    [TestCase("  ", "/")]
+    [TestCase("/test/", "/test")]
+    [TestCase("test", "/test")]
+    [TestCase("TEST", "/test")]
+    public void NormalizeRoutePattern_NormalizesCorrectly(string input, string expected)
+    {
+        Assert.That(CMSExtensions.NormalizeRoutePattern(input), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void GetWidgetComponentName_StripsViewComponentSuffix()
+    {
+        Assert.That(CMSExtensions.GetWidgetComponentName(typeof(WidgetTestViewComponent)), Is.EqualTo("WidgetTest"));
+    }
+
+    [Test]
+    public void GetWidgetComponentName_NoSuffix_ReturnsFullName()
+    {
+        Assert.That(CMSExtensions.GetWidgetComponentName(typeof(PlainComponent)), Is.EqualTo("PlainComponent"));
+    }
+
+    [Test]
+    public void GetControllerName_StripsControllerSuffix()
+    {
+        Assert.That(CMSExtensions.GetControllerName(typeof(TestController)), Is.EqualTo("Test"));
+    }
+
+    [Test]
+    public void GetControllerName_NoSuffix_ReturnsFullName()
+    {
+        Assert.That(CMSExtensions.GetControllerName(typeof(PlainService)), Is.EqualTo("PlainService"));
+    }
+
+    [Test]
+    public void IsTransientDbStartupException_SocketExceptionInner_ReturnsTrue()
+    {
+        var ex = new Exception("outer", new System.Net.Sockets.SocketException());
+        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.True);
+    }
+
+    [Test]
+    public void IsTransientDbStartupException_DeepSocketExceptionInner_ReturnsTrue()
+    {
+        var ex = new Exception("outer", new InvalidOperationException("mid",
+            new System.Net.Sockets.SocketException()));
+        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.True);
+    }
+
+    [Test]
+    public void IsTransientDbStartupException_NoSocketException_ReturnsFalse()
+    {
+        var ex = new Exception("outer", new InvalidOperationException("inner"));
+        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.False);
+    }
+
+    [Test]
+    public void IsTransientDbStartupException_NoInnerException_ReturnsFalse()
+    {
+        var ex = new Exception("just a message");
+        Assert.That(CMSExtensions.IsTransientDbStartupException(ex), Is.False);
+    }
 }
+
+public class WidgetTestViewComponent { }
+public class PlainComponent { }
+public class TestController { }
+public class PlainService { }

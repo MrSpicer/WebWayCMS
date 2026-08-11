@@ -1,43 +1,63 @@
 # Area 9: CMS View Components & Presentation
 
 **Namespaces:**
-- `WebWayCMS.ViewComponents` (excluding `ContentZoneViewComponent`, covered in [Area 4](04-content-zone-framework.md))
+- `WebWayCMS.ViewComponents` (excluding `ContentZoneViewComponent`, covered in [Area 4](04-content-zone-framework.md)) — in `WebWayCMS.Presentation`
 - `WebWayCMS.Views.*`
-- `WebWayCMS.Services` — `IViewDiscoveryService`, `ViewDiscoveryService`
+- `WebWayCMS.Services` — `IViewDiscoveryService`, `ViewDiscoveryService` (in `WebWayCMS.Core`)
 
 **Depends on:** Content Domain Models (ViewModels), Content Zone Component Framework (admin zone edit views), Identity (admin views gated by `[Authorize]`)
 **Consumed by:** Web project layout files via `CompiledRazorAssemblyPart`
 
 ---
 
-## 1. Embedded Razor Views
+## 1. Embedded Razor Views — and Which Assembly Ships Them
 
-The CMS library ships pre-compiled Razor views. This is enabled in `ServiceCollectionExtensions` by registering two application parts:
+Two CMS assemblies ship pre-compiled Razor views, registered in `ServiceCollectionExtensions` as
+two application parts each:
 
 ```csharp
-apm.ApplicationParts.Add(new AssemblyPart(asm));           // controllers, ViewComponents
+apm.ApplicationParts.Add(new AssemblyPart(asm));              // controllers, ViewComponents
 apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(asm)); // pre-compiled .cshtml views
 ```
 
-The Web project uses runtime Razor compilation in development (`AddRazorRuntimeCompilation()`) so changes to `.cshtml` files in the Web project are picked up without rebuild. The CMS library's views are pre-compiled and are not affected by runtime compilation.
+| Assembly | Registered by | Contains |
+|---|---|---|
+| `WebWayCMS.Presentation` | `AddWebWayCmsRendering` | Public ViewComponents and their views, the fallback `_Layout`, the error view, and the Identity Razor Pages area |
+| `WebWayCMS.Admin` | `AddWebWayCmsAdmin` | All `/admin` views, the admin layout and partials, and the admin CSS/JS |
 
-**View resolution precedence:** ASP.NET Core searches the Web project's `Views/` folder before falling back to the CMS library's compiled views. To override any CMS view, create a file at the same relative path in the Web project.
+A rendering-only host therefore has no admin views at all — see [Area 11](11-deployment-modes.md).
+
+`WebWayCMS.Core` and `WebWayCMS.Forms` are added as plain `AssemblyPart`s (controllers,
+ViewComponents, and the `FormFieldsTagHelper`) — they ship no views.
+
+The Web project uses runtime Razor compilation in development (`AddRazorRuntimeCompilation()`) so changes to `.cshtml` files in the Web project are picked up without rebuild. The CMS libraries' views are pre-compiled and are not affected by runtime compilation.
+
+**View resolution precedence:** ASP.NET Core searches the Web project's `Views/` folder before falling back to the CMS libraries' compiled views. To override any CMS view, create a file at the same relative path in the Web project.
+
+**Static assets** are served from each library's `wwwroot` via the RCL convention:
+`~/_content/WebWayCMS.Admin/css/admin.css`, `~/_content/WebWayCMS.Presentation/js/validation.js`,
+and so on.
 
 ---
 
 ## 2. Admin Layout Structure
 
-The CMS library provides the shared admin layout:
+`WebWayCMS.Admin` provides the shared admin layout:
 
 | File | Purpose |
 |------|---------|
-| `Views/Shared/_AdminLayout.cshtml` | Root admin layout with navigation, sidebar, Bulma CSS |
+| `Views/Shared/_AdminLayout.cshtml` | Root admin layout: navbar, Bulma + FontAwesome from CDN, the CSRF and CKEditor-license meta tags, and optional CKEditor sections |
 | `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`) |
-| `Views/Shared/_ViewStart.cshtml` | Sets `_AdminLayout` as the default layout for admin views |
+| `Views/Shared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal, rendered once by the layout |
 | `Views/AdminShared/VersionHistory.cshtml` | Shared version history list view used by all content types |
-| `Views/AdminShared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal partial |
 
-Admin views specify the admin layout explicitly or inherit it via `_ViewStart.cshtml`.
+Admin assets referenced by the layout: `~/_content/WebWayCMS.Admin/css/admin.css` and
+`~/_content/WebWayCMS.Admin/js/admin.js`. The project's `.csproj` compiles
+`Views/Shared/Components/ContentZone/edit.scss` into `wwwroot/css/content-zone-edit.css` and copies
+the view-adjacent `edit.js` / `PageUpsert.js` into `wwwroot/js/` as part of the build.
+
+Each admin view folder carries its own `_ViewStart.cshtml` pointing at `_AdminLayout`, so individual
+views do not set `Layout` themselves.
 
 ---
 
@@ -115,14 +135,15 @@ Each variant renders named zone slots (`Column1`, `Column2`, `Header`, `Footer`,
 
 ## 4. Shared Admin Partials
 
-Located in `Views/AdminShared/` (CMS library):
+Located in `WebWayCMS.Admin`:
 
-| Partial | Description |
+| File | Description |
 |---------|-------------|
-| `_DeleteConfirmModal.cshtml` | Bootstrap/Bulma modal for delete confirmation; renders form POST to the delete route |
-| `VersionHistory.cshtml` | Full version list view with restore and delete-version actions |
+| `Views/Shared/_DeleteConfirmModal.cshtml` | Bulma modal for delete confirmation; renders a form POST to the delete route |
+| `Views/AdminShared/VersionHistory.cshtml` | Full version list view with restore and delete-version actions |
+| `Views/Shared/Components/ContentZone/edit.cshtml` | The inline zone editor, with its own `edit.scss` and `edit.js` |
 
-Components directory (`Views/Shared/Components/`) contains the default views for each built-in ViewComponent (e.g., `ContentZone/Default.cshtml`, `ContentZone/Edit.cshtml`).
+The public components directory (`WebWayCMS.Presentation/Views/Shared/Components/`) contains the default views for each built-in ViewComponent (e.g. `ContentZone/Default.cshtml`).
 
 ---
 
@@ -167,7 +188,7 @@ To replace any CMS view with a custom version:
 1. Create a file at the same relative path in `MySite/Views/`
 2. ASP.NET Core's view resolution searches the Web project first
 
-For example, to replace the admin navbar:
+For example, to replace the admin navbar (from `WebWayCMS.Admin`):
 - Create `MySite/Views/Shared/_AdminNavbar.cshtml`
 
 For ViewComponent default views:

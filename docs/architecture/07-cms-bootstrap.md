@@ -1,112 +1,181 @@
 # Area 7: CMS Bootstrap & Application Startup
 
 **Namespaces:**
-- `WebWayCMS` — `ServiceCollectionExtensions`, `CMSExtensions`
+- `WebWayCMS` — `ServiceCollectionExtensions`, `CMSExtensions`, `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`
 - `WebWayCMS.Logging` — `SerilogExtensions`
 
-**Depends on:** All 7 other CMS libraries (composition root)
+**Depends on:** All 9 other CMS libraries (composition root)
 **Consumed by:** Web project `Program.cs` exclusively
 
 ---
 
-## 1. `AddWebWayCms(services, configuration)` — DI Registration Catalog
+## 1. Entry Points
 
-Called once in `Program.cs`. Performs the following registrations in order:
+The CMS exposes two bootstrap pairs plus back-compat aliases. A host calls one `Add*` in
+`Program.cs` before `builder.Build()`, and the matching `Ensure*` after it.
 
-**Forwarded headers:**
-- Configures `ForwardedHeadersOptions` to trust `X-Forwarded-For` and `X-Forwarded-Proto` from all upstream proxies (cleared known networks/proxies for Docker internal networking)
+| DI method | Pipeline method | Mode |
+|---|---|---|
+| `AddWebWayCmsRendering(services, config)` | `EnsureCmsRendering(app)` | Render published content only |
+| `AddWebWayCmsAdmin(services, config)` | `EnsureCmsAdmin(app)` | Full stack: rendering + admin UI + MCP |
+| `AddWebWayCms(services, config)` | `EnsureCMS(app)` | Aliases that delegate to the admin pair |
 
-**DbContexts** (1 context, pointing to `DefaultConnection`):
+There is also a parameterless `AddWebWayCms(services)` overload used by tests: it registers the core
+types, authorization, rate limiting, and the admin types, but **skips the database, `CspOptions`
+binding, and MCP** — it is not a host entry point.
 
-| Context | Migration Table |
-|---------|----------------|
-| `CmsDbContext` | `__EFMigrationsHistory` |
-
-Database developer page exception filter is added in `DEBUG` builds.
-
-**Utility services:**
-- `IHttpContextAccessor` — needed by `UserService`
-- `UserService` — singleton
-- `IViewDiscoveryService` → `ViewDiscoveryService` — scoped
-
-**Registries (singletons):**
-- `IContentZoneComponentRegistry` → `ContentZoneComponentRegistry` — scans `CMS.Presentation` assembly + entry assembly
-- `IPageControllerRegistry` → `PageControllerRegistry` — scans `CMS.Core` assembly + entry assembly
-- `PageRouteTransformer` — scoped (because it injects `IPageService`)
-- Route constraint: `"notreserved"` → `NotReservedConstraint`
-
-**Content services (scoped, bound to the unified CmsDbContext):**
-- `IContentService<ArticleDTO>` → `ContentService<ArticleDTO>` (uses `CmsDbContext`)
-- `IContentService<ArticleListDTO>` → `ContentService<ArticleListDTO>` (uses `CmsDbContext`)
-- `IContentService<ContentBlockDTO>` → `ContentService<ContentBlockDTO>` (uses `CmsDbContext`)
-- `IContentZoneService` → `ContentZoneService`
-- `IPageService` → `PageService`
-
-**Domain models (scoped, registered as both domain interface and `IAdminCrudHandler`):**
-- `ContentBlockModel` / `IContentBlockModel` / `IAdminCrudHandler`
-- `PageModel` / `IPageModel` / `IAdminCrudHandler`
-- `ArticleListModel` / `IArticleListModel` / `IAdminCrudHandler`
-- `ContentZoneModel` / `IContentZoneModel` / `IAdminCrudHandler`
-- `IArticleModel` → `ArticleModel`
-
-**Admin framework:**
-- `IAdminHandlerRegistry` → `AdminHandlerRegistry` — scoped (built from all `IAdminCrudHandler` per request)
-
-**Dev email sender** (DEBUG builds only):
-- `IEmailSender` → `DevEmailSender`
-
-**Object mapper (in-house `IMapper`):**
-- Adds `MappingProfile` from the `CMS.Core` assembly
-
-**MVC application parts (3 assemblies registered):**
-- `AssemblyPart(CMS.Core)` — registers controllers and ViewComponents
-- `AssemblyPart(CMS.Forms)` — registers tag helpers (`FormFieldsTagHelper`)
-- `AssemblyPart(CMS.Presentation)` + `CompiledRazorAssemblyPart(CMS.Presentation)` — registers ViewComponents and exposes pre-compiled Razor views
-
-**Identity:**
-- `AddDefaultIdentity<IdentityUser>` with password policy (see [Area 8](08-identity-auth.md))
-- `.AddRoles<IdentityRole>()`
-- `.AddEntityFrameworkStores<CmsDbContext>()`
-- `.AddDefaultUI()` — embeds Identity Razor Pages
+See [11-deployment-modes](11-deployment-modes.md) for what the split does and does not buy you.
 
 ---
 
-## 2. `EnsureCMS(app)` — Startup Task Sequence
+## 2. `AddWebWayCmsRendering` — DI Registration Catalog
 
-Called once in `Program.cs` after `builder.Build()`. Executes four tasks in order:
+Runs in this order:
+
+**Database** (`ConfigureDatabaseServices`):
+- Reads `ConnectionStrings:DefaultConnection`; throws `InvalidOperationException` if absent
+- `AddDbContext<CmsDbContext>` over Npgsql, with `MigrationsHistoryTable("__EFMigrationsHistory")`
+- `AddDatabaseDeveloperPageExceptionFilter()` in `DEBUG` builds only
+
+**Forwarded headers** (`ConfigureForwardedHeaders`):
+- Trusts `X-Forwarded-For` and `X-Forwarded-Proto`, clearing known networks/proxies for Docker
+  internal networking
+
+**Core types** (`MapRenderingTypes` → `AddRenderingCoreTypes`):
+
+| Registration | Lifetime |
+|---|---|
+| `IEmailSender` → `DevEmailSender` (`DEBUG` only) | singleton |
+| `IHttpContextAccessor` | — |
+| `UserService` | singleton |
+| `IViewDiscoveryService` → `ViewDiscoveryService` | scoped |
+| `IWidgetRegistry` → `WidgetRegistry` | **singleton** |
+| `IPageControllerRegistry` → `PageControllerRegistry` | **singleton** |
+| `IContentService<T>` for `ArticleDTO`, `ArticleListDTO`, `ContentBlockDTO`, `WidgetRegistrationDTO`, `PageControllerRegistrationDTO`, `CMSRouteDTO` | scoped |
+| `IContentZoneService` → `ContentZoneService` | scoped |
+| `IPageService` → `PageService` | scoped |
+| `IWidgetRegistrationService` → `WidgetRegistrationService` | scoped |
+| `IPageControllerRegistrationService` → `PageControllerRegistrationService` | scoped |
+| `ICMSRouteService` → `CMSRouteService` | scoped |
+| `IRouteRegistrationService` → `RouteRegistrationService` | scoped |
+| `IDefaultContentSeeder` → `DefaultContentSeeder` | scoped |
+| `CMSRouteTransformer` | scoped (it injects scoped services) |
+| `ContentBlockModel` / `IContentBlockModel` | scoped |
+| `PageModel` / `IPageModel` | scoped |
+| `ArticleListModel` / `IArticleListModel` | scoped |
+| `ContentZoneModel` / `IContentZoneModel` | scoped |
+| `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel` | scoped |
+| `ArticleViewComponent` / `IRoutableViewComponent` | scoped |
+| `IArticleModel` → `ArticleModel` | scoped |
+| `IMapper` from `new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()))` | singleton |
+
+Note the models are registered here, in the *rendering* path, under their domain interfaces only.
+They become admin handlers in `MapAdminTypes` (§3).
+
+**MVC application parts** added by `AddRenderingCoreTypes`:
+- `AssemblyPart(WebWayCMS.Core)` — controllers and ViewComponents
+- `AssemblyPart(WebWayCMS.Forms)` — tag helpers (`FormFieldsTagHelper`)
+- `AssemblyPart(WebWayCMS.Presentation)` + `CompiledRazorAssemblyPart(WebWayCMS.Presentation)`
+
+**Identity** (`ConfigureAuthorization`) — see [Area 8](08-identity-auth.md) for the policy values.
+
+**Rate limiting** (`ConfigureRateLimiting`):
+- `AddRateLimiter` with `RejectionStatusCode = 429` and a global partitioned limiter driven by
+  `AuthRateLimiting.GetPartition`
+
+**Options binding:**
+- `services.Configure<CspOptions>(configuration.GetSection("Csp"))`
+
+---
+
+## 3. What `AddWebWayCmsAdmin` Adds
+
+It calls `AddWebWayCmsRendering` first, then:
+
+**`MapAdminTypes`:**
+- Route constraint `"notreserved"` → `NotReservedConstraint`
+- `IAdminHandlerRegistry` → `AdminHandlerRegistry` (scoped)
+- Seven `IAdminCrudHandler` forwards, each resolving the already-registered scoped model:
+  `ContentBlockModel`, `PageModel`, `ArticleListModel`, `ContentZoneModel`,
+  `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel`
+- `AssemblyPart(WebWayCMS.Admin)` + `CompiledRazorAssemblyPart(WebWayCMS.Admin)`
+
+**MCP:**
+- `services.AddWebWayCmsMcp(configuration)` — binds `McpOptions` and registers the toolsets.
+  See [Area 12](12-mcp-server.md).
+
+---
+
+## 4. `Ensure*` — Startup Task Sequence
 
 ```
-1. ApplyCmsPendingMigrations()
-2. EnsureCmsRolesAndAdminSeeded()
-3. EnsureDefaultHomePage()
-4. ConfigureMiddleware()
+EnsureCmsRendering                    EnsureCmsAdmin
+─────────────────────                 ─────────────────────
+1. ApplyCmsPendingMigrations          1. ApplyCmsPendingMigrations
+                                      2. EnsureCmsRolesAndAdminSeeded
+2. EnsureDefaultHomePage              3. EnsureDefaultHomePage
+3. EnsureWidgetRegistrationsSeeded    4. EnsureWidgetRegistrationsSeeded
+4. EnsurePageControllerRegistrations   5. EnsurePageControllerRegistrations
+     Seeded                                Seeded
+5. EnsureCodeBasedRoutesSeeded        6. EnsureCodeBasedRoutesSeeded
+6. ConfigureRenderingPipeline         7. ConfigureAdminPipeline
 ```
 
-Each step is idempotent — calling `EnsureCMS` on a fully-initialized database is safe and fast.
+`EnsureCMS(app)` simply calls `EnsureCmsAdmin(app)`.
+
+Every step is idempotent — calling `Ensure*` on a fully-initialized database is safe and fast. The
+three registration seeders **only insert**: a widget, page type, or route pattern that already
+exists is skipped and never updated, so after the first run the database is authoritative.
+
+Each method takes `bool throwOnError = true`. Migrations honour it directly; the seeders log and
+continue by default.
+
+> `EnsureDefaultHomePage` accepts a `seedAdminPage` flag. The rendering path passes `false` and
+> the admin path passes `true`. `DefaultContentSeeder.SeedDefaultPagesAsync` honours the flag —
+> when `false`, only the Home page is seeded; when `true`, the Admin page (at `/admin` with
+> `GenericAdminPageController`) is also seeded with its own independent guard.
 
 ---
 
-## 3. Migration Retry Logic
+## 5. Migration Retry Logic
 
-`ApplyCmsPendingMigrations` applies pending migrations for the unified context. It retries up to 10 times with exponential backoff (starting at 3s, capping at 30s) when a `SocketException` is detected in the exception chain — the signal that the database container is not yet available.
+`ApplyCmsPendingMigrations` applies pending migrations for the unified context. It retries up to 10
+times with exponential backoff (starting at 3s, capping at 30s) when a `SocketException` is detected
+in the exception chain — the signal that the database container is not yet available.
 
-Migrations are applied in a single pass; the unified context owns all tables and does not require ordering.
+Migrations are applied in a single pass; the unified context owns all tables and does not require
+ordering.
 
 ---
 
-## 4. Environment Variable Overrides
+## 6. Environment Variable Overrides
 
 | Variable | Effect |
 |----------|--------|
-| `WEBWAYCMS_SKIP_MIGRATIONS=true` | Skip migration application entirely (for read-only replicas or integration tests) |
+| `WEBWAYCMS_SKIP_MIGRATIONS=true` | Skip migration application entirely (read-only replicas, integration tests) |
 | `WEBWAYCMS_SKIP_ROLESEED=true` | Skip role creation and admin user seeding |
-| `WEBWAYCMS_SKIP_DEFAULTPAGE=true` | Skip default home page seeding |
+| `WEBWAYCMS_SKIP_DEFAULTPAGE=true` | Skip default Home/Admin page seeding |
+| `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` | Skip seeding widget registrations from `[ContentZoneComponent]` |
+| `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` | Skip seeding page-type registrations from `[PageController]` |
+| `WEBWAYCMS_SKIP_CODEBASEDROUTES=true` | Skip seeding routes from `[CmsRoute]` |
 
-All comparisons are case-insensitive. These variables are checked at startup, not cached.
+All comparisons are case-insensitive. These variables are read at startup, not cached.
+
+A seventh variable applies to the EF design-time tooling rather than the running app:
+`WEBWAYCMS_DESIGNTIME_CONNECTION` overrides the connection string `CmsDbContextFactory` uses when
+scaffolding migrations.
+
+### Assemblies each seeder scans
+
+| Seeder | Assemblies |
+|---|---|
+| Widget registrations | `WebWayCMS.Presentation`, entry assembly |
+| Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly |
+| Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly |
 
 ---
 
-## 5. Serilog Configuration
+## 7. Serilog Configuration
 
 `builder.Host.UseCmsSerilog(configuration)` configures Serilog via `SerilogExtensions.UseCmsSerilog`:
 
@@ -125,15 +194,17 @@ if (!runningInContainer)
     loggerConfig.WriteTo.File("Logs/log-.txt", rollingInterval: RollingInterval.Day);
 ```
 
-Container detection: `DOTNET_RUNNING_IN_CONTAINER == "true"` (set automatically by the .NET Docker base image). In containers, stdout logging is preferred and file sinks are skipped.
+Container detection: `DOTNET_RUNNING_IN_CONTAINER == "true"` (set automatically by the .NET Docker
+base image). In containers, stdout logging is preferred and file sinks are skipped.
 
-Configuration overrides take precedence — add `Serilog:` keys to `appsettings.json` to change minimum levels, add sinks, etc.
+Configuration overrides take precedence — add `Serilog:` keys to `appsettings.json` to change
+minimum levels, add sinks, etc.
 
 ---
 
-## 6. Middleware Pipeline Order
+## 8. Middleware Pipeline Order
 
-`ConfigureMiddleware` configures the ASP.NET Core pipeline in this order:
+Both pipelines share `ConfigureSharedMiddleware`:
 
 ```
 UseForwardedHeaders()          — must be first; rewrites Request.Scheme/IP from proxy headers
@@ -144,38 +215,48 @@ UseHttpsRedirection()          — redirect HTTP → HTTPS
                                    X-Frame-Options: DENY
                                    Referrer-Policy: strict-origin-when-cross-origin
                                    Permissions-Policy: geolocation=(), microphone=(), camera=()
-UseStaticFiles()               — serve wwwroot assets
+                                   Content-Security-Policy (see below)
+UseStaticFiles()               — serve wwwroot and _content assets
 UseRouting()                   — match routes
+UseRateLimiter()               — per-IP throttling on the Identity auth endpoints
 UseAuthentication()
 UseAuthorization()
+```
+
+The CSP header name and value are computed **once at startup** from `IOptions<CspOptions>` via
+`CspPolicyBuilder.HeaderName` / `CspPolicyBuilder.Build`, then written on every response. An empty
+built value (i.e. `Csp:Enabled = false`) means no header is emitted. See [Area 13](13-security.md).
+
+Then `ConfigureAdminPipeline` calls `app.MapWebWayCmsMcp()` — the rendering pipeline does not —
+and both call `MapCmsEndpoints`:
+
+```
 MapRazorPages()                — Identity UI pages
-MapDynamicControllerRoute<PageRouteTransformer>("{**slug}")  — dynamic page routing
+MapControllers()               — attribute-routed controllers (incl. all /admin routes)
+MapDynamicControllerRoute<CMSRouteTransformer>("{**slug}")  — database-backed CMS routing
 MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}")  — fallback MVC
 ```
 
-Route mapping is performed by `ConfigureMiddleware` (the final `EnsureCMS()` step), so the host
-project does not register CMS routes itself. The dynamic catch-all `{**slug}` is mapped before the
-conventional route; if `PageRouteTransformer` returns `null!`, routing falls through to the
-conventional `{controller}/{action}/{id?}` route. Keeping both registrations inside the CMS makes
-the package self-contained — the Web project only calls `EnsureCMS()`.
+Order matters: attribute-routed controllers are mapped **before** the dynamic catch-all, so
+`AdminContentController`'s `admin/{contentType}` out-ranks it. If `CMSRouteTransformer` returns
+`null!`, routing falls through to the conventional route and then to a 404. Keeping both
+registrations inside the CMS makes the package self-contained — the Web project only calls
+`EnsureCMS()`.
 
 ---
 
-## 7. Minimal `Program.cs` Template
-
-Required call sequence with placeholder comments for Web-project additions:
+## 9. Minimal `Program.cs` Template
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// Web-project-specific service registrations:
+// Web-project-specific service registrations go here, before AddWebWayCms:
 // services.AddScoped<MyService>();
-// services.AddSingleton<IMapper>(new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile())).CreateMapper());
-MapTypes(builder.Services);  // Web project's local DI registrations
+MapTypes(builder.Services);
 
-builder.Services.AddWebWayCms(builder.Configuration);  // CMS DI
+builder.Services.AddWebWayCms(builder.Configuration);  // CMS DI (admin + rendering)
 
-builder.Host.UseCmsSerilog(builder.Configuration);  // Serilog
+builder.Host.UseCmsSerilog(builder.Configuration);     // Serilog
 
 var mvc = builder.Services.AddControllersWithViews();
 if (builder.Environment.IsDevelopment())
@@ -191,10 +272,13 @@ if (!app.Environment.IsDevelopment())
 
 app.EnsureCMS();  // Migrations, seeding, middleware, route mapping
 
-// Web-project-specific route mappings (optional) go here. The CMS dynamic page route
+// Web-project-specific route mappings (optional) go here. The CMS dynamic route
 // and the conventional fallback route are already registered inside EnsureCMS().
 
 app.Run();
 ```
 
-Do not call `AddControllersWithViews` before `AddWebWayCms` — the CMS extension also calls it and merges the application parts.
+Do not call `AddControllersWithViews` before `AddWebWayCms` — the CMS extension also calls it and
+merges the application parts.
+
+A working version of this file is `WebWayCMS.TestHost/Program.cs`.

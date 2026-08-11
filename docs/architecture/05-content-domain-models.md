@@ -7,11 +7,13 @@
 - `WebWayCMS.Models.ContentZone`
 - `WebWayCMS.Models.Layout`
 - `WebWayCMS.Models.Page`
+- `WebWayCMS.Models.CMSRoute`, `.WidgetRegistration`, `.PageControllerRegistration`
 - `WebWayCMS.Models.Shared` — `AdminCrudModel<T>`, `VersionedModel<T>`, `VersionHistoryViewModel`
+- `WebWayCMS.Interfaces` — `IRoutableContent`, `IRoutableViewComponent`, `IRouteRegistrationService`
 - `WebWayCMS.Data` — `MappingProfile`
 - `MySite` — `MappingProfile`
 
-**Depends on:** Data Tier (services consumed), Admin CRUD Framework interfaces (`IAdminCrudHandler`, `IAdminCrudChildHandler`), Page Routing Subsystem (`IPageControllerRegistry` used in `PageModel`)
+**Depends on:** Data Tier (services consumed), Admin CRUD Framework interfaces (`IAdminCrudHandler`, `IAdminCrudChildHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
 **Consumed by:** Admin CRUD Framework (resolves `IAdminCrudHandler` implementations), view components/views (consume ViewModels)
 
 ---
@@ -24,7 +26,7 @@ Model classes are the business logic tier. They sit between the data tier (servi
 - Validates business rules before calling services (e.g., `PageModel` checks route uniqueness)
 - Implements `IAdminCrudHandler` for top-level content types, making each model class self-describing to the admin CRUD framework
 
-Models are registered in DI as **scoped** services, exposed under both their domain interface and `IAdminCrudHandler` so all consumers share the same scoped instance.
+Models are registered in DI as **scoped** services by `AddWebWayCmsRendering`, exposed under their domain interface. `AddWebWayCmsAdmin` then adds a second registration forwarding the same scoped instance as `IAdminCrudHandler`, so all consumers share one instance per request. In a rendering-only host the models exist but are never surfaced as admin handlers.
 
 ---
 
@@ -41,7 +43,7 @@ protected abstract string GetVersionHistoryBackUrl(string? parentKey = null);
 
 `BuildVersionHistoryAsync` is the shared implementation that calls `GetAllVersionsAsync`, finds the maximum version number, and builds a `VersionHistoryViewModel` containing `VersionItemViewModel` entries with an `IsLatest` flag.
 
-`VersionHistoryViewModel` is rendered by the shared `_VersionHistory.cshtml` partial in the admin UI.
+`VersionHistoryViewModel` is rendered by the shared `Views/AdminShared/VersionHistory.cshtml` view in `WebWayCMS.Admin`.
 
 ---
 
@@ -53,6 +55,12 @@ protected abstract string GetVersionHistoryBackUrl(string? parentKey = null);
 - **Admin CRUD handler** — the `IAdminCrudHandler` methods delegate to the domain methods, adapting the generic `object`-typed interface to the concrete types
 
 This dual role means the DI registration exposes one scoped instance as both `PageModel` and `IAdminCrudHandler`, avoiding double instantiation.
+
+`AdminCrudModel<T>.SaveUpsertAsync` is **sealed behaviour**: it runs `RichTextSanitizer.Sanitize`
+over the incoming view model before delegating to the abstract `SaveUpsertCoreAsync` that each
+subclass implements. This single choke point is what makes stored rich text safe to render with
+`@Html.Raw`, and it covers the MCP tools as well as the admin UI. Subclasses override
+`SaveUpsertCoreAsync`, never `SaveUpsertAsync`. See [Area 13](13-security.md).
 
 **`AdminCrudModel<T>` default implementations:**
 
@@ -77,8 +85,10 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 - **ContentType:** `"pages"`
 - **DisplayName:** `"Page"`
-- **Handler:** Full `IAdminCrudHandler`; also exposes `IAdminRegistryHandler` via `PageRegistryHandler` (delegates to `IPageControllerRegistry` to supply controller metadata and available views to the admin page-edit UI)
-- **Domain methods:** `GetByRouteAsync`, `GetPageIndexAsync` (builds `PageTreeNode` hierarchy), `GetPageUpsertAsync`, `SavePageUpsertAsync` (includes route availability check), `DeletePageAsync`, `IsRouteAvailableAsync`
+- **Also implements:** `IRoutableContent` (`RouteContentType => "Page"`)
+- **Handler:** Full `IAdminCrudHandler`; also exposes `IAdminRegistryHandler` via `PageRegistryHandler` (delegates to `IPageControllerRegistry` to supply page-type metadata and available views to the admin page-edit UI)
+- **Domain methods:** `GetPageIndexAsync` (builds the `PageTreeNode` hierarchy by joining pages to their `CMSRoutes` patterns), `GetPageUpsertAsync`, `SavePageUpsertAsync`, `DeletePageAsync`
+- **URL handling:** the page's route pattern is derived from its Slug (`DeriveRoutePatternFromSlug`) and written through `IRouteRegistrationService` on save; `ICMSRouteService.IsPatternAvailableAsync` guards uniqueness and produces the `"A page with this slug already exists at this location."` error on the `Slug` field. Saving an unpublished page unregisters its route instead
 - **Version restore:** Copies historical version, sets `Id`/`Version` to the latest version's values so saving creates a new version on top
 
 ### `ArticleListModel`
@@ -105,9 +115,33 @@ Subclasses override what they need; everything else inherits the sensible defaul
 ### `ContentZoneModel`
 
 - **ContentType:** `"contentzones"`
-- Manages both zones (parent) and zone items (child) via `ContentZoneChildHandler`
+- Manages both zones (parent) and zone items (child, `ChildType = "items"`) via `ContentZoneChildHandler`
 - Exposes `IContentZoneModel` which is consumed by `ContentZoneViewComponent`
+- Exposes `IAdminRegistryHandler` via `ContentZoneRegistryHandler`, backed by `IWidgetRegistry`
 - Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByZoneSlotAsync`, `GetViewModelByIdAsync`
+- Also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when a zone item is added, so placing a routable widget (e.g. `Article`) registers its sub-routes
+
+### `WidgetRegistrationModel`
+
+- **ContentType:** `"widgets"` — **DisplayName:** `"Widget Registration"`
+- Admin surface for the `WidgetRegistrations` table seeded from `[ContentZoneComponent]`
+- Every mutation calls `IWidgetRegistry.Invalidate()` so the 5-minute cache does not mask edits
+- `BuildPropertyDefinitions(configurationTypeName)` resolves the CLR type and re-serializes `FormPropertyBuilder.BuildPropertyInfos(type)` into `PropertyDefinitionsJson`, returning an error if the type cannot be resolved
+- Exposes a nested `WidgetRegistrationRegistryHandler : IAdminRegistryHandler`, which resolves `EditorType.ViewPicker` options through `IViewDiscoveryService`
+
+### `PageControllerRegistrationModel`
+
+- **ContentType:** `"pagetypes"` — **DisplayName:** `"Page Controller Registration"`
+- Admin surface for the `PageControllerRegistrations` table seeded from `[PageController]`
+- Every mutation calls `IPageControllerRegistry.Invalidate()`
+- Same `BuildPropertyDefinitions` behaviour as `WidgetRegistrationModel`
+
+### `CMSRouteModel`
+
+- **ContentType:** `"cmsroutes"` — **DisplayName:** `"CMS Route"`
+- Admin surface for the `CMSRoutes` table
+- **`SupportsVersionHistory => false`** — `ICMSRouteService.UpsertAsync` replaces rows rather than versioning them, so `GetAllVersionsAsync` returns empty and `DeleteVersionCoreAsync` returns `false`
+- `SaveRouteUpsertAsync` rejects duplicates with `"This route pattern is already in use."`
 
 ---
 
@@ -143,7 +177,7 @@ Mapping is handled by an in-house mapper (`WebWayCMS.Mapping`: `IMapper`, `Profi
 `CreateMap<TSource, TDestination>(s => new TDestination { ... })`, where the converter lambda is the
 complete mapping logic for the pair.
 
-**`WebWayCMS.Data.MappingProfile`** — the CMS library's mapping profile:
+**`WebWayCMS.Data.MappingProfile`** (the file lives at `WebWayCMS.Core/Data/MappingProfile.cs`) — the CMS library's mapping profile:
 - Maps all built-in DTOs to their ViewModels and back
 - Conventions:
   - `Id` on a DTO maps to `Id` on the ViewModel for edits; new ViewModel has `Id = null`

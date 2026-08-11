@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -476,5 +479,46 @@ public class ContentZoneModelTests
         _viewDiscovery.GetAvailableViews("Empty").Returns(Array.Empty<string>());
 
         Assert.That(_model.RegistryHandler!.GetProperties("C"), Is.InstanceOf<JsonResult>());
+    }
+
+    // ResolveType private method coverage via reflection
+
+    [Test]
+    public void ResolveType_NullOrWhitespace_ReturnsNull()
+    {
+        var method = typeof(ContentZoneModel).GetMethod("ResolveType",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.That(method, Is.Not.Null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method.Invoke(null, new object?[] { null }), Is.Null);
+            Assert.That(method.Invoke(null, new object?[] { "  " }), Is.Null);
+            Assert.That(method.Invoke(null, new object?[] { "" }), Is.Null);
+        });
+    }
+
+    [Test]
+    public void ResolveType_TypeFoundByGetType_ReturnsType()
+    {
+        var method = typeof(ContentZoneModel).GetMethod("ResolveType",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        var typeName = typeof(WebWayCMS.Models.Page.PageModel).FullName;
+        Assert.That(typeName, Is.Not.Null);
+
+        var result = method.Invoke(null, new object?[] { typeName });
+
+        Assert.That(result, Is.EqualTo(typeof(WebWayCMS.Models.Page.PageModel)));
+    }
+
+    [Test]
+    public void ResolveType_TypeNotFoundAnywhere_ReturnsNull()
+    {
+        var method = typeof(ContentZoneModel).GetMethod("ResolveType",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var result = method.Invoke(null, new object?[] { "NonExistent.Type.Name.ForTest" });
+
+        Assert.That(result, Is.Null);
     }
 }

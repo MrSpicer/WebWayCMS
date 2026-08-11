@@ -6,9 +6,6 @@
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="WebWayCMS.Admin.Tests" />
-  </ItemGroup>
-  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.UI" />
     <ProjectReference Include="..\WebWayCMS.Core\WebWayCMS.Core.csproj" />

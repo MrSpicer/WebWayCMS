@@ -9,6 +9,16 @@ using WebWayCMS.Pages;
 
 namespace WebWayCMS.Core.Tests;
 
+public struct PageThrowingStruct
+{
+    public PageThrowingStruct() => throw new InvalidOperationException("Test exception for coverage");
+}
+
+public class PageConfigWithThrowingDefault
+{
+    public PageThrowingStruct Prop { get; set; }
+}
+
 [TestFixture]
 public class PageControllerRegistrationModelTests
 {
@@ -265,6 +275,31 @@ public class PageControllerRegistrationModelTests
         {
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Does.Contain("could not be resolved"));
+        });
+    }
+
+    [Test]
+    public async Task SaveUpsertCoreAsync_ThrowingDefaultValue_ReturnsError()
+    {
+        _service.CreateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Dto(controllerName: "Throwing"));
+
+        var vm = new PageControllerRegistrationUpsertViewModel
+        {
+            Title = "Throwing Page",
+            ControllerName = "Throwing",
+            ControllerTypeName = "Type.Throwing",
+            DisplayName = "Throwing Page",
+            Category = "Content",
+            ConfigurationTypeName = typeof(PageConfigWithThrowingDefault).FullName,
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("Failed to build properties"));
         });
     }
 

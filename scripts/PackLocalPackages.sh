@@ -15,7 +15,8 @@ mkdir -p ./local-nuget
 
 # Leaf-to-root so each dependency is available as it is packed.
 for p in WebWayCMS.Forms WebWayCMS.Data WebWayCMS.Identity WebWayCMS.Routing \
-         WebWayCMS.ContentZones WebWayCMS.Core WebWayCMS.Presentation WebWayCMS; do
+         WebWayCMS.ContentZones WebWayCMS.Core WebWayCMS.Mcp WebWayCMS.Presentation \
+         WebWayCMS.Admin WebWayCMS; do
   echo "Packing $p ..."
   dotnet pack "$p/$p.csproj" -c "$CONFIG" -o ./local-nuget
 done

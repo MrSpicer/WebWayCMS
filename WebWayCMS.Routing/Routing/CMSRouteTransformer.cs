@@ -11,7 +11,6 @@ namespace WebWayCMS.Routing;
 
 public class CMSRouteTransformer : DynamicRouteValueTransformer
 {
-    public const string SubRouteItemKey = "CMS:SubRoute";
     public const string PageDataItemKey = "CMS:PageData";
     public const string PageConfigItemKey = "CMS:PageConfig";
 
@@ -103,12 +102,6 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         }
 
         httpContext.Items["CMS:RouteData"] = route;
-
-        foreach (var kvp in match.RouteValues)
-        {
-            if (kvp.Key != "controller" && kvp.Key != "action")
-                httpContext.Items[SubRouteItemKey] = kvp.Value;
-        }
 
         var routeValues = new RouteValueDictionary
         {

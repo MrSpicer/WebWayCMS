@@ -1,9 +1,13 @@
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Mvc.ViewComponents;
 
 using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Data.Models;
+using WebWayCMS.Interfaces;
 using WebWayCMS.Models.Article;
 using WebWayCMS.ViewComponents;
 
@@ -107,5 +111,37 @@ public class ArticleViewComponentTests
         var result = await _component.InvokeAsync(null!);
 
         Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("List"));
+    }
+
+    [Test]
+    public void ExplicitInterface_ComponentName_ReturnsArticle()
+    {
+        IRoutableViewComponent routable = _component;
+
+        Assert.That(routable.ComponentName, Is.EqualTo("Article"));
+    }
+
+    [Test]
+    public async Task ExplicitInterface_GenerateRoutesAsync_ReturnsRouteWithExpectedProperties()
+    {
+        IRoutableViewComponent routable = _component;
+        var masterId = Guid.NewGuid();
+
+        var routes = await routable.GenerateRoutesAsync("/blog", masterId, CancellationToken.None);
+
+        Assert.That(routes, Has.Count.EqualTo(1));
+        var route = routes[0];
+
+        Assert.That(route.Pattern, Is.EqualTo("{slug}"));
+
+        using var constraints = JsonDocument.Parse(route.ConstraintsJson);
+        Assert.That(constraints.RootElement.GetProperty("slug").GetString(), Is.EqualTo("regex(.+)"));
+
+        using var defaults = JsonDocument.Parse(route.DefaultsJson);
+        Assert.That(defaults.RootElement.GetProperty("_widget").GetString(), Is.EqualTo("Article"));
+
+        Assert.That(route.OwningContentMasterId, Is.EqualTo(masterId));
+        Assert.That(route.OwningContentType, Is.EqualTo("ArticleWidget"));
+        Assert.That(route.Order, Is.EqualTo(1));
     }
 }

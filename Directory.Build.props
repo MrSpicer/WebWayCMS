@@ -18,7 +18,7 @@
     <Authors>Justin Spicer</Authors>
     <Company>WebWayCMS</Company>
     <Product>WebWayCMS</Product>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/MrSpicer/WebWayCMS</PackageProjectUrl>
     <RepositoryUrl>https://github.com/MrSpicer/WebWayCMS</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

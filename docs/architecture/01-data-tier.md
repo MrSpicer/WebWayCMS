@@ -3,6 +3,7 @@
 **Namespaces:**
 - `WebWayCMS.Data.Models`
 - `WebWayCMS.Data.DbContexts`
+- `WebWayCMS.Data.EntityConfiguration` (one `IEntityTypeConfiguration<T>` per entity)
 - `WebWayCMS.Data.Services`
 - `WebWayCMS.Data.DesignTime` (`IDesignTimeDbContextFactory<CmsDbContext>`, for the EF tooling)
 - `WebWayCMS.Data.Migrations` (auto-generated, do not edit)
@@ -15,16 +16,43 @@
 ## 1. Single Unified DbContext
 
 The CMS uses a single EF Core `DbContext`, `CmsDbContext`, which inherits from `IdentityDbContext`
-and holds all entity sets: Identity tables (users, roles, claims), the shared `Content` table, and
-every content-type-specific table (`Articles`, `ArticleLists`, `ContentBlocks`, `ContentZones`,
-`ContentZoneItems`, `ContentZoneAssignments`, `Pages`). All tables live in one PostgreSQL database
-connected via `DefaultConnection`, and a single `__EFMigrationsHistory` table tracks the migration
-history.
+(non-generic — users are `IdentityUser`, roles `IdentityRole`). It covers the Identity tables, the
+shared `Content` table, and every content-type-specific table. All tables live in one PostgreSQL
+database connected via `DefaultConnection`, and a single `__EFMigrationsHistory` table tracks the
+migration history.
 
-Entity configuration is organised by concern through extension methods on `ModelBuilder`
-(`ConfigureContent`, `ConfigureArticles`, `ConfigureContentBlocks`, `ConfigureContentZones`,
-`ConfigurePages`) defined in `ContentModelConfiguration`. This keeps the context class minimal
-while preserving logical separation of the configuration for each entity group.
+The context itself is deliberately tiny and **declares no `DbSet<>` properties at all**:
+
+```csharp
+public class CmsDbContext : IdentityDbContext
+{
+    public CmsDbContext(DbContextOptions<CmsDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+    }
+}
+```
+
+Entities are discovered through `IEntityTypeConfiguration<T>` classes in
+`WebWayCMS.Data/Data/EntityConfiguration/` — one sealed `{Name}DTOEntityConfiguration` per entity —
+and reached at runtime through `context.Set<T>()`. Adding a content type therefore means adding a
+configuration class, not editing the context.
+
+The single shared helper that remains in `ContentModelConfiguration` is
+`ConfigureContentLink<T>()`, an `EntityTypeBuilder<T>` extension that wires the 1:1 shared-primary-key
+relationship every `IContent` type needs:
+
+```csharp
+entity.HasKey(e => e.ContentId);
+entity.HasOne(e => e.ContentMeta)
+      .WithOne()
+      .HasForeignKey<T>(e => e.ContentId)
+      .OnDelete(DeleteBehavior.Cascade);
+entity.Navigation(e => e.ContentMeta).AutoInclude();
+```
 
 ---
 
@@ -79,7 +107,7 @@ public record ContentDTO
 - `IsPublished` — visible to public. When a new version is saved with `IsPublished = true`, all prior versions for the same `MasterId` have `IsPublished` set to `false`.
 - `IsArchived` — content is retained but hidden from normal queries (application-level convention; not enforced by the service).
 - `IsHidden` — content exists but should not appear in listings (application-level convention).
-- `IsDeleted` — soft delete marker. `GetAllAsync` and `GetByRouteAsync` exclude soft-deleted records.
+- `IsDeleted` — soft delete marker. `GetAllAsync` and the route/registry queries exclude soft-deleted records.
 
 **`CustomFields`:** A `List<CustomField>` stored as JSONB. Provides a key-value extension point without schema migrations.
 
@@ -89,19 +117,42 @@ public record ContentDTO
 
 ### `PageDTO`
 Implements `IContent`. Type-specific fields beyond the shared `ContentMeta`:
-- `Route` — normalized URL path (lowercase, leading slash, no trailing slash), e.g. `/about/team`
-- `ControllerName` — the `[PageController]`-decorated controller to dispatch to, e.g. `"GenericPage"`
-- `ConfigurationJson` — JSON-serialized page config object (type determined by controller's `ConfigurationType`)
-- `ViewName` — optional override for the Razor view name
+- `ViewName` — optional override for the Razor view name (the seeded `/admin` page uses `"Dashboard"`)
+- `ConfigurationJson` — JSON-serialized page config object (type determined by the controller's `ConfigurationType`)
+
+There is **no `Route` or `ControllerName` here**. A page's URL and dispatch controller live on its
+`CMSRouteDTO` row; the URL pattern is derived from `ContentMeta.Slug` on save. See
+[03-page-routing](03-page-routing.md).
 
 ### `ArticleListDTO`
 Parent container for articles. Implements `IContent` with no type-specific fields beyond `ContentMeta`.
 
 ### `ArticleDTO`
-Implements `IContent`. Uses `ArticleListMasterId` to reference the owning `ArticleListDTO`'s `MasterId`.
+Implements `IContent`. Adds `Body`, `AuthorName`, `Summary`, and `ArticleListMasterId` (references the owning `ArticleListDTO`'s `MasterId`).
 
 ### `ContentBlockDTO`
 Implements `IContent`. Stores reusable content blocks (adds `Content`, the block body).
+
+### `CMSRouteDTO`
+Implements `IContent`. One row per CMS URL — table `CMSRoutes`, with a **unique index on `Pattern`**:
+- `Pattern` — normalized URL pattern (lowercase, leading slash, no trailing slash), e.g. `/about/team` or `/blog/{slug}`
+- `DefaultsJson` — route defaults; a `"controller"` key is required, `"action"` defaults to `"Index"`
+- `ConstraintsJson`, `DataTokensJson` — route constraints and data tokens. `DataTokens` is where a page route stores its `ConfigurationJson` and where a widget route stores its `ParentPageMasterId`
+- `Order` — match precedence; lower wins
+- `OwningContentMasterId` / `OwningContentType` — what created this route (`"Page"`, `"ArticleWidget"`, `"CodeBased"`)
+- `IsReserved` — when `true`, the pattern is never matched but still blocks reuse
+
+### `WidgetRegistrationDTO`
+Implements `IContent`. One row per available widget — table `WidgetRegistrations`, `ComponentName`
+unique. Fields: `ComponentName`, `DisplayName`, `Description`, `Category` (default `"General"`),
+`IconClass`, `Order`, `ConfigurationTypeName`, `PropertyDefinitionsJson` (serialized
+`List<FormPropertyInfo>`), `IsActive`. Seeded from `[ContentZoneComponent]` at startup, then read
+through `IWidgetRegistry`.
+
+### `PageControllerRegistrationDTO`
+Implements `IContent`. One row per available page type — table `PageControllerRegistrations`,
+`ControllerName` unique. Same shape as `WidgetRegistrationDTO` plus `ControllerTypeName`. Seeded
+from `[PageController]` at startup, then read through `IPageControllerRegistry`.
 
 ### `ContentZoneDTO`
 Implements `IContent`. Key fields:
@@ -127,27 +178,42 @@ Join record scoping a zone to a page slot or a nested zone slot:
 
 ### `CustomField`
 ```csharp
-public class CustomField
+public record CustomField
 {
-    public string Key { get; set; }
+    public string FieldName { get; set; }
+    public string TypeName { get; set; }
     public string Value { get; set; }
 }
 ```
 
 ---
 
-## 4. DbContext
+## 4. Tables and Entity Configurations
 
-**`CmsDbContext`** — inherits from `IdentityDbContext<IdentityUser>`. Owns all CMS tables:
-- Identity tables (inherited from `IdentityDbContext`)
-- `Content` table (shared by all content types)
-- `Articles`, `ArticleLists` — article content
-- `ContentBlocks` — reusable content blocks
-- `ContentZones`, `ContentZoneItems`, `ContentZoneAssignments` — zone and widget infrastructure
-- `Pages` — dynamic page routing
+`CmsDbContext` covers 18 tables. Each CMS entity has exactly one sealed configuration class in
+`WebWayCMS.Data/Data/EntityConfiguration/`:
 
-Entity configuration is delegated to extension methods (`modelBuilder.ConfigureContent()`,
-`modelBuilder.ConfigureArticles()`, etc.) in `ContentModelConfiguration` for separation of concerns.
+| Configuration class | Table |
+|---|---|
+| *(inherited from `IdentityDbContext`)* | `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, `AspNetUserClaims`, `AspNetRoleClaims`, `AspNetUserLogins`, `AspNetUserTokens` |
+| `ContentDTOEntityConfiguration` | `Content` (shared by all content types) |
+| `ArticleDTOEntityConfiguration` | `Articles` |
+| `ArticleListDTOEntityConfiguration` | `ArticleLists` |
+| `ContentBlockDTOEntityConfiguration` | `ContentBlocks` |
+| `ContentZoneDTOEntityConfiguration` | `ContentZones` |
+| `ContentZoneItemDTOEntityConfiguration` | `ContentZoneItems` |
+| `ContentZoneAssignmentDTOEntityConfiguration` | `ContentZoneAssignments` |
+| `PageDTOEntityConfiguration` | `Pages` |
+| `CMSRouteDTOEntityConfiguration` | `CMSRoutes` |
+| `WidgetRegistrationDTOEntityConfiguration` | `WidgetRegistrations` |
+| `PageControllerRegistrationDTOEntityConfiguration` | `PageControllerRegistrations` |
+
+Migrations live in a single flat folder, `WebWayCMS.Data/Migrations/`, with one
+`InitialCreate` migration plus the model snapshot. `./scripts/RebuildEFMigrations.sh` wipes and
+regenerates it (destructive — it is not an additive migration workflow).
+
+Design-time scaffolding uses `CmsDbContextFactory`; its connection string comes from
+`WEBWAYCMS_DESIGNTIME_CONNECTION`, defaulting to a local `webwaycms_designtime` database.
 
 ---
 
@@ -183,32 +249,56 @@ This is an existence-based filter: exclude any row where a newer version (higher
 
 ---
 
-## 6. `IPageService`
+## 6. `IPageService` and `ICMSRouteService`
 
-`PageService` wraps `PageContext` directly (not the generic `ContentService<T>`) because pages need route-specific logic.
+`PageService` wraps `CmsDbContext` directly rather than reusing the generic `ContentService<T>`.
+It is now purely about page records — **all route concerns moved to `ICMSRouteService`**.
 
-| Method | Behaviour |
+| `IPageService` method | Behaviour |
 |--------|-----------|
-| `GetAllAsync` | Latest non-deleted versions, ordered by `Route` |
+| `GetAllAsync` | Latest non-deleted versions |
 | `GetByIdAsync(id)` | Exact row by `Id` |
-| `GetByRouteAsync(route)` | Normalizes route → queries for published, non-deleted, latest version matching that route |
 | `GetAllVersionsAsync(masterId)` | All versions newest-first |
-| `CreateAsync(page)` | Sets `MasterId = Id`, `Version = 0`; normalizes route; sets timestamps |
-| `UpdateAsync(page)` | Increments version; new row; clears prior `IsPublished` if new version is published |
+| `CreateAsync(page)` | Sets `MasterId = Id`, `Version = 0`; sets timestamps |
+| `UpdateAsync(page)` | Increments version; new row; clears prior `IsPublished` if the new version is published |
 | `DeleteAsync(id)` | Hard-deletes ALL versions for the `MasterId` |
 | `DeleteVersionAsync(id)` | Deletes only the single version row matching `id` |
-| `IsRouteAvailableAsync(route, excludeMasterId)` | Returns `true` if no published, non-deleted, latest-version page occupies that route; optionally excludes one `MasterId` (for edit-in-place checks) |
 
-**Route normalization** (`NormalizeRoute`):
-1. Trim and lowercase
-2. Ensure leading `/`
-3. Remove trailing `/` unless the route is exactly `/`
+| `ICMSRouteService` method | Behaviour |
+|--------|-----------|
+| `MatchRouteAsync(path)` | Normalizes the path, walks active routes by `Order`, skips `IsReserved` rows, returns the first pattern match plus its extracted route values |
+| `GetActiveRoutesAsync()` | Published, non-deleted, latest-version routes ordered by `Order` then `Pattern.Length` |
+| `GetByOwningContentAsync(masterId)` | All latest routes owned by a piece of content |
+| `GetByIdAsync(id)` | Exact row by `ContentId` |
+| `IsPatternAvailableAsync(pattern, excludeMasterId)` | `true` if no latest, non-deleted route occupies that pattern; optionally excludes one owner (for edit-in-place checks) |
+| `UpsertAsync(route)` | **Destructive replace** — hard-deletes the existing row for the owner (or pattern) and its `ContentMeta`, then inserts a fresh `Version = 0` row. Routes have no version history |
+| `DeleteAsync(masterId)` | Hard-deletes all versions for the `MasterId` |
+| `DeactivateByOwningContentAsync(masterId)` | Sets `IsPublished = false` on the owner's published routes (used when a page is unpublished or deleted) |
+
+**Pattern normalization** (`CMSRouteService.NormalizePattern`), applied to both stored patterns and
+incoming request paths:
+1. Blank ⇒ `/`
+2. Trim and lowercase
+3. Ensure leading `/`
+4. Remove trailing `/` unless the pattern is exactly `/`
+
+The pattern-matching syntax is documented in [03-page-routing](03-page-routing.md#3-icmsrouteservice--matching-semantics).
+
+Two more read-only services back the registries:
+
+| Service | Methods |
+|---|---|
+| `IWidgetRegistrationService` | `GetActiveAsync`, `GetByComponentNameAsync`, `GetActiveByCategoryAsync` |
+| `IPageControllerRegistrationService` | `GetActiveAsync`, `GetByControllerNameAsync`, `GetActiveByCategoryAsync` |
+
+Both filter on `IsActive && IsPublished && !IsDeleted`, take the latest version per `MasterId`, and
+order by Category → Order → DisplayName.
 
 ---
 
 ## 7. `IContentZoneService`
 
-`ContentZoneService` wraps `ContentZoneContext`. Zones and their items are both versioned.
+`ContentZoneService` wraps `CmsDbContext`. Zones and their items are both versioned.
 
 **Zone methods:**
 
@@ -262,25 +352,25 @@ This is an existence-based filter: exclude any row where a newer version (higher
    }
    ```
 
-2. **Add a DbSet and entity configuration** in `CmsDbContext` and `ContentModelConfiguration`:
+2. **Add an entity configuration class** in `WebWayCMS.Data/Data/EntityConfiguration/`. No change to
+   `CmsDbContext` is needed — `ApplyConfigurationsFromAssembly` picks it up:
    ```csharp
-   // In CmsDbContext.cs — add the DbSet
-   public DbSet<MyThingDTO> MyThings { get; set; } = null!;
-
-   // Add `modelBuilder.ConfigureMyThings();` to OnModelCreating
-   ```
-   ```csharp
-   // In ContentModelConfiguration.cs — add the extension method
-   public static void ConfigureMyThings(this ModelBuilder modelBuilder)
+   public sealed class MyThingDTOEntityConfiguration : IEntityTypeConfiguration<MyThingDTO>
    {
-       modelBuilder.Entity<MyThingDTO>(entity =>
+       public void Configure(EntityTypeBuilder<MyThingDTO> entity)
        {
-           entity.ConfigureContentLink();
+           entity.ConfigureContentLink();          // shared PK/FK into Content
            entity.Property(e => e.Body).IsRequired();
            entity.ToTable("MyThings");
-       });
+       }
    }
    ```
+   > **Constraint:** `CmsDbContext` calls `ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`,
+   > so it scans **only `WebWayCMS.Data`**. An `IEntityTypeConfiguration<T>` defined in a host
+   > assembly is not discovered, and the CMS currently exposes no hook for registering one. Adding a
+   > content type with its own table therefore means adding the DTO and its configuration to
+   > `WebWayCMS.Data`. Host-defined content that fits the existing shape can still use
+   > `ContentDTO.CustomFields` (JSONB) without a schema change.
 
 3. **Add a migration** (from the repo root):
    ```bash
@@ -288,15 +378,19 @@ This is an existence-based filter: exclude any row where a newer version (higher
      --project WebWayCMS.Data --startup-project WebWayCMS.Data \
      --context CmsDbContext --output-dir Migrations
    ```
-   To regenerate every CMS migration at once, run `./Scripts/RebuildEFMigrations.sh`.
+   To wipe and regenerate the CMS migration from scratch, run `./scripts/RebuildEFMigrations.sh` —
+   note this is **destructive**: it deletes `WebWayCMS.Data/Migrations/*` and recreates a single
+   `InitialCreate`.
 
-4. **Register in DI** (`ServiceCollectionExtensions.cs`):
+4. **Register in DI** (`ServiceCollectionExtensions.cs`, or the host's `Program.cs` for a
+   host-defined type):
    ```csharp
    services.AddScoped<IContentService<MyThingDTO>>(sp =>
        new ContentService<MyThingDTO>(sp.GetRequiredService<CmsDbContext>()));
    ```
+   `ContentService<T>` takes a plain `DbContext` and reaches entities via `Set<T>()`.
 
-Migrations are applied automatically at startup via `app.EnsureCMS()`.
+Migrations are applied automatically at startup via `app.EnsureCMS()` (or `EnsureCmsRendering()`).
 
 ---
 

@@ -1,21 +1,38 @@
 # Architecture Overview
 
-This document maps the logical architecture of WebWayCMS. The system is a modular ASP.NET Core 10 CMS built as 8 focused class libraries (all prefixed `WebWayCMS.*`) consumed by a host web project (`MySite` is used as the example host name).
+This document maps the logical architecture of WebWayCMS. The system is a modular ASP.NET Core 10 CMS built as 10 focused class libraries (all prefixed `WebWayCMS.*`) consumed by a host web project (`MySite` is used as the example host name; `WebWayCMS.TestHost` in this repo is a working one).
 
-The libraries are distributed as NuGet packages: a host references the single umbrella package **`WebWayCMS`**, which transitively pulls the other seven (compiled Razor views and admin CSS/JS ship inside the packages). To stand up a new site, see [getting-started](../getting-started.md).
+The libraries are distributed as NuGet packages: a host references the single umbrella package **`WebWayCMS`**, which transitively pulls the other nine (compiled Razor views and admin CSS/JS ship inside the packages). To stand up a new site, see [getting-started](../getting-started.md).
 
 ## Library Structure
 
 | Library | Contents |
 |---|---|
-| `WebWayCMS.Data` | DTOs, DbContexts, Services, Migrations |
+| `WebWayCMS.Data` | DTOs, `CmsDbContext`, entity configurations, Services, Migrations |
 | `WebWayCMS.Identity` | UserService, DevEmailSender |
-| `WebWayCMS.Forms` | Attributes, FormPropertyBuilder, FormFieldsTagHelper |
-| `WebWayCMS.Routing` | PageRouteTransformer, PageControllerRegistry |
-| `WebWayCMS.ContentZones` | ContentZoneComponentRegistry |
-| `WebWayCMS.Core` | Controllers, Domain Models, ViewModels, MappingProfile |
-| `WebWayCMS.Presentation` | ViewComponents, Views, Areas, wwwroot |
-| `WebWayCMS` | Bootstrap: ServiceCollectionExtensions, CMSExtensions, SerilogExtensions |
+| `WebWayCMS.Forms` | Attributes (`[FormProperty]`, `[PageController]`, `[ContentZoneComponent]`, `[CmsRoute]`), FormPropertyBuilder, FormFieldsTagHelper |
+| `WebWayCMS.Routing` | CMSRouteTransformer, NotReservedConstraint, PageControllerRegistry |
+| `WebWayCMS.ContentZones` | WidgetRegistry |
+| `WebWayCMS.Core` | Controllers, Domain Models, ViewModels, MappingProfile, RichTextSanitizer, admin handler contracts |
+| `WebWayCMS.Presentation` | Public ViewComponents, Views, Identity Areas, wwwroot |
+| `WebWayCMS.Admin` | Admin controllers, admin Razor views, AdminHandlerRegistry, admin wwwroot |
+| `WebWayCMS.Mcp` | MCP server: toolsets, transport wiring, API-key filter |
+| `WebWayCMS` | Bootstrap: ServiceCollectionExtensions, CMSExtensions, SerilogExtensions, CspOptions/CspPolicyBuilder, AuthRateLimiting |
+
+Project references between them (nothing else — dependencies only flow downward):
+
+| Library | References |
+|---|---|
+| `WebWayCMS.Forms` | *(none)* |
+| `WebWayCMS.Identity` | *(none)* |
+| `WebWayCMS.Data` | *(none)* |
+| `WebWayCMS.Routing` | Data, Forms |
+| `WebWayCMS.ContentZones` | Data, Forms |
+| `WebWayCMS.Core` | Data, Forms, Routing, ContentZones, Identity |
+| `WebWayCMS.Mcp` | Core, Forms |
+| `WebWayCMS.Presentation` | Core, ContentZones, Identity |
+| `WebWayCMS.Admin` | Core, Presentation, Mcp |
+| `WebWayCMS` | all of the above |
 
 ---
 
@@ -32,21 +49,23 @@ The libraries are distributed as NuGet packages: a host references the single um
 ┌─────────────────────────────────────────────────────────────────────┐
 │  CMS Bootstrap & Application Startup                                │
 │  ServiceCollectionExtensions · CMSExtensions · SerilogExtensions    │
+│  Rendering pair · Admin pair · CSP · rate limiting · MCP mapping    │
 └──┬──────────────┬──────────────┬──────────────┬─────────────────────┘
    │              │              │              │ registers / configures
    ▼              ▼              ▼              ▼
 ┌──────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────┐
-│ Identity │ │ Admin CRUD    │ │ Page Routing     │ │ Content Zone │
+│ Identity │ │ Admin CRUD    │ │ CMS Routing      │ │ Content Zone │
 │ & Auth   │ │ Framework     │ │ Subsystem        │ │ Component    │
-│          │ │               │ │                  │ │ Framework    │
-│ Users    │ │ AdminContent  │ │ PageRoute        │ │ ContentZone  │
-│ Roles    │ │ Controller    │ │ Transformer      │ │ ViewComponent│
-│ UserSvc  │ │ IAdminCrud    │ │ PageController   │ │ Registry     │
-│ DevEmail │ │ Handler       │ │ Base<TConfig>    │ │ [ContentZone │
+│          │ │ (WebWayCMS.   │ │                  │ │ Framework    │
+│ Users    │ │  Admin)       │ │ CMSRoute         │ │ ContentZone  │
+│ Roles    │ │ AdminContent  │ │ Transformer      │ │ ViewComponent│
+│ UserSvc  │ │ Controller    │ │ CMSRouteService  │ │ WidgetRegis- │
+│ DevEmail │ │ IAdminCrud    │ │ PageController   │ │ try (DB)     │
+│          │ │ Handler       │ │ Base<TConfig>    │ │ [ContentZone │
 │          │ │ AdminHandler  │ │ [PageController] │ │ Component]   │
-│          │ │ Registry      │ │ PageController   │ │              │
-│          │ │ ContentZone   │ │ Registry         │ │              │
-│          │ │ ApiController │ │                  │ │              │
+│          │ │ Registry      │ │ [CmsRoute]       │ │              │
+│          │ │ ContentZone   │ │ PageController   │ │              │
+│          │ │ ApiController │ │ Registry (DB)    │ │              │
 └──────────┘ └───────┬───────┘ └──────┬───────────┘ └──────┬───────┘
                      │                │                     │
                      │ resolves       │ extends / reads      │ renders
@@ -54,7 +73,9 @@ The libraries are distributed as NuGet packages: a host references the single um
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Content Domain Models                                              │
 │  PageModel · ContentBlockModel · ArticleListModel · ArticleModel    │
-│  ContentZoneModel · AdminCrudModel<T> · VersionedModel<T>           │
+│  ContentZoneModel · WidgetRegistrationModel · CMSRouteModel         │
+│  PageControllerRegistrationModel                                    │
+│  AdminCrudModel<T> · VersionedModel<T> · RouteRegistrationService   │
 │  ViewModels · ContentZoneConfigurations · MappingProfiles           │
 └────────────────────────────────────┬────────────────────────────────┘
                                      │ uses
@@ -69,8 +90,12 @@ The libraries are distributed as NuGet packages: a host references the single um
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Data Tier                                                          │
-│  IContent (has-a ContentDTO) ← PageDTO · ArticleDTO · etc.          │
-│  CmsDbContext · IContentService<T> · IPageService · IContentZoneService│
+│  IContent (has-a ContentDTO) ← PageDTO · ArticleDTO · CMSRouteDTO   │
+│    · WidgetRegistrationDTO · PageControllerRegistrationDTO · etc.   │
+│  CmsDbContext (one context, IEntityTypeConfiguration<T> per entity) │
+│  IContentService<T> · IPageService · IContentZoneService            │
+│  ICMSRouteService · IWidgetRegistrationService                      │
+│  IPageControllerRegistrationService                                 │
 └─────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
@@ -88,34 +113,43 @@ The libraries are distributed as NuGet packages: a host references the single um
 ## Area Summaries
 
 ### [Area 1: Data Tier](01-data-tier.md)
-A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. The shared `ContentDTO` (composed via `IContent`, persisted to one `Content` table) defines the universal versioning pattern (Id/MasterId/Version). `IContentService<T>` provides generic versioned CRUD; `IPageService` adds route-specific logic; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation.
+A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. It declares no `DbSet`s — entities are discovered through `IEntityTypeConfiguration<T>` classes and reached via `Set<T>()`. The shared `ContentDTO` (composed via `IContent`, persisted to one `Content` table) defines the universal versioning pattern (Id/MasterId/Version). `IContentService<T>` provides generic versioned CRUD; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation; `ICMSRouteService` owns URL patterns.
 
 ### [Area 2: Form Generation & Configuration Metadata](02-form-generation.md)
 Pure-reflection subsystem that drives all admin form rendering from C# attributes. `[FormProperty]` decorates config class properties with editor type, validation hints, and layout options. `FormPropertyBuilder` reflects these into `List<FormPropertyInfo>`. `FormFieldsTagHelper` (`<form-fields for="@Model">`) renders Bulma-styled HTML from that list — no per-type Razor form boilerplate needed.
 
-### [Area 3: Page Routing Subsystem](03-page-routing.md)
-A `DynamicRouteValueTransformer` (`PageRouteTransformer`) intercepts the `{**slug}` catch-all route and resolves URLs against the `Pages` table using a five-step algorithm (exact match → progressive parent match → root fallback → registry lookup). Page data and config are stored in `HttpContext.Items` for the dispatched controller. `PageControllerRegistry` is a startup singleton that scans assemblies for `[PageController]`-decorated controllers.
+### [Area 3: CMS Routing Subsystem](03-page-routing.md)
+A `DynamicRouteValueTransformer` (`CMSRouteTransformer`) intercepts the `{**slug}` catch-all route and matches the request path against stored route patterns in the `CMSRoutes` table. Routes are owned by pages (derived from Slug), by routable widgets, or declared in code with `[CmsRoute]`. Page data and config are stored in `HttpContext.Items` for the dispatched controller. `PageControllerRegistry` is a singleton that caches page-type metadata from the database.
 
 ### [Area 4: Content Zone Component Framework](04-content-zone-framework.md)
-Database-backed widget system. Zones are named slots in views; each zone holds ordered `ContentZoneItem` rows referencing a ViewComponent by name plus a JSON config blob. `ContentZoneViewComponent` resolves zones via a priority chain (direct ID → nested → page-scoped → global) and lazily creates zones in transactions on first render. `ContentZoneComponentRegistry` scans for `[ContentZoneComponent]`-decorated ViewComponents at startup.
+Database-backed widget system. Zones are named slots in views; each zone holds ordered `ContentZoneItem` rows referencing a ViewComponent by name plus a JSON config blob. `ContentZoneViewComponent` resolves zones via a priority chain (direct ID → nested → page-scoped → global) and lazily creates zones in transactions on first render. `[ContentZoneComponent]`-decorated ViewComponents are reflected into `WidgetRegistrations` rows at startup; `IWidgetRegistry` serves the runtime lookup from that table.
 
 ### [Area 5: Content Domain Models](05-content-domain-models.md)
-The business logic tier. `VersionedModel<T>` provides version history assembly. `AdminCrudModel<T>` extends it and implements `IAdminCrudHandler`, giving each model class dual identity: domain orchestrator and admin CRUD handler. Built-in types: `PageModel`, `ArticleListModel`/`ArticleModel` (top-level + child), `ContentBlockModel`, `ContentZoneModel`. In-house mapping profiles handle DTO-to-ViewModel mapping.
+The business logic tier. `VersionedModel<T>` provides version history assembly. `AdminCrudModel<T>` extends it and implements `IAdminCrudHandler`, giving each model class dual identity: domain orchestrator and admin CRUD handler. Built-in types: `PageModel`, `ArticleListModel`/`ArticleModel` (top-level + child), `ContentBlockModel`, `ContentZoneModel`, `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel`. In-house mapping profiles handle DTO-to-ViewModel mapping.
 
 ### [Area 6: Admin CRUD Framework](06-admin-crud-framework.md)
-Single `AdminContentController` handles all content type admin routes by delegating to registered `IAdminCrudHandler` implementations via `AdminHandlerRegistry`. Supports top-level CRUD, child resource CRUD (via `IAdminCrudChildHandler`), version history, drag-reorder, and registry endpoints — all routed without per-type controllers. `ContentZoneApiController` provides a JSON API for inline zone editing.
+Single `AdminContentController` (in `WebWayCMS.Admin`) handles all content type admin routes by delegating to registered `IAdminCrudHandler` implementations via `AdminHandlerRegistry`. Supports top-level CRUD, child resource CRUD (via `IAdminCrudChildHandler`), version history, drag-reorder, and registry endpoints — all routed without per-type controllers. `ContentZoneApiController` provides a JSON API for inline zone editing. The MCP toolsets dispatch through the same registry.
 
 ### [Area 7: CMS Bootstrap & Application Startup](07-cms-bootstrap.md)
-The composition root. `AddWebWayCms` registers a single `CmsDbContext`, all services, singletons, domain models (as both interfaces and handlers), the in-house `IMapper`, and MVC application parts (including compiled Razor views). `EnsureCMS` runs four startup tasks in sequence: migrate, seed roles and admin user, seed default pages, configure the middleware pipeline.
+The composition root. `AddWebWayCmsRendering` registers the single `CmsDbContext`, all services, registries, domain models, the in-house `IMapper`, and MVC application parts; `AddWebWayCmsAdmin` layers the admin surface and MCP on top. `EnsureCmsRendering`/`EnsureCmsAdmin` migrate the database, run the seeders (default pages, widget registrations, page-type registrations, code-based routes, and — admin only — roles and the admin user), then configure the middleware pipeline and map endpoints.
 
 ### [Area 8: Identity & Authentication](08-identity-auth.md)
-Three roles: `Admin` (full access), `Editor` (content write access on permitted types), `User` (authenticated, no admin access). `UserService` singleton provides `IsUserAdmin`/`IsUserAuthor` for view-layer role checks. Admin user is seeded from `AdminUser:Email`/`AdminUser:Password` secrets at startup. Password policy requires 12+ characters with digits, upper, lower, and non-alphanumeric characters.
+Three roles: `Admin` (full access), `Editor` (content write access on permitted types), `User` (authenticated, no admin access). `UserService` singleton provides `IsUserAdmin`/`IsUserAuthor` for view-layer role checks. Admin user is seeded from `AdminUser:Email`/`AdminUser:Password` secrets at startup. Password policy requires 12+ characters with digits, upper, lower, and non-alphanumeric characters, backed by account lockout, hardened auth cookies, and per-IP rate limiting on the auth endpoints.
 
 ### [Area 9: CMS View Components & Presentation](09-cms-presentation.md)
 CMS ships pre-compiled Razor views via `CompiledRazorAssemblyPart`. Built-in ViewComponents: `PageViewComponent`, `ContentBlockViewComponent`, `ArticleViewComponent`, `LayoutViewComponent` (11 column/layout variants). Admin layout partials are in `Views/Shared/`. `IViewDiscoveryService` scans the filesystem to populate `ViewPicker` dropdowns and available controller view lists. Web project views override CMS views by path precedence.
 
 ### [Area 10: Web Application Layer](10-web-application.md)
-The host project is the top of the dependency graph. It provides four extension surfaces: custom page types (`PageControllerBase<TConfig>` + `[PageController]`), custom widgets (`ViewComponent` + `[ContentZoneComponent]`), custom content types (DTO + DbContext + `AdminCrudModel<T>`), and custom mapping profiles. `ErrorController` handles both exception handler and status code page routes. Frontend assets live in `wwwroot/`; CSS is compiled from Sass.
+The host project is the top of the dependency graph. It provides five extension surfaces: custom page types (`PageControllerBase<TConfig>` + `[PageController]`), custom widgets (`ViewComponent` + `[ContentZoneComponent]`), custom content types (DTO + entity configuration + `AdminCrudModel<T>`), code-based routes (`[CmsRoute]`), and custom mapping profiles. `ErrorController` handles both exception handler and status code page routes.
+
+### [Area 11: Deployment Modes](11-deployment-modes.md)
+The CMS boots either full-stack or rendering-only. `AddWebWayCmsAdmin`/`EnsureCmsAdmin` (aliased as `AddWebWayCms`/`EnsureCMS`) register the `WebWayCMS.Admin` surface, seed roles and the admin user, and map MCP. `AddWebWayCmsRendering`/`EnsureCmsRendering` serve published content only. The split is a DI and pipeline boundary, not an assembly boundary.
+
+### [Area 12: MCP Server](12-mcp-server.md)
+`WebWayCMS.Mcp` exposes the admin feature set to AI agents over the Model Context Protocol. Opt-in via the `"Mcp"` config section, gated by a bearer API key that is the sole security boundary. Its toolsets dispatch generically through `IAdminHandlerRegistry`, so every content type is covered without per-type tool code.
+
+### [Area 13: Security](13-security.md)
+Cross-cutting defences: a configurable Content-Security-Policy plus fixed security headers, server-side rich-text sanitization at the single save choke point, per-IP rate limiting on the Identity auth endpoints, Identity lockout and cookie hardening, and how the CKEditor license key reaches the browser without an inline script.
 
 ---
 
@@ -126,7 +160,7 @@ Reading order for newcomers:
 ```
 1. Data Tier            — understand DTOs, versioning, services
 2. Form Generation      — understand how admin forms are declared
-3. Page Routing         — understand how URLs map to controllers
+3. CMS Routing          — understand how URLs map to controllers
 4. Content Zone FW      — understand how widgets work
 5. Content Domain Models — understand how model classes orchestrate the above
 6. Admin CRUD FW        — understand how admin routes are handled
@@ -137,6 +171,9 @@ Reading order for newcomers:
 ```
 
 Dependencies only flow downward in this list. A layer only references layers beneath it.
+
+Areas 11–13 (Deployment Modes, MCP Server, Security) are cross-cutting rather than layered — read
+them when you need them, in any order.
 
 ---
 

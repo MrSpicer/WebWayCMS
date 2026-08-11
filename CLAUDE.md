@@ -7,11 +7,24 @@
 ## Commands
 
 - **Build:** `dotnet build`
-- **Rebuild Ef Migrations (destructive):** `./Scripts/RebuildEFMigrations.sh`
-- **Run all tests + coverage gate:** `./Scripts/RunTests.sh` (or `dotnet test WebWayCMS.sln`)
+- **Rebuild Ef Migrations (destructive):** `./scripts/RebuildEFMigrations.sh`
+- **Run all tests + coverage gate:** `./scripts/RunTests.sh` (or `dotnet test WebWayCMS.sln`)
 - **Run one project's tests:** `dotnet test tests/WebWayCMS.Core.Tests/WebWayCMS.Core.Tests.csproj`
 - **Run integration host end-to-end (dev secrets + docker compose; builds the libraries from source via project references, polls `http://localhost:45847`):** `./scripts/StartIntegrationHost.sh`
 - **Tear down integration host (add `-v` to also drop the DB volume):** `./scripts/TearDownIntegrationhost.sh`
+
+## Deployment Modes
+
+- The CMS boots in one of two modes, chosen by which pair of extension methods the host calls:
+  - **Full / admin:** `AddWebWayCms(config)` + `EnsureCMS()` (back-compat aliases for
+    `AddWebWayCmsAdmin` / `EnsureCmsAdmin`). Registers the admin CRUD surface from
+    `WebWayCMS.Admin`, seeds roles + the admin user + the `/admin` page, and maps MCP.
+  - **Rendering-only:** `AddWebWayCmsRendering(config)` + `EnsureCmsRendering()`. Same database,
+    same public routing and content zones, but no admin controllers, no `IAdminHandlerRegistry`,
+    no role/admin-user seeding, and no MCP endpoint.
+- The split is a DI/pipeline boundary, not an assembly boundary: the umbrella `WebWayCMS` package
+  still ships `WebWayCMS.Admin`, and the startup seeders scan its assembly in both modes.
+- See [docs/architecture/11-deployment-modes.md](docs/architecture/11-deployment-modes.md).
 
 ## Testing
 
@@ -30,10 +43,14 @@
   registries) to AI agents over MCP. Its tools delegate to the same `IAdminHandlerRegistry` /
   `IAdminCrudHandler` dispatch the admin UI uses, so every current and future content type is covered
   generically — there is no per-type tool code.
-- Wired into the host in `WebWayCMS/ServiceCollectionExtensions.cs` (`AddWebWayCmsMcp`) and mapped in
-  `WebWayCMS/CMSExtensions.cs` (`MapWebWayCmsMcp`). Built on the official `ModelContextProtocol.AspNetCore` SDK.
-- **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (via user-secrets
-  or env, never source). The endpoint is mapped at `Path` (default `/mcp`) and gated by a
+- Wired into the host in `WebWayCMS/ServiceCollectionExtensions.cs` (`AddWebWayCmsMcp`, called from
+  `AddWebWayCmsAdmin`) and mapped in `WebWayCMS/CMSExtensions.cs` (`MapWebWayCmsMcp`, called from the
+  admin pipeline only — a rendering-only host never maps it). Built on the official
+  `ModelContextProtocol.AspNetCore` SDK.
+- **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (user-secrets
+  or environment — real deployments should never commit the key). The integration stack
+  (`WebWayCMS.TestHost`) deliberately commits a throwaway localhost key for convenience. The endpoint
+  is mapped at `Path` (default `/mcp`) and gated by a
   `Authorization: Bearer <ApiKey>` check — that token is the security boundary (the endpoint runs with
   effective admin authority).
 - To connect Claude Code to a running instance, add to `.mcp.json` once the server is enabled:
@@ -45,20 +62,18 @@
 
 ## CKEditor License
 
-- The admin rich-text editor (CKEditor) license is owned by the **CMS**, not the host. It is bound
-  from a `"CKEditor"` config section into `CKEditorOptions` (in `WebWayCMS.Presentation`), wired via
-  `AddWebWayCmsCKEditor` and consumed by `_AdminLayout.cshtml`.
-- A built-in default key is embedded **at build/pack time** as assembly metadata from the
-  `CKEDITOR_LICENSE_KEY` environment variable (or `-p:CKEditorLicenseKey=...`) — never committed to
-  source. Pack the libraries with that variable set to ship the default:
-  `CKEDITOR_LICENSE_KEY=<key> ./scripts/PackLocalPackages.sh`.
-- **Precedence:** host config `CKEditor:LicenseKey` (if non-empty) → CMS-embedded default → empty
-  (CKEditor evaluation mode). Hosts get a working editor with zero config and may still override.
-- Unlike the MCP `ApiKey`, a CKEditor license key is a JWT that ships to the browser anyway (read
-  client-side in `admin.js`), so embedding a default is by design and not a server-side secret.
-- The DI wiring (`CKEditorServiceCollectionExtensions`) and the reflection read of the embedded key
-  are `[ExcludeFromCodeCoverage]`; the precedence logic in `CKEditorOptionsConfigurator` is
-  unit-tested to the 100% gate.
+- The admin rich-text editor is CKEditor 5, loaded from `https://cdn.ckeditor.com/ckeditor5/46.1.1/`
+  by `WebWayCMS.Admin/Views/Shared/_AdminLayout.cshtml`. The CDN stylesheet and UMD bundle are only
+  emitted when a view defines the `CKEditor` Razor section, so non-editor admin pages don't pay for it.
+- **The license key is supplied by the host**, from the `"CKEditor"` config section:
+  `CKEditor:LicenseKey`. There is no options class and no DI wiring — `_AdminLayout.cshtml` injects
+  `IConfiguration` and emits the value into a `<meta name="ckeditor-license-key">` tag, which
+  `WebWayCMS.Admin/wwwroot/js/admin.js` reads client-side (falling back to
+  `window.__APP_CONFIG__.ckEditorLicenseKey`). Empty or missing ⇒ CKEditor evaluation mode.
+- The meta tag exists specifically so the key never needs an inline `<script>`, which would force
+  `'unsafe-inline'` into the CSP `script-src`.
+- A CKEditor license key is a JWT that ships to the browser regardless, so it is not a server-side
+  secret in the way the MCP `ApiKey` is.
 
 ## Security
 
