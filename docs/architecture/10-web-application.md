@@ -98,8 +98,9 @@ public class CatalogController : Controller { /* ... */ }
 ```
 The entry assembly is scanned at startup and each pattern is seeded into `CMSRoutes`. Seeding is
 idempotent by pattern and never updates an existing row. See
-[Area 3](03-page-routing.md#8-cmsroute--code-based-routes) and the worked example in
-`WebWayCMS.TestHost/Controllers/CodeTestController.cs`.
+[Area 3](03-page-routing.md#8-cmsroute--code-based-routes) and the worked example in the
+[WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost)
+repo (`Controllers/CodeTestController.cs`).
 
 ### 5. Custom Mappings
 Add to `MySite/MappingProfile.cs`:
@@ -197,8 +198,9 @@ that copies view-adjacent JS into `wwwroot/js/`. That is a CMS build concern, no
 CKEditor license key from the `ckeditor-license-key` meta tag rather than an inline `<script>`, so
 the CSP `script-src` needs no `'unsafe-inline'`.
 
-**Dev loop.** `./WebWayCMS.TestHost/Scripts/HotReloadRun.sh` runs `dotnet watch run` against the
-example host in Development, which picks up both C# and Razor edits.
+**Dev loop.** The [WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost)
+repo's `Scripts/HotReloadRun.sh` runs `dotnet watch run` in Development, which picks up both C# and
+Razor edits.
 
 ---
 

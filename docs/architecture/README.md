@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document maps the logical architecture of WebWayCMS. The system is a modular ASP.NET Core 10 CMS built as 10 focused class libraries (all prefixed `WebWayCMS.*`) consumed by a host web project (`MySite` is used as the example host name; `WebWayCMS.TestHost` in this repo is a working one).
+This document maps the logical architecture of WebWayCMS. The system is a modular ASP.NET Core 10 CMS built as 10 focused class libraries (all prefixed `WebWayCMS.*`) consumed by a host web project (`MySite` is used as the example host name; [WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost) is a working one in a separate repo).
 
 The libraries are distributed as NuGet packages: a host references the single umbrella package **`WebWayCMS`**, which transitively pulls the other nine (compiled Razor views and admin CSS/JS ship inside the packages). To stand up a new site, see [getting-started](../getting-started.md).
 

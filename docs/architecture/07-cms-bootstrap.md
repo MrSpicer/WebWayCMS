@@ -282,4 +282,5 @@ app.Run();
 Do not call `AddControllersWithViews` before `AddWebWayCms` — the CMS extension also calls it and
 merges the application parts.
 
-A working version of this file is `WebWayCMS.TestHost/Program.cs`.
+A working version of this file is in the
+[WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost) repo (`Program.cs`).

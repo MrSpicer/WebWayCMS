@@ -264,8 +264,9 @@ in code therefore adds a route rather than editing one — delete the stale row 
 Once seeded, code-based routes are ordinary rows: they compete with page routes purely on `Order`
 then pattern length, and an admin can edit or delete them.
 
-A worked example of every supported pattern form lives in
-`WebWayCMS.TestHost/Controllers/CodeTestController.cs`.
+A worked example of every supported pattern form lives in the
+[WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost)
+repo (`Controllers/CodeTestController.cs`).
 
 ---
 

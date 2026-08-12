@@ -76,15 +76,21 @@ consume the whole thing as a NuGet package.
 
 ## Setup
 
-Repo-level scripts live in `./scripts/`. The example host (`WebWayCMS.TestHost`) has its own
-scripts under `./WebWayCMS.TestHost/Scripts/`.
+Repo-level scripts live in `./scripts/`.
+
+### Initialize submodule
+The integration host lives in a [separate repository](https://github.com/MrSpicer/WebWayCMS.TestHost)
+and is linked as a git submodule:
+```
+git submodule update --init --recursive
+```
 
 ### Make Scripts Executable
 ```
-chmod +x ./scripts/* ./WebWayCMS.TestHost/Scripts/*.sh
+chmod +x ./scripts/*
 ```
 
-### Setup Local Database ###
+### Setup Local Database
 ```
 ./WebWayCMS.TestHost/Scripts/SetupLocalPostgresDBContainer.sh
 ```
@@ -100,7 +106,7 @@ libraries after cloning (and after changing CMS source) before building or runni
 ./scripts/PackLocalPackages.sh
 ```
 
-> The bundled example host, `WebWayCMS.TestHost`, uses **project references** rather than the
+> The integration host (`WebWayCMS.TestHost`) uses **project references** rather than the
 > package feed, so it does not need this step.
 
 ### Development - Hot Reload
@@ -108,7 +114,7 @@ libraries after cloning (and after changing CMS source) before building or runni
 ./WebWayCMS.TestHost/Scripts/HotReloadRun.sh
 ```
 
-Runs `dotnet watch run` against the example host with `ASPNETCORE_ENVIRONMENT=Development`, so
+Runs `dotnet watch run` against the integration host with `ASPNETCORE_ENVIRONMENT=Development`, so
 C# and Razor changes are picked up without a manual rebuild.
 
 ### Content-Security-Policy configuration
@@ -172,13 +178,14 @@ running the app).
 
 ### Integration host (end-to-end)
 
-The `WebWayCMS.TestHost` example boots the full CMS against a real Postgres in
-Docker. It references the WebWayCMS libraries directly (project references), so the
-image builds the CMS from source — no packing step. Being a throwaway test stack, all
-config is hardcoded (see `WebWayCMS.TestHost/docker-compose.yml`); the only value taken
-from the environment is the optional `CKEDITOR_LICENSE_KEY`. One script runs the whole
-flow non-interactively and exits with a meaningful return code: it builds and starts the
-compose stack, then polls `http://localhost:45847` until it answers `200`.
+The integration host lives at **[WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost)** —
+a separate repository linked as a git submodule. It boots the full CMS against a real
+Postgres in Docker, referencing the WebWayCMS libraries directly (project references) so the
+image builds the CMS from source — no packing step. Being a throwaway test stack, all config
+is hardcoded (see `WebWayCMS.TestHost/docker-compose.yml`); the only value taken from the
+environment is the optional `CKEDITOR_LICENSE_KEY`. One script runs the whole flow
+non-interactively and exits with a meaningful return code: it builds and starts the compose
+stack, then polls `http://localhost:45847` until it answers `200`.
 
 ```
 ./scripts/StartIntegrationHost.sh

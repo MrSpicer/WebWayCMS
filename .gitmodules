@@ -1,0 +1,3 @@
+[submodule "WebWayCMS.TestHost"]
+	path = WebWayCMS.TestHost
+	url = https://github.com/MrSpicer/WebWayCMS.TestHost.git

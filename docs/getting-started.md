@@ -7,8 +7,9 @@ package (which transitively pulls `WebWayCMS.Core`, `.Data`, `.Identity`,
 and supplies only its own branding.
 
 The `MySite` host shown below is a minimal reference shape — copy it when
-standing up a new site. A working example lives in this repo at
-`WebWayCMS.TestHost/`, which uses project references instead of the package feed.
+standing up a new site. A working example lives in a separate repo at
+[WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost),
+which uses project references instead of the package feed.
 
 ## 1. Prerequisites
 

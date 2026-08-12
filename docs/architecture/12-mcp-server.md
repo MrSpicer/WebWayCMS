@@ -132,9 +132,10 @@ Once the server is enabled, add to `.mcp.json`:
 }
 ```
 
-The integration host in this repo enables MCP against `http://localhost:45847/mcp` — see
-`WebWayCMS.TestHost/appsettings.json`. That is a throwaway stack with a checked-in key; do not copy
-that pattern into a real deployment.
+The integration host ([separate repo](https://github.com/MrSpicer/WebWayCMS.TestHost))
+enables MCP against `http://localhost:45847/mcp` — see its
+`appsettings.json`. That is a throwaway stack with a checked-in key; do not copy that pattern into a
+real deployment.
 
 ---
 

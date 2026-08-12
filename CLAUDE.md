@@ -48,8 +48,9 @@
   admin pipeline only — a rendering-only host never maps it). Built on the official
   `ModelContextProtocol.AspNetCore` SDK.
 - **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (user-secrets
-  or environment — real deployments should never commit the key). The integration stack
-  (`WebWayCMS.TestHost`) deliberately commits a throwaway localhost key for convenience. The endpoint
+  or environment — real deployments should never commit the key). The integration host
+  (a separate repo at [WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost))
+  deliberately commits a throwaway localhost key for convenience. The endpoint
   is mapped at `Path` (default `/mcp`) and gated by a
   `Authorization: Bearer <ApiKey>` check — that token is the security boundary (the endpoint runs with
   effective admin authority).
@@ -98,17 +99,6 @@
 - **Identity hardening:** explicit account lockout (5 attempts / 15 min) and auth-cookie flags
   (`HttpOnly`, `Secure=Always`, `SameSite=Strict`) are set in `ConfigureAuthorization`.
 
-## rules
- - after finishing work check to see if documentation needs to be updated to reflect the changes
- - Do not Remove todo notes from the code unless the todo has been completed. If you are unsure. ask
- - If Tests fail that were previously passing, do not modify those tests without permission from a human
- - When multiple good options exist ask the user which they would prefer
- - always ask clarifying questions when planning if you have any uncertainty.
- - Do not use JQuery.
- - Get confirmation from a human before using any external library or code.
- - Do not commit work
- - The very last thing you should do before existing work is reread the plan and ensure that all steps have been completed and all verification prescribed by the plan was actually done.
-
 ## Code Conventions
 
 - File-scoped namespaces, nullable reference types enabled
@@ -123,3 +113,14 @@
 - Import order: System > Microsoft > Third-party > Project
 - Configuration form fields use `[FormProperty]` attribute with `EditorType` enum
 
+## rules
+ - after finishing work check to see if documentation needs to be updated to reflect the changes
+ - Do not Remove todo notes from the code unless the todo has been completed. If you are unsure. ask
+ - If Tests fail that were previously passing, do not modify those tests without permission from a human
+ - When multiple good options exist ask the user which they would prefer
+ - always ask clarifying questions when planning if you have any uncertainty.
+ - Do not use JQuery.
+ - Get confirmation from a human before using any external library or code.
+ - Do not commit work
+ - The very last thing you should do before existing work is reread the plan and ensure that all steps have been completed and all verification prescribed by the plan was actually done.
+ - ALWAYS call cognitive_store after discovering anything worth remembering across sessions. Do not wait for permission.
