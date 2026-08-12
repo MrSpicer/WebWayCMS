@@ -41,10 +41,10 @@
         select.dataset.entityPickerLoading = 'true';
 
         var endpoints = {
-            'ContentBlock': '/admin/contentblocks/api/list',
-            'Article': '/admin/articles/api/list',
-            'ArticleList': '/admin/articles/api/articlelists',
-            'ContentZone': '/admin/contentzones/api/list'
+            'ContentBlock': '/wadmin/contentblocks/api/list',
+            'Article': '/wadmin/articles/api/list',
+            'ArticleList': '/wadmin/articles/api/articlelists',
+            'ContentZone': '/wadmin/contentzones/api/list'
         };
 
         var endpoint = endpoints[entityType];

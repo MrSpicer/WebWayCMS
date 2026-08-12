@@ -7,7 +7,7 @@ using WebWayCMS.Models.Shared;
 namespace WebWayCMS.Controllers.Admin;
 
 [Authorize(Roles = "Admin")]
-[Route("admin")]
+[Route("wadmin")]
 public class AdminContentController : Controller
 {
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();

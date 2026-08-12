@@ -313,7 +313,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     // VersionedModel abstract implementations
 
     protected override string VersionHistoryContentType => "contentzones";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/contentzones";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentzones";
     protected override Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

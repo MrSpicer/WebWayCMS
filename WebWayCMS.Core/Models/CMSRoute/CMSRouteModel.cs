@@ -14,7 +14,7 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
     private readonly IMapper _mapper;
 
     protected override string VersionHistoryContentType => "cmsroutes";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/cmsroutes";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/cmsroutes";
     protected override Task<List<CMSRouteDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => Task.FromResult(new List<CMSRouteDTO>());
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

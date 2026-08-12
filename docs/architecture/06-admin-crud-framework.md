@@ -116,8 +116,8 @@ Optional extension point for handlers that need to expose a registry as JSON end
 ```csharp
 public interface IAdminRegistryHandler
 {
-    IActionResult GetAll();                        // GET /admin/{contentType}/registry
-    IActionResult GetProperties(string name);      // GET /admin/{contentType}/registry/{name}/properties
+    IActionResult GetAll();                        // GET /wadmin/{contentType}/registry
+    IActionResult GetProperties(string name);      // GET /wadmin/{contentType}/registry/{name}/properties
 }
 ```
 
@@ -140,58 +140,58 @@ Constructed from all `IAdminCrudHandler` instances resolved from DI at the start
 
 ## 6. `AdminContentController` Route Map
 
-All routes are prefixed with `/admin` and require `[Authorize(Roles = "Admin")]`.
+All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]`.
 
 **Top-level CRUD:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}` | `Index` — list view |
-| GET | `/admin/{contentType}/create` | `Create` — empty create form |
-| GET | `/admin/{contentType}/edit/{id:guid}` | `Edit` — populated edit form |
-| POST | `/admin/{contentType}/edit/{id:guid?}` | `EditPost` — save (create or update) |
-| POST | `/admin/{contentType}/delete/{id:guid}` | `Delete` — delete |
+| GET | `/wadmin/{contentType}` | `Index` — list view |
+| GET | `/wadmin/{contentType}/create` | `Create` — empty create form |
+| GET | `/wadmin/{contentType}/edit/{id:guid}` | `Edit` — populated edit form |
+| POST | `/wadmin/{contentType}/edit/{id:guid?}` | `EditPost` — save (create or update) |
+| POST | `/wadmin/{contentType}/delete/{id:guid}` | `Delete` — delete |
 
 **API endpoints:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}/api/list` | `ApiList` — entity picker list |
-| GET | `/admin/{contentType}/api/{key}` | `SecondaryApiList` — named secondary list |
+| GET | `/wadmin/{contentType}/api/list` | `ApiList` — entity picker list |
+| GET | `/wadmin/{contentType}/api/{key}` | `SecondaryApiList` — named secondary list |
 
 **Registry endpoints:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}/registry` | `RegistryList` |
-| GET | `/admin/{contentType}/registry/{name}/properties` | `RegistryProperties` |
+| GET | `/wadmin/{contentType}/registry` | `RegistryList` |
+| GET | `/wadmin/{contentType}/registry/{name}/properties` | `RegistryProperties` |
 
 **Version history:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}/versions/{masterId:guid}` | `VersionHistory` |
-| GET | `/admin/{contentType}/versions/{masterId:guid}/edit/{id:guid}` | `VersionRestoreEdit` |
-| POST | `/admin/{contentType}/versions/{masterId:guid}/delete/{id:guid}` | `VersionDelete` |
+| GET | `/wadmin/{contentType}/versions/{masterId:guid}` | `VersionHistory` |
+| GET | `/wadmin/{contentType}/versions/{masterId:guid}/edit/{id:guid}` | `VersionRestoreEdit` |
+| POST | `/wadmin/{contentType}/versions/{masterId:guid}/delete/{id:guid}` | `VersionDelete` |
 
 **Child CRUD:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}/{parentKey:notreserved}/{childType}` | `ChildIndex` |
-| GET | `/admin/{contentType}/{parentKey:notreserved}/{childType}/create` | `ChildCreate` |
-| GET | `/admin/{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid}` | `ChildEdit` |
-| POST | `/admin/{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid?}` | `ChildEditPost` |
-| POST | `/admin/{contentType}/{parentKey:notreserved}/{childType}/delete/{id:guid}` | `ChildDelete` |
-| POST | `/admin/{contentType}/{parentKey:notreserved}/{childType}/reorder` | `ChildReorder` (JSON body: `List<Guid>`) |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}` | `ChildIndex` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/create` | `ChildCreate` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid}` | `ChildEdit` |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid?}` | `ChildEditPost` |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/delete/{id:guid}` | `ChildDelete` |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/reorder` | `ChildReorder` (JSON body: `List<Guid>`) |
 
 **Child version history:**
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/admin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}` | `ChildVersionHistory` |
-| GET | `/admin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/edit/{id:guid}` | `ChildVersionRestoreEdit` |
-| POST | `/admin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/delete/{id:guid}` | `ChildVersionDelete` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}` | `ChildVersionHistory` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/edit/{id:guid}` | `ChildVersionRestoreEdit` |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/delete/{id:guid}` | `ChildVersionDelete` |
 
 ---
 
@@ -200,7 +200,7 @@ All routes are prefixed with `/admin` and require `[Authorize(Roles = "Admin")]`
 Version history is opt-in per handler. `AdminCrudModel<T>` sets `SupportsVersionHistory = true` by default; `IAdminCrudHandler` default interface implementation sets it to `false`.
 
 Flow:
-1. User visits `/admin/{contentType}/versions/{masterId}`
+1. User visits `/wadmin/{contentType}/versions/{masterId}`
 2. Controller checks `handler.SupportsVersionHistory`; returns 404 if false
 3. Calls `GetVersionHistoryViewModelAsync` → renders shared `VersionHistory.cshtml`
 4. User clicks "Restore" → `VersionRestoreEdit` loads the historical version via `GetRestoreVersionViewModelAsync`
@@ -216,9 +216,9 @@ Child resources follow the same pattern with `ChildVersionHistory*` routes.
 The `{parentKey}` segment carries the parent identifier (slug or Guid string). The `notreserved` constraint prevents ambiguity with reserved action names (`edit`, `delete`, `create`, `registry`, `api`, `reorder`, `versions`). See [Area 3](03-page-routing.md#11-notreservedconstraint) for the constraint definition.
 
 Example URLs:
-- `/admin/articles/my-blog/articles` — list articles in the "my-blog" article list
-- `/admin/articles/my-blog/articles/create` — create article
-- `/admin/articles/my-blog/articles/reorder` — reorder (POST, JSON body)
+- `/wadmin/articles/my-blog/articles` — list articles in the "my-blog" article list
+- `/wadmin/articles/my-blog/articles/create` — create article
+- `/wadmin/articles/my-blog/articles/reorder` — reorder (POST, JSON body)
 
 ---
 

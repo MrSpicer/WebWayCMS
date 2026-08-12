@@ -317,6 +317,6 @@ public class CMSRouteModelTests
         var method = typeof(CMSRouteModel).GetMethod("GetVersionHistoryBackUrl",
             BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
         Assert.That(method, Is.Not.Null);
-        Assert.That(method!.Invoke(_model, new object?[] { null }), Is.EqualTo("/admin/cmsroutes"));
+        Assert.That(method!.Invoke(_model, new object?[] { null }), Is.EqualTo("/wadmin/cmsroutes"));
     }
 }

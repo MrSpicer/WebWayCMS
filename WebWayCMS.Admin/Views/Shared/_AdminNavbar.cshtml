@@ -7,7 +7,7 @@
 
 <nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
     <div class="navbar-brand">
-        @* <a class="navbar-item admin-logo" href="/admin" aria-label="CMS Admin Home">
+        @* <a class="navbar-item admin-logo" href="/wadmin" aria-label="CMS Admin Home">
             <span>CMS Admin</span>
         </a> *@
         <button id="adminBurger" class="navbar-burger" aria-label="Toggle navigation menu"   aria-expanded="false"
@@ -25,35 +25,39 @@
                 AdminPages = true,
                 ViewName = "Default"
             })
-
-            <a class="navbar-item" href="/admin/pages" @(currentPath.StartsWith("/admin/pages") ? "aria-current=\"page\"" : "") role="listitem">
-                Pages
-            </a>
-            <a class="navbar-item" href="/admin/contentzones" @(currentPath.StartsWith("/admin/contentzones") ? "aria-current=\"page\"" : "") role="listitem">
-                Content Zones
-            </a>
-            <a class="navbar-item" href="/admin/contentblocks" @(currentPath.StartsWith("/admin/contentblocks") ? "aria-current=\"page\"" : "") role="listitem">
-                Content Blocks
-            </a>
-            <a class="navbar-item" href="/admin/articles" @(currentPath.StartsWith("/admin/articles") ? "aria-current=\"page\"" : "") role="listitem">
-                Articles
-            </a>
-            <a class="navbar-item" href="/admin/widgets" @(currentPath.StartsWith("/admin/widgets") ? "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/widgets" @(currentPath.StartsWith("/wadmin/widgets") ? "aria-current=\"page\"" : "") role="listitem">
                 Widgets
             </a>
-            <a class="navbar-item" href="/admin/pagetypes" @(currentPath.StartsWith("/admin/pagetypes") ? "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/formcomponents" @(currentPath.StartsWith("/wadmin/formcomponents") ?
+                    "aria-current=\"page\"" : "") role="listitem">
+                Form Components
+            </a>
+            <a class="navbar-item" href="/wadmin/pagetypes" @(currentPath.StartsWith("/wadmin/pagetypes") ? "aria-current=\"page\"" : "") role="listitem">
                 Page Types
             </a>
-            <a class="navbar-item" href="/admin/cmsroutes" @(currentPath.StartsWith("/admin/cmsroutes") ? "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/cmsroutes" @(currentPath.StartsWith("/wadmin/cmsroutes") ? "aria-current=\"page\"" : "") role="listitem">
                 CMS Routes
             </a>
-            <a class="navbar-item" href="/admin/formcomponents" @(currentPath.StartsWith("/admin/formcomponents") ? "aria-current=\"page\"" : "") role="listitem">
-                Form Components
+            <a class="navbar-item" href="/wadmin/contentzones" @(currentPath.StartsWith("/wadmin/contentzones") ?
+                           "aria-current=\"page\"" : "") role="listitem">
+                Content Zones
+            </a>
+            <a class="navbar-item" href="/wadmin/pages" @(currentPath.StartsWith("/wadmin/pages") ?
+                  "aria-current=\"page\"" : "") role="listitem">
+                Pages
+            </a>
+            <a class="navbar-item" href="/wadmin/contentblocks" @(currentPath.StartsWith("/wadmin/contentblocks") ?
+                           "aria-current=\"page\"" : "") role="listitem">
+                Content Blocks
+            </a>
+            <a class="navbar-item" href="/wadmin/articles" @(currentPath.StartsWith("/wadmin/articles") ?
+                               "aria-current=\"page\"" : "") role="listitem">
+                Articles
             </a>
         </div>
 
         <div class="navbar-end">
-            <a class="navbar-item" href="/">
+            <a class="navbar-item" href="/" target="_blank" rel="noopener" role="listitem">
                 View Site
             </a>
             <partial name="_LoginNavPartial" />

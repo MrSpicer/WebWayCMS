@@ -110,7 +110,7 @@
                                            asp-route-contentType="contentzones"
                                            asp-route-id="@zone.ContentId"
                                            class="button is-small">Edit</a>
-                                        <a href="/admin/contentzones/zone-edit/@zone.ContentId" class="button is-small is-primary is-light">Edit Zone</a>
+                                        <a href="/wadmin/contentzones/zone-edit/@zone.ContentId" class="button is-small is-primary is-light">Edit Zone</a>
                                         <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.ContentId" asp-route-childType="items" class="button is-small is-info is-light">Advanced (@zone.Items.Count)</a>
                                         @if (Model.ZoneIdsWithChildren.Contains(zone.ContentId))
                                         {

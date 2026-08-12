@@ -17,7 +17,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     private readonly ArticleChildHandler _childHandler;
 
     protected override string VersionHistoryContentType => "articles";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/articles";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/articles";
     protected override Task<List<ArticleListDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _articleListService.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _articleListService.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
 

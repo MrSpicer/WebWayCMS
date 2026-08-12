@@ -133,7 +133,7 @@ continue by default.
 
 > `EnsureDefaultHomePage` accepts a `seedAdminPage` flag. The rendering path passes `false` and
 > the admin path passes `true`. `DefaultContentSeeder.SeedDefaultPagesAsync` honours the flag —
-> when `false`, only the Home page is seeded; when `true`, the Admin page (at `/admin` with
+> when `false`, only the Home page is seeded; when `true`, the Admin page (at `/wadmin` with
 > `GenericAdminPageController`) is also seeded with its own independent guard.
 
 ---
@@ -233,13 +233,13 @@ and both call `MapCmsEndpoints`:
 
 ```
 MapRazorPages()                — Identity UI pages
-MapControllers()               — attribute-routed controllers (incl. all /admin routes)
+MapControllers()               — attribute-routed controllers (incl. all /wadmin routes)
 MapDynamicControllerRoute<CMSRouteTransformer>("{**slug}")  — database-backed CMS routing
 MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}")  — fallback MVC
 ```
 
 Order matters: attribute-routed controllers are mapped **before** the dynamic catch-all, so
-`AdminContentController`'s `admin/{contentType}` out-ranks it. If `CMSRouteTransformer` returns
+`AdminContentController`'s `wadmin/{contentType}` out-ranks it. If `CMSRouteTransformer` returns
 `null!`, routing falls through to the conventional route and then to a 404. Keeping both
 registrations inside the CMS makes the package self-contained — the Web project only calls
 `UseWebWayCms()`.

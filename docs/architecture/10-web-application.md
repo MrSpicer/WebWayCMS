@@ -49,9 +49,9 @@ public class BlogPageController : PageControllerBase<BlogPageConfiguration>
 ```
 No registration required — the CMS reflects over the entry assembly at startup and seeds a
 `PageControllerRegistrations` row for it. After that first run the database row is authoritative;
-edit page-type metadata at `/admin/pagetypes`. See [Area 3](03-page-routing.md).
+edit page-type metadata at `/wadmin/pagetypes`. See [Area 3](03-page-routing.md).
 
-A page type is not a URL. Create a page at `/admin/pages`, pick the type, and give it a Slug — the
+A page type is not a URL. Create a page at `/wadmin/pages`, pick the type, and give it a Slug — the
 CMS derives the route pattern and writes it to `CMSRoutes`.
 
 ### 2. Custom Widgets
@@ -67,7 +67,7 @@ public class MyWidgetViewComponent : ViewComponent
 }
 ```
 No registration required — the widget is seeded into `WidgetRegistrations` at startup and served
-thereafter by `IWidgetRegistry`. Manage it at `/admin/widgets`. See
+thereafter by `IWidgetRegistry`. Manage it at `/wadmin/widgets`. See
 [Area 4](04-content-zone-framework.md).
 
 ### 3. Custom Content Types

@@ -72,7 +72,7 @@ public class DefaultContentSeederTests
 
         await _seeder.SeedDefaultPagesAsync(false);
 
-        await _routeService.DidNotReceive().MatchRouteAsync("/admin", Arg.Any<CancellationToken>());
+        await _routeService.DidNotReceive().MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -80,7 +80,7 @@ public class DefaultContentSeederTests
     {
         _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
-        _routeService.MatchRouteAsync("/admin", Arg.Any<CancellationToken>())
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(null));
         var created = new PageDTO { ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), Title = "Admin" } };
         _pageService.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(created);
@@ -88,7 +88,7 @@ public class DefaultContentSeederTests
         await _seeder.SeedDefaultPagesAsync(true);
 
         await _pageService.Received(1).CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>());
-        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/admin"), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -96,7 +96,7 @@ public class DefaultContentSeederTests
     {
         _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
-        _routeService.MatchRouteAsync("/admin", Arg.Any<CancellationToken>())
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
 
         await _seeder.SeedDefaultPagesAsync(true);

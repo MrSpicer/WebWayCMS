@@ -15,7 +15,7 @@ A host chooses how much of the CMS to switch on by picking a pair of extension m
 
 | Mode | DI | Startup | What it serves |
 |---|---|---|---|
-| **Full / admin** | `AddWebWayCmsAdmin(config)` | `UseWebWayCmsAdmin()` | Public site **and** `/admin`, plus MCP |
+| **Full / admin** | `AddWebWayCmsAdmin(config)` | `UseWebWayCmsAdmin()` | Public site **and** `/wadmin`, plus MCP |
 | **Rendering-only** | `AddWebWayCmsRendering(config)` | `UseWebWayCmsRendering()` | Public site only |
 | *(alias)* | `AddWebWayCms(config)` | `UseWebWayCms()` | Delegates to the admin pair |
 
@@ -90,8 +90,8 @@ contains MVC views only — no Razor Pages; the Identity pages stayed in `WebWay
 **Controllers**
 | Type | Route |
 |---|---|
-| `AdminContentController` | `[Route("admin")]` — the generic CRUD dispatcher for every content type |
-| `AdminContentZoneController` | `[Route("admin/contentzones")]` — the inline zone editor |
+| `AdminContentController` | `[Route("wadmin")]` — the generic CRUD dispatcher for every content type |
+| `AdminContentZoneController` | `[Route("wadmin/contentzones")]` — the inline zone editor |
 | `ContentZoneApiController` | `[Route("api/contentzones")]` — JSON API for inline zone editing |
 | `GenericAdminPageController` | `[PageController]` page type behind `[Authorize(Roles = "Admin")]` |
 
@@ -126,7 +126,7 @@ and `AdminContentController`'s attribute routes are never discovered by `MapCont
 
 Treat it as defence in depth for a public host, not as a way to ship a smaller artifact.
 
-In a rendering-only host, `EnsureDefaultHomePage(seedAdminPage: false)` suppresses the `/admin`
+In a rendering-only host, `EnsureDefaultHomePage(seedAdminPage: false)` suppresses the `/wadmin`
 page seed — only the Home page is created. `DefaultContentSeeder.SeedDefaultPagesAsync` checks
 the flag and skips the admin page when it is `false`.
 

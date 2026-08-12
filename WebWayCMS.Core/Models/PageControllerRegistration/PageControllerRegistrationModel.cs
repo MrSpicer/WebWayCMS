@@ -18,7 +18,7 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
     private readonly IPageControllerRegistry _registry;
 
     protected override string VersionHistoryContentType => "pagetypes";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/pagetypes";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/pagetypes";
     protected override Task<List<PageControllerRegistrationDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

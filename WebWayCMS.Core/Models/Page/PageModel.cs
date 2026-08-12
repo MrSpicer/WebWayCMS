@@ -22,7 +22,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private readonly IPageControllerRegistry _controllerRegistry;
 
     protected override string VersionHistoryContentType => "pages";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/pages";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/pages";
     protected override Task<List<PageDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _service.DeleteVersionAsync(id, ct);
 

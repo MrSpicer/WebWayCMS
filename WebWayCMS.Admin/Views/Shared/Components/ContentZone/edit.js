@@ -139,7 +139,7 @@ function initContentZones() {
             }
 
             try {
-                const response = await fetch('/admin/widgets/registry/' + encodeURIComponent(componentName) + '/form', {
+                const response = await fetch('/wadmin/widgets/registry/' + encodeURIComponent(componentName) + '/form', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

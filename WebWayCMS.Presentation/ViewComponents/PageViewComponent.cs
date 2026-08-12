@@ -40,11 +40,11 @@ public class PageViewComponent : ViewComponent
 
         if (config.AdminPages)
         {
-            filteredNodes = filteredNodes.Where(n => n.Path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
+            filteredNodes = filteredNodes.Where(n => n.Path.StartsWith("/wadmin", StringComparison.OrdinalIgnoreCase));
         }
         else
         {
-            filteredNodes = filteredNodes.Where(n => !n.Path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase));
+            filteredNodes = filteredNodes.Where(n => !n.Path.StartsWith("/wadmin", StringComparison.OrdinalIgnoreCase));
         }
 
         return filteredNodes

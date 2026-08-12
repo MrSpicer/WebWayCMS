@@ -57,7 +57,7 @@ public interface IAdminCrudHandler
     /// <summary>Returns a secondary named list, keyed by an arbitrary string.</summary>
     Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default);
 
-    /// <summary>Optional: exposes GET /admin/{contentType}/registry endpoints.</summary>
+    /// <summary>Optional: exposes GET /wadmin/{contentType}/registry endpoints.</summary>
     IAdminRegistryHandler? RegistryHandler { get; }
 
     /// <summary>Optional: manages child entities (articles, zone items).</summary>

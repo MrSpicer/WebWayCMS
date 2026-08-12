@@ -29,7 +29,7 @@ route `{**slug}` registered by the CMS inside `UseWebWayCms()`. It:
 
 The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The `Index()` action typically renders a Razor view with `PageConfig` as the model, and the view places one or more **ContentZones** for admin-managed widget regions.
 
-`[PageController]`-decorated controllers are discovered by reflection **once at startup** and seeded into the `PageControllerRegistrations` table; `IPageControllerRegistry` then serves them from the database with a 5-minute cache. So a new page type still needs no manual registration — but after the first run the database is the source of truth, and you edit page-type metadata at `/admin/pagetypes`.
+`[PageController]`-decorated controllers are discovered by reflection **once at startup** and seeded into the `PageControllerRegistrations` table; `IPageControllerRegistry` then serves them from the database with a 5-minute cache. So a new page type still needs no manual registration — but after the first run the database is the source of truth, and you edit page-type metadata at `/wadmin/pagetypes`.
 
 ---
 
@@ -139,12 +139,12 @@ specified in the attribute.
 
 > Seeding adds new page types and re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` on
 > existing rows. Display metadata (DisplayName, Description, Category, Icon, Order) is never
-> overwritten after the initial insert — edit it at `/admin/pagetypes` instead.
+> overwritten after the initial insert — edit it at `/wadmin/pagetypes` instead.
 > Set `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` to suppress seeding entirely.
 
 ### Step 5 — Give the page a URL
 
-Page types are not URLs. Create a page in the admin UI at `/admin/pages`, pick your page type from
+Page types are not URLs. Create a page in the admin UI at `/wadmin/pages`, pick your page type from
 the **Controller** dropdown, and set its **Slug**. The CMS derives the route pattern from the slug
 and writes it to `CMSRoutes`:
 

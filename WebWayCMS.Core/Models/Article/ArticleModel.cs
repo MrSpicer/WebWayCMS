@@ -11,7 +11,7 @@ public sealed class ArticleModel : VersionedModel<ArticleDTO>, IArticleModel
     private readonly IMapper _mapper;
 
     protected override string VersionHistoryContentType => "articles";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => $"/admin/articles/{parentKey}/articles";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => $"/wadmin/articles/{parentKey}/articles";
     protected override Task<List<ArticleDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _postService.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _postService.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
 

@@ -21,7 +21,7 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
     private readonly FormComponentRegistrationRegistryHandler _registryHandler;
 
     protected override string VersionHistoryContentType => "formcomponents";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/formcomponents";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/formcomponents";
     protected override Task<List<FormComponentRegistrationDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

@@ -16,7 +16,7 @@ public class AuthRateLimitingTests
     [TestCase("/Identity/Account/ForgotPassword", true)]
     [TestCase("/Identity/Account/ResendEmailConfirmation", true)]
     [TestCase("/", false)]
-    [TestCase("/admin/pages", false)]
+    [TestCase("/wadmin/pages", false)]
     public void IsRateLimitedPath_MatchesAuthEndpointsOnly(string path, bool expected)
     {
         Assert.That(AuthRateLimiting.IsRateLimitedPath(path), Is.EqualTo(expected));

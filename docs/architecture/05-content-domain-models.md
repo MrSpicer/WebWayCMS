@@ -147,9 +147,9 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 ## 5. Top-level vs Child Resource Pattern
 
-**Top-level** resources have their own admin list/edit routes (`/admin/{contentType}/`). They extend `AdminCrudModel<TDto>` and are registered as `IAdminCrudHandler`.
+**Top-level** resources have their own admin list/edit routes (`/wadmin/{contentType}/`). They extend `AdminCrudModel<TDto>` and are registered as `IAdminCrudHandler`.
 
-**Child** resources live under a parent (`/admin/{contentType}/{parentKey}/{childType}/`). They do **not** extend `AdminCrudModel<TDto>`; instead their parent's model creates an inner class implementing `IAdminCrudChildHandler` and exposes it via `ChildHandler`. The child handler itself is not registered in DI — it is created as part of the parent model.
+**Child** resources live under a parent (`/wadmin/{contentType}/{parentKey}/{childType}/`). They do **not** extend `AdminCrudModel<TDto>`; instead their parent's model creates an inner class implementing `IAdminCrudChildHandler` and exposes it via `ChildHandler`. The child handler itself is not registered in DI — it is created as part of the parent model.
 
 Example: `ArticleChildHandler` is a private sealed class inside `ArticleListModel.cs`, instantiated in `ArticleListModel`'s constructor and returned via `override IAdminCrudChildHandler? ChildHandler => _childHandler`.
 

@@ -95,7 +95,7 @@ derived by stripping the `"ViewComponent"` suffix from the class name; the attri
 
 Seeding **only inserts**. A component name that already has a row is skipped, and the existing row
 is never updated — so editing a `[ContentZoneComponent]` attribute in code has no effect on an
-already-seeded widget. Change it at `/admin/widgets` instead. Set
+already-seeded widget. Change it at `/wadmin/widgets` instead. Set
 `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` to suppress seeding.
 
 Because the registration is a row rather than a reflection result, widgets can be renamed,

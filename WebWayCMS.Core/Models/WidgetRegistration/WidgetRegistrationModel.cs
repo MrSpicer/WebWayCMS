@@ -23,7 +23,7 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
     private readonly WidgetRegistrationRegistryHandler _registryHandler;
 
     protected override string VersionHistoryContentType => "widgets";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/widgets";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/widgets";
     protected override Task<List<WidgetRegistrationDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

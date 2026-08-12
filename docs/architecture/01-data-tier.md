@@ -117,7 +117,7 @@ public record ContentDTO
 
 ### `PageDTO`
 Implements `IContent`. Type-specific fields beyond the shared `ContentMeta`:
-- `ViewName` — optional override for the Razor view name (the seeded `/admin` page uses `"Dashboard"`)
+- `ViewName` — optional override for the Razor view name (the seeded `/wadmin` page uses `"Dashboard"`)
 - `ConfigurationJson` — JSON-serialized page config object (type determined by the controller's `ConfigurationType`)
 
 There is **no `Route` or `ControllerName` here**. A page's URL and dispatch controller live on its

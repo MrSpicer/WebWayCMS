@@ -65,7 +65,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
 
         if (seedAdminPage)
         {
-            var existingAdminRoute = await _routeService.MatchRouteAsync("/admin", ct);
+            var existingAdminRoute = await _routeService.MatchRouteAsync("/wadmin", ct);
             if (existingAdminRoute == null)
             {
                 await SeedAdminPageAsync(ct, logger);
@@ -90,7 +90,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             {
                 Id = adminPageId,
                 Title = "Admin",
-                Slug = "admin",
+                Slug = "wadmin",
                 IsPublished = true,
                 PublicationDate = now,
                 CreationDate = now,
@@ -103,7 +103,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         var created = await _pageService.CreateAsync(adminPage, ct);
         logger.Information("Created default Admin page with ID {PageId}", created.ContentMeta.Id);
 
-        await SeedRouteAsync("/admin", "GenericAdminPage", null, "Page", created.ContentMeta, ct, logger, "Admin");
+        await SeedRouteAsync("/wadmin", "GenericAdminPage", null, "Page", created.ContentMeta, ct, logger, "Admin");
     }
 
     private async Task SeedRouteAsync(

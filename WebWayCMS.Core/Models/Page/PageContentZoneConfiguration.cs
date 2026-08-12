@@ -24,7 +24,7 @@ public class PageContentZoneConfiguration
 
     [FormProperty(
         Label = "Include Admin Pages",
-        HelpText = "When enabled, includes pages whose route starts with /admin.",
+        HelpText = "When enabled, includes pages whose route starts with /wadmin.",
         EditorType = EditorType.Checkbox,
         Order = 3,
         FormComponent = "Checkbox"

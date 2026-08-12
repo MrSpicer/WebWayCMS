@@ -73,7 +73,7 @@ The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<For
 | `Url` | `<input type="url">` | URL validation |
 | `Email` | `<input type="email">` | Email validation |
 | `ViewPicker` | `<select>` | Populated with available views via `IViewDiscoveryService`; `ViewComponentName` required |
-| `PageControllerPicker` | `<select data-page-controller-picker>` | Empty select populated client-side from the page controller registry (`/admin/pages/registry`); used by the page editor |
+| `PageControllerPicker` | `<select data-page-controller-picker>` | Empty select populated client-side from the page controller registry (`/wadmin/pages/registry`); used by the page editor |
 | `Hidden` | `<input type="hidden">` | Not displayed; included in form POST |
 
 **Type inference** (when `EditorType` is not set on `[FormProperty]` and there is no attribute at all):
@@ -118,7 +118,7 @@ and immutable-snapshot thread safety. Mirrors `WidgetRegistry` in shape.
 - **`Invalidate()`** — forces a refresh on the next access.
 
 Components are registered via `[CMSFormComponent]` attribute on ViewComponent classes and seeded
-by `CmsFormComponentSeeder` into the database. Admin editing is through the `/admin/formcomponents` CRUD surface.
+by `CmsFormComponentSeeder` into the database. Admin editing is through the `/wadmin/formcomponents` CRUD surface.
 
 ### 5.2 Resolver (`IFormComponentResolver` / `FormComponentResolver`)
 

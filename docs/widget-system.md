@@ -15,7 +15,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 
 - A **Content Zone** is a named slot in a Razor view. Each zone stores an ordered list of widget instances in the database.
 - The `ContentZone` view component renders all widgets assigned to a zone path. When an admin is viewing the page it also renders an inline "Add Widget" button and edit controls.
-- **Widgets** are ViewComponent classes decorated with `[ContentZoneComponent]`. At startup the CMS reflects over the `WebWayCMS.Presentation` assembly and the entry assembly (`MySite`) and **seeds a row per widget** into the `WidgetRegistrations` table. From then on the runtime registry, `IWidgetRegistry`, serves widget metadata from the database — so widgets can be renamed, re-categorised, or deactivated from the admin UI at `/admin/widgets` with no code change.
+- **Widgets** are ViewComponent classes decorated with `[ContentZoneComponent]`. At startup the CMS reflects over the `WebWayCMS.Presentation` assembly and the entry assembly (`MySite`) and **seeds a row per widget** into the `WidgetRegistrations` table. From then on the runtime registry, `IWidgetRegistry`, serves widget metadata from the database — so widgets can be renamed, re-categorised, or deactivated from the admin UI at `/wadmin/widgets` with no code change.
 - Each widget can declare a typed **configuration class**. Properties on that class decorated with `[FormProperty]` are rendered as form fields in the admin "Add Widget" modal.
 
 ---
@@ -135,7 +135,7 @@ public class MyWidgetViewComponent : ViewComponent
 | `Order` | Sort order within the category; lower values appear first |
 
 These values are the **seed defaults** written into the widget's registration row the first time the
-CMS starts. After that, the row is authoritative — edit the widget at `/admin/widgets` rather than
+CMS starts. After that, the row is authoritative — edit the widget at `/wadmin/widgets` rather than
 changing the attribute.
 
 ### Step 3 — Create the Razor view
@@ -161,7 +161,7 @@ At startup the CMS scans `Assembly.GetEntryAssembly()` (i.e. `MySite`) and seeds
 Two consequences worth knowing:
 
 - **Seeding only inserts.** If you later change the attribute's `DisplayName`, `Category`, `Order`,
-  or `ConfigurationType`, the stored row is *not* updated. Edit the widget at `/admin/widgets`, or
+  or `ConfigurationType`, the stored row is *not* updated. Edit the widget at `/wadmin/widgets`, or
   delete its row and restart to re-seed. `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` suppresses seeding.
 - **Widgets can be turned off without a deploy.** Clearing `IsActive` on the registration row
   removes the widget from the picker while leaving existing placements intact.

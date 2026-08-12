@@ -113,7 +113,7 @@ in `WebWayCMS.Data/Data/EntityConfiguration/`. Those configurations call the sha
 ## Built-in Content Types
 
 Seven top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
-admin URL segment (`/admin/{ContentType}`) and the key MCP tools use.
+admin URL segment (`/wadmin/{ContentType}`) and the key MCP tools use.
 
 | Content Type | ContentType | DTO | Model |
 |---|---|---|---|
@@ -133,7 +133,7 @@ Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Refere
 
 ### Article / ArticleList
 
-`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListMasterId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/admin/articles/{listSlug}/articles`.
+`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListMasterId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/wadmin/articles/{listSlug}/articles`.
 
 ### Page
 
@@ -304,7 +304,7 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
     private readonly IMapper _mapper;
 
     protected override string VersionHistoryContentType => "mycontents";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/mycontents";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/mycontents";
     protected override Task<List<MyContentDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
         => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)

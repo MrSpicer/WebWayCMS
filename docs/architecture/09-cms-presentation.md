@@ -23,7 +23,7 @@ apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(asm)); // pre-compiled .c
 | Assembly | Registered by | Contains |
 |---|---|---|
 | `WebWayCMS.Presentation` | `AddWebWayCmsRendering` | Public ViewComponents and their views, the fallback `_Layout`, the error view, and the Identity Razor Pages area |
-| `WebWayCMS.Admin` | `AddWebWayCmsAdmin` | All `/admin` views, the admin layout and partials, and the admin CSS/JS |
+| `WebWayCMS.Admin` | `AddWebWayCmsAdmin` | All `/wadmin` views, the admin layout and partials, and the admin CSS/JS |
 
 A rendering-only host therefore has no admin views at all — see [Area 11](11-deployment-modes.md).
 
@@ -170,7 +170,7 @@ public interface IViewDiscoveryService
 - `{contentRoot}/Areas/*/Views/Shared/Components/{componentName}/`
 - Sibling directories (to find views in `WebWayCMS/Views/`)
 
-Used by the `ViewPicker` `EditorType` — when an admin form has a `ViewPicker` field, the dropdown is populated with the discovered view names via the registry endpoint (`/admin/{contentType}/registry/{name}/properties`).
+Used by the `ViewPicker` `EditorType` — when an admin form has a `ViewPicker` field, the dropdown is populated with the discovered view names via the registry endpoint (`/wadmin/{contentType}/registry/{name}/properties`).
 
 **`GetControllerViews(controllerName)`** — returns views whose path tail is `Views/{controllerName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
 - Compiled descriptors matching that tail (e.g. `/Views/{controllerName}/Index.cshtml`)

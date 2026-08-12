@@ -19,7 +19,7 @@
     });
 
     function loadControllerForm(name) {
-        fetch('/admin/pages/registry/' + encodeURIComponent(name) + '/form', {
+        fetch('/wadmin/pages/registry/' + encodeURIComponent(name) + '/form', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

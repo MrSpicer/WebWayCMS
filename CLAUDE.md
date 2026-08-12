@@ -18,7 +18,7 @@
 - The CMS boots in one of two modes, chosen by which pair of extension methods the host calls:
   - **Full / admin:** `AddWebWayCms(config)` + `UseWebWayCms()` (back-compat aliases for
     `AddWebWayCmsAdmin` / `UseWebWayCmsAdmin`). Registers the admin CRUD surface from
-    `WebWayCMS.Admin`, seeds roles + the admin user + the `/admin` page, and maps MCP.
+    `WebWayCMS.Admin`, seeds roles + the admin user + the `/wadmin` page, and maps MCP.
   - **Rendering-only:** `AddWebWayCmsRendering(config)` + `UseWebWayCmsRendering()`. Same database,
     same public routing and content zones, but no admin controllers, no `IAdminHandlerRegistry`,
     no role/admin-user seeding, and no MCP endpoint.

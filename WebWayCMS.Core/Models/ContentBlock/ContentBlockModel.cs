@@ -14,7 +14,7 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
     private readonly IMapper _mapper;
 
     protected override string VersionHistoryContentType => "contentblocks";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/admin/contentblocks";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentblocks";
     protected override Task<List<ContentBlockDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _service.GetAllVersionsAsync(masterId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _service.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
 

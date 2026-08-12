@@ -35,7 +35,7 @@ There are three ways a row gets into `CMSRoutes`:
 | A routable widget placed in a zone | e.g. `"ArticleWidget"` | `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when the zone item is created |
 | A `[CmsRoute]`-decorated controller | `"CodeBased"` | `CmsRouteSeeder.EnsureCodeBasedRoutesSeeded` at startup |
 
-Rows are also editable directly through the admin UI at `/admin/cmsroutes` (the `cmsroutes`
+Rows are also editable directly through the admin UI at `/wadmin/cmsroutes` (the `cmsroutes`
 content type).
 
 ---
@@ -69,7 +69,7 @@ When `TransformAsync` returns `null!`, routing falls through to the conventional
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
 > **before** the dynamic route, so real controller routes such as `AdminContentController`'s
-> `admin/{contentType}` out-rank the catch-all. Without this, `/admin/pages` would be captured by
+> `wadmin/{contentType}` out-rank the catch-all. Without this, `/wadmin/pages` would be captured by
 > the CMS route table rather than handled by its controller.
 
 ---
@@ -158,7 +158,7 @@ public abstract class PageControllerBase<TConfig> : Controller where TConfig : c
   different one
 
 `CurrentPage.ViewName`, when set, is the page's view override — `GenericAdminPageController` uses
-it to render `Dashboard.cshtml` for the seeded `/admin` page.
+it to render `Dashboard.cshtml` for the seeded `/wadmin` page.
 
 ---
 
@@ -180,7 +180,7 @@ for `Controller` subclasses carrying `[PageController]` and inserts a
 the seeder re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` (the only two fields
 derived from code analysis); display metadata (DisplayName, Description, Category, Icon, Order) is
 never overwritten after the first run. The database is the source of truth and the admin UI
-at `/admin/pagetypes` is how you change page-type metadata.
+at `/wadmin/pagetypes` is how you change page-type metadata.
 
 ---
 
@@ -259,7 +259,7 @@ pattern, and inserts a row with `OwningContentType = "CodeBased"` and
 `DataTokens["RouteSource"] = "CodeBased"`. **Seeding is idempotent by pattern**: a pattern that
 already exists is skipped, and the existing row is never updated. Changing a `[CmsRoute]` pattern
 in code therefore adds a route rather than editing one — delete the stale row in
-`/admin/cmsroutes` (or rebuild the database) to retire it.
+`/wadmin/cmsroutes` (or rebuild the database) to retire it.
 
 Once seeded, code-based routes are ordinary rows: they compete with page routes purely on `Order`
 then pattern length, and an admin can edit or delete them.
@@ -360,7 +360,7 @@ Used in admin routes like `{contentType}/{parentKey:notreserved}/{childType}`. T
 
 **`GenericAdminPageController`** — `[PageController(DisplayName = "Generic Admin Page", Order = 1)]`
 - Lives in `WebWayCMS.Admin`; carries `[Authorize(Roles = "Admin")]`
-- The controller of the seeded `/admin` page, whose `ViewName` is `"Dashboard"`
+- The controller of the seeded `/wadmin` page, whose `ViewName` is `"Dashboard"`
 
 Both are seeded into `PageControllerRegistrations` on first startup.
 

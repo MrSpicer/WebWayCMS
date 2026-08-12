@@ -259,7 +259,7 @@ public class PageViewComponentTests
                 Node("/a", children: Node("/a/b")),
                 Node("/draft", published: false),
                 Node("/hidden", hidden: true),
-                Node("/admin/x"),
+                Node("/wadmin/x"),
                 new() { Path = "/intermediate", PageId = null } // no PageId -> filtered out
 			}
         });
@@ -280,7 +280,7 @@ public class PageViewComponentTests
     {
         _model.GetPageIndexAsync(Arg.Any<CancellationToken>()).Returns(new PageIndexViewModel
         {
-            Pages = new List<PageTreeNode> { Node("/admin/x"), Node("/public") }
+            Pages = new List<PageTreeNode> { Node("/wadmin/x"), Node("/public") }
         });
 
         var result = await _component.InvokeAsync(new PageContentZoneConfiguration { AdminPages = true, ViewName = "Menu" });
@@ -289,7 +289,7 @@ public class PageViewComponentTests
         Assert.Multiple(() =>
         {
             Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Menu"));
-            Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/admin/x" }));
+            Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/wadmin/x" }));
         });
     }
 

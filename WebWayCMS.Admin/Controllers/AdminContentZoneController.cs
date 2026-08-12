@@ -7,7 +7,7 @@ using WebWayCMS.Models.ContentZone;
 namespace WebWayCMS.Controllers.Admin;
 
 [Authorize(Roles = "Admin")]
-[Route("admin/contentzones")]
+[Route("wadmin/contentzones")]
 public class AdminContentZoneController : Controller
 {
     private readonly IContentZoneModel _model;
