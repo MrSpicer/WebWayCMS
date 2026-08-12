@@ -25,8 +25,8 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container">
         <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="pagetypes" method="post" novalidate>
             @Html.AntiForgeryToken()
             @{
@@ -55,5 +55,5 @@
                 </footer>
             </div>
         </form>
-    </div>
+</div>
 </section>

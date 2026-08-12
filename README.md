@@ -63,13 +63,14 @@ consume the whole thing as a NuGet package.
 | **Runtime** | .Net Core (.NET 10) | .NET Framework, with ASP.NET Core support added incrementally (hybrid two-tier architecture) | .NET Framework 4.8 (XP and XM Cloud backend); ASP.NET Core SDK available for headless front-end rendering | ASP.NET Core (.NET 8/9 depending on version) | Hybrid — Xperience 13 admin is ASP.NET Web Forms (.NET Framework), live site .NET Framework or .NET 6; newer "Xperience by Kentico" is ASP.NET Core |
 | **Split Admin Rendering** | Yes, configurable (full admin vs. rendering-only mode) | (Framework) No | Yes  | No | Yes — (split projects) |
 | **Content versioning/history** | Yes | Yes | Yes | Yes | Yes |
+| **AI Ready** | Yes — built-in MCP server, generic across all content types | No | Yes | Yes | No |
+| **Output caching** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Visual/drag-and-drop page builder** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Headless** | Coming Soon!*  | Yes | Yes (native for XM Cloud) | Yes (Content Delivery API) | Yes |
 | **Multi-site / multi-tenant** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Localization / multilingual content** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Personalization / A-B testing** | Coming Soon!* | Yes, first-class | Yes, first-class | Limited, via marketplace packages | Yes, first-class |
 | **Content approval/workflow engine** | Coming Soon!* | Yes, configurable | Yes, configurable | Yes, configurable | Yes, configurable |
-| **AI Ready** | Yes — built-in MCP server, generic across all content types | No | Yes | Yes | No |
 
 *maybe
 

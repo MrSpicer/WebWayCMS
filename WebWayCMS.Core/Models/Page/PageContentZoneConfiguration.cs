@@ -8,7 +8,8 @@ public class PageContentZoneConfiguration
         Label = "Show Draft Pages",
         HelpText = "When enabled, includes unpublished (draft) pages in navigation.",
         EditorType = EditorType.Checkbox,
-        Order = 1
+        Order = 1,
+        FormComponent = "Checkbox"
     )]
     public bool ShowDraftPages { get; set; } = false;
 
@@ -16,7 +17,8 @@ public class PageContentZoneConfiguration
         Label = "Show Hidden Pages",
         HelpText = "When enabled, includes pages marked as hidden.",
         EditorType = EditorType.Checkbox,
-        Order = 2
+        Order = 2,
+        FormComponent = "Checkbox"
     )]
     public bool ShowHiddenPages { get; set; } = false;
 
@@ -24,7 +26,8 @@ public class PageContentZoneConfiguration
         Label = "Include Admin Pages",
         HelpText = "When enabled, includes pages whose route starts with /admin.",
         EditorType = EditorType.Checkbox,
-        Order = 3
+        Order = 3,
+        FormComponent = "Checkbox"
     )]
     public bool AdminPages { get; set; } = false;
 
@@ -34,7 +37,8 @@ public class PageContentZoneConfiguration
         Placeholder = "e.g., Default",
         EditorType = EditorType.ViewPicker,
         ViewComponentName = "Page",
-        Order = 5
+        Order = 5,
+        FormComponent = "ViewPicker"
     )]
     public string? ViewName { get; set; }
 }

@@ -1,0 +1,5 @@
+@model WebWayCMS.Forms.FormFieldContext
+<dl>
+    <dt class="has-text-grey is-size-7">@Model.Label</dt>
+    <dd>@WebWayCMS.Forms.FormValueFormatter.FormatDateOnly(Model.Value as DateOnly?)</dd>
+</dl>

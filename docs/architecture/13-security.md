@@ -46,7 +46,16 @@ covered by construction** — including content types added later.
 
 ---
 
-## 2. Content-Security-Policy
+## 2. Form Attribute Encoding
+
+All HTML input attributes (placeholder, pattern, value, data-*, aria-*) are built centrally by
+`FormAttributeBuilder` (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value
+exactly once via `System.Text.Encodings.Web.HtmlEncoder.Default`. The 16 `Form*` view components
+emit the result with `@Html.Raw(...)`, so values are encoded at a single unit-tested choke point
+rather than per-view string concatenation — eliminating double-encoding risks and attribute-injection
+vectors.
+
+## 3. Content-Security-Policy
 
 The CSP header is emitted by the shared middleware in `CmsMiddlewarePipeline.ConfigureSharedMiddleware` and
 is host-configurable through the `"Csp"` section.
@@ -110,7 +119,7 @@ unit-tested to the 100% gate; the header write itself lives in the pipeline.
 
 ---
 
-## 3. Fixed Security Headers
+## 4. Fixed Security Headers
 
 Written on every response by the same middleware, unconditionally:
 
@@ -126,7 +135,7 @@ present too.
 
 ---
 
-## 4. Auth Endpoint Rate Limiting
+## 5. Auth Endpoint Rate Limiting
 
 `AuthRateLimiting` throttles the Identity endpoints that accept credentials or trigger emails, per
 client IP: **5 requests per 1-minute fixed window**, returning HTTP **429** over the limit. Every
@@ -137,7 +146,7 @@ correct behind a proxy — are in [Area 8](08-identity-auth.md#6-auth-endpoint-r
 
 ---
 
-## 5. CKEditor License Key
+## 6. CKEditor License Key
 
 The admin editor loads CKEditor 5 from `https://cdn.ckeditor.com/ckeditor5/46.1.1/`, and only on
 views that define the `CKEditor` Razor section.
@@ -158,7 +167,7 @@ regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
 
 ---
 
-## 6. Checklist for a Production Host
+## 7. Checklist for a Production Host
 
 - [ ] `ConnectionStrings:DefaultConnection` in user-secrets or environment, not `appsettings.json`
 - [ ] `AdminUser:Password` in user-secrets or environment; rotate after first boot

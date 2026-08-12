@@ -15,6 +15,7 @@ public static class WebWayCmsApplicationBuilderExtensions
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureDefaultHomePage(false, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
+        app.EnsureFormComponentRegistrationsSeeded(throwOnError);
         app.EnsurePageControllerRegistrationsSeeded(throwOnError);
         app.EnsureCodeBasedRoutesSeeded(throwOnError);
         app.ConfigureRenderingPipeline();
@@ -31,6 +32,7 @@ public static class WebWayCmsApplicationBuilderExtensions
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
         app.EnsureDefaultHomePage(true, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
+        app.EnsureFormComponentRegistrationsSeeded(throwOnError);
         app.EnsurePageControllerRegistrationsSeeded(throwOnError);
         app.EnsureCodeBasedRoutesSeeded(throwOnError);
         app.ConfigureAdminPipeline();

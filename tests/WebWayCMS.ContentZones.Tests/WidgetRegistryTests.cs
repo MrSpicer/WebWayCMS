@@ -1,3 +1,5 @@
+using System.Threading;
+
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
@@ -903,5 +905,53 @@ public class WidgetRegistryTests
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.Properties, Is.Empty);
+    }
+
+    [Test]
+    public void EnsureLoaded_DoubleCheckLocked_ReturnsCachedSnapshot()
+    {
+        var t1Blocked = new ManualResetEventSlim(false);
+        var releaseT1 = new ManualResetEventSlim(false);
+
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(callInfo =>
+        {
+            t1Blocked.Set();
+            releaseT1.Wait();
+            return Task.FromResult(new List<WidgetRegistrationDTO>
+            {
+                WidgetDto("Threaded", "Threaded")
+            });
+        });
+
+        string? t1Result = null;
+        string? t2Result = null;
+
+        var t1 = new Thread(() =>
+        {
+            t1Result = _registry.GetByName("Threaded")?.DisplayName;
+        });
+        t1.Start();
+
+        t1Blocked.Wait();
+
+        var t2 = new Thread(() =>
+        {
+            t2Result = _registry.GetByName("Threaded")?.DisplayName;
+        });
+        t2.Start();
+
+        Thread.Sleep(100);
+
+        releaseT1.Set();
+        t1.Join();
+        t2.Join();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(t1Result, Is.EqualTo("Threaded"));
+            Assert.That(t2Result, Is.EqualTo("Threaded"));
+        });
+
+        _service.Received(1).GetActiveAsync(Arg.Any<CancellationToken>());
     }
 }

@@ -15,11 +15,25 @@ public class WidgetRegistry : IWidgetRegistry
     private const int RefreshIntervalMinutes = 5;
 
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly object _sync = new();
+    private volatile Snapshot _snapshot = Snapshot.Empty;
 
-    private List<WidgetRegistrationInfo> _components = new();
-    private Dictionary<string, WidgetRegistrationInfo> _componentsByName = new(StringComparer.OrdinalIgnoreCase);
-    private Dictionary<string, List<WidgetRegistrationInfo>> _componentsByCategory = new(StringComparer.OrdinalIgnoreCase);
-    private DateTime _lastRefresh = DateTime.MinValue;
+    private sealed record Snapshot(
+        IReadOnlyList<WidgetRegistrationInfo> All,
+        Dictionary<string, WidgetRegistrationInfo> ByName,
+        Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>> ByCategory,
+        Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>> ComponentsByCategory,
+        IReadOnlyList<string> Categories,
+        DateTime LoadedAt)
+    {
+        public static readonly Snapshot Empty = new(
+            Array.Empty<WidgetRegistrationInfo>(),
+            new Dictionary<string, WidgetRegistrationInfo>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>(StringComparer.OrdinalIgnoreCase),
+            Array.Empty<string>(),
+            DateTime.MinValue);
+    }
 
     public WidgetRegistry(IServiceScopeFactory scopeFactory)
     {
@@ -28,42 +42,39 @@ public class WidgetRegistry : IWidgetRegistry
 
     public IReadOnlyList<WidgetRegistrationInfo> GetAllComponents()
     {
-        EnsureLoaded();
-        return _components.AsReadOnly();
+        var snapshot = EnsureLoaded();
+        return snapshot.All;
     }
 
     public WidgetRegistrationInfo? GetByName(string componentName)
     {
         if (string.IsNullOrEmpty(componentName))
             return null;
-        EnsureLoaded();
-        _componentsByName.TryGetValue(componentName, out var info);
+        var snapshot = EnsureLoaded();
+        snapshot.ByName.TryGetValue(componentName, out var info);
         return info;
     }
 
     public IReadOnlyList<string> GetCategories()
     {
-        EnsureLoaded();
-        return _componentsByCategory.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly();
+        var snapshot = EnsureLoaded();
+        return snapshot.Categories;
     }
 
     public IReadOnlyList<WidgetRegistrationInfo> GetByCategory(string category)
     {
         if (string.IsNullOrEmpty(category))
             return Array.Empty<WidgetRegistrationInfo>();
-        EnsureLoaded();
-        return _componentsByCategory.TryGetValue(category, out var list)
-            ? list.AsReadOnly()
+        var snapshot = EnsureLoaded();
+        return snapshot.ByCategory.TryGetValue(category, out var list)
+            ? list
             : Array.Empty<WidgetRegistrationInfo>();
     }
 
     public IReadOnlyDictionary<string, IReadOnlyList<WidgetRegistrationInfo>> GetComponentsByCategory()
     {
-        EnsureLoaded();
-        return _componentsByCategory.ToDictionary(
-            kvp => kvp.Key,
-            kvp => (IReadOnlyList<WidgetRegistrationInfo>)kvp.Value.AsReadOnly(),
-            StringComparer.OrdinalIgnoreCase);
+        var snapshot = EnsureLoaded();
+        return snapshot.ComponentsByCategory;
     }
 
     public object? CreateDefaultConfiguration(string componentName)
@@ -81,7 +92,8 @@ public class WidgetRegistry : IWidgetRegistry
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to create default configuration for component '{componentName}': {ex.Message}");
+            Serilog.Log.ForContext<WidgetRegistry>()
+                .Warning(ex, "Failed to create default configuration for component '{ComponentName}'.", componentName);
             return null;
         }
     }
@@ -176,34 +188,50 @@ public class WidgetRegistry : IWidgetRegistry
 
     public void Invalidate()
     {
-        _lastRefresh = DateTime.MinValue;
-    }
-
-    private void EnsureLoaded()
-    {
-        if ((DateTime.UtcNow - _lastRefresh).TotalMinutes < RefreshIntervalMinutes
-            && _components.Count > 0)
-            return;
-
-        try
+        lock (_sync)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var service = scope.ServiceProvider.GetRequiredService<IWidgetRegistrationService>();
-            var dtos = service.GetActiveAsync().GetAwaiter().GetResult();
-            BuildFromDtos(dtos);
-            _lastRefresh = DateTime.UtcNow;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to load widget registrations from database: {ex.Message}");
+            _snapshot = Snapshot.Empty;
         }
     }
 
-    private void BuildFromDtos(List<WidgetRegistrationDTO> dtos)
+    private Snapshot EnsureLoaded()
     {
-        _components = new List<WidgetRegistrationInfo>(dtos.Count);
-        _componentsByName = new Dictionary<string, WidgetRegistrationInfo>(StringComparer.OrdinalIgnoreCase);
-        _componentsByCategory = new Dictionary<string, List<WidgetRegistrationInfo>>(StringComparer.OrdinalIgnoreCase);
+        var current = _snapshot;
+
+        // Lock-free fast path
+        if ((DateTime.UtcNow - current.LoadedAt).TotalMinutes < RefreshIntervalMinutes
+            && current.All.Count > 0)
+            return current;
+
+        lock (_sync)
+        {
+            current = _snapshot;
+            if ((DateTime.UtcNow - current.LoadedAt).TotalMinutes < RefreshIntervalMinutes
+                && current.All.Count > 0)
+                return current;
+
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var service = scope.ServiceProvider.GetRequiredService<IWidgetRegistrationService>();
+                var dtos = service.GetActiveAsync().GetAwaiter().GetResult();
+                _snapshot = BuildSnapshot(dtos);
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.ForContext<WidgetRegistry>()
+                    .Warning(ex, "Failed to load widget registrations from database.");
+            }
+
+            return _snapshot;
+        }
+    }
+
+    private static Snapshot BuildSnapshot(List<WidgetRegistrationDTO> dtos)
+    {
+        var all = new List<WidgetRegistrationInfo>(dtos.Count);
+        var byName = new Dictionary<string, WidgetRegistrationInfo>(StringComparer.OrdinalIgnoreCase);
+        var byCategoryDict = new Dictionary<string, List<WidgetRegistrationInfo>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dto in dtos)
         {
@@ -219,24 +247,44 @@ public class WidgetRegistry : IWidgetRegistry
                 Properties = DeserializePropertyDefinitions(dto.PropertyDefinitionsJson)
             };
 
-            _components.Add(info);
-            _componentsByName[info.Name] = info;
+            all.Add(info);
+            byName[info.Name] = info;
 
-            if (!_componentsByCategory.TryGetValue(info.Category, out var categoryList))
+            if (!byCategoryDict.TryGetValue(info.Category, out var categoryList))
             {
                 categoryList = new List<WidgetRegistrationInfo>();
-                _componentsByCategory[info.Category] = categoryList;
+                byCategoryDict[info.Category] = categoryList;
             }
             categoryList.Add(info);
         }
 
-        _components.Sort((a, b) =>
+        all.Sort((a, b) =>
         {
             var catCompare = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
             if (catCompare != 0) return catCompare;
             var orderCompare = a.Order.CompareTo(b.Order);
             return orderCompare != 0 ? orderCompare : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
         });
+
+        var byCategory = byCategoryDict.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (IReadOnlyList<WidgetRegistrationInfo>)kvp.Value.AsReadOnly(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var componentsByCategory = byCategoryDict.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (IReadOnlyList<WidgetRegistrationInfo>)kvp.Value.AsReadOnly(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var categories = (IReadOnlyList<string>)byCategoryDict.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly();
+
+        return new Snapshot(
+            all.AsReadOnly(),
+            byName,
+            byCategory,
+            componentsByCategory,
+            categories,
+            DateTime.UtcNow);
     }
 
     private static List<FormPropertyInfo> DeserializePropertyDefinitions(string json)

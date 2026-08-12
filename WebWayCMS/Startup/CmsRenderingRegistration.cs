@@ -11,12 +11,14 @@ using WebWayCMS.Data;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Models.FormComponentRegistration;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Models.PageControllerRegistration;
 using WebWayCMS.Models.WidgetRegistration;
@@ -42,6 +44,8 @@ internal static class CmsRenderingRegistration
         services.AddScoped<IViewDiscoveryService, ViewDiscoveryService>();
 
         services.AddSingleton<IWidgetRegistry, WidgetRegistry>();
+        services.AddSingleton<IFormComponentRegistry, FormComponentRegistry>();
+        services.AddScoped<IFormComponentResolver, FormComponentResolver>();
 
         AddContentServices(services);
         AddRoutingServices(services);
@@ -74,6 +78,8 @@ internal static class CmsRenderingRegistration
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
         services.AddScoped<IPageControllerRegistrationService, PageControllerRegistrationService>();
 
+        services.AddScoped<IFormComponentRegistrationService, FormComponentRegistrationService>();
+
         services.AddScoped<IContentService<WidgetRegistrationDTO>>(sp =>
         {
             var ctx = sp.GetRequiredService<CmsDbContext>();
@@ -90,6 +96,12 @@ internal static class CmsRenderingRegistration
         {
             var ctx = sp.GetRequiredService<CmsDbContext>();
             return new ContentService<CMSRouteDTO>(ctx);
+        });
+
+        services.AddScoped<IContentService<FormComponentRegistrationDTO>>(sp =>
+        {
+            var ctx = sp.GetRequiredService<CmsDbContext>();
+            return new ContentService<FormComponentRegistrationDTO>(ctx);
         });
     }
 
@@ -120,6 +132,7 @@ internal static class CmsRenderingRegistration
         services.AddScoped<WidgetRegistrationModel>();
         services.AddScoped<PageControllerRegistrationModel>();
         services.AddScoped<CMSRouteModel>();
+        services.AddScoped<FormComponentRegistrationModel>();
 
         services.AddScoped<ArticleViewComponent>();
         services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<ArticleViewComponent>());

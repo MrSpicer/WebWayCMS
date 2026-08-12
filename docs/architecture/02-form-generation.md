@@ -2,8 +2,10 @@
 
 **Namespaces:**
 - `WebWayCMS.Attributes` — `FormPropertyAttribute`, `EditorType`, `PageControllerAttribute`, `ContentZoneComponentAttribute`
-- `WebWayCMS.Forms` — `FormPropertyBuilder`, `FormPropertyInfo`
-- `WebWayCMS.TagHelpers` — `FormFieldsTagHelper`
+- `WebWayCMS.Forms` — `FormPropertyBuilder`, `FormPropertyInfo`, `FormValueFormatter`, `FormAttributeBuilder`, `FormFieldContext`, `FormComponentResolver`, `IFormComponentResolver`, `IFormComponentRegistry`, `DynamicConfigurationForm`
+- `WebWayCMS.TagHelpers` — `FormFieldsTagHelper`, `FormFieldTagHelper`
+- `WebWayCMS.ViewComponents.Forms` — `FormFieldViewComponentBase` and 17 `Form*` subclasses
+- `WebWayCMS.Models.FormComponentRegistration` — `FormComponentRegistrationModel` (admin CRUD surface)
 
 **Depends on:** Nothing (pure reflection; no external dependencies)
 **Consumed by:** Page Routing Subsystem (registry validates config), Content Zone Component Framework (registry validates config), Admin CRUD Framework (`<form-fields>` tag helper in views)
@@ -17,7 +19,7 @@ Admin forms in the CMS are generated from C# attributes — no per-type Razor bo
 - Widget (content zone component) configuration forms
 - Any future configuration class
 
-The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<FormPropertyInfo>` → `FormFieldsTagHelper` → rendered HTML**.
+The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<FormPropertyInfo>` → `FormComponentResolver` (registry lookup) → `FormFieldsTagHelper` invokes the appropriate `Form*` ViewComponent → rendered HTML**. Field-specific HTML attributes are built centrally by `FormAttributeBuilder` and encoded exactly once.
 
 ---
 
@@ -102,7 +104,110 @@ everything else → Text
 
 ---
 
-## 5. `FormFieldsTagHelper`
+## 5. Form Component Registry & Resolver
+
+### 5.1 Registry (`IFormComponentRegistry` / `FormComponentRegistry`)
+
+A singleton registry backed by the `FormComponentRegistration` content type, with a 5-minute cache
+and immutable-snapshot thread safety. Mirrors `WidgetRegistry` in shape.
+
+- **`GetByName(string)`** — case-insensitive lookup by component name (e.g., `"Text"`, `"RichText"`).
+- **`GetForEditorType(EditorType)`** — lookup by EditorType alias.
+- **`GetDefaultFor(Type)`** — returns the default component for a CLR type; lowest Order wins.
+- **`GetAll()`** — all components sorted by category → order → display name.
+- **`Invalidate()`** — forces a refresh on the next access.
+
+Components are registered via `[CMSFormComponent]` attribute on ViewComponent classes and seeded
+by `CmsFormComponentSeeder` into the database. Admin editing is through the `/admin/formcomponents` CRUD surface.
+
+### 5.2 Resolver (`IFormComponentResolver` / `FormComponentResolver`)
+
+Pure logic over `IFormComponentRegistry`, unit-testable without a database. Resolution order:
+
+1. `prop.FormComponent` is non-empty → `GetByName()`
+2. `GetForEditorType(prop.EditorType)`
+3. `GetDefaultFor(prop.PropertyType)` (unwraps `Nullable<T>`)
+4. Fallback to `"Text"` component
+5. Returns `null` if all miss
+
+### 5.3 View Components
+
+Each EditorType has a corresponding ViewComponent in `WebWayCMS.Presentation/ViewComponents/Forms/`,
+all inheriting from `FormFieldViewComponentBase`. The base class selects the Write or Read view
+based on `FormFieldContext.Mode` (or an explicit `viewName` from the registry). Each component's
+view emits the field using `FormAttributeBuilder` inside a `<form-field>` tag helper.
+
+| Component | View | EditorType |
+|-----------|------|-----------|
+| `FormText` | `Componens/FormText/Write.cshtml` | Text (default) |
+| `FormTextArea` | `Componens/FormTextArea/Write.cshtml` | TextArea |
+| `FormRichText` | `Componens/FormRichText/Write.cshtml` | RichText |
+| `FormNumber` | `Componens/FormNumber/Write.cshtml` | Number |
+| `FormCheckbox` | `Componens/FormCheckbox/Write.cshtml` | Checkbox |
+| `FormGuid` | `Componens/FormGuid/Write.cshtml` | Guid |
+| `FormDropdown` | `Componens/FormDropdown/Write.cshtml` | Dropdown |
+| `FormDate` | `Componens/FormDate/Write.cshtml` | Date |
+| `FormDateTime` | `Componens/FormDateTime/Write.cshtml` | DateTime |
+| `FormColor` | `Componens/FormColor/Write.cshtml` | Color |
+| `FormUrl` | `Componens/FormUrl/Write.cshtml` | Url |
+| `FormEmail` | `Componens/FormEmail/Write.cshtml` | Email |
+| `FormViewPicker` | `Componens/FormViewPicker/Write.cshtml` | ViewPicker |
+| `FormPageControllerPicker` | `Componens/FormPageControllerPicker/Write.cshtml` | PageControllerPicker |
+| `FormHidden` | `Componens/FormHidden/Write.cshtml` | Hidden |
+| `FormEntityPicker` | `Componens/FormEntityPicker/Write.cshtml` | (GUID with EntityType) |
+
+### 5.4 Chrome Convention
+
+The `<form-field>` tag helper (`FormFieldTagHelper`) emits the shared Bulma chrome:
+- `<div class="field">` → `<label>` → `<div class="control">` → child content → `<p class="help">` → `<span role="alert">`
+- Set `chrome="none"` to suppress chrome (used by `FormCheckbox` which emits its own layout).
+- `FormHidden` emits no `<form-field>` at all (plain `<input type="hidden">`).
+
+## 6. `FormAttributeBuilder`
+
+**Location:** `WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`
+
+Fluent builder over `FormFieldContext` that produces HTML attribute strings encoded **exactly once**
+via `HtmlEncoder.Default`. Views emit the result with `@Html.Raw(...)`.
+
+```csharp
+var attrs = FormAttributeBuilder.For(Model)
+    .Type("text").Css("input")
+    .Naming().Value().Placeholder().MaxLength().Pattern().Required().DescribedBy()
+    .Build();
+```
+
+**Key contract rules:**
+- Every value is HTML-encoded exactly once; `Build()` returns a raw string for `@Html.Raw`.
+- `DescribedBy()` emits `aria-describedby` **only** when `HelpText` is non-empty.
+- `Pattern()` also emits `title` from `PatternErrorMessage` when present.
+- `Naming()` handles both model binding (`name` + `id`) and JSON binding (`data-prop` + `id`).
+- All placeholders and data-attribute values are encoded.
+
+## 7. `FormValueFormatter`
+
+**Location:** `WebWayCMS.Forms/Forms/FormValueFormatter.cs`
+
+Static formatting helpers for converting property values to wire/display strings:
+- `Format(object?)` — switches on `DateTime` / `DateTimeOffset` / `DateOnly` / `Guid` / fallback
+- `FormatDateValue(object?)` — formats any of `DateTime`, `DateTimeOffset`, or `DateOnly` as `yyyy-MM-dd`; MinValue → empty
+
+## 8. Dynamic Configuration Sub-Forms
+
+**Location:** `WebWayCMS.Core/Forms/DynamicConfigurationForm.cs`
+
+Configuration sub-forms (page controllers, widget configs) are served dynamically via
+`POST {contentType}/registry/{name}/form`. The handler materializes a configuration instance
+from the stored JSON and returns a `PartialViewResult` for `_DynamicForm.cshtml`, which
+renders `<form-fields for="@Model" binding="Json" />`.
+
+`DynamicConfigurationForm.Materialize(Type, string?)` handles:
+- Whitespace-trimmed JSON (`"{ }"` treated as empty)
+- Literal `"null"` → fresh default instance
+- Malformed JSON → logged warning + fallback to fresh instance
+- No-parameterless-constructor → logged warning + null
+
+## 9. `FormFieldsTagHelper`
 
 **Usage in Razor:**
 ```html
@@ -131,7 +236,7 @@ The tag helper inspects the passed object's runtime type, calls `FormPropertyBui
 
 ---
 
-## 6. `[PageControllerAttribute]` and `[ContentZoneComponentAttribute]`
+## 10. `[PageControllerAttribute]` and `[ContentZoneComponentAttribute]`
 
 Both attributes follow the same structure. They are applied at the class level to mark a controller or ViewComponent as discoverable by the respective registry.
 
@@ -161,7 +266,7 @@ Full registration and discovery details: see [Area 3](03-page-routing.md) and [A
 
 ---
 
-## 7. Configuration Class Conventions
+## 11. Configuration Class Conventions
 
 A configuration class is any POCO whose properties are decorated with `[FormProperty]`. Use one when:
 - A page type or widget needs per-instance settings that the editor configures in the admin UI

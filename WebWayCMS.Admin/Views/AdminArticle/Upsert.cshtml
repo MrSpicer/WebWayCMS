@@ -20,8 +20,8 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container">
         <form asp-action="ChildEdit" asp-controller="AdminContent" asp-route-contentType="articles" asp-route-parentKey="@slug" asp-route-childType="articles" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
@@ -39,7 +39,7 @@
                 </footer>
             </div>
         </form>
-    </div>
+</div>
 </section>
 
 @section Scripts {

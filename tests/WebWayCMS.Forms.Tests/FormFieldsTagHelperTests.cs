@@ -1,17 +1,64 @@
+using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 
+using NSubstitute;
 using NUnit.Framework;
 
+using WebWayCMS.Forms;
 using WebWayCMS.TagHelpers;
+using WebWayCMS.Attributes;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace WebWayCMS.Forms.Tests;
 
 [TestFixture]
 public class FormFieldsTagHelperTests
 {
-    private static string Render(object? model)
+    private ViewContext _viewContext = null!;
+    private IFormComponentResolver _resolver = null!;
+    private IViewComponentHelper _vch = null!;
+
+    [SetUp]
+    public void SetUp()
     {
-        var helper = new FormFieldsTagHelper { For = model };
+        _resolver = Substitute.For<IFormComponentResolver>();
+        _vch = Substitute.For<IViewComponentHelper, IViewContextAware>();
+        var services = new ServiceCollection();
+        services.AddSingleton(_vch);
+        var sp = services.BuildServiceProvider();
+
+        var httpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        httpContext.RequestServices = sp;
+
+        _viewContext = new ViewContext(
+            new Microsoft.AspNetCore.Mvc.ActionContext(
+                httpContext,
+                new Microsoft.AspNetCore.Routing.RouteData(),
+                new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()),
+            Substitute.For<Microsoft.AspNetCore.Mvc.ViewEngines.IView>(),
+            new ViewDataDictionary(
+                new Microsoft.AspNetCore.Mvc.ModelBinding.EmptyModelMetadataProvider(),
+                new Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary()),
+            new TempDataDictionary(
+                new Microsoft.AspNetCore.Http.DefaultHttpContext(),
+                Substitute.For<Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider>()),
+            TextWriter.Null,
+            new HtmlHelperOptions());
+    }
+
+    private async Task<string> RenderAsync(object? model, FormFieldMode mode = FormFieldMode.Write, FormFieldBinding binding = FormFieldBinding.Model)
+    {
+        var helper = new FormFieldsTagHelper(_resolver)
+        {
+            For = model,
+            Mode = mode,
+            Binding = binding,
+            ViewContext = _viewContext
+        };
+
         var context = new TagHelperContext(
             new TagHelperAttributeList(),
             new Dictionary<object, object>(),
@@ -19,81 +66,30 @@ public class FormFieldsTagHelperTests
         var output = new TagHelperOutput(
             "form-fields",
             new TagHelperAttributeList(),
-            (useCachedResult, encoder) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
+            (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
 
-        helper.Process(context, output);
+        await helper.ProcessAsync(context, output);
 
         Assert.That(output.TagName, Is.Null, "wrapping element should be suppressed");
         return output.Content.GetContent();
     }
 
     [Test]
-    public void Process_NullModel_RendersNothing()
+    public async Task Process_NullModel_RendersNothing()
     {
-        Assert.That(Render(null), Is.Empty);
+        Assert.That(await RenderAsync(null), Is.Empty);
     }
 
     [Test]
-    public void Process_ModelWithoutProperties_RendersNothing()
+    public async Task Process_ModelWithoutProperties_RendersNothing()
     {
-        Assert.That(Render(new EmptyModel()), Is.Empty);
+        Assert.That(await RenderAsync(new EmptyModel()), Is.Empty);
     }
 
     [Test]
-    public void Process_AllEditors_RendersEachInputType()
+    public async Task Process_GroupedModel_RendersSectionHeadings()
     {
-        var html = Render(new AllEditorsModel());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("type=\"text\""));
-            Assert.That(html, Does.Contain("<textarea"));
-            Assert.That(html, Does.Contain("rich-text-editor"));
-            Assert.That(html, Does.Contain("type=\"number\""));
-            Assert.That(html, Does.Contain("type=\"checkbox\""));
-            Assert.That(html, Does.Contain("type=\"date\""));
-            Assert.That(html, Does.Contain("type=\"datetime-local\""));
-            Assert.That(html, Does.Contain("type=\"color\""));
-            Assert.That(html, Does.Contain("type=\"url\""));
-            Assert.That(html, Does.Contain("type=\"email\""));
-            Assert.That(html, Does.Contain("type=\"hidden\""));
-            Assert.That(html, Does.Contain("<select"));
-            Assert.That(html, Does.Contain("data-page-controller-picker"));
-            Assert.That(html, Does.Contain("min=\"1\""));
-            Assert.That(html, Does.Contain("max=\"10\""));
-            Assert.That(html, Does.Contain("pattern="));
-            Assert.That(html, Does.Contain("data-current-value="));
-        });
-    }
-
-    [Test]
-    public void Process_CheckedCheckbox_IncludesCheckedAttribute()
-    {
-        var html = Render(new AllEditorsModel { Flag = true });
-
-        Assert.That(html, Does.Contain("checked"));
-    }
-
-    [Test]
-    public void Process_UncheckedCheckbox_OmitsCheckedAttribute()
-    {
-        var html = Render(new AllEditorsModel { Flag = false });
-
-        Assert.That(html, Does.Not.Contain("value=\"true\" checked"));
-    }
-
-    [Test]
-    public void Process_RequiredField_RendersRequiredMarker()
-    {
-        var html = Render(new AllEditorsModel());
-
-        Assert.That(html, Does.Contain("has-text-danger\">*"));
-    }
-
-    [Test]
-    public void Process_GroupedModel_RendersSectionHeadings()
-    {
-        var html = Render(new GroupedModel());
+        var html = await RenderAsync(new GroupedModel());
 
         Assert.Multiple(() =>
         {
@@ -104,118 +100,91 @@ public class FormFieldsTagHelperTests
     }
 
     [Test]
-    public void Process_HorizontalGroup_RendersFieldBody()
+    public async Task Process_HorizontalGroup_RendersFieldBody()
     {
-        var html = Render(new HorizontalGroupModel());
+        var componentInfo = new FormComponentInfo
+        {
+            Name = "Text",
+            ViewComponentName = "Text",
+            WriteViewName = "Write",
+            ReadViewName = "Read"
+        };
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
+
+        var html = await RenderAsync(new HorizontalGroupModel());
 
         Assert.That(html, Does.Contain("field is-horizontal"));
         Assert.That(html, Does.Contain("field-body"));
     }
 
     [Test]
-    public void Process_DefaultValues_RenderEmptyStrings()
+    public async Task Process_HorizontalGroupBreak_RendersTrailingUngroupedInBody()
     {
-        // Guid.Empty, DateTime.MinValue, DateOnly.MinValue, DateTimeOffset.MinValue, null ToString => empty values.
-        var html = Render(new DefaultValuesModel());
-
-        Assert.That(html, Does.Not.Contain("00000000-0000-0000-0000-000000000000"));
-        Assert.That(html, Does.Not.Contain("0001-01-01"));
-    }
-
-    [Test]
-    public void Process_TemporalValues_FormatNonMinimumDates()
-    {
-        var html = Render(new TemporalModel());
-
-        Assert.Multiple(() =>
+        var componentInfo = new FormComponentInfo
         {
-            Assert.That(html, Does.Contain("2024-05-06"));
-            Assert.That(html, Does.Contain("2024-05-06T07:08"));
-        });
-    }
+            Name = "Text",
+            ViewComponentName = "Text",
+            WriteViewName = "Write",
+            ReadViewName = "Read"
+        };
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
 
-    [Test]
-    public void Process_DataAnnotationModel_AppliesMaxLengthAndRequired()
-    {
-        var html = Render(new DataAnnotationModel());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("maxlength=\"15\""));
-            Assert.That(html, Does.Contain("required"));
-        });
-    }
-
-    [Test]
-    public void Process_SelectModel_RendersUnmatchedAndViewPicker()
-    {
-        var html = Render(new SelectModel());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("-- Select --"));
-            Assert.That(html, Does.Contain("data-current-value=\"Custom\""));
-            // PageControllerPicker with an empty value: marker present, no data-current-value emitted.
-            Assert.That(html, Does.Contain("data-page-controller-picker"));
-            Assert.That(html, Does.Not.Contain("data-current-value=\"\""));
-        });
-    }
-
-    [Test]
-    public void Process_PlainCheckbox_OmitsCssRequiredAndHelp()
-    {
-        var html = Render(new PlainCheckboxModel());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("type=\"checkbox\""));
-            Assert.That(html, Does.Not.Contain("checked"));
-            Assert.That(html, Does.Not.Contain("<p class=\"help\""));
-        });
-    }
-
-    [Test]
-    public void Process_StyledFields_RenderCssRequiredSelectAndRequiredTextArea()
-    {
-        var html = Render(new StyledFieldsModel());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("my-css"));
-            Assert.That(html, Does.Contain("<select"));
-            Assert.That(html, Does.Contain("required aria-required=\"true\""));
-            Assert.That(html, Does.Contain("<textarea"));
-        });
-    }
-
-    [Test]
-    public void Process_HorizontalGroupBreak_RendersTrailingUngroupedInBody()
-    {
-        var html = Render(new HorizontalGroupBreakModel());
+        var html = await RenderAsync(new HorizontalGroupBreakModel());
 
         Assert.That(html, Does.Contain("field is-horizontal"));
     }
 
     [Test]
-    public void Process_NullValues_RenderEmptyCheckboxAndInput()
+    public async Task Process_EndsInGroup_ClosesTrailingSection()
     {
-        var html = Render(new NullValueModel());
+        var html = await RenderAsync(new EndsInGroupModel());
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(html, Does.Contain("type=\"checkbox\""));
-            Assert.That(html, Does.Not.Contain("checked"));
-            Assert.That(html, Does.Contain("value=\"\""));
-        });
+        Assert.That(html, Does.Contain("form-group-section"));
+        Assert.That(html, Does.Contain(">Only<"));
     }
 
     [Test]
-    public void Process_EndsInGroup_ClosesTrailingSection()
+    public void Constructor_NullResolver_ThrowsArgumentNullException()
     {
-        var html = Render(new EndsInGroupModel());
+        var ex = Assert.Throws<ArgumentNullException>(() => new FormFieldsTagHelper(null!));
+        Assert.That(ex!.ParamName, Is.EqualTo("resolver"));
+    }
 
-        Assert.That(html, Does.Contain("form-group-section"));
-        // Section opened once; ensure the closing div count balances the single section.
-        Assert.That(html, Does.Contain(">Only<"));
+    [Test]
+    public async Task Process_ReadMode_RendersField()
+    {
+        var componentInfo = new FormComponentInfo
+        {
+            Name = "Text",
+            ViewComponentName = "Text",
+            WriteViewName = "Write",
+            ReadViewName = "Read"
+        };
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
+
+        var html = await RenderAsync(new StyledFieldsModel(), mode: FormFieldMode.Read);
+
+        Assert.That(html, Does.Contain("<mock/>"));
+    }
+
+    [Test]
+    public async Task Process_JsonBinding_RendersField()
+    {
+        var componentInfo = new FormComponentInfo
+        {
+            Name = "Text",
+            ViewComponentName = "Text",
+            WriteViewName = "Write",
+            ReadViewName = "Read"
+        };
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
+
+        var html = await RenderAsync(new StyledFieldsModel(), binding: FormFieldBinding.Json);
+
+        Assert.That(html, Does.Contain("<mock/>"));
     }
 }

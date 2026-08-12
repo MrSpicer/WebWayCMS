@@ -61,7 +61,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     public async Task<PageIndexViewModel> GetPageIndexAsync(CancellationToken ct = default)
     {
         var pages = await _service.GetAllAsync(ct);
-        var activeRoutes = await _routeService.GetActiveRoutesAsync(ct);
+        var activeRoutes = await _routeService.GetAllRoutesAsync(ct);
         return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes) };
     }
 
@@ -117,22 +117,14 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             savedDto.ContentMeta.MasterId,
             ct);
 
-        if (savedDto.ContentMeta.IsPublished)
-        {
-            await _routeRegistration.RegisterContentRoutesAsync(
-                this,
-                routePattern,
-                model.ControllerName,
-                savedDto.ContentMeta.Id,
-                savedDto.ContentMeta.MasterId,
-                isPublished: true,
-                ct: ct);
-        }
-        else
-        {
-            await _routeRegistration.UnregisterContentRoutesAsync(
-                savedDto.ContentMeta.MasterId, ct);
-        }
+        await _routeRegistration.RegisterContentRoutesAsync(
+            this,
+            routePattern,
+            model.ControllerName,
+            savedDto.ContentMeta.Id,
+            savedDto.ContentMeta.MasterId,
+            isPublished: savedDto.ContentMeta.IsPublished,
+            ct: ct);
 
         return (true, null);
     }
@@ -455,5 +447,21 @@ internal sealed class PageRegistryHandler : IAdminRegistryHandler
             availableViews,
             properties
         });
+    }
+
+    public IActionResult GetForm(string name, string? valuesJson)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return new BadRequestObjectResult(new { error = "Controller name is required." });
+
+        var controller = _registry.GetByName(name);
+        if (controller == null)
+            return new NotFoundObjectResult(new { error = $"Controller '{name}' not found." });
+
+        object? instance = null;
+        if (controller.ConfigurationType != null)
+            instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(controller.ConfigurationType, valuesJson);
+
+        return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance);
     }
 }

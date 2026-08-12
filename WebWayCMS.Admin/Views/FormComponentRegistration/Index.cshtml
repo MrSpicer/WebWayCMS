@@ -1,0 +1,105 @@
+@using WebWayCMS.Models.FormComponentRegistration
+
+@model FormComponentRegistrationIndexViewModel
+
+@{
+    ViewData["Title"] = "Form Components";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Form Components</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="formcomponents" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Form Component</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section">
+<div class="container is-fluid">
+
+        @if (!Model.Registrations.Any())
+        {
+            <div class="card admin-empty-state mt-4">
+                <div class="card-content has-text-centered py-6">
+                    <span class="icon is-large has-text-grey-light mb-4">
+                        <i class="fas fa-sliders-h fa-3x" aria-hidden="true"></i>
+                    </span>
+                    <p class="title is-5">No form component registrations</p>
+                    <p class="subtitle is-6 has-text-grey">Register field editors to make them available in admin forms.</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="formcomponents" class="button is-primary mt-2">New Form Component</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of form component registrations</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Display Name</th>
+                            <th scope="col">Component</th>
+                            <th scope="col">View Component</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Default</th>
+                            <th scope="col">Active</th>
+                            <th scope="col">Version</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var f in Model.Registrations)
+                        {
+                            <tr>
+                                <td>
+                                    @f.DisplayName
+                                    @if (!string.IsNullOrEmpty(f.Description))
+                                    {
+                                        <br /><small class="has-text-grey">@f.Description</small>
+                                    }
+                                </td>
+                                <td><code>@f.ComponentName</code></td>
+                                <td><code>@f.ViewComponentName</code></td>
+                                <td><span class="tag is-info is-light">@f.Category</span></td>
+                                <td>
+                                    @if (f.IsDefaultForType)
+                                    {
+                                        <span class="tag is-success is-light">Default</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (f.IsActive)
+                                    {
+                                        <span class="tag is-success is-light">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag is-warning is-light">Inactive</span>
+                                    }
+                                </td>
+                                <td><span class="tag is-light">v@(f.ContentMeta.Version)</span></td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="formcomponents" asp-route-masterId="@f.ContentMeta.MasterId" class="button is-small is-info is-light">Versions</a>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="formcomponents" asp-route-id="@f.ContentId" class="button is-small">Edit</a>
+                                        <button type="button" class="button is-small is-danger is-light"
+                                                data-delete-trigger
+                                                data-delete-name="@f.DisplayName"
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "formcomponents", id = f.ContentId })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+</div>
+</section>

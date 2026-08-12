@@ -6,12 +6,13 @@ namespace WebWayCMS.Models.Page;
 
 public sealed class PageUpsertViewModel : BaseContentViewModel
 {
-    [FormProperty(EditorType = EditorType.Hidden, Order = 99)]
+    [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
     public string? ParentRoutePrefix { get; set; }
 
     [Required]
     [FormProperty(Label = "Page Controller", EditorType = EditorType.PageControllerPicker, IsRequired = true, Order = 3,
-        HelpText = "The page type determines what the page renders and what configuration options are available.")]
+        HelpText = "The page type determines what the page renders and what configuration options are available.",
+        FormComponent = "PageControllerPicker")]
     public string ControllerName { get; set; } = string.Empty;
 
     [FormProperty(
@@ -20,7 +21,8 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     Placeholder = "e.g., Default",
     EditorType = EditorType.ViewPicker,
     ViewComponentName = "Page",
-    Order = 90)]
+    Order = 90,
+    FormComponent = "ViewPicker")]
     public string? ViewName { get; set; }
 
     /// <summary>
@@ -29,6 +31,6 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     /// rendered inside <c>#configurationArea</c>. The server deserializes this into the
     /// controller's declared <see cref="WebWayCMS.Attributes.PageControllerAttribute.ConfigurationType"/>.
     /// </summary>
-    [FormProperty(EditorType = EditorType.Hidden, Order = 99)]
+    [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
     public string ConfigurationJson { get; set; } = "{}";
 }

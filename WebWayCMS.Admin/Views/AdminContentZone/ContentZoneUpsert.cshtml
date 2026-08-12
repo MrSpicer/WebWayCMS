@@ -16,10 +16,13 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container">
         <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="contentzones" method="post" novalidate>
             @Html.AntiForgeryToken()
+            <div role="alert" aria-live="polite">
+                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
+            </div>
             <div class="card">
                 <div class="card-content">
                     <form-fields for="@Model" />
@@ -32,5 +35,5 @@
                 </footer>
             </div>
         </form>
-    </div>
+</div>
 </section>

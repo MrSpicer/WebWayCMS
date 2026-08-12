@@ -481,6 +481,100 @@ public class ContentZoneModelTests
         Assert.That(_model.RegistryHandler!.GetProperties("C"), Is.InstanceOf<JsonResult>());
     }
 
+    // --- ContentZoneRegistryHandler GetForm ---
+
+    [Test]
+    public void RegistryHandler_GetForm_EmptyName_ReturnsBadRequest()
+    {
+        Assert.That(_model.RegistryHandler!.GetForm("  ", null), Is.InstanceOf<BadRequestObjectResult>());
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_NotFound_ReturnsNotFound()
+    {
+        _registry.GetByName("X").Returns((WidgetRegistrationInfo?)null);
+
+        Assert.That(_model.RegistryHandler!.GetForm("X", null), Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_NoConfigTypeName_ReturnsPartialViewWithNullModel()
+    {
+        _registry.GetByName("Plain").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Plain",
+            ConfigurationTypeName = null
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Plain", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+        Assert.That(((PartialViewResult)result).ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_UnresolvableConfigTypeName_ReturnsPartialViewWithNullModel()
+    {
+        _registry.GetByName("Bad").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Bad",
+            ConfigurationTypeName = "NonExistent.Type.Name.ForTest"
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Bad", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+        Assert.That(((PartialViewResult)result).ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_WithConfigTypeName_ReturnsPartialViewWithInstance()
+    {
+        _registry.GetByName("Typed").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Typed",
+            ConfigurationTypeName = typeof(SampleZoneConfig).FullName
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Typed", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+        Assert.That(((PartialViewResult)result).ViewData!.Model, Is.TypeOf<SampleZoneConfig>());
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_CoreAssemblyType_ResolvedDirectly()
+    {
+        _registry.GetByName("Core").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Core",
+            ConfigurationTypeName = typeof(WebWayCMS.Models.Page.PageTreeNode).FullName
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Core", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+    }
+
+    // ContentZoneRegistryHandler.ResolveConfigurationType (private static) coverage via reflection
+
+    [Test]
+    public void RegistryHandler_ResolveConfigurationType_NullOrWhitespace_ReturnsNull()
+    {
+        var handlerType = typeof(ContentZoneModel).Assembly.GetType("WebWayCMS.Models.ContentZone.ContentZoneRegistryHandler")!;
+        var method = handlerType.GetMethod(
+            "ResolveConfigurationType",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.That(method, Is.Not.Null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method.Invoke(null, new object?[] { null }), Is.Null);
+            Assert.That(method.Invoke(null, new object?[] { "  " }), Is.Null);
+            Assert.That(method.Invoke(null, new object?[] { "" }), Is.Null);
+        });
+    }
+
     // ResolveType private method coverage via reflection
 
     [Test]

@@ -55,6 +55,19 @@ public sealed class CMSRouteService : ICMSRouteService
             .ToListAsync(ct);
     }
 
+    public async Task<List<CMSRouteDTO>> GetAllRoutesAsync(CancellationToken ct = default)
+    {
+        return await _context.Set<CMSRouteDTO>()
+            .AsNoTracking()
+            .Where(r => !r.ContentMeta.IsDeleted
+                && !_context.Set<CMSRouteDTO>().Any(r2 =>
+                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
+                    && r2.ContentMeta.Version > r.ContentMeta.Version))
+            .OrderBy(r => r.Order)
+            .ThenBy(r => r.Pattern.Length)
+            .ToListAsync(ct);
+    }
+
     public async Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default)
     {
         return await _context.Set<CMSRouteDTO>()

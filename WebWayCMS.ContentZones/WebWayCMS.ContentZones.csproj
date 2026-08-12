@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="WebWayCMS.ContentZones.Tests" />
   </ItemGroup>
   <ItemGroup>

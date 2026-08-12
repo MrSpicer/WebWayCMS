@@ -107,6 +107,13 @@ public sealed class FormPropertyAttribute : Attribute
     public string PatternErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the registered name of the form component to use for this property.
+    /// When non-empty, bypasses <see cref="EditorType"/>-based resolution and directly
+    /// selects the named component from the <c>IFormComponentRegistry</c>.
+    /// </summary>
+    public string FormComponent { get; set; } = string.Empty;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="FormPropertyAttribute"/> class.
     /// </summary>
     public FormPropertyAttribute()

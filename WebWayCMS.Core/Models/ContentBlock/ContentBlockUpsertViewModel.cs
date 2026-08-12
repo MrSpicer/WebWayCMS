@@ -7,6 +7,6 @@ namespace WebWayCMS.Models.ContentBlock;
 public sealed class ContentBlockUpsertViewModel : BaseContentViewModel
 {
     [Required]
-    [FormProperty(Label = "Content", EditorType = EditorType.RichText, IsRequired = true, Order = 3)]
+    [FormProperty(Label = "Content", EditorType = EditorType.RichText, IsRequired = true, Order = 3, FormComponent = "RichText")]
     public string Content { get; init; } = string.Empty;
 }

@@ -19,7 +19,8 @@ public class ContentBlockContentZoneConfiguration
         EditorType = EditorType.Guid,
         EntityType = "ContentBlock",
         IsRequired = true,
-        Order = 1
+        Order = 1,
+        FormComponent = "EntityPicker"
     )]
     [Required(ErrorMessage = "Please select a content block.")]
     public Guid ContentBlockID { get; set; }
@@ -30,7 +31,8 @@ public class ContentBlockContentZoneConfiguration
     Placeholder = "e.g., Post, Default, Summary",
     EditorType = EditorType.ViewPicker,
     ViewComponentName = "ContentBlock",
-    Order = 2
+    Order = 2,
+    FormComponent = "ViewPicker"
     )]
     public string? ViewName { get; set; }
 }

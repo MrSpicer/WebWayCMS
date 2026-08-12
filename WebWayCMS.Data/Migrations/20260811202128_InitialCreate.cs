@@ -285,6 +285,36 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "FormComponentRegistrations",
+                columns: table => new
+                {
+                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ViewComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    DataTypeNamesJson = table.Column<string>(type: "text", nullable: false),
+                    EditorTypeAlias = table.Column<string>(type: "text", nullable: true),
+                    IsDefaultForType = table.Column<bool>(type: "boolean", nullable: false),
+                    WriteViewName = table.Column<string>(type: "text", nullable: false),
+                    ReadViewName = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FormComponentRegistrations", x => x.ContentId);
+                    table.ForeignKey(
+                        name: "FK_FormComponentRegistrations_Content_ContentId",
+                        column: x => x.ContentId,
+                        principalTable: "Content",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "PageControllerRegistrations",
                 columns: table => new
                 {
@@ -505,6 +535,22 @@ namespace WebWayCMS.Data.Migrations
                 columns: new[] { "ContentZoneId", "Ordinal" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_FormComponentRegistrations_Category",
+                table: "FormComponentRegistrations",
+                column: "Category");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_FormComponentRegistrations_ComponentName",
+                table: "FormComponentRegistrations",
+                column: "ComponentName",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_FormComponentRegistrations_IsActive",
+                table: "FormComponentRegistrations",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PageControllerRegistrations_Category",
                 table: "PageControllerRegistrations",
                 column: "Category");
@@ -572,6 +618,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ContentZoneItems");
+
+            migrationBuilder.DropTable(
+                name: "FormComponentRegistrations");
 
             migrationBuilder.DropTable(
                 name: "PageControllerRegistrations");

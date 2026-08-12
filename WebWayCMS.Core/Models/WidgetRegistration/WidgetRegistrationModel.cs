@@ -106,9 +106,9 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
                 },
                 ComponentName = vm.ComponentName,
                 DisplayName = vm.DisplayName,
-                Description = vm.Description,
+                Description = vm.Description ?? string.Empty,
                 Category = vm.Category,
-                IconClass = vm.IconClass,
+                IconClass = vm.IconClass ?? string.Empty,
                 Order = vm.Order,
                 ConfigurationTypeName = vm.ConfigurationTypeName,
                 PropertyDefinitionsJson = propertyDefinitionsJson,
@@ -136,9 +136,9 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
                 },
                 ComponentName = vm.ComponentName,
                 DisplayName = vm.DisplayName,
-                Description = vm.Description,
+                Description = vm.Description ?? string.Empty,
                 Category = vm.Category,
-                IconClass = vm.IconClass,
+                IconClass = vm.IconClass ?? string.Empty,
                 Order = vm.Order,
                 ConfigurationTypeName = vm.ConfigurationTypeName,
                 PropertyDefinitionsJson = propertyDefinitionsJson,
@@ -229,6 +229,33 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    private static Type? ResolveConfigurationType(string? configurationTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(configurationTypeName))
+            return null;
+
+        try
+        {
+            var type = Type.GetType(configurationTypeName, throwOnError: false);
+            if (type != null)
+                return type;
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = asm.GetType(configurationTypeName, throwOnError: false);
+                if (type != null)
+                    return type;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private sealed class WidgetRegistrationRegistryHandler : IAdminRegistryHandler
     {
         private readonly IWidgetRegistry _registry;
@@ -308,6 +335,26 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
                 category = component.Category,
                 properties
             });
+        }
+
+        public IActionResult GetForm(string name, string? valuesJson)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return new BadRequestObjectResult(new { error = "Component name is required." });
+
+            var component = _registry.GetByName(name);
+            if (component == null)
+                return new NotFoundObjectResult(new { error = $"Component '{name}' not found." });
+
+            object? instance = null;
+            if (!string.IsNullOrWhiteSpace(component.ConfigurationTypeName))
+            {
+                var configType = ResolveConfigurationType(component.ConfigurationTypeName);
+                if (configType != null)
+                    instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(configType, valuesJson);
+            }
+
+            return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance);
         }
     }
 }

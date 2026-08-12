@@ -12,12 +12,14 @@ public class GenericPageConfiguration
 {
     [FormProperty("Custom CSS", EditorType.TextArea,
         HelpText = "Inline CSS styles to be injected into the page head. Do not include <style> tags.",
-        Order = 10)]
+        Order = 10,
+        FormComponent = "TextArea")]
     public string Style { get; set; } = string.Empty;
 
     [FormProperty("Meta Tags", EditorType.TextArea,
         HelpText = "HTML meta tags for SEO and social media. Include full tags, e.g., <meta name=\"description\" content=\"...\">",
-        Order = 30)]
+        Order = 30,
+        FormComponent = "TextArea")]
     public string Meta { get; set; } = string.Empty;
 }
 
@@ -45,7 +47,7 @@ public class GenericPageController : PageControllerBase<GenericPageConfiguration
             CurrentPage?.ContentMeta.Title);
 
         var viewName = CurrentPage?.ViewName;
-        if (!string.IsNullOrWhiteSpace(viewName))
+        if (!string.IsNullOrWhiteSpace(viewName) && !string.Equals(viewName, "Default", StringComparison.OrdinalIgnoreCase))
             return Task.FromResult<IActionResult>(View(viewName, PageConfig));
 
         return Task.FromResult<IActionResult>(View(PageConfig));

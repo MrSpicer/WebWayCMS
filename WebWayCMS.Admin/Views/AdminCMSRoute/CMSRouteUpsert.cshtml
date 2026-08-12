@@ -27,10 +27,13 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container">
         <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="cmsroutes" method="post" novalidate>
             @Html.AntiForgeryToken()
+            <div role="alert" aria-live="polite">
+                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
+            </div>
             @{
                 var returnUrl = ViewData["ReturnUrl"] as string ?? Context.Request.Query["returnUrl"].FirstOrDefault();
             }
@@ -57,5 +60,5 @@
                 </footer>
             </div>
         </form>
-    </div>
+</div>
 </section>

@@ -1,0 +1,10 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+        .Type("datetime-local").Css("input")
+        .Naming().Value().Required().DescribedBy()
+        .Build();
+}
+<form-field field="@Model">
+    <input @Html.Raw(attrs) />
+</form-field>

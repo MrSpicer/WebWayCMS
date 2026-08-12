@@ -1,0 +1,10 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+        .Css("textarea")
+        .Naming().Placeholder().MaxLength().Required().DescribedBy()
+        .Build();
+}
+<form-field field="@Model">
+    <textarea @Html.Raw(attrs) rows="6">@Model.StringValue</textarea>
+</form-field>

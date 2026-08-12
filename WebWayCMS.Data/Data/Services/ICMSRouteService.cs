@@ -8,6 +8,8 @@ public interface ICMSRouteService
 
     Task<List<CMSRouteDTO>> GetActiveRoutesAsync(CancellationToken ct = default);
 
+    Task<List<CMSRouteDTO>> GetAllRoutesAsync(CancellationToken ct = default);
+
     Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default);
 
     Task<CMSRouteDTO?> GetByIdAsync(Guid id, CancellationToken ct = default);

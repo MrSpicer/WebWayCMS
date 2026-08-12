@@ -518,6 +518,33 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
     private readonly Serilog.ILogger _logger =
         Serilog.Log.ForContext<ContentZoneRegistryHandler>();
 
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    private static Type? ResolveConfigurationType(string? configurationTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(configurationTypeName))
+            return null;
+
+        try
+        {
+            var type = Type.GetType(configurationTypeName, throwOnError: false);
+            if (type != null)
+                return type;
+
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = asm.GetType(configurationTypeName, throwOnError: false);
+                if (type != null)
+                    return type;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public ContentZoneRegistryHandler(
         IWidgetRegistry registry,
         IViewDiscoveryService viewDiscoveryService)
@@ -591,5 +618,25 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
             category = component.Category,
             properties
         });
+    }
+
+    public IActionResult GetForm(string name, string? valuesJson)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return new BadRequestObjectResult(new { error = "Component name is required." });
+
+        var component = _registry.GetByName(name);
+        if (component == null)
+            return new NotFoundObjectResult(new { error = $"Component '{name}' not found." });
+
+        object? instance = null;
+        if (!string.IsNullOrWhiteSpace(component.ConfigurationTypeName))
+        {
+            var configType = ResolveConfigurationType(component.ConfigurationTypeName);
+            if (configType != null)
+                instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(configType, valuesJson);
+        }
+
+        return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance);
     }
 }

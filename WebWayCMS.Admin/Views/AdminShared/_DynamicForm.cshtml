@@ -1,0 +1,7 @@
+@* Renders a server-side form fragment for dynamic configuration sub-forms. *@
+@* The model is the configuration instance with [FormProperty] attributes. *@
+@model object?
+@if (Model != null)
+{
+    <form-fields for="@Model" binding="Json" />
+}

@@ -18,7 +18,8 @@ public class LayoutContentZoneConfiguration
         EditorType = EditorType.ViewPicker,
         ViewComponentName = "Layout",
         IsRequired = true,
-        Order = 1
+        Order = 1,
+        FormComponent = "ViewPicker"
     )]
     [Required(ErrorMessage = "Please select a view.")]
     public string ViewName { get; set; } = string.Empty;

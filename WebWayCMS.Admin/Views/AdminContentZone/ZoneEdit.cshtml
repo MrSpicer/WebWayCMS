@@ -17,8 +17,9 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container is-fluid">
+
         @await Component.InvokeAsync("ContentZone", new { zoneId = Model.Id, editMode = true })
-    </div>
+</div>
 </section>

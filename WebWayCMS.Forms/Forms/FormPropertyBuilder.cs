@@ -47,7 +47,8 @@ public static class FormPropertyBuilder
                 MaxLength = GetMaxLengthValue(attr, stringLengthAttr),
                 Pattern = attr?.Pattern ?? regexAttr?.Pattern ?? string.Empty,
                 PatternErrorMessage = attr?.PatternErrorMessage ?? regexAttr?.ErrorMessage ?? string.Empty,
-                DefaultValue = GetDefaultValue(prop.PropertyType)
+                DefaultValue = GetDefaultValue(prop.PropertyType),
+                FormComponent = attr?.FormComponent ?? string.Empty
             };
 
             // Parse dropdown options

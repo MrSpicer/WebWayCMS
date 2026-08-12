@@ -1,0 +1,27 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var isChecked = Model.Value is true;
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+        .Type("checkbox")
+        .Naming()
+        .Value("true")
+        .Required()
+        .Build();
+    if (isChecked)
+    {
+        attrs += " checked";
+    }
+}
+<form-field chrome="none" field="@Model">
+    <div class="field">
+        <label class="checkbox">
+            <input @Html.Raw(attrs) />
+            @Model.Label@(Model.IsRequired ? Html.Raw(" <span class=\"has-text-danger\">*</span>") : "")
+        </label>
+    </div>
+    @if (!string.IsNullOrEmpty(Model.InputName))
+    {
+        <input type="hidden" name="@Model.InputName" value="false" />
+    }
+    <span role="alert" data-valmsg-for="@Model.Name" class="has-text-danger"></span>
+</form-field>

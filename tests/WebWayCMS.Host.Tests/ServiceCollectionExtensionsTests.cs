@@ -124,7 +124,7 @@ public class ServiceCollectionExtensionsTests
             Assert.That(p.GetService<IContentZoneModel>(), Is.Not.Null);
             Assert.That(p.GetService<IArticleModel>(), Is.Not.Null);
             Assert.That(p.GetService<CMSRouteTransformer>(), Is.Not.Null);
-            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(7));
+            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(8));
         });
     }
 }

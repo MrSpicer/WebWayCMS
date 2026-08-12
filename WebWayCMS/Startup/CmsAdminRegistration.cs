@@ -27,6 +27,7 @@ internal static class CmsAdminRegistration
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.WidgetRegistration.WidgetRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.PageControllerRegistration.PageControllerRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.CMSRoute.CMSRouteModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.FormComponentRegistration.FormComponentRegistrationModel>());
 
         services.Configure<MvcOptions>(_ => { });
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>

@@ -82,6 +82,10 @@
   point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
   MCP tools, on every `string` property marked `[FormProperty(EditorType = EditorType.RichText)]`.
   Stored content is therefore safe to render with `@Html.Raw`.
+- **Form attribute encoding:** all HTML input attributes are built by `FormAttributeBuilder`
+  (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value exactly once via
+  `HtmlEncoder.Default` across 16 view components. Views emit the result with `@Html.Raw`, so
+  double-encoding bugs cannot creep in through per-view string concatenation.
 - **Content-Security-Policy** is emitted by the middleware in `WebWayCMS/Startup/CmsMiddlewarePipeline.cs` and is
   **host-configurable via the `"Csp"` config section** (`CspOptions`): `Enabled` (default true),
   `ReportOnly` (default false), and a `Directives` map. The CMS ships secure defaults that keep the

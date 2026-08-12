@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using NUnit.Framework;
@@ -47,6 +48,16 @@ internal sealed class MinimalChild : IAdminCrudChildHandler
     public Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default) => Task.FromResult(false);
 }
 
+/// <summary>
+/// Minimal IAdminRegistryHandler that does NOT override GetForm, so the default
+/// interface implementation (returns NotFoundResult) is executed for coverage.
+/// </summary>
+internal sealed class MinimalRegistryHandler : IAdminRegistryHandler
+{
+    public IActionResult GetAll() => new JsonResult(new { });
+    public IActionResult GetProperties(string name) => new JsonResult(new { });
+}
+
 [TestFixture]
 public class InterfaceDefaultsTests
 {
@@ -78,5 +89,14 @@ public class InterfaceDefaultsTests
             Assert.That(await child.GetChildRestoreVersionViewModelAsync("k", Guid.NewGuid()), Is.Null);
             Assert.That(await child.DeleteChildVersionAsync(Guid.NewGuid()), Is.False);
         });
+    }
+
+    [Test]
+    public void IAdminRegistryHandler_DefaultGetForm_ReturnsNotFound()
+    {
+        IAdminRegistryHandler handler = new MinimalRegistryHandler();
+        var result = handler.GetForm("test", null);
+
+        Assert.That(result, Is.InstanceOf<NotFoundResult>());
     }
 }

@@ -52,7 +52,7 @@
 } *@
 
 <section class="section">
-    <div class="container">
+<div class="container is-fluid">
 
         @* Page Header *@
         <div class="level mb-5">
@@ -393,8 +393,7 @@
                 <a href="/admin/articles" class="card-footer-item">View all articles</a>
             </div>
         </div>
-
-    </div>
+</div>
 </section>
 
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })

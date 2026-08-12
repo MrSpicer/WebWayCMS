@@ -9,7 +9,8 @@ public class ArticleContentZoneConfiguration
         HelpText = "Choose whether to display a single article or a list of articles.",
         EditorType = EditorType.Dropdown,
         DropdownOptions = "Single:Single Article,List:Article List",
-        Order = 0
+        Order = 0,
+        FormComponent = "Dropdown"
     )]
     public string? Mode { get; set; }
 
@@ -18,7 +19,8 @@ public class ArticleContentZoneConfiguration
         HelpText = "Select an article list to display.",
         EditorType = EditorType.Guid,
         EntityType = "ArticleList",
-        Order = 1
+        Order = 1,
+        FormComponent = "EntityPicker"
     )]
     public Guid? ArticleListId { get; set; }
 
@@ -27,7 +29,8 @@ public class ArticleContentZoneConfiguration
         HelpText = "Select a specific article to display.",
         EditorType = EditorType.Guid,
         EntityType = "Article",
-        Order = 2
+        Order = 2,
+        FormComponent = "EntityPicker"
     )]
     public Guid? Id { get; set; }
 
@@ -37,7 +40,8 @@ public class ArticleContentZoneConfiguration
         Placeholder = "e.g., Article, List, Summary",
         EditorType = EditorType.ViewPicker,
         ViewComponentName = "Article",
-        Order = 3
+        Order = 3,
+        FormComponent = "ViewPicker"
     )]
     public string? ViewName { get; set; }
 

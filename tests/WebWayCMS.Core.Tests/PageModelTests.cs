@@ -107,7 +107,7 @@ public class PageModelTests
         var page3 = Page(title: "Branch");
 
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page1, page2, page3 });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(page1.ContentMeta.MasterId, "/"),
             RouteFor(page2.ContentMeta.MasterId, "/a/b"),
@@ -131,7 +131,7 @@ public class PageModelTests
         var second = Page(title: "Second");
 
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { first, second });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(first.ContentMeta.MasterId, "/"),
             RouteFor(second.ContentMeta.MasterId, "/"),
@@ -149,7 +149,7 @@ public class PageModelTests
         var page2 = Page(title: "RealA");
 
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page1, page2 });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(page1.ContentMeta.MasterId, "/a/b"),
             RouteFor(page2.ContentMeta.MasterId, "/a"),
@@ -166,7 +166,7 @@ public class PageModelTests
         var page = Page(title: "Deep");
 
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(page.ContentMeta.MasterId, "/x/y/z"),
         });
@@ -344,7 +344,7 @@ public class PageModelTests
     public async Task AdminHandler_IndexCreateEmptyDeleteApiRestoreAndDeleteVersion()
     {
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _service.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         _service.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
@@ -436,7 +436,7 @@ public class PageModelTests
         var pageWithoutRoute = Page(title: "NoRoute");
 
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { pageWithRoute, pageWithoutRoute });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(pageWithRoute.ContentMeta.MasterId, "/hasroute"),
         });
@@ -670,7 +670,7 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task SavePageUpsertAsync_NotPublished_UnregistersRoutes()
+    public async Task SavePageUpsertAsync_NotPublished_RegistersRoutesWithIsPublishedFalse()
     {
         var savedDto = new PageDTO
         {
@@ -695,8 +695,14 @@ public class PageModelTests
         });
 
         Assert.That(result.Success, Is.True);
-        await _routeRegistration.Received(1).UnregisterContentRoutesAsync(
-            Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            Arg.Any<IRoutableContent>(),
+            "/draft",
+            Arg.Any<string>(),
+            Arg.Any<Guid?>(),
+            Arg.Any<Guid?>(),
+            false,
+            Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -741,7 +747,7 @@ public class PageModelTests
     {
         var page = Page(title: "T");
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             new()
             {
@@ -757,12 +763,57 @@ public class PageModelTests
         Assert.That(vm.Pages, Is.Empty);
     }
 
+    // --- PageRegistryHandler GetForm ---
+
     [Test]
+    public void RegistryHandler_GetForm_EmptyName_ReturnsBadRequest()
+    {
+        Assert.That(_model.RegistryHandler!.GetForm("  ", null), Is.InstanceOf<BadRequestObjectResult>());
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_NotFound_ReturnsNotFound()
+    {
+        _registry.GetByName("X").Returns((PageControllerInfo?)null);
+
+        Assert.That(_model.RegistryHandler!.GetForm("X", null), Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_NoConfigType_ReturnsPartialViewWithNullModel()
+    {
+        _registry.GetByName("Plain").Returns(new PageControllerInfo
+        {
+            Name = "Plain",
+            ConfigurationType = null
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Plain", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+        Assert.That(((PartialViewResult)result).ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_WithConfigType_ReturnsPartialViewWithInstance()
+    {
+        _registry.GetByName("Typed").Returns(new PageControllerInfo
+        {
+            Name = "Typed",
+            ConfigurationType = typeof(SampleSaveConfig)
+        });
+
+        var result = _model.RegistryHandler!.GetForm("Typed", null);
+
+        Assert.That(result, Is.InstanceOf<PartialViewResult>());
+        Assert.That(((PartialViewResult)result).ViewData!.Model, Is.TypeOf<SampleSaveConfig>());
+    }
+
     public async Task GetPageIndexAsync_BuildTree_IntermediateNodeWithoutPage_NullPageId()
     {
         var deepPage = Page(title: "Deep");
         _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { deepPage });
-        _cmsRouteService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(deepPage.ContentMeta.MasterId, "/a/b"),
         });

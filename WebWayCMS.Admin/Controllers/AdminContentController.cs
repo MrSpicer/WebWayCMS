@@ -157,6 +157,17 @@ public class AdminContentController : Controller
         return handler.RegistryHandler.GetProperties(name);
     }
 
+    [HttpPost("{contentType}/registry/{name}/form")]
+    [ValidateAntiForgeryToken]
+    public IActionResult RegistryForm(string contentType, string name, [FromBody] string? valuesJson)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+
+        if (handler.RegistryHandler == null) return NotFound();
+        return handler.RegistryHandler.GetForm(name, valuesJson);
+    }
+
     // ─── Version History (top-level) ──────────────────────────────────────────
 
     [HttpGet("{contentType}/versions/{masterId:guid}")]

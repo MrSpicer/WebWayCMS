@@ -18,3 +18,4 @@ designsite/*
 
 # Build output copied from Views/AdminPage/PageUpsert.js by the CopyViewScripts target
 WebWayCMS.Presentation/wwwroot/js/page-upsert.js
+opencode.json

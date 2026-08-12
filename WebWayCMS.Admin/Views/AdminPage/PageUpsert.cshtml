@@ -18,14 +18,17 @@
     </div>
 </div>
 
-<section class="section pt-4">
-    <div class="container">
+<section class="section">
+<div class="container">
         <form asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" method="post" id="pageForm"
               data-controller="@Model.ControllerName"
-              data-config="@Model.ConfigurationJson"
               data-view-name="@Model.ViewName"
               novalidate>
             @Html.AntiForgeryToken()
+
+            <div role="alert" aria-live="polite">
+                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
+            </div>
 
             <div class="card">
                 <div class="card-content">
@@ -45,7 +48,7 @@
                 </footer>
             </div>
         </form>
-    </div>
+</div>
 </section>
 
 <script src="~/_content/WebWayCMS.Admin/js/page-upsert.js"></script>

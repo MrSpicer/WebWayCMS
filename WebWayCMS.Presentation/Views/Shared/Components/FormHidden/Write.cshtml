@@ -1,0 +1,8 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+        .Type("hidden").Css(string.Empty)
+        .Naming().Value()
+        .Build();
+}
+<input @Html.Raw(attrs) />

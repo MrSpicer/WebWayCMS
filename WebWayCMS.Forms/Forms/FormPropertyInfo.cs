@@ -107,6 +107,12 @@ public class FormPropertyInfo
     public string PatternErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the registered name of the form component to use for this property.
+    /// When non-empty, bypasses <see cref="EditorType"/>-based resolution.
+    /// </summary>
+    public string FormComponent { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the default value for this property (as a string for JSON serialization).
     /// </summary>
     public object? DefaultValue { get; set; }

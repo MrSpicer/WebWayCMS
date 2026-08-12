@@ -1,0 +1,20 @@
+@model WebWayCMS.ViewComponents.Forms.DropdownViewModel
+@{
+    var field = Model.Field;
+    var strValue = field.StringValue;
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(field)
+        .Naming().Required().DescribedBy()
+        .Build();
+}
+<form-field field="@field">
+    <div class="select is-fullwidth">
+        <select @Html.Raw(attrs)>
+            <option value="">-- Default --</option>
+            @foreach (var (optValue, optLabel) in Model.Options)
+            {
+                var selected = string.Equals(optValue, strValue, StringComparison.OrdinalIgnoreCase) ? " selected" : "";
+                <option value="@optValue" selected="@(selected.Length > 0)">@optLabel</option>
+            }
+        </select>
+    </div>
+</form-field>

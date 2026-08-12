@@ -116,7 +116,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
             ArticleListTitle = list.ContentMeta.Title,
             ArticleListSlug = list.ContentMeta.Slug,
             Articles = articles
-                .Where(p => p.ArticleListMasterId == list.ContentMeta.MasterId && p.ContentMeta.IsPublished && p.ContentMeta.PublicationDate <= DateTime.UtcNow)
+                .Where(p => p.ArticleListMasterId == list.ContentMeta.MasterId)
                 .Select(p => _mapper.Map<ArticleViewModel>(p))
                 .ToList()
         };
