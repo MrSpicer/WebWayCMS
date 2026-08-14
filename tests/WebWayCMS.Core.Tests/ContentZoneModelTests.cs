@@ -30,48 +30,66 @@ public sealed class SampleZoneConfig
 public class ContentZoneModelTests
 {
     private IContentZoneService _service = null!;
-    private IPageService _pageService = null!;
+    private IContentStore<ContentZoneDTO> _zoneStore = null!;
+    private IContentStore<ContentZoneItemDTO> _itemStore = null!;
     private IWidgetRegistry _registry = null!;
     private IViewDiscoveryService _viewDiscovery = null!;
     private ICMSRouteService _routeService = null!;
     private IRouteRegistrationService _routeRegistration = null!;
+    private IChangeSetScope _changeSetScope = null!;
     private ContentZoneModel _model = null!;
 
     [SetUp]
     public void SetUp()
     {
         _service = Substitute.For<IContentZoneService>();
-        _pageService = Substitute.For<IPageService>();
+        _zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        _itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
         _routeService = Substitute.For<ICMSRouteService>();
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
-        _model = new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, _routeService, _routeRegistration);
+        _changeSetScope = Substitute.For<IChangeSetScope>();
+        _model = new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope);
+
+        _service.GetItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO>());
     }
 
-    private static ContentZoneDTO Zone(Guid? id = null, string name = "Zone", params ContentZoneItemDTO[] items)
+    private static ContentZoneDTO Zone(Guid? nodeId = null, string name = "Zone")
     {
-        var cid = id ?? Guid.NewGuid();
+        var nid = nodeId ?? Guid.NewGuid();
         return new ContentZoneDTO
         {
-            ContentId = cid,
+            VersionId = Guid.NewGuid(),
             Name = name,
-            Items = items.ToList(),
-            ContentMeta = new ContentDTO { Id = cid, MasterId = cid, Title = name }
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = nid, CreatedUtc = DateTime.UtcNow },
+                Title = name,
+                Slug = "z",
+                VersionNumber = 0,
+                State = ContentVersionState.Draft
+            }
         };
     }
 
     private static ContentZoneItemDTO Item(string component, string json, int ordinal = 0)
     {
-        var cid = Guid.NewGuid();
         return new ContentZoneItemDTO
         {
-            ContentId = cid,
+            VersionId = Guid.NewGuid(),
+            ContentZoneNodeId = Guid.NewGuid(),
             ComponentName = component,
             ComponentPropertiesJson = json,
             Ordinal = ordinal,
             IsActive = true,
-            ContentMeta = new ContentDTO { Id = cid, MasterId = cid }
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = component,
+                VersionNumber = 0,
+                State = ContentVersionState.Draft
+            }
         };
     }
 
@@ -82,12 +100,14 @@ public class ContentZoneModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneModel(null!, _pageService, _registry, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, null!, _registry, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, null!, _viewDiscovery, _routeService, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, null!, _routeService, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, null!, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _pageService, _registry, _viewDiscovery, _routeService, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(null!, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, null!, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, null!, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, null!, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, null!, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, null!, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, null!, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -112,10 +132,10 @@ public class ContentZoneModelTests
     {
         Assert.That(await _model.GetViewModelAsync(" "), Is.Null);
 
-        _service.GetByNameAsync("Missing", Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
+        _service.GetZoneByNameAsync("Missing", Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
         Assert.That((await _model.GetViewModelAsync("Missing"))!.Name, Is.EqualTo("Missing"));
 
-        _service.GetByNameAsync("Found", Arg.Any<CancellationToken>()).Returns(Zone(name: "Found"));
+        _service.GetZoneByNameAsync("Found", Arg.Any<CancellationToken>()).Returns(Zone(name: "Found"));
         Assert.That(await _model.GetViewModelAsync("Found"), Is.Not.Null);
     }
 
@@ -123,14 +143,18 @@ public class ContentZoneModelTests
     public async Task DeserializeProperties_AllBranches()
     {
         var zoneId = Guid.NewGuid();
-        var zone = Zone(zoneId, "Z",
+        var zone = Zone(zoneId, "Z");
+        var items = new List<ContentZoneItemDTO>
+        {
             Item("WithDefault", "{}", 1),
             Item("NoDefault", "", 2),
             Item("Typed", "{\"x\":5}", 3),
             Item("Untyped", "{\"a\":1}", 4),
             Item("Bad", "{bad", 5),
-            Item("TypedNull", "null", 6));
-        _service.GetByIdAsync(zoneId, Arg.Any<CancellationToken>()).Returns(zone);
+            Item("TypedNull", "null", 6)
+        };
+        _service.GetZoneByNodeAsync(zoneId, Arg.Any<CancellationToken>()).Returns(zone);
+        _service.GetItemsAsync(zoneId, Arg.Any<CancellationToken>()).Returns(items);
 
         _registry.CreateDefaultConfiguration("WithDefault").Returns(new SampleZoneConfig());
         _registry.CreateDefaultConfiguration("NoDefault").Returns((object?)null);
@@ -147,7 +171,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task GetViewModelByIdAsync_NotFound_ReturnsNull()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
+        _service.GetZoneByNodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
         Assert.That(await _model.GetViewModelByIdAsync(Guid.NewGuid()), Is.Null);
     }
 
@@ -170,15 +194,15 @@ public class ContentZoneModelTests
     [Test]
     public async Task GetViewModelByPageSlot_NullAssignment_NullZone_AndFound()
     {
-        var pageMaster = Guid.NewGuid();
-        _service.GetByPageSlotAsync(pageMaster, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
-        Assert.That(await _model.GetViewModelByPageSlotAsync(pageMaster, "none"), Is.Null);
+        var pageNodeId = Guid.NewGuid();
+        _service.GetByPageSlotAsync(pageNodeId, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
+        Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "none"), Is.Null);
 
-        var assignment = new ContentZoneAssignmentDTO { ContentZoneId = Guid.NewGuid() };
-        _service.GetByPageSlotAsync(pageMaster, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
-        _service.GetByIdAsync(assignment.ContentZoneId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, Zone());
-        Assert.That(await _model.GetViewModelByPageSlotAsync(pageMaster, "slot"), Is.Null);
-        Assert.That(await _model.GetViewModelByPageSlotAsync(pageMaster, "slot"), Is.Not.Null);
+        var assignment = new ContentZoneAssignmentDTO { ContentZoneNodeId = Guid.NewGuid() };
+        _service.GetByPageSlotAsync(pageNodeId, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
+        _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, Zone());
+        Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "slot"), Is.Null);
+        Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "slot"), Is.Not.Null);
     }
 
     [Test]
@@ -188,9 +212,9 @@ public class ContentZoneModelTests
         _service.GetByZoneSlotAsync(parent, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
         Assert.That(await _model.GetViewModelByZoneSlotAsync(parent, "none"), Is.Null);
 
-        var assignment = new ContentZoneAssignmentDTO { ContentZoneId = Guid.NewGuid() };
+        var assignment = new ContentZoneAssignmentDTO { ContentZoneNodeId = Guid.NewGuid() };
         _service.GetByZoneSlotAsync(parent, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
-        _service.GetByIdAsync(assignment.ContentZoneId, Arg.Any<CancellationToken>()).Returns(Zone());
+        _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns(Zone());
         Assert.That(await _model.GetViewModelByZoneSlotAsync(parent, "slot"), Is.Not.Null);
     }
 
@@ -198,43 +222,41 @@ public class ContentZoneModelTests
     public async Task PassthroughCrudAndItemOperations()
     {
         var zone = Zone();
-        _service.GetByIdAsync(zone.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(zone);
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { zone });
-        _service.CreateAsync(zone, Arg.Any<CancellationToken>()).Returns(zone);
-        _service.UpdateAsync(zone, Arg.Any<CancellationToken>()).Returns(true);
-        _service.DeleteAsync(zone.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(true);
         var item = Item("C", "{}");
-        _service.AddItemAsync(zone.ContentMeta.Id, item, Arg.Any<CancellationToken>()).Returns(item);
-        _service.UpdateItemAsync(item, Arg.Any<CancellationToken>()).Returns(true);
-        _service.RemoveItemAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(true);
-        _service.GetItemByIdAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(item);
-        _service.ReorderItemsAsync(zone.ContentMeta.Id, Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
-        _service.GetAllVersionsAsync(zone.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { zone });
-        _service.GetAllItemVersionsAsync(item.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
+        _service.AddItemAsync(zone.Version.Node.Id, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(item);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        _service.RemoveItemAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(true);
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _itemStore.GetVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(item);
+        _itemStore.DeleteVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(true);
+        _service.ReorderItemsAsync(zone.Version.Node.Id, Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        _itemStore.GetAllVersionsAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+        _service.GetItemsAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+        _service.DeleteZoneAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetByIdAsync(zone.ContentMeta.Id), Is.SameAs(zone));
-            Assert.That(await _model.GetAllAsync(), Has.Count.EqualTo(1));
-            Assert.That(await _model.CreateAsync(zone), Is.SameAs(zone));
-            Assert.That(await _model.UpdateAsync(zone), Is.True);
-            Assert.That(await _model.DeleteAsync(zone.ContentMeta.Id), Is.True);
-            Assert.That(await _model.AddItemAsync(zone.ContentMeta.Id, item), Is.SameAs(item));
+            Assert.That(await _model.GetByIdAsync(zone.Version.Node.Id), Is.SameAs(zone));
+            Assert.That(await _model.AddItemAsync(zone.Version.Node.Id, item), Is.SameAs(item));
             Assert.That(await _model.UpdateItemAsync(item), Is.True);
-            Assert.That(await _model.RemoveItemAsync(item.ContentMeta.Id), Is.True);
-            Assert.That(await _model.GetItemByIdAsync(item.ContentMeta.Id), Is.SameAs(item));
-            Assert.That(await _model.ReorderItemsAsync(zone.ContentMeta.Id, new List<Guid>()), Is.True);
-            Assert.That(await ((IContentZoneModel)_model).GetAllVersionsAsync(zone.ContentMeta.MasterId), Has.Count.EqualTo(1));
-            Assert.That(await _model.GetAllItemVersionsAsync(item.ContentMeta.MasterId), Has.Count.EqualTo(1));
+            Assert.That(await _model.RemoveItemAsync(item.Version.Node.Id), Is.True);
+            Assert.That(await _model.GetItemByNodeIdAsync(item.Version.Node.Id), Is.SameAs(item));
+            Assert.That(await _model.GetItemVersionAsync(item.VersionId), Is.SameAs(item));
+            Assert.That(await _model.DeleteItemVersionAsync(item.VersionId), Is.True);
+            Assert.That(await _model.ReorderItemsAsync(zone.Version.Node.Id, new List<Guid>()), Is.True);
+            Assert.That(await _model.GetAllItemVersionsAsync(item.Version.Node.Id), Has.Count.EqualTo(1));
+            Assert.That(await _model.GetItemsAsync(zone.Version.Node.Id), Has.Count.EqualTo(1));
+            Assert.That(await _model.DeleteAsync(zone.Version.Node.Id), Is.True);
         });
     }
 
     [Test]
     public async Task GetIndexViewModelAsync_Parameterless()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { Zone() });
-        _service.GetZoneIdsWithChildrenAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
-        _service.GetAssignmentCountsByMasterIdAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, int>());
+        _zoneStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { Zone() });
+        _service.GetZoneNodeIdsWithChildrenAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _service.GetAssignmentCountsByNodeIdAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, int>());
 
         Assert.That(await _model.GetIndexViewModelAsync(), Is.InstanceOf<ContentZoneIndexViewModel>());
     }
@@ -242,15 +264,15 @@ public class ContentZoneModelTests
     [Test]
     public async Task GetIndexViewModelAsync_Query_PageZoneAndDefault()
     {
-        _service.GetZoneIdsWithChildrenAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
-        _service.GetAssignmentCountsByMasterIdAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, int>());
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
+        _service.GetZoneNodeIdsWithChildrenAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _service.GetAssignmentCountsByNodeIdAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new Dictionary<Guid, int>());
+        _zoneStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
         var pageId = Guid.NewGuid();
         var zoneId = Guid.NewGuid();
         _service.GetAllByPageAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
         _routeService.GetByOwningContentAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { new() { Pattern = "/r" } });
         _service.GetAllByParentZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>());
-        _service.GetByIdAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO { Name = "Parent" });
+        _service.GetZoneByNodeAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO { Name = "Parent" });
 
         var handler = (IAdminCrudHandler)_model;
         var pageQuery = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { ["pageId"] = pageId.ToString() });
@@ -269,14 +291,14 @@ public class ContentZoneModelTests
     public async Task GetUpsertViewModelAsync_NullFoundAndMissing()
     {
         var zone = Zone();
-        _service.GetByIdAsync(zone.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(zone);
-        _service.GetByIdAsync(Arg.Is<Guid>(g => g != zone.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
+        _zoneStore.GetCurrentDraftAsync(Arg.Is<Guid>(g => g != zone.Version.Node.Id), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
         var q = new QueryCollection();
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetUpsertViewModelAsync(null, q), Is.InstanceOf<ContentZoneUpsertViewModel>());
-            Assert.That(await _model.GetUpsertViewModelAsync(zone.ContentMeta.Id, q), Is.Not.Null);
+            Assert.That(await _model.GetUpsertViewModelAsync(zone.Version.Node.Id, q), Is.Not.Null);
             Assert.That(await _model.GetUpsertViewModelAsync(Guid.NewGuid(), q), Is.Null);
         });
     }
@@ -285,25 +307,29 @@ public class ContentZoneModelTests
     public async Task SaveUpsertAsync_CreateEditUpdateFailAndNotFound()
     {
         var zone = Zone();
-        _service.GetByIdAsync(zone.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(zone);
-        _service.UpdateAsync(Arg.Any<ContentZoneDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
-        _service.CreateAsync(Arg.Any<ContentZoneDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneDTO>());
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
+        _zoneStore.SaveDraftAsync(Arg.Any<ContentZoneDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(true), new ContentWriteResult(false, "err"));
 
         Assert.Multiple(async () =>
         {
-            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { Id = null, Name = "N", Title = "T" })).Success, Is.True);
-            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { Id = zone.ContentMeta.Id, Name = "N", Title = "T" })).Success, Is.True);
-            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { Id = zone.ContentMeta.Id, Name = "N", Title = "T" })).Success, Is.False);
+            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { NodeId = null, Name = "N", Title = "T" })).Success, Is.True);
+            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { NodeId = zone.Version.Node.Id, Name = "N", Title = "T" })).Success, Is.True);
+            Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { NodeId = zone.Version.Node.Id, Name = "N", Title = "T" })).Success, Is.False);
         });
 
-        _service.GetByIdAsync(Arg.Is<Guid>(g => g != zone.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
-        Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { Id = Guid.NewGuid(), Name = "N", Title = "T" })).Success, Is.False);
+        _zoneStore.GetCurrentDraftAsync(Arg.Is<Guid>(g => g != zone.Version.Node.Id), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
+        Assert.That((await _model.SaveUpsertAsync(new ContentZoneUpsertViewModel { NodeId = Guid.NewGuid(), Name = "N", Title = "T" })).Success, Is.False);
     }
 
     [Test]
     public async Task ApiListSecondaryAndCreateEmpty()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { Zone(name: ""), new() { Name = "n", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "HasTitle" } } });
+        _zoneStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>
+        {
+            Zone(name: ""),
+            new ContentZoneDTO { Name = "n", Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "HasTitle" } }
+        });
 
         Assert.Multiple(async () =>
         {
@@ -316,39 +342,44 @@ public class ContentZoneModelTests
     [Test]
     public async Task VersionHistory_BuildAndDeleteVersion()
     {
-        var master = Guid.NewGuid();
-        _service.GetAllVersionsAsync(master, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { Zone(master) });
-        _service.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        var nodeId = Guid.NewGuid();
+        _zoneStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { Zone(nodeId) });
+        _zoneStore.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetVersionHistoryViewModelAsync(master), Is.Not.Null);
+            Assert.That(await _model.GetVersionHistoryViewModelAsync(nodeId), Is.Not.Null);
             Assert.That(await _model.DeleteVersionAsync(Guid.NewGuid()), Is.True);
         });
     }
 
     [Test]
-    public async Task BaseHandlerDefault_RestoreVersionIsNull()
+    public async Task RestoreVersion_HistoricalFoundAndMissing()
     {
-        // ContentZoneModel does not override the base GetRestoreVersionViewModelAsync.
+        _zoneStore.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
         Assert.That(await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
+
+        var zone = Zone();
+        _zoneStore.GetVersionAsync(zone.VersionId, Arg.Any<CancellationToken>()).Returns(zone);
+        Assert.That(await _model.GetRestoreVersionViewModelAsync(zone.VersionId), Is.InstanceOf<ContentZoneUpsertViewModel>());
+    }
+
+    [Test]
+    public async Task PublishAsync_DelegatesToStore()
+    {
+        _zoneStore.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+
+        Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
     }
 
     // --- Child handler ---
 
     [Test]
-    public async Task ChildHandler_FullFlow()
+    public async Task ChildHandler_Metadata()
     {
         var child = _model.ChildHandler!;
-        var zone = Zone();
-        var item = Item("C", "{}");
-        _service.GetByIdAsync(zone.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(zone);
-        _service.GetItemByIdAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(item);
-        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
-        _service.RemoveItemAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(true);
-        var viewData = NewViewData();
 
-        Assert.Multiple(async () =>
+        Assert.Multiple(() =>
         {
             Assert.That(child.ChildType, Is.EqualTo("items"));
             Assert.That(child.ChildDisplayName, Is.EqualTo("Content Zone Item"));
@@ -356,30 +387,63 @@ public class ContentZoneModelTests
             Assert.That(child.ChildIndexViewPath, Does.Contain("ContentZoneItems.cshtml"));
             Assert.That(child.ChildUpsertViewPath, Does.Contain("ContentZoneItemUpsert.cshtml"));
             Assert.That(child.SupportsReorder, Is.False);
+            Assert.That(child.SupportsVersionHistory, Is.True);
             Assert.That(child.CreateEmptyChildUpsertViewModel(), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
-
-            Assert.That(await child.GetChildIndexViewModelAsync("not-a-guid"), Is.Null);
-            Assert.That(await child.GetChildIndexViewModelAsync(zone.ContentMeta.Id.ToString()), Is.SameAs(zone));
-
-            Assert.That(await child.GetChildUpsertViewModelAsync("k", null), Is.Null);
-            Assert.That(await child.GetChildUpsertViewModelAsync("k", item.ContentMeta.Id), Is.Not.Null);
-
-            Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.False);
-            Assert.That(await child.DeleteChildAsync(item.ContentMeta.Id), Is.True);
         });
+    }
 
-        // SetChildUpsertViewData: invalid guid returns early; valid sets ViewData.
-        await child.SetChildUpsertViewDataAsync(viewData, "not-a-guid");
-        await child.SetChildUpsertViewDataAsync(viewData, zone.ContentMeta.Id.ToString());
-        Assert.That(viewData["ZoneId"], Is.EqualTo(zone.ContentMeta.Id.ToString()));
+    [Test]
+    public async Task ChildHandler_GetChildIndex_Variants()
+    {
+        var child = _model.ChildHandler!;
+        var zone = Zone();
+        var item = Item("C", "{}");
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
+        _service.GetItemsAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await child.GetChildIndexViewModelAsync("not-a-guid"), Is.Null);
+
+            var vm = await child.GetChildIndexViewModelAsync(zone.Version.Node.Id.ToString());
+            Assert.That(vm, Is.InstanceOf<ContentZoneItemsIndexViewModel>());
+        });
+    }
+
+    [Test]
+    public async Task ChildHandler_GetChildUpsert_Variants()
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}");
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await child.GetChildUpsertViewModelAsync("k", null), Is.Null);
+            Assert.That(await child.GetChildUpsertViewModelAsync("k", item.Version.Node.Id), Is.Not.Null);
+        });
     }
 
     [Test]
     public async Task ChildHandler_GetChildUpsert_MissingItem_ReturnsNull()
     {
-        _service.GetItemByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+        _itemStore.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
 
         Assert.That(await _model.ChildHandler!.GetChildUpsertViewModelAsync("k", Guid.NewGuid()), Is.Null);
+    }
+
+    [Test]
+    public async Task ChildHandler_SetViewData_Variants()
+    {
+        var child = _model.ChildHandler!;
+        var zone = Zone();
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
+        var viewData = NewViewData();
+
+        await child.SetChildUpsertViewDataAsync(viewData, "not-a-guid");
+        await child.SetChildUpsertViewDataAsync(viewData, zone.Version.Node.Id.ToString());
+
+        Assert.That(viewData["ZoneId"], Is.EqualTo(zone.Version.Node.Id.ToString()));
     }
 
     [Test]
@@ -387,18 +451,18 @@ public class ContentZoneModelTests
     {
         var child = _model.ChildHandler!;
         var item = Item("C", "{}");
-        _service.GetItemByIdAsync(item.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
 
         Assert.Multiple(async () =>
         {
-            // no id -> error
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { Id = null })).Success, Is.False);
+            // no id and invalid parent key -> error
+            Assert.That((await child.SaveChildUpsertAsync("not-a-guid", new ContentZoneItemUpsertViewModel { NodeId = null })).Success, Is.False);
             // id but item missing -> error
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { Id = Guid.NewGuid() })).Success, Is.False);
+            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid() })).Success, Is.False);
             // update success then failure
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { Id = item.ContentMeta.Id, ComponentName = "C" })).Success, Is.True);
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { Id = item.ContentMeta.Id, ComponentName = "C" })).Success, Is.False);
+            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.True);
+            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.False);
         });
     }
 
@@ -409,30 +473,57 @@ public class ContentZoneModelTests
         var zoneId = Guid.NewGuid();
         ContentZoneItemDTO? captured = null;
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
-            .Returns(c => { captured = c.Arg<ContentZoneItemDTO>(); return captured; });
+            .Returns(c =>
+            {
+                captured = c.Arg<ContentZoneItemDTO>();
+                captured.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return captured;
+            });
+        _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        // No id + valid zone key + explicit properties JSON -> creates the item.
         var created = await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { Id = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "{\"ContentBlockID\":\"x\"}", IsActive = true });
+            new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "{\"ContentBlockID\":\"x\"}", IsActive = true });
 
         Assert.Multiple(() =>
         {
             Assert.That(created.Success, Is.True);
-            Assert.That(captured!.ContentZoneId, Is.EqualTo(zoneId));
+            Assert.That(captured!.ContentZoneNodeId, Is.EqualTo(zoneId));
             Assert.That(captured!.ComponentName, Is.EqualTo("ContentBlock"));
             Assert.That(captured!.ComponentPropertiesJson, Is.EqualTo("{\"ContentBlockID\":\"x\"}"));
             Assert.That(captured!.IsActive, Is.True);
         });
 
-        // Blank properties JSON defaults to "{}".
         var createdBlank = await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { Id = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "  " });
+            new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "  " });
 
         Assert.Multiple(() =>
         {
             Assert.That(createdBlank.Success, Is.True);
             Assert.That(captured!.ComponentPropertiesJson, Is.EqualTo("{}"));
         });
+    }
+
+    [Test]
+    public async Task ChildHandler_DeleteChild_And_VersionHistory_Restore_DeleteVersion()
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}");
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _service.RemoveItemAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(true);
+        _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
+
+        Assert.That(await child.DeleteChildAsync(item.Version.Node.Id), Is.True);
+
+        _itemStore.GetAllVersionsAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+        Assert.That(await child.GetChildVersionHistoryViewModelAsync("k", item.Version.Node.Id), Is.Not.Null);
+
+        _itemStore.GetVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(item);
+        Assert.That(await child.GetChildRestoreVersionViewModelAsync("k", item.VersionId), Is.Not.Null);
+
+        _itemStore.DeleteVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(true);
+        Assert.That(await child.DeleteChildVersionAsync(item.VersionId), Is.True);
+
+        Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.False);
     }
 
     // --- Registry handler ---
@@ -480,8 +571,6 @@ public class ContentZoneModelTests
 
         Assert.That(_model.RegistryHandler!.GetProperties("C"), Is.InstanceOf<JsonResult>());
     }
-
-    // --- ContentZoneRegistryHandler GetForm ---
 
     [Test]
     public void RegistryHandler_GetForm_EmptyName_ReturnsBadRequest()
@@ -554,25 +643,6 @@ public class ContentZoneModelTests
         var result = _model.RegistryHandler!.GetForm("Core", null);
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
-    }
-
-    // ContentZoneRegistryHandler.ResolveConfigurationType (private static) coverage via reflection
-
-    [Test]
-    public void RegistryHandler_ResolveConfigurationType_NullOrWhitespace_ReturnsNull()
-    {
-        var handlerType = typeof(ContentZoneModel).Assembly.GetType("WebWayCMS.Models.ContentZone.ContentZoneRegistryHandler")!;
-        var method = handlerType.GetMethod(
-            "ResolveConfigurationType",
-            BindingFlags.NonPublic | BindingFlags.Static)!;
-        Assert.That(method, Is.Not.Null);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(method.Invoke(null, new object?[] { null }), Is.Null);
-            Assert.That(method.Invoke(null, new object?[] { "  " }), Is.Null);
-            Assert.That(method.Invoke(null, new object?[] { "" }), Is.Null);
-        });
     }
 
     // ResolveType private method coverage via reflection

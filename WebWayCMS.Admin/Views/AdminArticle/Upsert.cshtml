@@ -1,7 +1,7 @@
 @model WebWayCMS.Models.Article.ArticleUpsertViewModel
 
 @{
-    var isEdit = Model?.Id != null && Model.Id != Guid.Empty;
+    var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Article" : "New Article";
     var slug = ViewData["ArticleListSlug"] as string ?? "";
     var listTitle = ViewData["ArticleListTitle"] as string ?? "Article List";

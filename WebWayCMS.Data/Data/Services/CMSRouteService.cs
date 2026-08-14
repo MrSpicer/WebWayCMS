@@ -5,6 +5,10 @@ using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Services;
 
+/// <summary>
+/// Manages CMS routes. Routes are plain rows (no version history) — they are written by Publish and
+/// hard-deleted/replaced, never by Save.
+/// </summary>
 public sealed class CMSRouteService : ICMSRouteService
 {
     private readonly CmsDbContext _context;
@@ -45,11 +49,6 @@ public sealed class CMSRouteService : ICMSRouteService
     {
         return await _context.Set<CMSRouteDTO>()
             .AsNoTracking()
-            .Where(r => r.ContentMeta.IsPublished
-                && !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version))
             .OrderBy(r => r.Order)
             .ThenBy(r => r.Pattern.Length)
             .ToListAsync(ct);
@@ -59,24 +58,16 @@ public sealed class CMSRouteService : ICMSRouteService
     {
         return await _context.Set<CMSRouteDTO>()
             .AsNoTracking()
-            .Where(r => !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version))
             .OrderBy(r => r.Order)
             .ThenBy(r => r.Pattern.Length)
             .ToListAsync(ct);
     }
 
-    public async Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default)
+    public async Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
     {
         return await _context.Set<CMSRouteDTO>()
             .AsNoTracking()
-            .Where(r => r.OwningContentMasterId == owningContentMasterId
-                && !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version))
+            .Where(r => r.OwningContentNodeId == owningContentNodeId)
             .ToListAsync(ct);
     }
 
@@ -84,22 +75,21 @@ public sealed class CMSRouteService : ICMSRouteService
     {
         return await _context.Set<CMSRouteDTO>()
             .AsNoTracking()
-            .FirstOrDefaultAsync(r => r.ContentId == id, ct);
+            .FirstOrDefaultAsync(r => r.Id == id, ct);
     }
 
-    public async Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeMasterId = null, CancellationToken ct = default)
+    public async Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeNodeId = null, Guid? excludeRouteId = null, CancellationToken ct = default)
     {
         pattern = NormalizePattern(pattern);
 
         var query = _context.Set<CMSRouteDTO>()
-            .Where(r => r.Pattern == pattern
-                && !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version));
+            .Where(r => r.Pattern == pattern);
 
-        if (excludeMasterId.HasValue)
-            query = query.Where(r => r.OwningContentMasterId != excludeMasterId.Value);
+        if (excludeNodeId.HasValue)
+            query = query.Where(r => r.OwningContentNodeId != excludeNodeId.Value);
+
+        if (excludeRouteId.HasValue)
+            query = query.Where(r => r.Id != excludeRouteId.Value);
 
         return !await query.AnyAsync(ct);
     }
@@ -110,43 +100,19 @@ public sealed class CMSRouteService : ICMSRouteService
 
         route.Pattern = NormalizePattern(route.Pattern);
 
-        var meta = route.ContentMeta;
-
         var existing = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.OwningContentMasterId == route.OwningContentMasterId
-                && !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version))
-            .FirstOrDefaultAsync(ct)
-            ?? await _context.Set<CMSRouteDTO>()
-            .Where(r => r.Pattern == route.Pattern
-                && !r.ContentMeta.IsDeleted
-                && !_context.Set<CMSRouteDTO>().Any(r2 =>
-                    r2.ContentMeta.MasterId == r.ContentMeta.MasterId
-                    && r2.ContentMeta.Version > r.ContentMeta.Version))
-            .FirstOrDefaultAsync(ct);
+            .Where(r => (route.OwningContentNodeId.HasValue && r.OwningContentNodeId == route.OwningContentNodeId.Value)
+                     || r.Pattern == route.Pattern)
+            .ToListAsync(ct);
 
-        if (existing != null)
+        if (existing.Count > 0)
         {
-            _context.Set<CMSRouteDTO>().Remove(existing);
-            _context.Remove(existing.ContentMeta);
+            _context.Set<CMSRouteDTO>().RemoveRange(existing);
             await _context.SaveChangesAsync(ct);
         }
 
-        if (meta.Id == Guid.Empty)
-            meta.Id = Guid.NewGuid();
-
-        route.ContentId = meta.Id;
-        meta.MasterId = meta.Id;
-        meta.Version = 0;
-
-        var now = DateTime.UtcNow;
-        if (meta.CreationDate == default)
-            meta.CreationDate = now;
-        meta.ModificationDate = now;
-        if (meta.IsPublished && meta.PublicationDate == default)
-            meta.PublicationDate = now;
+        if (route.Id == Guid.Empty)
+            route.Id = Guid.NewGuid();
 
         _context.Set<CMSRouteDTO>().Add(route);
         await _context.SaveChangesAsync(ct);
@@ -157,36 +123,24 @@ public sealed class CMSRouteService : ICMSRouteService
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
         var entity = await _context.Set<CMSRouteDTO>()
-            .FirstOrDefaultAsync(r => r.ContentId == id, ct);
+            .FirstOrDefaultAsync(r => r.Id == id, ct);
         if (entity == null) return false;
 
-        var allVersions = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.ContentMeta.MasterId == entity.ContentMeta.MasterId)
-            .ToListAsync(ct);
-
-        _context.Set<CMSRouteDTO>().RemoveRange(allVersions);
-        _context.RemoveRange(allVersions.Select(v => v.ContentMeta));
+        _context.Set<CMSRouteDTO>().Remove(entity);
         await _context.SaveChangesAsync(ct);
         _registry.Invalidate();
         return true;
     }
 
-    public async Task<bool> DeactivateByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default)
+    public async Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
     {
-        var activeRoutes = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.OwningContentMasterId == owningContentMasterId
-                && r.ContentMeta.IsPublished
-                && !r.ContentMeta.IsDeleted)
+        var routes = await _context.Set<CMSRouteDTO>()
+            .Where(r => r.OwningContentNodeId == owningContentNodeId)
             .ToListAsync(ct);
 
-        if (activeRoutes.Count == 0) return false;
+        if (routes.Count == 0) return false;
 
-        foreach (var route in activeRoutes)
-        {
-            route.ContentMeta.IsPublished = false;
-        }
-
-        _context.Set<CMSRouteDTO>().UpdateRange(activeRoutes);
+        _context.Set<CMSRouteDTO>().RemoveRange(routes);
         await _context.SaveChangesAsync(ct);
         _registry.Invalidate();
         return true;

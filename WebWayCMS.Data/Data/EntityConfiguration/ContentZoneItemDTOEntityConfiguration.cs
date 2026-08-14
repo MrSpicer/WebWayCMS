@@ -15,6 +15,11 @@ public sealed class ContentZoneItemDTOEntityConfiguration : IEntityTypeConfigura
         entity.Property(e => e.ComponentPropertiesJson).HasMaxLength(4000);
         entity.ToTable("ContentZoneItems");
 
-        entity.HasIndex(e => new { e.ContentZoneId, e.Ordinal });
+        entity.HasOne<ContentNode>()
+              .WithMany()
+              .HasForeignKey(e => e.ContentZoneNodeId)
+              .OnDelete(DeleteBehavior.Cascade);
+
+        entity.HasIndex(e => new { e.ContentZoneNodeId, e.Ordinal });
     }
 }

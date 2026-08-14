@@ -35,7 +35,6 @@ internal static class CmsRouteSeeder
         try
         {
             var routeService = services.GetRequiredService<ICMSRouteService>();
-            var contentService = services.GetRequiredService<IContentService<CMSRouteDTO>>();
             var existingRoutes = routeService.GetActiveRoutesAsync().GetAwaiter().GetResult();
 
             var existingPatterns = new HashSet<string>(
@@ -54,7 +53,7 @@ internal static class CmsRouteSeeder
             {
                 try
                 {
-                    SeedAssemblyCodeBasedRoutes(assembly, contentService, existingPatterns, logger);
+                    SeedAssemblyCodeBasedRoutes(assembly, routeService, existingPatterns, logger);
                 }
                 catch (Exception ex)
                 {
@@ -77,7 +76,7 @@ internal static class CmsRouteSeeder
 
     private static void SeedAssemblyCodeBasedRoutes(
         Assembly assembly,
-        IContentService<CMSRouteDTO> contentService,
+        ICMSRouteService routeService,
         HashSet<string> existingPatterns,
         ILogger logger)
     {
@@ -153,24 +152,12 @@ internal static class CmsRouteSeeder
                     ConstraintsJson = attr.Constraints ?? "{}",
                     DataTokensJson = JsonSerializer.Serialize(dataTokens),
                     Order = attr.Order,
-                    OwningContentType = "CodeBased",
-                    ContentMeta = new ContentDTO
-                    {
-                        Id = Guid.NewGuid(),
-                        Title = pattern,
-                        Slug = pattern.TrimStart('/'),
-                        IsPublished = true,
-                        PublicationDate = DateTime.UtcNow,
-                        CreationDate = DateTime.UtcNow,
-                        ModificationDate = DateTime.UtcNow,
-                        CreatedBy = Guid.Empty,
-                        LastModifiedBy = Guid.Empty,
-                    }
+                    OwningContentType = "CodeBased"
                 };
 
                 try
                 {
-                    contentService.CreateAsync(route).GetAwaiter().GetResult();
+                    routeService.UpsertAsync(route).GetAwaiter().GetResult();
                     existingPatterns.Add(pattern);
                     logger.Information("Seeded code-based route '{Pattern}' -> {Controller}.{Action}",
                         pattern, controllerName, attr.Action ?? "Index");

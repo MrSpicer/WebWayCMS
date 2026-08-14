@@ -4,27 +4,21 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
-using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Models.CMSRoute;
 
-public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
+public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
 {
     private readonly ICMSRouteService _routeService;
     private readonly IMapper _mapper;
 
-    protected override string VersionHistoryContentType => "cmsroutes";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/cmsroutes";
-    protected override Task<List<CMSRouteDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-        => Task.FromResult(new List<CMSRouteDTO>());
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => Task.FromResult(false);
-
-    public override string ContentType => "cmsroutes";
-    public override string DisplayName => "CMS Route";
-    public override string IndexViewPath => "~/Views/AdminCMSRoute/CMSRoutes.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminCMSRoute/CMSRouteUpsert.cshtml";
-    public override bool SupportsVersionHistory => false;
+    public string ContentType => "cmsroutes";
+    public string DisplayName => "CMS Route";
+    public string[]? WriteRoles => null;
+    public bool SupportsPublishing => false;
+    public bool SupportsVersionHistory => false;
+    public string IndexViewPath => "~/Views/AdminCMSRoute/CMSRoutes.cshtml";
+    public string UpsertViewPath => "~/Views/AdminCMSRoute/CMSRouteUpsert.cshtml";
 
     public CMSRouteModel(ICMSRouteService routeService, IMapper mapper)
     {
@@ -39,15 +33,10 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
         {
             Routes = routes.Select(r => new CMSRouteItemViewModel
             {
-                Id = r.ContentMeta.Id,
-                MasterId = r.ContentMeta.MasterId,
-                Version = r.ContentMeta.Version,
+                Id = r.Id,
                 Pattern = r.Pattern,
                 OwningContentType = r.OwningContentType,
-                IsReserved = r.IsReserved,
-                IsPublished = r.ContentMeta.IsPublished,
-                CreationDate = r.ContentMeta.CreationDate,
-                ModificationDate = r.ContentMeta.ModificationDate
+                IsReserved = r.IsReserved
             }).ToList()
         };
     }
@@ -67,8 +56,8 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
     {
         if (model == null) throw new ArgumentNullException(nameof(model));
 
-        var excludeMasterId = model.MasterId.HasValue && model.MasterId != Guid.Empty ? model.MasterId : null;
-        var available = await _routeService.IsPatternAvailableAsync(model.Pattern, excludeMasterId, ct);
+        var excludeRouteId = model.Id.HasValue && model.Id != Guid.Empty ? model.Id : null;
+        var available = await _routeService.IsPatternAvailableAsync(model.Pattern, excludeRouteId: excludeRouteId, ct: ct);
         if (!available)
             return (false, "This route pattern is already in use.");
 
@@ -82,15 +71,16 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
         return await _routeService.DeleteAsync(id, ct);
     }
 
-    public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
+    // IAdminCrudHandler members
+    public async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
         => await GetRouteIndexAsync(ct);
 
-    public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
+    public async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
         => await GetRouteUpsertAsync(id, ct);
 
-    public override object CreateEmptyUpsertViewModel() => new CMSRouteUpsertViewModel();
+    public object CreateEmptyUpsertViewModel() => new CMSRouteUpsertViewModel();
 
-    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
+    public async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
     {
         var vm = (CMSRouteUpsertViewModel)model;
         var result = await SaveRouteUpsertAsync(vm, ct);
@@ -99,12 +89,20 @@ public sealed class CMSRouteModel : AdminCrudModel<CMSRouteDTO>, ICMSRouteModel
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
-    public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
         => await DeleteRouteAsync(id, ct);
 
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
+    public async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
         var vm = await GetRouteIndexAsync(ct);
-        return vm.Routes.Select(r => (object)new { id = r.MasterId, title = r.Pattern });
+        return vm.Routes.Select(r => (object)new { id = r.Id, title = r.Pattern });
     }
+
+    public bool HasSecondaryApiList => false;
+
+    public Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default)
+        => Task.FromResult(Enumerable.Empty<object>());
+
+    public IAdminRegistryHandler? RegistryHandler => null;
+    public IAdminCrudChildHandler? ChildHandler => null;
 }

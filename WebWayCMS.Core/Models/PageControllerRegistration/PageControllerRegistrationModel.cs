@@ -14,15 +14,17 @@ namespace WebWayCMS.Models.PageControllerRegistration;
 
 public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControllerRegistrationDTO>
 {
-    private readonly IContentService<PageControllerRegistrationDTO> _service;
+    private readonly IContentStore<PageControllerRegistrationDTO> _store;
     private readonly IPageControllerRegistry _registry;
+
+    protected override IContentStore<PageControllerRegistrationDTO> Store => _store;
 
     protected override string VersionHistoryContentType => "pagetypes";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/pagetypes";
-    protected override Task<List<PageControllerRegistrationDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-        => _service.GetAllVersionsAsync(masterId, ct);
+    protected override Task<List<PageControllerRegistrationDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
+        => _store.GetAllVersionsAsync(nodeId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _service.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
+        => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "pagetypes";
     public override string DisplayName => "Page Controller Registration";
@@ -30,16 +32,18 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
     public override string UpsertViewPath => "~/Views/PageControllerRegistration/PageControllerRegistrationUpsert.cshtml";
 
     public PageControllerRegistrationModel(
-        IContentService<PageControllerRegistrationDTO> service,
-        IPageControllerRegistry registry)
+        IContentStore<PageControllerRegistrationDTO> store,
+        IPageControllerRegistry registry,
+        IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
     }
 
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
         return new PageControllerRegistrationIndexViewModel { Registrations = dtos };
     }
 
@@ -48,18 +52,16 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
         if (id == null || id == Guid.Empty)
             return new PageControllerRegistrationUpsertViewModel();
 
-        var dto = await _service.GetByIdAsync(id.Value, ct);
+        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
         if (dto == null)
             return null;
 
         return new PageControllerRegistrationUpsertViewModel
         {
-            Id = dto.ContentId,
-            MasterId = dto.ContentMeta.MasterId,
-            Version = dto.ContentMeta.Version,
-            Title = dto.ContentMeta.Title,
-            Slug = dto.ContentMeta.Slug,
-            IsPublished = dto.ContentMeta.IsPublished,
+            NodeId = dto.Version.Node.Id,
+            ExpectedVersionNumber = dto.Version.VersionNumber,
+            Title = dto.Version.Title,
+            Slug = dto.Version.Slug,
             ControllerName = dto.ControllerName,
             ControllerTypeName = dto.ControllerTypeName,
             DisplayName = dto.DisplayName,
@@ -69,6 +71,7 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
             Order = dto.Order,
             ConfigurationTypeName = dto.ConfigurationTypeName,
             IsActive = dto.IsActive,
+            IsPublished = dto.Version.State == ContentVersionState.Published,
         };
     }
 
@@ -77,25 +80,25 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
     protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (PageControllerRegistrationUpsertViewModel)model;
-        var isEdit = vm.Id.HasValue && vm.Id != Guid.Empty;
+        var isEdit = vm.NodeId.HasValue && vm.NodeId != Guid.Empty;
 
+        var (propertyDefinitionsJson, propError) = BuildPropertyDefinitions(vm.ConfigurationTypeName);
+        if (propError != null)
+            return new AdminSaveResult(false, propError);
+
+        PageControllerRegistrationDTO dto;
         if (isEdit)
         {
-            var existing = await _service.GetByIdAsync(vm.Id!.Value, ct);
+            var existing = await _store.GetCurrentDraftAsync(vm.NodeId!.Value, ct);
             if (existing == null)
                 return new AdminSaveResult(false, "Page controller registration not found.");
 
-            var (propertyDefinitionsJson, propError) = BuildPropertyDefinitions(vm.ConfigurationTypeName);
-            if (propError != null)
-                return new AdminSaveResult(false, propError);
-
-            var updated = existing with
+            dto = existing with
             {
-                ContentMeta = existing.ContentMeta with
+                Version = existing.Version with
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 ControllerName = vm.ControllerName,
                 ControllerTypeName = vm.ControllerTypeName,
@@ -108,25 +111,15 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
                 PropertyDefinitionsJson = propertyDefinitionsJson,
                 IsActive = vm.IsActive,
             };
-
-            var ok = await _service.UpdateAsync(updated, ct);
-            if (ok)
-                _registry.Invalidate();
-            return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
         }
         else
         {
-            var (propertyDefinitionsJson, propError) = BuildPropertyDefinitions(vm.ConfigurationTypeName);
-            if (propError != null)
-                return new AdminSaveResult(false, propError);
-
-            var dto = new PageControllerRegistrationDTO
+            dto = new PageControllerRegistrationDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 ControllerName = vm.ControllerName,
                 ControllerTypeName = vm.ControllerTypeName,
@@ -139,16 +132,19 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
                 PropertyDefinitionsJson = propertyDefinitionsJson,
                 IsActive = vm.IsActive,
             };
-
-            await _service.CreateAsync(dto, ct);
-            _registry.Invalidate();
-            return new AdminSaveResult(true);
         }
+
+        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
+        if (!result.Success)
+            return new AdminSaveResult(false, result.ErrorMessage ?? "Save failed.");
+
+        _registry.Invalidate();
+        return new AdminSaveResult(true, NodeId: result.NodeId);
     }
 
     public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _service.DeleteAsync(id, false, true, ct);
+        var result = await _store.DeleteAsync(id, softDelete: false, ct);
         if (result)
             _registry.Invalidate();
         return result;
@@ -156,30 +152,25 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
         return dtos
-            .Where(d => d.ContentMeta.IsPublished)
             .Select(d => (object)new
             {
-                id = d.ContentMeta.MasterId,
+                id = d.Version.Node.Id,
                 title = d.DisplayName ?? d.ControllerName
             });
     }
 
     public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
     {
-        var historical = await _service.GetByIdAsync(historicalId, ct);
+        var historical = await _store.GetVersionAsync(historicalId, ct);
         if (historical == null) return null;
-        var latest = await _service.GetByMasterIdAsync(historical.ContentMeta.MasterId, ct);
-        if (latest == null) return null;
         return new PageControllerRegistrationUpsertViewModel
         {
-            Id = latest.ContentId,
-            MasterId = latest.ContentMeta.MasterId,
-            Version = latest.ContentMeta.Version,
-            Title = historical.ContentMeta.Title,
-            Slug = historical.ContentMeta.Slug,
-            IsPublished = historical.ContentMeta.IsPublished,
+            NodeId = historical.Version.Node.Id,
+            ExpectedVersionNumber = historical.Version.VersionNumber,
+            Title = historical.Version.Title,
+            Slug = historical.Version.Slug,
             ControllerName = historical.ControllerName,
             ControllerTypeName = historical.ControllerTypeName,
             DisplayName = historical.DisplayName,
@@ -189,6 +180,7 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
             Order = historical.Order,
             ConfigurationTypeName = historical.ConfigurationTypeName,
             IsActive = historical.IsActive,
+            IsPublished = historical.Version.State == ContentVersionState.Published,
         };
     }
 

@@ -1,8 +1,8 @@
-@using WebWayCMS.Data.Models
-@model ContentZoneDTO
+@using WebWayCMS.Models.ContentZone
+@model ContentZoneItemsIndexViewModel
 
 @{
-    ViewData["Title"] = $"Items in: {Model.Name}";
+    ViewData["Title"] = $"Items in: {Model.Zone.Name}";
 }
 
 <div class="admin-page-header">
@@ -10,15 +10,15 @@
         <nav class="breadcrumb" aria-label="breadcrumbs">
             <ul>
                 <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
-                <li class="is-active"><a href="#" aria-current="page">@Model.Name</a></li>
+                <li class="is-active"><a href="#" aria-current="page">@Model.Zone.Name</a></li>
             </ul>
         </nav>
         <div class="admin-page-title-row">
             <div>
                 <h1 class="title is-4">@ViewData["Title"]</h1>
-                @if (!string.IsNullOrEmpty(Model.Description))
+                @if (!string.IsNullOrEmpty(Model.Zone.Description))
                 {
-                    <p class="subtitle is-6 has-text-grey">@Model.Description</p>
+                    <p class="subtitle is-6 has-text-grey">@Model.Zone.Description</p>
                 }
             </div>
         </div>
@@ -51,7 +51,7 @@
         {
             <div class="table-container mt-4">
                 <table class="table is-fullwidth is-striped" id="items-table">
-                    <caption class="is-sr-only">Items in content zone @Model.Name</caption>
+                    <caption class="is-sr-only">Items in content zone @Model.Zone.Name</caption>
                     <thead>
                         <tr>
                             <th scope="col" style="width: 60px;">Order</th>
@@ -64,7 +64,7 @@
                     <tbody>
                         @foreach (var item in Model.Items.OrderBy(i => i.Ordinal))
                         {
-                            <tr data-item-id="@item.ContentId">
+                            <tr data-item-id="@item.Version.Node.Id">
                                 <td>
                                     <span class="tag is-medium">@item.Ordinal</span>
                                 </td>
@@ -86,9 +86,9 @@
                                     <div class="buttons are-small">
                                         <a asp-controller="AdminContent" asp-action="ChildEdit"
                                            asp-route-contentType="contentzones"
-                                           asp-route-parentKey="@Model.ContentId"
+                                           asp-route-parentKey="@Model.Zone.Version.Node.Id"
                                            asp-route-childType="items"
-                                           asp-route-id="@item.ContentId"
+                                           asp-route-id="@item.Version.Node.Id"
                                            class="button is-small">
                                             <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
                                             <span>Edit</span>
@@ -96,7 +96,7 @@
                                         <button type="button" class="button is-small is-danger is-light"
                                                 data-delete-trigger
                                                 data-delete-name="@item.ComponentName"
-                                                data-delete-url="@Url.Action("ChildDelete", "AdminContent", new { contentType = "contentzones", parentKey = Model.ContentId, childType = "items", id = item.ContentId })">
+                                                data-delete-url="@Url.Action("ChildDelete", "AdminContent", new { contentType = "contentzones", parentKey = Model.Zone.Version.Node.Id, childType = "items", id = item.Version.Node.Id })">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                             <span>Delete</span>
                                         </button>

@@ -17,23 +17,45 @@ namespace WebWayCMS.Models.ContentZone;
 public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneModel, IAdminCrudHandler
 {
     private readonly IContentZoneService _service;
-    private readonly IPageService _pageService;
+    private readonly IContentStore<ContentZoneDTO> _zoneStore;
+    private readonly IContentStore<ContentZoneItemDTO> _itemStore;
     private readonly IWidgetRegistry _registry;
     private readonly ICMSRouteService _routeService;
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly ContentZoneChildHandler _childHandler;
     private readonly ContentZoneRegistryHandler _registryHandler;
 
+    protected override IContentStore<ContentZoneDTO> Store => _zoneStore;
+
+    protected override string VersionHistoryContentType => "contentzones";
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentzones";
+    protected override Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
+        => _zoneStore.GetAllVersionsAsync(nodeId, ct);
+    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
+        => _zoneStore.DeleteVersionAsync(id, ct);
+
+    public override string ContentType => "contentzones";
+    public override string DisplayName => "Content Zone";
+    public override string[]? WriteRoles => null;
+    public override string IndexViewPath => "~/Views/AdminContentZone/ContentZones.cshtml";
+    public override string UpsertViewPath => "~/Views/AdminContentZone/ContentZoneUpsert.cshtml";
+    public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
+    public override IAdminCrudChildHandler? ChildHandler => _childHandler;
+
     public ContentZoneModel(
         IContentZoneService service,
-        IPageService pageService,
+        IContentStore<ContentZoneDTO> zoneStore,
+        IContentStore<ContentZoneItemDTO> itemStore,
         IWidgetRegistry registry,
         IViewDiscoveryService viewDiscoveryService,
         ICMSRouteService routeService,
-        IRouteRegistrationService routeRegistration)
+        IRouteRegistrationService routeRegistration,
+        IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
-        _pageService = pageService ?? throw new ArgumentNullException(nameof(pageService));
+        _zoneStore = zoneStore ?? throw new ArgumentNullException(nameof(zoneStore));
+        _itemStore = itemStore ?? throw new ArgumentNullException(nameof(itemStore));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
@@ -50,136 +72,113 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         if (string.IsNullOrWhiteSpace(contentZoneName))
             return null;
 
-        var zone = await _service.GetByNameAsync(contentZoneName, ct);
+        var zone = await _service.GetZoneByNameAsync(contentZoneName, ct);
         if (zone == null)
             return new ContentZoneViewModel { Name = contentZoneName };
 
-        return MapToViewModel(zone);
+        return await MapToViewModelAsync(zone, ct);
     }
 
     public async Task<ContentZoneViewModel> GetOrCreateViewModelAsync(string contentZoneName, CancellationToken ct = default)
     {
         var zone = await _service.GetOrCreateByNameAsync(contentZoneName, ct);
-        return MapToViewModel(zone);
+        return await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel> GetOrCreateViewModelByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel> GetOrCreateViewModelByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
     {
-        var (zone, _) = await _service.GetOrCreateByPageSlotAsync(pageMasterId, slotName, ct);
-        return MapToViewModel(zone);
+        var (zone, _) = await _service.GetOrCreateByPageSlotAsync(pageNodeId, slotName, ct);
+        return await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel?> GetViewModelByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel?> GetViewModelByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _service.GetByPageSlotAsync(pageMasterId, slotName, ct);
+        var assignment = await _service.GetByPageSlotAsync(pageNodeId, slotName, ct);
         if (assignment == null)
             return null;
 
-        var zone = await _service.GetByIdAsync(assignment.ContentZoneId, ct);
-        return zone == null ? null : MapToViewModel(zone);
+        var zone = await _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, ct);
+        return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel> GetOrCreateViewModelByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel> GetOrCreateViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
     {
-        var (zone, _) = await _service.GetOrCreateByZoneSlotAsync(parentZoneId, slotName, ct);
-        return MapToViewModel(zone);
+        var (zone, _) = await _service.GetOrCreateByZoneSlotAsync(parentZoneNodeId, slotName, ct);
+        return await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel?> GetViewModelByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel?> GetViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _service.GetByZoneSlotAsync(parentZoneId, slotName, ct);
+        var assignment = await _service.GetByZoneSlotAsync(parentZoneNodeId, slotName, ct);
         if (assignment == null)
             return null;
 
-        var zone = await _service.GetByIdAsync(assignment.ContentZoneId, ct);
-        return zone == null ? null : MapToViewModel(zone);
+        var zone = await _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, ct);
+        return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel?> GetViewModelByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel?> GetViewModelByIdAsync(Guid nodeId, CancellationToken ct = default)
     {
-        var zone = await _service.GetByIdAsync(id, ct);
-        return zone == null ? null : MapToViewModel(zone);
+        var zone = await _service.GetZoneByNodeAsync(nodeId, ct);
+        return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneDTO?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<ContentZoneDTO?> GetByIdAsync(Guid nodeId, CancellationToken ct = default)
     {
-        return await _service.GetByIdAsync(id, ct);
+        return await _zoneStore.GetCurrentDraftAsync(nodeId, ct);
     }
 
-    public async Task<List<ContentZoneDTO>> GetAllAsync(CancellationToken ct = default)
+    public async Task<ContentZoneItemDTO?> GetItemByNodeIdAsync(Guid itemNodeId, CancellationToken ct = default)
     {
-        return await _service.GetAllAsync(ct);
+        return await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
     }
 
-    public async Task<ContentZoneDTO> CreateAsync(ContentZoneDTO zone, CancellationToken ct = default)
+    public async Task<ContentZoneItemDTO?> GetItemVersionAsync(Guid versionId, CancellationToken ct = default)
     {
-        return await _service.CreateAsync(zone, ct);
+        return await _itemStore.GetVersionAsync(versionId, ct);
     }
 
-    public async Task<bool> UpdateAsync(ContentZoneDTO zone, CancellationToken ct = default)
+    public async Task<bool> DeleteItemVersionAsync(Guid versionId, CancellationToken ct = default)
     {
-        return await _service.UpdateAsync(zone, ct);
+        return await _itemStore.DeleteVersionAsync(versionId, ct);
     }
 
-    public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
     {
-        return await _service.DeleteAsync(id, ct);
+        return await _service.DeleteZoneAsync(nodeId, ct);
     }
 
-    public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneId, ContentZoneItemDTO item, CancellationToken ct = default)
-    {
-        return await _service.AddItemAsync(zoneId, item, ct);
-    }
+    public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default)
+        => await _service.AddItemAsync(zoneNodeId, item, ct);
 
     public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default)
-    {
-        return await _service.UpdateItemAsync(item, ct);
-    }
+        => await _service.UpdateItemAsync(item, ct);
 
-    public async Task<bool> RemoveItemAsync(Guid itemId, CancellationToken ct = default)
-    {
-        return await _service.RemoveItemAsync(itemId, ct);
-    }
+    public async Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default)
+        => await _service.RemoveItemAsync(itemNodeId, ct);
 
-    public async Task<ContentZoneItemDTO?> GetItemByIdAsync(Guid itemId, CancellationToken ct = default)
-    {
-        return await _service.GetItemByIdAsync(itemId, ct);
-    }
+    public async Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default)
+        => await _service.ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder, ct);
 
-    public async Task<bool> ReorderItemsAsync(Guid zoneId, List<Guid> itemIdsInOrder, CancellationToken ct = default)
-    {
-        return await _service.ReorderItemsAsync(zoneId, itemIdsInOrder, ct);
-    }
+    public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemNodeId, CancellationToken ct = default)
+        => await _itemStore.GetAllVersionsAsync(itemNodeId, ct);
 
-    // Explicit interface implementation to avoid conflict with VersionedModel protected abstract
-    async Task<List<ContentZoneDTO>> IContentZoneModel.GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-    {
-        return await _service.GetAllVersionsAsync(masterId, ct);
-    }
-
-    public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemMasterId, CancellationToken ct = default)
-    {
-        return await _service.GetAllItemVersionsAsync(itemMasterId, ct);
-    }
+    public async Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => await _service.GetItemsAsync(zoneNodeId, ct);
 
     // IAdminCrudHandler members
 
-    public override string ContentType => "contentzones";
-    public override string DisplayName => "Content Zone";
-    public override string[]? WriteRoles => null;
-    public override string IndexViewPath => "~/Views/AdminContentZone/ContentZones.cshtml";
-    public override string UpsertViewPath => "~/Views/AdminContentZone/ContentZoneUpsert.cshtml";
-
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
     {
-        var zones = await _service.GetAllAsync(ct);
-        var zoneIdsWithChildren = await _service.GetZoneIdsWithChildrenAsync(zones.Select(z => z.ContentId), ct);
-        var assignmentCounts = await _service.GetAssignmentCountsByMasterIdAsync(zones.Select(z => z.ContentMeta.MasterId), ct);
+        var zones = await _zoneStore.GetAllCurrentDraftsAsync(ct);
+        var zoneNodeIds = zones.Select(z => z.Version.Node.Id).ToList();
+        var zoneIdsWithChildren = await _service.GetZoneNodeIdsWithChildrenAsync(zoneNodeIds, ct);
+        var assignmentCounts = await _service.GetAssignmentCountsByNodeIdAsync(zoneNodeIds, ct);
         return new ContentZoneIndexViewModel
         {
             Zones = zones,
             ZoneIdsWithChildren = zoneIdsWithChildren,
-            AssignmentCountsByMasterId = assignmentCounts
+            AssignmentCountsByNodeId = assignmentCounts
         };
     }
 
@@ -202,16 +201,17 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         {
             filterParentZoneId = zoneId;
             zones = await _service.GetAllByParentZoneAsync(zoneId, ct);
-            var parentZone = await _service.GetByIdAsync(zoneId, ct);
-            filterParentZoneName = parentZone?.Name ?? parentZone?.ContentMeta.Title;
+            var parentZone = await _service.GetZoneByNodeAsync(zoneId, ct);
+            filterParentZoneName = parentZone?.Name ?? parentZone?.Version.Title;
         }
         else
         {
-            zones = await _service.GetAllAsync(ct);
+            zones = await _zoneStore.GetAllCurrentDraftsAsync(ct);
         }
 
-        var zoneIdsWithChildren = await _service.GetZoneIdsWithChildrenAsync(zones.Select(z => z.ContentId), ct);
-        var assignmentCounts = await _service.GetAssignmentCountsByMasterIdAsync(zones.Select(z => z.ContentMeta.MasterId), ct);
+        var zoneNodeIds = zones.Select(z => z.Version.Node.Id).ToList();
+        var zoneIdsWithChildren = await _service.GetZoneNodeIdsWithChildrenAsync(zoneNodeIds, ct);
+        var assignmentCounts = await _service.GetAssignmentCountsByNodeIdAsync(zoneNodeIds, ct);
 
         return new ContentZoneIndexViewModel
         {
@@ -221,25 +221,24 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
             FilterParentZoneId = filterParentZoneId,
             FilterParentZoneName = filterParentZoneName,
             ZoneIdsWithChildren = zoneIdsWithChildren,
-            AssignmentCountsByMasterId = assignmentCounts
+            AssignmentCountsByNodeId = assignmentCounts
         };
     }
 
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
     {
         if (id == null) return new ContentZoneUpsertViewModel();
-        var zone = await _service.GetByIdAsync(id.Value, ct);
+        var zone = await _zoneStore.GetCurrentDraftAsync(id.Value, ct);
         if (zone == null) return null;
         return new ContentZoneUpsertViewModel
         {
-            Id = zone.ContentId,
-            MasterId = zone.ContentMeta.MasterId,
-            Version = zone.ContentMeta.Version,
-            Title = zone.ContentMeta.Title,
-            Slug = zone.ContentMeta.Slug,
-            IsPublished = zone.ContentMeta.IsPublished,
+            NodeId = zone.Version.Node.Id,
+            ExpectedVersionNumber = zone.Version.VersionNumber,
+            Title = zone.Version.Title,
+            Slug = zone.Version.Slug,
             Name = zone.Name,
             Description = zone.Description,
+            IsPublished = zone.Version.State == ContentVersionState.Published,
         };
     }
 
@@ -248,90 +247,87 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ContentZoneUpsertViewModel)model;
-        var isEdit = vm.Id.HasValue && vm.Id != Guid.Empty;
+        var isEdit = vm.NodeId.HasValue && vm.NodeId != Guid.Empty;
 
+        ContentZoneDTO zone;
         if (isEdit)
         {
-            var existing = await _service.GetByIdAsync(vm.Id!.Value, ct);
+            var existing = await _zoneStore.GetCurrentDraftAsync(vm.NodeId!.Value, ct);
             if (existing == null)
                 return new AdminSaveResult(false, "Content zone not found.");
 
-            var updated = existing with
+            zone = existing with
             {
-                ContentMeta = existing.ContentMeta with
+                Version = existing.Version with
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 Name = vm.Name,
                 Description = vm.Description,
             };
-            var ok = await _service.UpdateAsync(updated, ct);
-            return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
         }
         else
         {
-            var zone = new ContentZoneDTO
+            zone = new ContentZoneDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 Name = vm.Name,
                 Description = vm.Description,
             };
-            await _service.CreateAsync(zone, ct);
-            return new AdminSaveResult(true);
         }
+
+        var result = await _zoneStore.SaveDraftAsync(zone, vm.ExpectedVersionNumber, ct);
+        return result.Success ? new AdminSaveResult(true, NodeId: result.NodeId) : new AdminSaveResult(false, result.ErrorMessage ?? "Update failed.");
     }
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
-        var zones = await _service.GetAllAsync(ct);
-        return zones.Select(z => (object)new { id = z.ContentId, title = !string.IsNullOrEmpty(z.ContentMeta.Title) ? z.ContentMeta.Title : z.Name });
+        var zones = await _zoneStore.GetAllCurrentDraftsAsync(ct);
+        return zones.Select(z => (object)new { id = z.Version.Node.Id, title = !string.IsNullOrEmpty(z.Version.Title) ? z.Version.Title : z.Name });
     }
 
-    public override bool HasSecondaryApiList => false;
-
-    public override Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default)
-        => Task.FromResult(Enumerable.Empty<object>());
-
-    public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
-    public override IAdminCrudChildHandler? ChildHandler => _childHandler;
+    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+    {
+        var historical = await _zoneStore.GetVersionAsync(historicalId, ct);
+        if (historical == null) return null;
+        return new ContentZoneUpsertViewModel
+        {
+            NodeId = historical.Version.Node.Id,
+            ExpectedVersionNumber = historical.Version.VersionNumber,
+            Title = historical.Version.Title,
+            Slug = historical.Version.Slug,
+            Name = historical.Name,
+            Description = historical.Description,
+            IsPublished = historical.Version.State == ContentVersionState.Published,
+        };
+    }
 
     internal async Task RegisterWidgetRouteIfRoutableAsync(
-        string componentName, Guid itemMasterId, Guid zoneId, bool isActive, CancellationToken ct)
+        string componentName, Guid itemNodeId, Guid zoneNodeId, bool isActive, CancellationToken ct)
     {
-        var pageMasterId = await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+        var pageNodeId = await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
         await _routeRegistration.TryRegisterWidgetRoutesAsync(
-            componentName, itemMasterId, pageMasterId, isActive, ct);
+            componentName, itemNodeId, pageNodeId, isActive, ct);
     }
 
-    // VersionedModel abstract implementations
-
-    protected override string VersionHistoryContentType => "contentzones";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentzones";
-    protected override Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-        => _service.GetAllVersionsAsync(masterId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _service.DeleteAsync(id, ct);
-
-    private ContentZoneViewModel MapToViewModel(ContentZoneDTO zone)
+    private async Task<ContentZoneViewModel> MapToViewModelAsync(ContentZoneDTO zone, CancellationToken ct)
     {
+        var items = await _service.GetItemsAsync(zone.Version.Node.Id, ct);
         var vm = new ContentZoneViewModel
         {
-            Id = zone.ContentId,
+            Id = zone.Version.Node.Id,
             Name = zone.Name,
-            ZoneObjects = zone.Items
-                .OrderBy(i => i.Ordinal)
+            ZoneObjects = items
                 .Select(i => new ContentZoneObject
                 {
-                    Id = i.ContentId,
+                    Id = i.Version.Node.Id,
                     Ordinal = i.Ordinal,
-                    ZoneId = i.ContentZoneId,
+                    ZoneId = i.ContentZoneNodeId,
                     ComponentName = i.ComponentName,
                     ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson)
                 })
@@ -419,21 +415,23 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 
     public async Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default)
     {
-        if (!Guid.TryParse(parentKey, out var zoneId)) return null;
-        return await _model.GetByIdAsync(zoneId, ct);
+        if (!Guid.TryParse(parentKey, out var zoneNodeId)) return null;
+        var zone = await _model.GetByIdAsync(zoneNodeId, ct);
+        if (zone == null) return null;
+        var items = await _model.GetItemsAsync(zoneNodeId, ct);
+        return new ContentZoneItemsIndexViewModel { Zone = zone, Items = items };
     }
 
     public async Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default)
     {
         if (id == null || id == Guid.Empty) return null;
-        var item = await _model.GetItemByIdAsync(id.Value, ct);
+        var item = await _model.GetItemByNodeIdAsync(id.Value, ct);
         if (item == null) return null;
         return new ContentZoneItemUpsertViewModel
         {
-            Id = item.ContentId,
-            ContentZoneId = item.ContentZoneId,
-            MasterId = item.ContentMeta.MasterId,
-            Version = item.ContentMeta.Version,
+            NodeId = item.Version.Node.Id,
+            ContentZoneNodeId = item.ContentZoneNodeId,
+            ExpectedVersionNumber = item.Version.VersionNumber,
             ComponentName = item.ComponentName,
             ComponentPropertiesJson = item.ComponentPropertiesJson,
             IsActive = item.IsActive,
@@ -442,9 +440,9 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 
     public async Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default)
     {
-        if (!Guid.TryParse(parentKey, out var zoneId)) return;
-        var zone = await _model.GetByIdAsync(zoneId, ct);
-        viewData["ZoneName"] = zone?.Name ?? zone?.ContentMeta.Title ?? parentKey;
+        if (!Guid.TryParse(parentKey, out var zoneNodeId)) return;
+        var zone = await _model.GetByIdAsync(zoneNodeId, ct);
+        viewData["ZoneName"] = zone?.Name ?? zone?.Version.Title ?? parentKey;
         viewData["ZoneId"] = parentKey;
     }
 
@@ -453,26 +451,26 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
     public async Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
     {
         var vm = (ContentZoneItemUpsertViewModel)model;
-        if (vm.Id == null || vm.Id == Guid.Empty)
+        if (vm.NodeId == null || vm.NodeId == Guid.Empty)
         {
-            if (!Guid.TryParse(parentKey, out var zoneId))
+            if (!Guid.TryParse(parentKey, out var zoneNodeId))
                 return new AdminSaveResult(false, "A valid content zone id is required.");
 
             var newItem = new ContentZoneItemDTO
             {
-                ContentZoneId = zoneId,
+                ContentZoneNodeId = zoneNodeId,
                 ComponentName = vm.ComponentName,
                 ComponentPropertiesJson = string.IsNullOrWhiteSpace(vm.ComponentPropertiesJson) ? "{}" : vm.ComponentPropertiesJson,
                 IsActive = vm.IsActive,
             };
-            var createdItem = await _model.AddItemAsync(zoneId, newItem, ct);
+            var createdItem = await _model.AddItemAsync(zoneNodeId, newItem, ct);
             await _model.RegisterWidgetRouteIfRoutableAsync(
-                createdItem.ComponentName, createdItem.ContentMeta.MasterId, zoneId,
+                createdItem.ComponentName, createdItem.Version.Node!.Id, zoneNodeId,
                 createdItem.IsActive, ct);
             return new AdminSaveResult(true);
         }
 
-        var existing = await _model.GetItemByIdAsync(vm.Id.Value, ct);
+        var existing = await _model.GetItemByNodeIdAsync(vm.NodeId.Value, ct);
         if (existing == null)
             return new AdminSaveResult(false, "Content zone item not found.");
 
@@ -486,19 +484,19 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         if (ok)
         {
             await _model.RegisterWidgetRouteIfRoutableAsync(
-                updated.ComponentName, existing.ContentMeta.MasterId, existing.ContentZoneId,
-                updated.IsActive && vm.IsActive, ct);
+                updated.ComponentName, existing.Version.Node.Id, existing.ContentZoneNodeId,
+                updated.IsActive, ct);
         }
         return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
     }
 
     public async Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default)
     {
-        var item = await _model.GetItemByIdAsync(id, ct);
+        var item = await _model.GetItemByNodeIdAsync(id, ct);
         if (item != null)
         {
             await _model.RegisterWidgetRouteIfRoutableAsync(
-                item.ComponentName, item.ContentMeta.MasterId, item.ContentZoneId,
+                item.ComponentName, item.Version.Node.Id, item.ContentZoneNodeId,
                 false, ct);
         }
         return await _model.RemoveItemAsync(id, ct);
@@ -508,6 +506,57 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 
     public Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
         => Task.FromResult(false);
+
+    public bool SupportsVersionHistory => true;
+
+    public async Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default)
+    {
+        var versions = await _model.GetAllItemVersionsAsync(nodeId, ct);
+        if (!versions.Any()) return null;
+        var maxVersion = versions.Max(v => v.Version.VersionNumber);
+        return new VersionHistoryViewModel
+        {
+            ContentType = "contentzones",
+            NodeId = nodeId,
+            ItemTitle = versions.First().Version.Title ?? versions.First().ComponentName,
+            BackUrl = "/wadmin/contentzones",
+            ParentKey = parentKey,
+            ChildType = "items",
+            Versions = versions.Select(v => new VersionItemViewModel
+            {
+                Id = v.VersionId,
+                Version = v.Version.VersionNumber,
+                Title = v.ComponentName,
+                CreationDate = v.Version.Node.CreatedUtc,
+                ModificationDate = v.Version.CreatedUtc,
+                IsPublished = v.Version.State == ContentVersionState.Published,
+                IsDeleted = v.Version.Node.IsDeleted,
+                IsLatest = v.Version.VersionNumber == maxVersion,
+                CreatedBy = v.Version.CreatedBy,
+                ChangeNote = v.Version.ChangeNote,
+                State = v.Version.State,
+                ChangeSetId = v.Version.ChangeSetId
+            }).ToList()
+        };
+    }
+
+    public async Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
+    {
+        var historical = await _model.GetItemVersionAsync(historicalId, ct);
+        if (historical == null) return null;
+        return new ContentZoneItemUpsertViewModel
+        {
+            NodeId = historical.Version.Node.Id,
+            ContentZoneNodeId = historical.ContentZoneNodeId,
+            ExpectedVersionNumber = historical.Version.VersionNumber,
+            ComponentName = historical.ComponentName,
+            ComponentPropertiesJson = historical.ComponentPropertiesJson,
+            IsActive = historical.IsActive,
+        };
+    }
+
+    public async Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default)
+        => await _model.DeleteItemVersionAsync(id, ct);
 }
 
 /// <summary>Exposes the content zone component registry as admin JSON endpoints.</summary>

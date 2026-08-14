@@ -38,7 +38,11 @@ public class MappingTests
     [Test]
     public void Map_TwoTypeOverload_UsesDeclaredSourceType()
     {
-        var dto = new ContentBlockDTO { Content = "C", ContentMeta = new ContentDTO { Title = "T" } };
+        var dto = new ContentBlockDTO
+        {
+            Content = "C",
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "T" }
+        };
 
         var vm = _mapper.Map<ContentBlockDTO, ContentBlockViewModel>(dto);
 
@@ -68,8 +72,23 @@ public class MappingTests
     [Test]
     public void Map_ContentBlockDto_AllTargets_FullAndNull()
     {
-        var full = new ContentBlockDTO { Content = "c", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
-        var nulls = new ContentBlockDTO { Content = null!, ContentMeta = new ContentDTO { Title = null!, Slug = null! } };
+        var full = new ContentBlockDTO
+        {
+            Content = "c",
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = "T",
+                Slug = "s",
+                PublishStartUtc = DateTime.UtcNow,
+                VersionNumber = 3
+            }
+        };
+        var nulls = new ContentBlockDTO
+        {
+            Content = null!,
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = null!, Slug = null! }
+        };
 
         Assert.Multiple(() =>
         {
@@ -83,41 +102,55 @@ public class MappingTests
     }
 
     [Test]
-    public void Map_ContentBlockUpsert_ToDto_IdNullGeneratesNewAndDefaultsDates()
+    public void Map_ContentBlockUpsert_ToDto_NodeIdAndDatesPreserved()
     {
-        var vm = new ContentBlockUpsertViewModel { Id = null, Title = null!, Slug = null!, Content = null!, PublicationEndDate = null };
+        var id = Guid.NewGuid();
+        var vm = new ContentBlockUpsertViewModel
+        {
+            NodeId = id,
+            Title = "T",
+            Slug = "slug",
+            Content = "c",
+            PublicationDate = new DateTime(2024, 1, 1),
+            PublicationEndDate = new DateTime(2024, 2, 1)
+        };
 
         var dto = _mapper.Map<ContentBlockDTO>(vm);
 
         Assert.Multiple(() =>
         {
-            Assert.That(dto.ContentMeta.Id, Is.Not.EqualTo(Guid.Empty));
-            Assert.That(dto.ContentId, Is.EqualTo(dto.ContentMeta.Id));
-            Assert.That(dto.ContentMeta.Title, Is.Empty);
-            Assert.That(dto.ContentMeta.PublicationEndDate, Is.Null);
-            Assert.That(dto.ContentMeta.PublicationDate.Kind, Is.EqualTo(DateTimeKind.Utc));
+            Assert.That(dto.Version.Node.Id, Is.EqualTo(id));
+            Assert.That(dto.Version.Title, Is.EqualTo("T"));
+            Assert.That(dto.Version.Slug, Is.EqualTo("slug"));
+            Assert.That(dto.Content, Is.EqualTo("c"));
+            Assert.That(dto.Version.PublishStartUtc!.Value.Kind, Is.EqualTo(DateTimeKind.Utc));
+            Assert.That(dto.Version.PublishEndUtc, Is.Not.Null);
         });
     }
 
     [Test]
-    public void Map_ContentBlockUpsert_ToDto_IdSetIsPreserved()
+    public void Map_ContentBlockUpsert_ToDto_NullDefaults()
     {
-        var id = Guid.NewGuid();
-        var dto = _mapper.Map<ContentBlockDTO>(new ContentBlockUpsertViewModel { Id = id, Title = "T", Content = "c" });
+        var vm = new ContentBlockUpsertViewModel
+        {
+            NodeId = null,
+            Title = null!,
+            Slug = null!,
+            Content = null!,
+            PublicationDate = null,
+            PublicationEndDate = null
+        };
 
-        Assert.That(dto.ContentMeta.Id, Is.EqualTo(id));
-    }
-
-    [Test]
-    public void Map_ContentBlockUpsert_ToDto_PreservesMasterIdAndVersion()
-    {
-        var master = Guid.NewGuid();
-        var dto = _mapper.Map<ContentBlockDTO>(new ContentBlockUpsertViewModel { Id = Guid.NewGuid(), MasterId = master, Version = 7, Title = "T", Content = "c" });
+        var dto = _mapper.Map<ContentBlockDTO>(vm);
 
         Assert.Multiple(() =>
         {
-            Assert.That(dto.ContentMeta.MasterId, Is.EqualTo(master));
-            Assert.That(dto.ContentMeta.Version, Is.EqualTo(7));
+            Assert.That(dto.Version.Node.Id, Is.EqualTo(Guid.Empty));
+            Assert.That(dto.Version.Title, Is.Empty);
+            Assert.That(dto.Version.Slug, Is.Empty);
+            Assert.That(dto.Content, Is.Empty);
+            Assert.That(dto.Version.PublishStartUtc, Is.Null);
+            Assert.That(dto.Version.PublishEndUtc, Is.Null);
         });
     }
 
@@ -126,8 +159,26 @@ public class MappingTests
     [Test]
     public void Map_ArticleDto_ToViewModels_FullAndDefaults()
     {
-        var full = new ArticleDTO { Body = "b", AuthorName = "a", Summary = "sum", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
-        var defaults = new ArticleDTO { Body = "b", AuthorName = "a", Summary = "s", ContentMeta = new ContentDTO { Title = "T", Slug = null!, PublicationDate = default } };
+        var full = new ArticleDTO
+        {
+            Body = "b",
+            AuthorName = "a",
+            Summary = "sum",
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = "T",
+                Slug = "s",
+                PublishStartUtc = DateTime.UtcNow
+            }
+        };
+        var defaults = new ArticleDTO
+        {
+            Body = "b",
+            AuthorName = "a",
+            Summary = "s",
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "T", Slug = null! }
+        };
 
         Assert.Multiple(() =>
         {
@@ -139,17 +190,30 @@ public class MappingTests
     }
 
     [Test]
-    public void Map_ArticleUpsert_ToDto_IdEmptyGeneratesNew()
+    public void Map_ArticleUpsert_ToDto_EmptyNodeIdAndDefaults()
     {
-        var vm = new ArticleUpsertViewModel { Id = Guid.Empty, Title = null!, Slug = null!, Body = null!, AuthorName = null!, Summary = null!, PublicationDate = new DateTime(2024, 1, 1), PublicationEndDate = new DateTime(2024, 2, 1) };
+        var vm = new ArticleUpsertViewModel
+        {
+            NodeId = Guid.Empty,
+            Title = null!,
+            Slug = null!,
+            Body = null!,
+            AuthorName = null!,
+            Summary = null!,
+            PublicationDate = new DateTime(2024, 1, 1),
+            PublicationEndDate = new DateTime(2024, 2, 1)
+        };
 
         var dto = _mapper.Map<ArticleDTO>(vm);
 
         Assert.Multiple(() =>
         {
-            Assert.That(dto.ContentMeta.Id, Is.Not.EqualTo(Guid.Empty));
-            Assert.That(dto.ContentMeta.PublicationEndDate, Is.Not.Null);
+            Assert.That(dto.Version.Node.Id, Is.EqualTo(Guid.Empty));
+            Assert.That(dto.Version.PublishEndUtc, Is.Not.Null);
+            Assert.That(dto.Version.PublishStartUtc!.Value.Kind, Is.EqualTo(DateTimeKind.Utc));
             Assert.That(dto.Body, Is.Empty);
+            Assert.That(dto.AuthorName, Is.Empty);
+            Assert.That(dto.Summary, Is.Empty);
         });
     }
 
@@ -158,8 +222,20 @@ public class MappingTests
     [Test]
     public void Map_ArticleList_AllDirections()
     {
-        var full = new ArticleListDTO { ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
-        var defaults = new ArticleListDTO { ContentMeta = new ContentDTO { Title = "T", Slug = null!, PublicationDate = default } };
+        var full = new ArticleListDTO
+        {
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = "T",
+                Slug = "s",
+                PublishStartUtc = DateTime.UtcNow
+            }
+        };
+        var defaults = new ArticleListDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "T", Slug = null! }
+        };
 
         Assert.Multiple(() =>
         {
@@ -169,8 +245,8 @@ public class MappingTests
             Assert.That(_mapper.Map<ArticleListItemViewModel>(defaults).Slug, Is.Empty);
         });
 
-        var vm = new ArticleListUpsertViewModel { Id = null, Title = null!, Slug = null! };
-        Assert.That(_mapper.Map<ArticleListDTO>(vm).ContentMeta.Id, Is.Not.EqualTo(Guid.Empty));
+        var vm = new ArticleListUpsertViewModel { NodeId = null, Title = null!, Slug = null! };
+        Assert.That(_mapper.Map<ArticleListDTO>(vm).Version.Node.Id, Is.EqualTo(Guid.Empty));
     }
 
     // --- Page ---
@@ -178,8 +254,24 @@ public class MappingTests
     [Test]
     public void Map_Page_AllDirections_FullAndNull()
     {
-        var full = new PageDTO { ConfigurationJson = "{}", ViewName = "V", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s", PublicationDate = DateTime.UtcNow } };
-        var nulls = new PageDTO { ConfigurationJson = null!, ContentMeta = new ContentDTO { Title = null!, Slug = null!, PublicationDate = default } };
+        var full = new PageDTO
+        {
+            ConfigurationJson = "{}",
+            ViewName = "V",
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = "T",
+                Slug = "s",
+                PublishStartUtc = DateTime.UtcNow,
+                State = ContentVersionState.Published
+            }
+        };
+        var nulls = new PageDTO
+        {
+            ConfigurationJson = null!,
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = null!, Slug = null! }
+        };
 
         Assert.Multiple(() =>
         {
@@ -189,64 +281,110 @@ public class MappingTests
             Assert.That(_mapper.Map<PageUpsertViewModel>(nulls).ConfigurationJson, Is.EqualTo("{}"));
             Assert.That(_mapper.Map<PageUpsertViewModel>(nulls).PublicationDate, Is.Null);
             Assert.That(_mapper.Map<PageItemViewModel>(full).Title, Is.EqualTo("T"));
+            Assert.That(_mapper.Map<PageItemViewModel>(full).IsPublished, Is.True);
             Assert.That(_mapper.Map<PageItemViewModel>(nulls).Title, Is.Empty);
+            Assert.That(_mapper.Map<PageItemViewModel>(nulls).IsPublished, Is.False);
         });
     }
 
     [Test]
-    public void Map_PageUpsert_ToDto_IdSetIsPreserved()
+    public void Map_PageUpsert_ToDto_NodeIdIsPreserved()
     {
         var id = Guid.NewGuid();
-        var vm = new PageUpsertViewModel { Id = id, Title = null!, Slug = null!, ControllerName = null!, ConfigurationJson = null!, PublicationDate = new DateTime(2024, 1, 1), PublicationEndDate = new DateTime(2024, 2, 1) };
+        var vm = new PageUpsertViewModel
+        {
+            NodeId = id,
+            Title = null!,
+            Slug = null!,
+            ControllerName = null!,
+            ConfigurationJson = null!,
+            PublicationDate = new DateTime(2024, 1, 1),
+            PublicationEndDate = new DateTime(2024, 2, 1)
+        };
 
         var dto = _mapper.Map<PageDTO>(vm);
 
         Assert.Multiple(() =>
         {
-            Assert.That(dto.ContentMeta.Id, Is.EqualTo(id));
+            Assert.That(dto.Version.Node.Id, Is.EqualTo(id));
             Assert.That(dto.ConfigurationJson, Is.EqualTo("{}"));
-            Assert.That(dto.ContentMeta.PublicationEndDate, Is.Not.Null);
+            Assert.That(dto.ControllerName, Is.Empty);
+            Assert.That(dto.Version.PublishEndUtc, Is.Not.Null);
         });
     }
 
     // --- CMSRoute ---
 
     [Test]
-    public void Map_CMSRouteDto_ToUpsertViewModel_IncludesIsReserved()
+    public void Map_CMSRouteDto_ToUpsertViewModel_FullAndNull()
     {
-        var dto = new CMSRouteDTO
+        var full = new CMSRouteDTO
         {
+            Id = Guid.NewGuid(),
             Pattern = "/test",
-            IsReserved = true,
-            ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T", Slug = "s" }
+            DefaultsJson = "{\"a\":1}",
+            ConstraintsJson = "{\"b\":2}",
+            DataTokensJson = "{\"c\":3}",
+            OwningContentType = "Page",
+            IsReserved = true
         };
-
-        var vm = _mapper.Map<CMSRouteUpsertViewModel>(dto);
+        var nulls = new CMSRouteDTO
+        {
+            Pattern = null!,
+            DefaultsJson = null!,
+            ConstraintsJson = null!,
+            DataTokensJson = null!
+        };
 
         Assert.Multiple(() =>
         {
+            var vm = _mapper.Map<CMSRouteUpsertViewModel>(full);
             Assert.That(vm.IsReserved, Is.True);
             Assert.That(vm.Pattern, Is.EqualTo("/test"));
+            Assert.That(vm.DefaultsJson, Is.EqualTo("{\"a\":1}"));
+
+            var n = _mapper.Map<CMSRouteUpsertViewModel>(nulls);
+            Assert.That(n.Pattern, Is.Empty);
+            Assert.That(n.DefaultsJson, Is.EqualTo("{}"));
+            Assert.That(n.ConstraintsJson, Is.EqualTo("{}"));
+            Assert.That(n.DataTokensJson, Is.EqualTo("{}"));
         });
     }
 
     [Test]
-    public void Map_CMSRouteUpsert_ToDto_IncludesIsReserved()
+    public void Map_CMSRouteUpsert_ToDto_FullAndNull()
     {
-        var vm = new CMSRouteUpsertViewModel
+        var full = new CMSRouteUpsertViewModel
         {
-            Id = null,
-            Title = "T",
+            Id = Guid.NewGuid(),
             Pattern = "/test",
-            IsReserved = true
+            DefaultsJson = "{\"a\":1}",
+            ConstraintsJson = "{\"b\":2}",
+            DataTokensJson = "{\"c\":3}",
+            IsReserved = true,
+            OwningContentType = "Page"
         };
-
-        var dto = _mapper.Map<CMSRouteDTO>(vm);
 
         Assert.Multiple(() =>
         {
+            var dto = _mapper.Map<CMSRouteDTO>(full);
+            Assert.That(dto.Id, Is.EqualTo(full.Id));
             Assert.That(dto.IsReserved, Is.True);
             Assert.That(dto.Pattern, Is.EqualTo("/test"));
+
+            var n = _mapper.Map<CMSRouteDTO>(new CMSRouteUpsertViewModel
+            {
+                Id = null,
+                Pattern = null!,
+                DefaultsJson = null!,
+                ConstraintsJson = null!,
+                DataTokensJson = null!
+            });
+            Assert.That(n.Id, Is.EqualTo(Guid.Empty));
+            Assert.That(n.Pattern, Is.Empty);
+            Assert.That(n.DefaultsJson, Is.EqualTo("{}"));
+            Assert.That(n.ConstraintsJson, Is.EqualTo("{}"));
+            Assert.That(n.DataTokensJson, Is.EqualTo("{}"));
         });
     }
 }

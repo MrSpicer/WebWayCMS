@@ -26,6 +26,36 @@
   still ships `WebWayCMS.Admin`, and the startup seeders scan its assembly in both modes.
 - See [docs/architecture/11-deployment-modes.md](docs/architecture/11-deployment-modes.md).
 
+## Content Versioning (Node/Version model)
+
+- Content identity and version are **split**. A logical item is one `ContentNode`
+  (`Id`, `ContentTypeKey`, `ParentNodeId`, `SiteId`, `CreatedUtc`, `CreatedBy`, `IsDeleted/IsArchived/IsHidden`);
+  its mutable data lives on `ContentVersion` rows (`NodeId`, `VersionNumber`, `Culture`, `Segment`,
+  `State` (`Draft/InReview/Approved/Published/Archived`), `IsCurrentDraft`, `Title`, `Slug`,
+  `PublishStartUtc/EndUtc` (scheduling seam, not yet filtered), `ChangeNote`, `ChangeSetId`, `CustomFields`).
+  Every cross-entity FK points at `ContentNode.Id`. Content types implement `IVersionedContent`
+  (`VersionId` + `Version`, shared PK/FK into `ContentVersion`).
+- **One write engine:** `IContentStore<T>` / `ContentStore<T>` (in `WebWayCMS.Data`) replaces the old
+  `ContentService<T>`/`PageService`/zone CRUD. Reads are `GetAsync(nodeId)`/`GetAllAsync()`/… (read-context
+  aware) plus `GetCurrentDraftAsync`/`GetAllCurrentDraftsAsync` (admin) and `GetAllVersionsAsync` (history).
+  Writes are `SaveDraftAsync(entity, expectedVersionNumber)`, `PublishAsync`, `UnpublishAsync`,
+  `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync` and return `ContentWriteResult`.
+- **Two invariants** (enforced in code; filtered unique indexes are the DB backstop): exactly one
+  `IsCurrentDraft` per (NodeId, Culture, Segment), and at most one `Published` per variant.
+  `SaveDraftAsync` mints a new version only when editing a published item; repeated edits of a draft update
+  in place. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
+- **Read context is a mode boundary:** `IContentReadContext { Mode (Published|Draft), Culture, Segment }`.
+  Rendering-only hosts register a sealed `PublishedContentReadContext` (can never serve a draft); admin hosts
+  register `PreviewAwareReadContext` (Draft only with a `wwcms_preview` cookie + Admin/Editor role).
+  Version selection lives in one place: `ContentQueryExtensions.AtReadContext`.
+- **Edits are drafts until an explicit Publish.** Routes are written by Publish (never Save) via
+  `ICMSRouteService`; a draft slug change doesn't touch the route table until published. Publish/unpublish
+  are `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`; preview is `GET /wadmin/{contentType}/preview/{nodeId}`
+  (sets the preview cookie and redirects). Restore is one-step (`RestoreVersionAsync`, DTO-level clone).
+- Zone **items** auto-publish on write (no separate publish surface), preserving the inline editor's
+  immediately-visible behaviour. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
+- See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
+
 ## Testing
 
 - Test projects live under `tests/`, one per source project (NUnit + NSubstitute). Each references
@@ -79,9 +109,10 @@
 ## Security
 
 - **Rich-text sanitization:** CKEditor HTML is sanitized server-side on save (`RichTextSanitizer` in
-  `WebWayCMS.Core`, using `HtmlSanitizer`/`Ganss.Xss`). It runs generically at the single save choke
-  point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
-  MCP tools, on every `string` property marked `[FormProperty(EditorType = EditorType.RichText)]`.
+  `WebWayCMS.Core`, using `HtmlSanitizer`/`Ganss.Xss`). It runs generically at the top-level save choke
+  point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`) and at the article child-entity save
+  path (`ArticleModel.SaveUpsertAsync`), covering both the admin UI and the MCP tools, on every `string`
+  property marked `[FormProperty(EditorType = EditorType.RichText)]`.
   Stored content is therefore safe to render with `@Html.Raw`.
 - **Form attribute encoding:** all HTML input attributes are built by `FormAttributeBuilder`
   (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value exactly once via

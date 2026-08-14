@@ -101,14 +101,21 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 | `create_content` | Create an item |
 | `update_content` | Update an item |
 | `delete_content` | Delete an item |
+| `publish_content` | Publish the current draft of an item (gated on `SupportsPublishing`) |
+| `unpublish_content` | Unpublish the published version of an item |
+| `get_content_state` | Report an item's published/draft/current-version state |
 | `list_registry` | The type's registry list, where it exposes one |
 | `get_registry_properties` | Form property definitions for a registry entry |
 
-**`VersionToolset`** — `list_versions`, `get_version`, `restore_version`, `delete_version`.
+**`VersionToolset`** — `list_versions` (keyed on `nodeId`), `get_version`, `restore_version` (one-step
+DTO-level restore), `delete_version`.
 
-**`ChildContentToolset`** — `list_children`, `get_child`, `create_child`, `update_child`,
-`delete_child`, `reorder_children`, `list_child_versions`, `restore_child_version`,
+**`ChildContentToolset`** — `list_children`, `get_child`, `get_child_version`, `create_child`,
+`update_child`, `delete_child`, `reorder_children`, `list_child_versions`, `restore_child_version`,
 `delete_child_version`.
+
+The `publish_*`/`unpublish_*`/`restore_*` tools run with effective admin authority — the bearer token
+is the security boundary — so an agent can publish. Their tool descriptions state this plainly.
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
 are exactly the admin URL segments: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`,

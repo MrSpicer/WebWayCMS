@@ -19,11 +19,8 @@ public sealed class WidgetRegistrationService : IWidgetRegistrationService
         return await _context.Set<WidgetRegistrationDTO>()
             .AsNoTracking()
             .Where(w => w.IsActive
-                && w.ContentMeta.IsPublished
-                && !w.ContentMeta.IsDeleted
-                && !_context.Set<WidgetRegistrationDTO>().Any(w2 =>
-                    w2.ContentMeta.MasterId == w.ContentMeta.MasterId
-                    && w2.ContentMeta.Version > w.ContentMeta.Version))
+                && w.Version.State == ContentVersionState.Published
+                && !w.Version.Node.IsDeleted)
             .OrderBy(w => w.Category)
             .ThenBy(w => w.Order)
             .ThenBy(w => w.DisplayName)
@@ -34,11 +31,8 @@ public sealed class WidgetRegistrationService : IWidgetRegistrationService
     {
         return await _context.Set<WidgetRegistrationDTO>()
             .AsNoTracking()
-            .Where(w => w.ComponentName == componentName
-                && !w.ContentMeta.IsDeleted
-                && !_context.Set<WidgetRegistrationDTO>().Any(w2 =>
-                    w2.ContentMeta.MasterId == w.ContentMeta.MasterId
-                    && w2.ContentMeta.Version > w.ContentMeta.Version))
+            .Where(w => w.ComponentName == componentName && !w.Version.Node.IsDeleted)
+            .OrderByDescending(w => w.Version.VersionNumber)
             .FirstOrDefaultAsync(ct);
     }
 

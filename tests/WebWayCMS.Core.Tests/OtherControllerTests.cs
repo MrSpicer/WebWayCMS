@@ -93,7 +93,13 @@ public class ContentZoneApiControllerTests
     {
         var zoneId = Guid.NewGuid();
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
-            .Returns(c => c.Arg<ContentZoneItemDTO>());
+            .Returns(c =>
+            {
+                var item = c.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return item;
+            });
+        _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ZoneId = zoneId }, default);
 
@@ -103,12 +109,12 @@ public class ContentZoneApiControllerTests
     [Test]
     public async Task SaveItem_ByPageSlot_UpdatesItem_SuccessAndNotFound()
     {
-        var pageMaster = Guid.NewGuid();
-        var zone = new ContentZoneDTO { ContentId = Guid.NewGuid() };
-        _service.GetOrCreateByPageSlotAsync(pageMaster, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+        var pageNodeId = Guid.NewGuid();
+        var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } } };
+        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
 
-        var req = new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageMasterId = pageMaster, SlotName = "Main", ItemId = Guid.NewGuid() };
+        var req = new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageNodeId = pageNodeId, SlotName = "Main", ItemId = Guid.NewGuid() };
 
         Assert.Multiple(async () =>
         {
@@ -120,8 +126,18 @@ public class ContentZoneApiControllerTests
     [Test]
     public async Task SaveItem_ByName_ExistingZone()
     {
-        _service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO { ContentId = Guid.NewGuid() });
-        _service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneItemDTO>());
+        _service.GetZoneByNameAsync("Z", Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } }
+        });
+        _service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                var item = c.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return item;
+            });
+        _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default);
 
@@ -131,9 +147,19 @@ public class ContentZoneApiControllerTests
     [Test]
     public async Task SaveItem_ByName_CreatesZone()
     {
-        _service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
-        _service.CreateAsync(Arg.Any<ContentZoneDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneDTO>());
-        _service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<ContentZoneItemDTO>());
+        _service.GetZoneByNameAsync("Z", Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null);
+        _service.GetOrCreateByNameAsync("Z", Arg.Any<CancellationToken>()).Returns(new ContentZoneDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } }
+        });
+        _service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                var item = c.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return item;
+            });
+        _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default);
 
@@ -143,7 +169,7 @@ public class ContentZoneApiControllerTests
     [Test]
     public async Task SaveItem_ExceptionReturns500()
     {
-        _service.GetByNameAsync("Z", Arg.Any<CancellationToken>()).Returns<ContentZoneDTO?>(_ => throw new InvalidOperationException("boom"));
+        _service.GetZoneByNameAsync("Z", Arg.Any<CancellationToken>()).Returns<ContentZoneDTO?>(_ => throw new InvalidOperationException("boom"));
 
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z" }, default) as ObjectResult;
 
@@ -164,13 +190,19 @@ public class ContentZoneApiControllerTests
     [Test]
     public async Task GetItem_FoundAndNotFound()
     {
-        var item = new ContentZoneItemDTO { ContentId = Guid.NewGuid(), ComponentName = "C" };
-        var zone = new ContentZoneDTO { Items = new List<ContentZoneItemDTO> { item } };
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO> { zone });
+        var nodeId = Guid.NewGuid();
+        var item = new ContentZoneItemDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = nodeId } },
+            ContentZoneNodeId = Guid.NewGuid(),
+            ComponentName = "C"
+        };
+        _service.GetItemByNodeIdAsync(nodeId, Arg.Any<CancellationToken>()).Returns(item);
+        _service.GetItemByNodeIdAsync(Arg.Is<Guid>(g => g != nodeId), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _controller.GetItem(item.ContentId, default), Is.InstanceOf<OkObjectResult>());
+            Assert.That(await _controller.GetItem(nodeId, default), Is.InstanceOf<OkObjectResult>());
             Assert.That(await _controller.GetItem(Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
         });
     }
@@ -187,6 +219,17 @@ public class GenericPageControllerTests
         return controller;
     }
 
+    private static PageDTO Page(string? viewName, string title = "T")
+        => new()
+        {
+            ViewName = viewName,
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid() },
+                Title = title
+            }
+        };
+
     [Test]
     public async Task GenericPage_Index_DefaultView_CustomView_AndConfigFallback()
     {
@@ -197,10 +240,15 @@ public class GenericPageControllerTests
         Assert.That(def.Model, Is.InstanceOf<GenericPageConfiguration>());
 
         // With a page that specifies a view name and an existing config.
-        controller.HttpContext.Items["CMS:PageData"] = new PageDTO { ViewName = "Custom", ContentMeta = new ContentDTO { Id = Guid.NewGuid(), Title = "T" } };
+        controller.HttpContext.Items["CMS:PageData"] = Page("Custom");
         controller.HttpContext.Items["CMS:PageConfig"] = new GenericPageConfiguration { Style = "x" };
         var custom = (ViewResult)await controller.Index();
         Assert.That(custom.ViewName, Is.EqualTo("Custom"));
+
+        // A page with the "Default" view name falls back to the default view.
+        controller.HttpContext.Items["CMS:PageData"] = Page("Default");
+        var defaultNamed = (ViewResult)await controller.Index();
+        Assert.That(defaultNamed.ViewName, Is.Null);
     }
 
     [Test]
@@ -209,7 +257,7 @@ public class GenericPageControllerTests
         var controller = Build<GenericAdminPageController>();
         Assert.That(((ViewResult)await controller.Index()).ViewName, Is.Null);
 
-        controller.HttpContext.Items["CMS:PageData"] = new PageDTO { ViewName = "AdminView" };
+        controller.HttpContext.Items["CMS:PageData"] = Page("AdminView");
         Assert.That(((ViewResult)await controller.Index()).ViewName, Is.EqualTo("AdminView"));
     }
 }

@@ -10,5 +10,5 @@ public class ContentZoneIndexViewModel
     public Guid? FilterParentZoneId { get; set; }
     public string? FilterParentZoneName { get; set; }
     public HashSet<Guid> ZoneIdsWithChildren { get; set; } = [];
-    public Dictionary<Guid, int> AssignmentCountsByMasterId { get; set; } = [];
+    public Dictionary<Guid, int> AssignmentCountsByNodeId { get; set; } = [];
 }

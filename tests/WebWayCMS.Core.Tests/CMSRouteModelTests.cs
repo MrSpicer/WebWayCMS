@@ -1,5 +1,3 @@
-using System.Reflection;
-
 using NSubstitute;
 
 using NUnit.Framework;
@@ -60,6 +58,40 @@ public class CMSRouteModelTests
     }
 
     [Test]
+    public void SupportsPublishing_ReturnsFalse()
+    {
+        Assert.That(_model.SupportsPublishing, Is.False);
+    }
+
+    [Test]
+    public void WriteRoles_IsNull()
+    {
+        Assert.That(_model.WriteRoles, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandlerAndChildHandler_AreNull()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(_model.RegistryHandler, Is.Null);
+            Assert.That(_model.ChildHandler, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task GetSecondaryApiListAsync_ReturnsEmpty()
+    {
+        Assert.That(await _model.GetSecondaryApiListAsync("k"), Is.Empty);
+    }
+
+    [Test]
+    public void HasSecondaryApiList_ReturnsFalse()
+    {
+        Assert.That(_model.HasSecondaryApiList, Is.False);
+    }
+
+    [Test]
     public void CreateEmptyUpsertViewModel_ReturnsNewInstance()
     {
         var vm = _model.CreateEmptyUpsertViewModel();
@@ -71,17 +103,10 @@ public class CMSRouteModelTests
     {
         var dto = new CMSRouteDTO
         {
+            Id = Guid.NewGuid(),
             Pattern = "/test",
-            IsReserved = true,
-            ContentMeta = new ContentDTO
-            {
-                Id = Guid.NewGuid(),
-                MasterId = Guid.NewGuid(),
-                Version = 0,
-                IsPublished = true,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow
-            }
+            OwningContentType = "Page",
+            IsReserved = true
         };
 
         _routeService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { dto });
@@ -93,7 +118,7 @@ public class CMSRouteModelTests
             Assert.That(result.Routes, Has.Count.EqualTo(1));
             Assert.That(result.Routes[0].IsReserved, Is.True);
             Assert.That(result.Routes[0].Pattern, Is.EqualTo("/test"));
-            Assert.That(result.Routes[0].IsPublished, Is.True);
+            Assert.That(result.Routes[0].OwningContentType, Is.EqualTo("Page"));
         });
     }
 
@@ -135,15 +160,9 @@ public class CMSRouteModelTests
         var id = Guid.NewGuid();
         var dto = new CMSRouteDTO
         {
+            Id = id,
             Pattern = "/test",
-            IsReserved = true,
-            ContentMeta = new ContentDTO
-            {
-                Id = id,
-                MasterId = Guid.NewGuid(),
-                Version = 0,
-                Title = "My Route"
-            }
+            IsReserved = true
         };
 
         _routeService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(dto);
@@ -153,7 +172,6 @@ public class CMSRouteModelTests
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.IsReserved, Is.True);
         Assert.That(result.Pattern, Is.EqualTo("/test"));
-        Assert.That(result.Title, Is.EqualTo("My Route"));
     }
 
     [Test]
@@ -181,11 +199,10 @@ public class CMSRouteModelTests
     {
         var vm = new CMSRouteUpsertViewModel
         {
-            Pattern = "/test",
-            Title = "Test"
+            Pattern = "/test"
         };
 
-        _routeService.IsPatternAvailableAsync("/test", null, Arg.Any<CancellationToken>()).Returns(false);
+        _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(false);
 
         var (success, error) = await _model.SaveRouteUpsertAsync(vm);
 
@@ -199,11 +216,10 @@ public class CMSRouteModelTests
         var vm = new CMSRouteUpsertViewModel
         {
             Pattern = "/test",
-            Title = "Test",
             IsReserved = true
         };
 
-        _routeService.IsPatternAvailableAsync("/test", null, Arg.Any<CancellationToken>()).Returns(true);
+        _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var (success, error) = await _model.SaveRouteUpsertAsync(vm);
 
@@ -212,6 +228,23 @@ public class CMSRouteModelTests
         await _routeService.Received(1).UpsertAsync(
             Arg.Is<CMSRouteDTO>(d => d.IsReserved == true && d.Pattern == "/test"),
             Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SaveRouteUpsertAsync_WithExistingId_ExcludesOwnRoute()
+    {
+        var id = Guid.NewGuid();
+        var vm = new CMSRouteUpsertViewModel
+        {
+            Id = id,
+            Pattern = "/test"
+        };
+
+        _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), id, Arg.Any<CancellationToken>()).Returns(true);
+
+        var (success, _) = await _model.SaveRouteUpsertAsync(vm);
+
+        Assert.That(success, Is.True);
     }
 
     [Test]
@@ -224,9 +257,9 @@ public class CMSRouteModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_DelegatesAndReturnsResult()
     {
-        var vm = new CMSRouteUpsertViewModel { Pattern = "/test", Title = "T" };
+        var vm = new CMSRouteUpsertViewModel { Pattern = "/test" };
 
-        _routeService.IsPatternAvailableAsync("/test", null, Arg.Any<CancellationToken>()).Returns(true);
+        _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.SaveUpsertAsync(vm);
 
@@ -237,9 +270,9 @@ public class CMSRouteModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_DuplicatePattern_ReturnsErrorResult()
     {
-        var vm = new CMSRouteUpsertViewModel { Pattern = "/test", Title = "T" };
+        var vm = new CMSRouteUpsertViewModel { Pattern = "/test" };
 
-        _routeService.IsPatternAvailableAsync("/test", null, Arg.Any<CancellationToken>()).Returns(false);
+        _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(false);
 
         var result = await _model.SaveUpsertAsync(vm);
 
@@ -274,49 +307,11 @@ public class CMSRouteModelTests
     {
         _routeService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
-            new()
-            {
-                Pattern = "/test",
-                ContentMeta = new ContentDTO { MasterId = Guid.NewGuid() }
-            }
+            new() { Id = Guid.NewGuid(), Pattern = "/test" }
         });
 
         var result = await _model.GetApiListAsync();
 
         Assert.That(result.Count(), Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task GetVersionHistoryViewModelAsync_CallsGetAllVersionsAsync()
-    {
-        var result = await _model.GetVersionHistoryViewModelAsync(Guid.NewGuid());
-
-        Assert.That(result, Is.Null);
-    }
-
-    [Test]
-    public async Task DeleteVersionAsync_CallsDeleteVersionCoreAsync()
-    {
-        var result = await _model.DeleteVersionAsync(Guid.NewGuid());
-
-        Assert.That(result, Is.False);
-    }
-
-    [Test]
-    public void VersionHistoryContentType_ReturnsCmsroutes()
-    {
-        var prop = typeof(CMSRouteModel).GetProperty("VersionHistoryContentType",
-            BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
-        Assert.That(prop, Is.Not.Null);
-        Assert.That(prop!.GetValue(_model), Is.EqualTo("cmsroutes"));
-    }
-
-    [Test]
-    public void GetVersionHistoryBackUrl_ReturnsAdminCmsroutes()
-    {
-        var method = typeof(CMSRouteModel).GetMethod("GetVersionHistoryBackUrl",
-            BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
-        Assert.That(method, Is.Not.Null);
-        Assert.That(method!.Invoke(_model, new object?[] { null }), Is.EqualTo("/wadmin/cmsroutes"));
     }
 }

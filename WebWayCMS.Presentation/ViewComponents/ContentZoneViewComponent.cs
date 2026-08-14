@@ -30,7 +30,7 @@ public class ContentZoneViewComponent : ViewComponent
     /// <param name="zoneName">The slot name, e.g. "Main", "Sidebar".</param>
     /// <param name="IsGlobal">When true, bypasses page/zone context and uses name-based lookup.</param>
     /// <param name="editMode">When true, renders the edit UI regardless of the current user's role.</param>
-    /// <param name="zoneId">When provided, skips name/page resolution and fetches the zone directly by ID.</param>
+    /// <param name="zoneId">When provided, skips name/page resolution and fetches the zone directly by node id.</param>
     public async Task<IViewComponentResult> InvokeAsync(
         string? zoneName = null,
         bool IsGlobal = false,
@@ -45,11 +45,11 @@ public class ContentZoneViewComponent : ViewComponent
 
         ContentZoneViewModel? vm;
 
-        Guid? pageMasterIdForVm = null;
+        Guid? pageNodeIdForVm = null;
 
         if (zoneId.HasValue)
         {
-            // Direct lookup by zone ID - bypasses name/page resolution
+            // Direct lookup by zone node id - bypasses name/page resolution
             vm = await _model.GetViewModelByIdAsync(zoneId.Value, ct);
         }
         else
@@ -57,18 +57,18 @@ public class ContentZoneViewComponent : ViewComponent
             if (string.IsNullOrWhiteSpace(zoneName))
                 return Content(string.Empty);
 
-            var parentZoneId = ViewData["ContentZone:ParentZoneId"] as Guid?;
+            var parentZoneNodeId = ViewData["ContentZone:ParentZoneId"] as Guid?;
 
-            if (!IsGlobal && parentZoneId.HasValue)
+            if (!IsGlobal && parentZoneNodeId.HasValue)
             {
                 // Nested zone inside another zone - works with or without page context.
-                vm = await _model.GetOrCreateViewModelByZoneSlotAsync(parentZoneId.Value, zoneName, ct);
+                vm = await _model.GetOrCreateViewModelByZoneSlotAsync(parentZoneNodeId.Value, zoneName, ct);
             }
             else if (!IsGlobal && HttpContext.Items["CMS:PageData"] is PageDTO pageData)
             {
                 // Top-level page zone: resolve via assignment
-                pageMasterIdForVm = pageData.ContentMeta.MasterId;
-                vm = await _model.GetOrCreateViewModelByPageSlotAsync(pageData.ContentMeta.MasterId, zoneName, ct);
+                pageNodeIdForVm = pageData.Version.Node.Id;
+                vm = await _model.GetOrCreateViewModelByPageSlotAsync(pageData.Version.Node.Id, zoneName, ct);
             }
             else
             {
@@ -86,17 +86,17 @@ public class ContentZoneViewComponent : ViewComponent
                 RawZoneName = zoneName ?? string.Empty,
                 ZoneObjects = new List<ContentZoneObject>(),
                 CanEdit = editMode,
-                ParentPageMasterId = pageMasterIdForVm
+                ParentPageNodeId = pageNodeIdForVm
             };
         }
         else
         {
             vm.CanEdit = editMode;
             vm.RawZoneName = zoneName ?? vm.Name;
-            vm.ParentPageMasterId = pageMasterIdForVm;
+            vm.ParentPageNodeId = pageNodeIdForVm;
         }
 
-        // Store this zone's ID in ViewData so nested zones can use it as their parent
+        // Store this zone's node ID in ViewData so nested zones can use it as their parent
         if (vm.Id != Guid.Empty)
             ViewData["ContentZone:ParentZoneId"] = vm.Id;
 

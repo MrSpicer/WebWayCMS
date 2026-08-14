@@ -6,7 +6,6 @@ using NUnit.Framework;
 
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
-using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
@@ -28,42 +27,43 @@ public class WidgetConfigWithThrowingDefault
 [TestFixture]
 public class WidgetRegistrationModelTests
 {
-    private IContentService<WidgetRegistrationDTO> _service = null!;
+    private IContentStore<WidgetRegistrationDTO> _store = null!;
     private IWidgetRegistry _registry = null!;
     private IViewDiscoveryService _viewDiscovery = null!;
+    private IChangeSetScope _changeSetScope = null!;
     private WidgetRegistrationModel _model = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _service = Substitute.For<IContentService<WidgetRegistrationDTO>>();
+        _store = Substitute.For<IContentStore<WidgetRegistrationDTO>>();
         _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
-        _model = new WidgetRegistrationModel(_service, _registry, _viewDiscovery);
+        _changeSetScope = Substitute.For<IChangeSetScope>();
+        _model = new WidgetRegistrationModel(_store, _registry, _viewDiscovery, _changeSetScope);
     }
 
     private static WidgetRegistrationDTO Dto(
-        Guid? id = null,
+        Guid? nodeId = null,
         string componentName = "TestWidget",
         string displayName = "Test Widget",
         string category = "General",
         bool isActive = true,
         string? configTypeName = null,
         string propertyJson = "[]",
-        bool published = true,
-        Guid masterId = default) =>
-        new()
+        int version = 0)
+    {
+        var nid = nodeId ?? Guid.NewGuid();
+        return new()
         {
-            ContentId = id ?? Guid.NewGuid(),
-            ContentMeta = new ContentDTO
+            VersionId = Guid.NewGuid(),
+            Version = new ContentVersion
             {
-                Id = id ?? Guid.NewGuid(),
-                MasterId = masterId == default ? Guid.NewGuid() : masterId,
-                Version = 0,
+                Node = new ContentNode { Id = nid, CreatedUtc = DateTime.UtcNow },
                 Title = displayName,
                 Slug = componentName.ToLowerInvariant(),
-                IsPublished = published,
-                IsDeleted = false,
+                VersionNumber = version,
+                State = ContentVersionState.Draft
             },
             ComponentName = componentName,
             DisplayName = displayName,
@@ -75,17 +75,20 @@ public class WidgetRegistrationModelTests
             PropertyDefinitionsJson = propertyJson,
             IsActive = isActive,
         };
+    }
 
     [Test]
     public void Constructor_NullArguments_Throw()
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new WidgetRegistrationModel(null!, _registry, _viewDiscovery),
+            Assert.That(() => new WidgetRegistrationModel(null!, _registry, _viewDiscovery, _changeSetScope),
                 Throws.ArgumentNullException);
-            Assert.That(() => new WidgetRegistrationModel(_service, null!, _viewDiscovery),
+            Assert.That(() => new WidgetRegistrationModel(_store, null!, _viewDiscovery, _changeSetScope),
                 Throws.ArgumentNullException);
-            Assert.That(() => new WidgetRegistrationModel(_service, _registry, null!),
+            Assert.That(() => new WidgetRegistrationModel(_store, _registry, null!, _changeSetScope),
+                Throws.ArgumentNullException);
+            Assert.That(() => new WidgetRegistrationModel(_store, _registry, _viewDiscovery, null!),
                 Throws.ArgumentNullException);
         });
     }
@@ -110,7 +113,7 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task GetIndexViewModelAsync_ReturnsList()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
         {
             Dto(componentName: "A"),
             Dto(componentName: "B"),
@@ -135,8 +138,8 @@ public class WidgetRegistrationModelTests
     public async Task GetUpsertViewModelAsync_WithId_ReturnsPopulatedViewModel()
     {
         var id = Guid.NewGuid();
-        _service.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: id, componentName: "CB", displayName: "Content Block", configTypeName: "SomeType"));
+        _store.GetCurrentDraftAsync(id, Arg.Any<CancellationToken>()).Returns(Dto(
+            nodeId: id, componentName: "CB", displayName: "Content Block", configTypeName: "SomeType"));
 
         var result = await _model.GetUpsertViewModelAsync(id, new Microsoft.AspNetCore.Http.QueryCollection());
 
@@ -153,7 +156,7 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task GetUpsertViewModelAsync_NotFound_ReturnsNull()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
 
         var result = await _model.GetUpsertViewModelAsync(Guid.NewGuid(), new Microsoft.AspNetCore.Http.QueryCollection());
 
@@ -169,8 +172,8 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_Create_SavesAndInvalidates()
     {
-        _service.CreateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(componentName: "New"));
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new WidgetRegistrationUpsertViewModel
         {
@@ -186,7 +189,7 @@ public class WidgetRegistrationModelTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            _service.Received(1).CreateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>());
+            _store.Received(1).SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
             _registry.Received(1).Invalidate();
         });
     }
@@ -195,13 +198,14 @@ public class WidgetRegistrationModelTests
     public async Task SaveUpsertCoreAsync_Update_SavesAndInvalidates()
     {
         var id = Guid.NewGuid();
-        var existing = Dto(id: id, componentName: "Old", displayName: "Old Widget");
-        _service.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(existing);
-        _service.UpdateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        var existing = Dto(nodeId: id, componentName: "Old", displayName: "Old Widget");
+        _store.GetCurrentDraftAsync(id, Arg.Any<CancellationToken>()).Returns(existing);
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new WidgetRegistrationUpsertViewModel
         {
-            Id = id,
+            NodeId = id,
             Title = "Updated",
             ComponentName = "Updated",
             DisplayName = "Updated Widget",
@@ -214,7 +218,7 @@ public class WidgetRegistrationModelTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            _service.Received(1).UpdateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>());
+            _store.Received(1).SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
             _registry.Received(1).Invalidate();
         });
     }
@@ -222,11 +226,11 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_Update_NotFound_ReturnsError()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
 
         var vm = new WidgetRegistrationUpsertViewModel
         {
-            Id = Guid.NewGuid(),
+            NodeId = Guid.NewGuid(),
             Title = "X",
             ComponentName = "X",
             DisplayName = "X",
@@ -242,10 +246,28 @@ public class WidgetRegistrationModelTests
     }
 
     [Test]
+    public async Task SaveUpsertCoreAsync_SaveFailure_ReturnsError()
+    {
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "Save failed."));
+
+        var vm = new WidgetRegistrationUpsertViewModel
+        {
+            Title = "New Widget",
+            ComponentName = "New",
+            DisplayName = "New Widget",
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.That(result.Success, Is.False);
+    }
+
+    [Test]
     public async Task SaveUpsertCoreAsync_WithConfigurationTypeName_BuildsProperties()
     {
-        _service.CreateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(componentName: "Typed"));
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new WidgetRegistrationUpsertViewModel
         {
@@ -254,6 +276,26 @@ public class WidgetRegistrationModelTests
             DisplayName = "Typed Widget",
             Category = "Content",
             ConfigurationTypeName = typeof(WidgetRegistrationModelTests).FullName,
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.That(result.Success, Is.True);
+    }
+
+    [Test]
+    public async Task SaveUpsertCoreAsync_WithSystemTypeName_BuildsEmptyProperties()
+    {
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
+
+        var vm = new WidgetRegistrationUpsertViewModel
+        {
+            Title = "System Widget",
+            ComponentName = "System",
+            DisplayName = "System Widget",
+            Category = "Content",
+            ConfigurationTypeName = typeof(string).FullName,
         };
 
         var result = await _model.SaveUpsertAsync(vm);
@@ -284,8 +326,8 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_ThrowingDefaultValue_ReturnsError()
     {
-        _service.CreateAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(componentName: "Throwing"));
+        _store.SaveDraftAsync(Arg.Any<WidgetRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new WidgetRegistrationUpsertViewModel
         {
@@ -308,7 +350,7 @@ public class WidgetRegistrationModelTests
     [Test]
     public async Task DeleteAsync_DeletesAndInvalidates()
     {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, true, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.DeleteAsync(Guid.NewGuid());
 
@@ -320,46 +362,56 @@ public class WidgetRegistrationModelTests
     }
 
     [Test]
-    public async Task GetApiListAsync_ReturnsPublishedWidgets()
+    public async Task DeleteAsync_Failure_DoesNotInvalidate()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(false);
+
+        var result = await _model.DeleteAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
         {
-            Dto(componentName: "A", displayName: "Alpha", published: true),
-            Dto(componentName: "B", displayName: "Beta", published: false),
+            Assert.That(result, Is.False);
+            _registry.DidNotReceive().Invalidate();
+        });
+    }
+
+    [Test]
+    public async Task GetApiListAsync_ReturnsAllDrafts()
+    {
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            Dto(componentName: "A", displayName: "Alpha"),
+            Dto(componentName: "B", displayName: "Beta"),
         });
 
         var result = await _model.GetApiListAsync();
 
         var list = result.ToList();
-        Assert.That(list, Has.Count.EqualTo(1));
+        Assert.That(list, Has.Count.EqualTo(2));
     }
 
     [Test]
     public async Task GetRestoreVersionViewModelAsync_ReturnsViewModel()
     {
         var historicalId = Guid.NewGuid();
-        var masterId = Guid.NewGuid();
-        var latestId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
 
-        _service.GetByIdAsync(historicalId, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: historicalId, componentName: "Hist", displayName: "History",
-            configTypeName: "SomeType", masterId: masterId));
-
-        _service.GetByMasterIdAsync(masterId, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: latestId, componentName: "Latest", masterId: masterId));
+        _store.GetVersionAsync(historicalId, Arg.Any<CancellationToken>()).Returns(Dto(
+            nodeId: nodeId, componentName: "Hist", displayName: "History",
+            configTypeName: "SomeType"));
 
         var result = await _model.GetRestoreVersionViewModelAsync(historicalId);
 
         Assert.That(result, Is.InstanceOf<WidgetRegistrationUpsertViewModel>());
         var vm = (WidgetRegistrationUpsertViewModel)result!;
         Assert.That(vm.ComponentName, Is.EqualTo("Hist"));
-        Assert.That(vm.Id, Is.EqualTo(latestId));
+        Assert.That(vm.NodeId, Is.EqualTo(nodeId));
     }
 
     [Test]
     public async Task RestoreVersion_HistoricalNotFound_ReturnsNull()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
+        _store.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
 
         var result = await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid());
 
@@ -367,37 +419,33 @@ public class WidgetRegistrationModelTests
     }
 
     [Test]
-    public async Task RestoreVersion_LatestNotFound_ReturnsNull()
+    public async Task VersionHistory_DelegatesToStore()
     {
-        var dto = Dto();
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(dto);
-        _service.GetByMasterIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((WidgetRegistrationDTO?)null);
+        var nodeId = Guid.NewGuid();
+        _store.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<WidgetRegistrationDTO> { Dto(nodeId: nodeId) });
 
-        var result = await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid());
-
-        Assert.That(result, Is.Null);
-    }
-
-    [Test]
-    public async Task VersionHistory_DelegatesToService()
-    {
-        var masterId = Guid.NewGuid();
-        _service.GetAllVersionsAsync(masterId, Arg.Any<CancellationToken>())
-            .Returns(new List<WidgetRegistrationDTO> { Dto() });
-
-        var result = await _model.GetVersionHistoryViewModelAsync(masterId);
+        var result = await _model.GetVersionHistoryViewModelAsync(nodeId);
 
         Assert.That(result, Is.Not.Null);
     }
 
     [Test]
-    public async Task DeleteVersion_DelegatesToService()
+    public async Task DeleteVersion_DelegatesToStore()
     {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, false, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.DeleteVersionAsync(Guid.NewGuid());
 
         Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task PublishAsync_DelegatesToStore()
+    {
+        _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+
+        Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
     }
 
     // --- Registry handler tests ---
@@ -510,8 +558,6 @@ public class WidgetRegistrationModelTests
         Assert.That(result, Is.InstanceOf<JsonResult>());
     }
 
-    // --- WidgetRegistrationRegistryHandler GetForm ---
-
     [Test]
     public void RegistryHandler_GetForm_EmptyName_ReturnsBadRequest()
     {
@@ -583,23 +629,5 @@ public class WidgetRegistrationModelTests
         var result = _model.RegistryHandler!.GetForm("Core", null);
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
-    }
-
-    // ResolveConfigurationType (private static) coverage via reflection
-
-    [Test]
-    public void ResolveConfigurationType_NullOrWhitespace_ReturnsNull()
-    {
-        var method = typeof(WidgetRegistrationModel).GetMethod(
-            "ResolveConfigurationType",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-        Assert.That(method, Is.Not.Null);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(method.Invoke(null, new object?[] { null }), Is.Null);
-            Assert.That(method.Invoke(null, new object?[] { "  " }), Is.Null);
-            Assert.That(method.Invoke(null, new object?[] { "" }), Is.Null);
-        });
     }
 }

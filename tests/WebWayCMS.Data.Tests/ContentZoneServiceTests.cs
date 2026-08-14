@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+using NSubstitute;
 
 using NUnit.Framework;
 
@@ -18,44 +18,64 @@ public class ContentZoneServiceTests
 
     private CmsDbContext NewContext() => TestContexts.Cms(_db);
 
-    private ContentZoneService NewService() => new(NewContext());
-
-    private static ContentZoneDTO Zone(Guid master, int version = 0, string name = "Zone",
-        bool published = true, bool deleted = false)
+    private ContentZoneService NewService(
+        CmsDbContext? ctx = null,
+        IContentStore<ContentZoneDTO>? zoneStore = null,
+        IContentStore<ContentZoneItemDTO>? itemStore = null,
+        IContentReadContext? readContext = null)
     {
-        var id = Guid.NewGuid();
+        var context = ctx ?? NewContext();
+        var rc = readContext ?? new TestReadContext(ContentReadMode.Published);
+        var scope = new ChangeSetScope(context, new DefaultContentUserContext());
+        zoneStore ??= new ContentStore<ContentZoneDTO>(context, rc, scope, new DefaultContentUserContext(), "contentzones");
+        itemStore ??= new ContentStore<ContentZoneItemDTO>(context, rc, scope, new DefaultContentUserContext(), "contentzoneitems");
+        return new ContentZoneService(context, zoneStore, itemStore, rc, scope);
+    }
+
+    private static ContentZoneDTO Zone(Guid? nodeId = null, int version = 0, string name = "Zone",
+        ContentVersionState state = ContentVersionState.Published, bool deleted = false, bool currentDraft = true)
+    {
+        var n = nodeId ?? Guid.NewGuid();
+        var versionId = Guid.NewGuid();
         return new ContentZoneDTO
         {
-            ContentId = id,
+            VersionId = versionId,
             Name = name,
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = id,
-                MasterId = master,
-                Version = version,
-                Title = name,
-                IsPublished = published,
-                IsDeleted = deleted
+                Id = versionId,
+                NodeId = n,
+                Node = new ContentNode { Id = n, ContentTypeKey = "contentzones", IsDeleted = deleted },
+                VersionNumber = version,
+                State = state,
+                IsCurrentDraft = currentDraft,
+                Title = name
             }
         };
     }
 
-    private static ContentZoneItemDTO Item(Guid zoneId, Guid master, int version = 0, int ordinal = 0,
-        bool active = true, string component = "ContentBlock")
+    private static ContentZoneItemDTO Item(Guid zoneNodeId, Guid? itemNodeId = null, int version = 0, int ordinal = 0,
+        bool active = true, string component = "ContentBlock",
+        ContentVersionState state = ContentVersionState.Published, bool currentDraft = true)
     {
-        var id = Guid.NewGuid();
+        var n = itemNodeId ?? Guid.NewGuid();
+        var versionId = Guid.NewGuid();
         return new ContentZoneItemDTO
         {
-            ContentId = id,
-            ContentZoneId = zoneId,
+            VersionId = versionId,
+            ContentZoneNodeId = zoneNodeId,
             Ordinal = ordinal,
             IsActive = active,
             ComponentName = component,
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = id,
-                MasterId = master,
-                Version = version
+                Id = versionId,
+                NodeId = n,
+                Node = new ContentNode { Id = n, ContentTypeKey = "contentzoneitems" },
+                VersionNumber = version,
+                State = state,
+                IsCurrentDraft = currentDraft,
+                Title = component
             }
         };
     }
@@ -82,344 +102,181 @@ public class ContentZoneServiceTests
     }
 
     [Test]
-    public void Constructor_NullContext_Throws()
+    public void Constructor_NullArgs_Throws()
     {
-        Assert.That(() => new ContentZoneService(null!), Throws.ArgumentNullException);
+        var ctx = NewContext();
+        var readContext = new TestReadContext(ContentReadMode.Published);
+        var scope = new ChangeSetScope(ctx, new DefaultContentUserContext());
+        var zoneStore = new ContentStore<ContentZoneDTO>(ctx, readContext, scope, new DefaultContentUserContext(), "contentzones");
+        var itemStore = new ContentStore<ContentZoneItemDTO>(ctx, readContext, scope, new DefaultContentUserContext(), "contentzoneitems");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => new ContentZoneService(null!, zoneStore, itemStore, readContext, scope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, null!, itemStore, readContext, scope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, null!, readContext, scope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, null!, scope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, readContext, null!), Throws.ArgumentNullException);
+        });
     }
 
-    // --- GetByName ---
+    // ─── item resolution ──────────────────────────────────────────────────────
 
     [Test]
-    public async Task GetByNameAsync_Whitespace_ReturnsNull()
+    public async Task GetItemsAsync_ReturnsActiveItemsOrdered()
     {
-        Assert.That(await NewService().GetByNameAsync(" "), Is.Null);
-    }
-
-    [Test]
-    public async Task GetByNameAsync_ReturnsPublishedLatestWithActiveItemsOrdered()
-    {
-        var m = Guid.NewGuid();
-        var zone = Zone(m, 0, "Main");
-        await SeedZonesAsync(zone);
+        var zoneNodeId = Guid.NewGuid();
         await SeedItemsAsync(
-            Item(zone.ContentId, Guid.NewGuid(), ordinal: 2),
-            Item(zone.ContentId, Guid.NewGuid(), ordinal: 1),
-            Item(zone.ContentId, Guid.NewGuid(), ordinal: 3, active: false));
+            Item(zoneNodeId, Guid.NewGuid(), ordinal: 2),
+            Item(zoneNodeId, Guid.NewGuid(), ordinal: 1),
+            Item(zoneNodeId, Guid.NewGuid(), ordinal: 3, active: false));
 
-        var result = await NewService().GetByNameAsync("Main");
+        var items = await NewService().GetItemsAsync(zoneNodeId);
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(result, Is.Not.Null);
-            Assert.That(result!.Items.Select(i => i.Ordinal), Is.EqualTo(new[] { 1, 2 }));
-        });
+        Assert.That(items.Select(i => i.Ordinal), Is.EqualTo(new[] { 1, 2 }));
     }
 
+    // ─── zone reads ───────────────────────────────────────────────────────────
+
     [Test]
-    public async Task GetByIdAsync_FoundAndNotFound()
+    public async Task GetZoneByNodeAsync_FoundAndNotFound()
     {
-        var zone = Zone(Guid.NewGuid());
+        var zone = Zone(Guid.NewGuid(), 0, "Main");
         await SeedZonesAsync(zone);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await NewService().GetByIdAsync(zone.ContentId), Is.Not.Null);
-            Assert.That(await NewService().GetByIdAsync(Guid.NewGuid()), Is.Null);
+            Assert.That(await NewService().GetZoneByNodeAsync(zone.Version.Node.Id), Is.Not.Null);
+            Assert.That(await NewService().GetZoneByNodeAsync(Guid.NewGuid()), Is.Null);
         });
     }
 
     [Test]
-    public async Task GetAllAsync_ReturnsLatestNonDeletedOrderedByName()
+    public async Task GetZoneByNameAsync_Whitespace_ReturnsNull()
     {
-        var m1 = Guid.NewGuid();
-        await SeedZonesAsync(
-            Zone(m1, 0, "B"),
-            Zone(m1, 1, "B"),
-            Zone(Guid.NewGuid(), 0, "A"),
-            Zone(Guid.NewGuid(), 0, "Z", deleted: true));
-
-        var all = await NewService().GetAllAsync();
-
-        Assert.That(all.Select(z => z.Name), Is.EqualTo(new[] { "A", "B" }));
-    }
-
-    // --- Create / Update / Delete zone ---
-
-    [Test]
-    public void CreateAsync_Null_Throws()
-    {
-        Assert.That(async () => await NewService().CreateAsync(null!), Throws.ArgumentNullException);
+        Assert.That(await NewService().GetZoneByNameAsync(" "), Is.Null);
     }
 
     [Test]
-    public async Task CreateAsync_EmptyId_InitializesIdMasterAndDates()
+    public async Task GetZoneByNameAsync_ReturnsZone()
     {
-        var created = await NewService().CreateAsync(new ContentZoneDTO { Name = "N", ContentMeta = new ContentDTO { Title = "N" } });
+        await SeedZonesAsync(Zone(Guid.NewGuid(), 0, "Main"));
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(created.ContentMeta.Id, Is.Not.EqualTo(Guid.Empty));
-            Assert.That(created.ContentId, Is.EqualTo(created.ContentMeta.Id));
-            Assert.That(created.ContentMeta.MasterId, Is.EqualTo(created.ContentMeta.Id));
-            Assert.That(created.ContentMeta.PublicationDate, Is.Not.EqualTo(default(DateTime)));
-        });
+        var result = await NewService().GetZoneByNameAsync("Main");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Name, Is.EqualTo("Main"));
     }
 
-    [Test]
-    public async Task CreateAsync_PresetIdAndPublicationDate_AreKept()
-    {
-        var id = Guid.NewGuid();
-        var when = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var created = await NewService().CreateAsync(new ContentZoneDTO { Name = "N", ContentMeta = new ContentDTO { Id = id, Title = "N", PublicationDate = when } });
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(created.ContentMeta.Id, Is.EqualTo(id));
-            Assert.That(created.ContentMeta.PublicationDate, Is.EqualTo(when));
-        });
-    }
-
-    [Test]
-    public void UpdateAsync_Null_Throws()
-    {
-        Assert.That(async () => await NewService().UpdateAsync(null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
-    public async Task UpdateAsync_NonExistent_ReturnsFalse()
-    {
-        Assert.That(await NewService().UpdateAsync(Zone(Guid.NewGuid())), Is.False);
-    }
-
-    [Test]
-    public async Task UpdateAsync_Existing_AddsNewVersion()
-    {
-        var m = Guid.NewGuid();
-        var zone = Zone(m, 0, "Old");
-        await SeedZonesAsync(zone);
-
-        var ok = await NewService().UpdateAsync(new ContentZoneDTO { ContentId = zone.ContentMeta.Id, Name = "New", ContentMeta = new ContentDTO { Id = zone.ContentMeta.Id, MasterId = m, Title = "New" } });
-
-        await using var verify = NewContext();
-        var versions = await verify.Set<ContentZoneDTO>().Where(z => z.ContentMeta.MasterId == m).OrderBy(z => z.ContentMeta.Version).ToListAsync();
-        Assert.Multiple(() =>
-        {
-            Assert.That(ok, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(2));
-            Assert.That(versions[1].Name, Is.EqualTo("New"));
-        });
-    }
-
-    [Test]
-    public async Task DeleteAsync_NotFoundAndFound()
-    {
-        var zone = Zone(Guid.NewGuid());
-        await SeedZonesAsync(zone);
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await NewService().DeleteAsync(Guid.NewGuid()), Is.False);
-            Assert.That(await NewService().DeleteAsync(zone.ContentId), Is.True);
-        });
-    }
-
-    // --- Items ---
-
-    [Test]
-    public void AddItemAsync_Null_Throws()
-    {
-        Assert.That(async () => await NewService().AddItemAsync(Guid.NewGuid(), null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
-    public void AddItemAsync_ZoneNotFound_Throws()
-    {
-        Assert.That(async () => await NewService().AddItemAsync(Guid.NewGuid(), new ContentZoneItemDTO { ComponentName = "X" }),
-            Throws.InvalidOperationException);
-    }
-
-    [Test]
-    public async Task AddItemAsync_AutoAssignsIdAndOrdinal()
-    {
-        var zone = Zone(Guid.NewGuid());
-        await SeedZonesAsync(zone);
-        await SeedItemsAsync(Item(zone.ContentId, Guid.NewGuid(), ordinal: 5));
-
-        var item = await NewService().AddItemAsync(zone.ContentId, new ContentZoneItemDTO { ComponentName = "ContentBlock" });
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(item.ContentMeta.Id, Is.Not.EqualTo(Guid.Empty));
-            Assert.That(item.ContentZoneId, Is.EqualTo(zone.ContentId));
-            Assert.That(item.Ordinal, Is.EqualTo(6)); // max + 1
-            Assert.That(item.ContentMeta.IsPublished, Is.True);
-        });
-    }
-
-    [Test]
-    public async Task AddItemAsync_PresetOrdinal_IsKept()
-    {
-        var zone = Zone(Guid.NewGuid());
-        await SeedZonesAsync(zone);
-
-        var item = await NewService().AddItemAsync(zone.ContentId, new ContentZoneItemDTO { ComponentName = "X", Ordinal = 9 });
-
-        Assert.That(item.Ordinal, Is.EqualTo(9));
-    }
-
-    [Test]
-    public void UpdateItemAsync_Null_Throws()
-    {
-        Assert.That(async () => await NewService().UpdateItemAsync(null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
-    public async Task UpdateItemAsync_NonExistent_ReturnsFalse()
-    {
-        Assert.That(await NewService().UpdateItemAsync(Item(Guid.NewGuid(), Guid.NewGuid())), Is.False);
-    }
-
-    [Test]
-    public async Task UpdateItemAsync_Existing_AddsNewVersion()
-    {
-        var zoneId = Guid.NewGuid();
-        var m = Guid.NewGuid();
-        var existing = Item(zoneId, m, 0, ordinal: 1, component: "Old");
-        await SeedItemsAsync(existing);
-
-        var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO { ContentId = existing.ContentMeta.Id, ComponentName = "New", IsActive = true });
-
-        await using var verify = NewContext();
-        var versions = await verify.Set<ContentZoneItemDTO>().Where(i => i.ContentMeta.MasterId == m).OrderBy(i => i.ContentMeta.Version).ToListAsync();
-        Assert.Multiple(() =>
-        {
-            Assert.That(ok, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(2));
-            Assert.That(versions[1].ComponentName, Is.EqualTo("New"));
-            Assert.That(versions[1].Ordinal, Is.EqualTo(1), "ordinal preserved from existing");
-        });
-    }
-
-    [Test]
-    public async Task RemoveItemAsync_NotFoundAndFound()
-    {
-        var item = Item(Guid.NewGuid(), Guid.NewGuid());
-        await SeedItemsAsync(item);
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await NewService().RemoveItemAsync(Guid.NewGuid()), Is.False);
-            Assert.That(await NewService().RemoveItemAsync(item.ContentMeta.Id), Is.True);
-        });
-    }
-
-    [Test]
-    public async Task GetItemByIdAsync_FoundAndNotFound()
-    {
-        var item = Item(Guid.NewGuid(), Guid.NewGuid());
-        await SeedItemsAsync(item);
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await NewService().GetItemByIdAsync(item.ContentMeta.Id), Is.Not.Null);
-            Assert.That(await NewService().GetItemByIdAsync(Guid.NewGuid()), Is.Null);
-        });
-    }
-
-    [Test]
-    public async Task ReorderItemsAsync_AssignsSequentialOrdinals_IgnoringUnknownIds()
-    {
-        var zoneId = Guid.NewGuid();
-        var a = Item(zoneId, Guid.NewGuid(), ordinal: 1);
-        var b = Item(zoneId, Guid.NewGuid(), ordinal: 2);
-        await SeedItemsAsync(a, b);
-
-        var ok = await NewService().ReorderItemsAsync(zoneId, new List<Guid> { b.ContentMeta.Id, a.ContentMeta.Id, Guid.NewGuid() });
-
-        await using var verify = NewContext();
-        var items = await verify.Set<ContentZoneItemDTO>().Where(i => i.ContentZoneId == zoneId).ToListAsync();
-        Assert.Multiple(() =>
-        {
-            Assert.That(ok, Is.True);
-            Assert.That(items.Single(i => i.ContentId == b.ContentMeta.Id).Ordinal, Is.EqualTo(1));
-            Assert.That(items.Single(i => i.ContentId == a.ContentMeta.Id).Ordinal, Is.EqualTo(2));
-        });
-    }
-
-    // --- Page slot get/create ---
+    // ─── page-slot assignment ─────────────────────────────────────────────────
 
     [Test]
     public async Task GetByPageSlotAsync_FoundAndNotFound()
     {
-        var pageMaster = Guid.NewGuid();
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneId = Guid.NewGuid(), ParentPageMasterId = pageMaster });
+        var pageNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = Guid.NewGuid(), ParentPageNodeId = pageNodeId });
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await NewService().GetByPageSlotAsync(pageMaster, "Main"), Is.Not.Null);
-            Assert.That(await NewService().GetByPageSlotAsync(pageMaster, "Other"), Is.Null);
+            Assert.That(await NewService().GetByPageSlotAsync(pageNodeId, "Main"), Is.Not.Null);
+            Assert.That(await NewService().GetByPageSlotAsync(pageNodeId, "Other"), Is.Null);
         });
     }
 
     [Test]
     public async Task GetOrCreateByPageSlotAsync_NoAssignment_CreatesZoneAndAssignment()
     {
-        var pageMaster = Guid.NewGuid();
+        var pageNodeId = Guid.NewGuid();
 
-        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageMaster, "Main");
+        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageNodeId, "Main");
 
         Assert.Multiple(() =>
         {
             Assert.That(zone.Name, Is.EqualTo("Main"));
-            Assert.That(assignment.ParentPageMasterId, Is.EqualTo(pageMaster));
-            Assert.That(assignment.ContentZoneId, Is.EqualTo(zone.ContentMeta.MasterId));
-            Assert.That(assignment.ContentZone, Is.SameAs(zone));
+            Assert.That(assignment.ParentPageNodeId, Is.EqualTo(pageNodeId));
+            Assert.That(assignment.ContentZoneNodeId, Is.EqualTo(zone.Version.Node.Id));
+            Assert.That(assignment.ContentZoneNode, Is.SameAs(zone.Version.Node));
         });
     }
 
     [Test]
     public async Task GetOrCreateByPageSlotAsync_ExistingAssignmentAndZone_ReturnsExisting()
     {
-        var pageMaster = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Main"));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneId = zoneMaster, ParentPageMasterId = pageMaster });
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
 
-        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageMaster, "Main");
+        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageNodeId, "Main");
 
         Assert.Multiple(() =>
         {
-            Assert.That(zone.ContentMeta.MasterId, Is.EqualTo(zoneMaster));
-            Assert.That(assignment.ParentPageMasterId, Is.EqualTo(pageMaster));
+            Assert.That(zone.Version.Node.Id, Is.EqualTo(zoneNodeId));
+            Assert.That(assignment.ParentPageNodeId, Is.EqualTo(pageNodeId));
         });
     }
 
     [Test]
-    public async Task GetOrCreateByPageSlotAsync_AssignmentButZoneDeleted_RechecksInTransaction()
+    public async Task GetOrCreateByPageSlotAsync_AssignmentButZoneDeleted_ReturnsTransientZone()
     {
-        // Assignment exists, but its zone is soft-deleted so the first lookup yields no latest zone.
-        var pageMaster = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Main", deleted: true));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneId = zoneMaster, ParentPageMasterId = pageMaster });
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main", deleted: true));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
 
-        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageMaster, "Main");
+        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageNodeId, "Main");
 
-        // Transaction re-check finds the assignment again; the (deleted) latest zone is null and returned.
         Assert.Multiple(() =>
         {
             Assert.That(assignment, Is.Not.Null);
-            Assert.That(zone, Is.Null);
+            Assert.That(zone.Name, Is.EqualTo("Main"));
         });
     }
 
-    // --- Zone slot get/create ---
+    [Test]
+    public async Task GetOrCreateByPageSlotAsync_ZoneBecomesAvailableInTransaction_ReturnsZone()
+    {
+        var ctx = NewContext();
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+
+        var zone = Zone(zoneNodeId, 0, "Main");
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        zoneStore.GetAsync(zoneNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, zone);
+
+        var service = NewService(ctx, zoneStore: zoneStore);
+
+        var (result, assignment) = await service.GetOrCreateByPageSlotAsync(pageNodeId, "Main");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.SameAs(zone));
+            Assert.That(assignment.ContentZoneNodeId, Is.EqualTo(zoneNodeId));
+        });
+    }
+
+    [Test]
+    public async Task GetOrCreateByPageSlotAsync_CreateFails_Throws()
+    {
+        var ctx = NewContext();
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        zoneStore.SaveDraftAsync(Arg.Any<ContentZoneDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ContentWriteResult>(new InvalidOperationException("boom")));
+
+        var service = NewService(ctx, zoneStore: zoneStore);
+
+        Assert.That(async () => await service.GetOrCreateByPageSlotAsync(Guid.NewGuid(), "Main"),
+            Throws.InvalidOperationException.With.Message.EqualTo("boom"));
+    }
+
+    // ─── zone-slot assignment ─────────────────────────────────────────────────
 
     [Test]
     public async Task GetByZoneSlotAsync_FoundAndNotFound()
     {
         var parentZone = Guid.NewGuid();
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneId = Guid.NewGuid(), ParentZoneId = parentZone });
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = Guid.NewGuid(), ParentZoneNodeId = parentZone });
 
         Assert.Multiple(async () =>
         {
@@ -438,8 +295,8 @@ public class ContentZoneServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(zone.Name, Is.EqualTo("Sub"));
-            Assert.That(assignment.ParentZoneId, Is.EqualTo(parentZone));
-            Assert.That(assignment.ContentZone, Is.SameAs(zone));
+            Assert.That(assignment.ParentZoneNodeId, Is.EqualTo(parentZone));
+            Assert.That(assignment.ContentZoneNode, Is.SameAs(zone.Version.Node));
         });
     }
 
@@ -447,33 +304,66 @@ public class ContentZoneServiceTests
     public async Task GetOrCreateByZoneSlotAsync_ExistingAssignmentAndZone_ReturnsExisting()
     {
         var parentZone = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Sub"));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneId = zoneMaster, ParentZoneId = parentZone });
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Sub"));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = zoneNodeId, ParentZoneNodeId = parentZone });
 
         var (zone, _) = await NewService().GetOrCreateByZoneSlotAsync(parentZone, "Sub");
 
-        Assert.That(zone.ContentMeta.MasterId, Is.EqualTo(zoneMaster));
+        Assert.That(zone.Version.Node.Id, Is.EqualTo(zoneNodeId));
     }
 
     [Test]
-    public async Task GetOrCreateByZoneSlotAsync_AssignmentButZoneDeleted_RechecksInTransaction()
+    public async Task GetOrCreateByZoneSlotAsync_AssignmentButZoneDeleted_ReturnsTransientZone()
     {
         var parentZone = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Sub", deleted: true));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneId = zoneMaster, ParentZoneId = parentZone });
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Sub", deleted: true));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = zoneNodeId, ParentZoneNodeId = parentZone });
 
         var (zone, assignment) = await NewService().GetOrCreateByZoneSlotAsync(parentZone, "Sub");
 
         Assert.Multiple(() =>
         {
             Assert.That(assignment, Is.Not.Null);
-            Assert.That(zone, Is.Null);
+            Assert.That(zone.Name, Is.EqualTo("Sub"));
         });
     }
 
-    // --- GetOrCreateByName ---
+    [Test]
+    public async Task GetOrCreateByZoneSlotAsync_ZoneBecomesAvailableInTransaction_ReturnsZone()
+    {
+        var ctx = NewContext();
+        var parentZone = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = zoneNodeId, ParentZoneNodeId = parentZone });
+
+        var zone = Zone(zoneNodeId, 0, "Sub");
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        zoneStore.GetAsync(zoneNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, zone);
+
+        var service = NewService(ctx, zoneStore: zoneStore);
+
+        var (result, _) = await service.GetOrCreateByZoneSlotAsync(parentZone, "Sub");
+
+        Assert.That(result, Is.SameAs(zone));
+    }
+
+    [Test]
+    public async Task GetOrCreateByZoneSlotAsync_CreateFails_Throws()
+    {
+        var ctx = NewContext();
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        zoneStore.SaveDraftAsync(Arg.Any<ContentZoneDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ContentWriteResult>(new InvalidOperationException("boom")));
+
+        var service = NewService(ctx, zoneStore: zoneStore);
+
+        Assert.That(async () => await service.GetOrCreateByZoneSlotAsync(Guid.NewGuid(), "Sub"),
+            Throws.InvalidOperationException.With.Message.EqualTo("boom"));
+    }
+
+    // ─── GetOrCreateByName ────────────────────────────────────────────────────
 
     [Test]
     public async Task GetOrCreateByNameAsync_Existing_ReturnsIt()
@@ -493,21 +383,35 @@ public class ContentZoneServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(zone.Name, Is.EqualTo("Fresh"));
-            Assert.That(zone.ContentMeta.IsPublished, Is.True);
+            Assert.That(zone.Version.State, Is.EqualTo(ContentVersionState.Published));
         });
     }
 
-    // --- Queries by page / parent / counts ---
+    [Test]
+    public async Task GetOrCreateByNameAsync_CreateFails_Throws()
+    {
+        var ctx = NewContext();
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        zoneStore.SaveDraftAsync(Arg.Any<ContentZoneDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ContentWriteResult>(new InvalidOperationException("boom")));
+
+        var service = NewService(ctx, zoneStore: zoneStore);
+
+        Assert.That(async () => await service.GetOrCreateByNameAsync("Fresh"),
+            Throws.InvalidOperationException.With.Message.EqualTo("boom"));
+    }
+
+    // ─── queries by page / parent / counts ────────────────────────────────────
 
     [Test]
     public async Task GetAllAssignmentsForPageAsync_ReturnsPageAssignments()
     {
-        var pageMaster = Guid.NewGuid();
+        var pageNodeId = Guid.NewGuid();
         await SeedAssignmentsAsync(
-            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneId = Guid.NewGuid(), ParentPageMasterId = pageMaster },
-            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneId = Guid.NewGuid(), ParentPageMasterId = Guid.NewGuid() });
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneNodeId = Guid.NewGuid(), ParentPageNodeId = pageNodeId },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneNodeId = Guid.NewGuid(), ParentPageNodeId = Guid.NewGuid() });
 
-        var result = await NewService().GetAllAssignmentsForPageAsync(pageMaster);
+        var result = await NewService().GetAllAssignmentsForPageAsync(pageNodeId);
 
         Assert.That(result.Count(), Is.EqualTo(1));
     }
@@ -515,43 +419,43 @@ public class ContentZoneServiceTests
     [Test]
     public async Task GetAllByPageAsync_ReturnsAssignedZones()
     {
-        var pageMaster = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Main"));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneId = zoneMaster, ParentPageMasterId = pageMaster });
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
 
-        var zones = await NewService().GetAllByPageAsync(pageMaster);
+        var zones = await NewService().GetAllByPageAsync(pageNodeId);
 
-        Assert.That(zones.Select(z => z.ContentMeta.MasterId), Is.EqualTo(new[] { zoneMaster }));
+        Assert.That(zones.Select(z => z.Version.Node.Id), Is.EqualTo(new[] { zoneNodeId }));
     }
 
     [Test]
     public async Task GetAllByParentZoneAsync_ReturnsAssignedZones()
     {
         var parentZone = Guid.NewGuid();
-        var zoneMaster = Guid.NewGuid();
-        await SeedZonesAsync(Zone(zoneMaster, 0, "Sub"));
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneId = zoneMaster, ParentZoneId = parentZone });
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Sub"));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = zoneNodeId, ParentZoneNodeId = parentZone });
 
         var zones = await NewService().GetAllByParentZoneAsync(parentZone);
 
-        Assert.That(zones.Select(z => z.ContentMeta.MasterId), Is.EqualTo(new[] { zoneMaster }));
+        Assert.That(zones.Select(z => z.Version.Node.Id), Is.EqualTo(new[] { zoneNodeId }));
     }
 
     [Test]
-    public async Task GetZoneIdsWithChildrenAsync_EmptyInput_ReturnsEmpty()
+    public async Task GetZoneNodeIdsWithChildrenAsync_EmptyInput_ReturnsEmpty()
     {
-        Assert.That(await NewService().GetZoneIdsWithChildrenAsync(Array.Empty<Guid>()), Is.Empty);
+        Assert.That(await NewService().GetZoneNodeIdsWithChildrenAsync(Array.Empty<Guid>()), Is.Empty);
     }
 
     [Test]
-    public async Task GetZoneIdsWithChildrenAsync_ReturnsParentsWithChildren()
+    public async Task GetZoneNodeIdsWithChildrenAsync_ReturnsParentsWithChildren()
     {
         var parentWithChild = Guid.NewGuid();
         var parentWithout = Guid.NewGuid();
-        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneId = Guid.NewGuid(), ParentZoneId = parentWithChild });
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = Guid.NewGuid(), ParentZoneNodeId = parentWithChild });
 
-        var result = await NewService().GetZoneIdsWithChildrenAsync(new[] { parentWithChild, parentWithout });
+        var result = await NewService().GetZoneNodeIdsWithChildrenAsync(new[] { parentWithChild, parentWithout });
 
         Assert.Multiple(() =>
         {
@@ -561,44 +465,375 @@ public class ContentZoneServiceTests
     }
 
     [Test]
-    public async Task GetAllVersionsAsync_OrderedDesc()
+    public async Task GetAssignmentCountsByNodeIdAsync_EmptyInput_ReturnsEmpty()
     {
-        var m = Guid.NewGuid();
-        await SeedZonesAsync(Zone(m, 0), Zone(m, 1), Zone(m, 2));
-
-        var versions = await NewService().GetAllVersionsAsync(m);
-
-        Assert.That(versions.Select(v => v.ContentMeta.Version), Is.EqualTo(new[] { 2, 1, 0 }));
+        Assert.That(await NewService().GetAssignmentCountsByNodeIdAsync(Array.Empty<Guid>()), Is.Empty);
     }
 
     [Test]
-    public async Task GetAllItemVersionsAsync_OrderedDesc()
+    public async Task GetAssignmentCountsByNodeIdAsync_CountsPerZone()
     {
-        var zoneId = Guid.NewGuid();
-        var m = Guid.NewGuid();
-        await SeedItemsAsync(Item(zoneId, m, 0), Item(zoneId, m, 1));
-
-        var versions = await NewService().GetAllItemVersionsAsync(m);
-
-        Assert.That(versions.Select(v => v.ContentMeta.Version), Is.EqualTo(new[] { 1, 0 }));
-    }
-
-    [Test]
-    public async Task GetAssignmentCountsByMasterIdAsync_EmptyInput_ReturnsEmpty()
-    {
-        Assert.That(await NewService().GetAssignmentCountsByMasterIdAsync(Array.Empty<Guid>()), Is.Empty);
-    }
-
-    [Test]
-    public async Task GetAssignmentCountsByMasterIdAsync_CountsPerZone()
-    {
-        var zoneMaster = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
         await SeedAssignmentsAsync(
-            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneId = zoneMaster, ParentPageMasterId = Guid.NewGuid() },
-            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneId = zoneMaster, ParentPageMasterId = Guid.NewGuid() });
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = Guid.NewGuid() },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = Guid.NewGuid() });
 
-        var counts = await NewService().GetAssignmentCountsByMasterIdAsync(new[] { zoneMaster });
+        var counts = await NewService().GetAssignmentCountsByNodeIdAsync(new[] { zoneNodeId });
 
-        Assert.That(counts[zoneMaster], Is.EqualTo(2));
+        Assert.That(counts[zoneNodeId], Is.EqualTo(2));
+    }
+
+    // ─── parent resolution ────────────────────────────────────────────────────
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_DirectPage_ReturnsPage()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+
+        var result = await NewService().GetParentPageNodeForZoneAsync(zoneNodeId);
+
+        Assert.That(result, Is.EqualTo(pageNodeId));
+    }
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_NestedZone_ReturnsPage()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var childZone = Guid.NewGuid();
+        var parentZone = Guid.NewGuid();
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = childZone, ParentZoneNodeId = parentZone },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = parentZone, ParentPageNodeId = pageNodeId });
+
+        var result = await NewService().GetParentPageNodeForZoneAsync(childZone);
+
+        Assert.That(result, Is.EqualTo(pageNodeId));
+    }
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_NoAssignment_ReturnsNull()
+    {
+        Assert.That(await NewService().GetParentPageNodeForZoneAsync(Guid.NewGuid()), Is.Null);
+    }
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_Cycle_ReturnsNull()
+    {
+        var zoneA = Guid.NewGuid();
+        var zoneB = Guid.NewGuid();
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneNodeId = zoneA, ParentZoneNodeId = zoneB },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneNodeId = zoneB, ParentZoneNodeId = zoneA });
+
+        var result = await NewService().GetParentPageNodeForZoneAsync(zoneA);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_OrphanZone_ReturnsNull()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "X", ContentZoneNodeId = zoneNodeId });
+
+        var result = await NewService().GetParentPageNodeForZoneAsync(zoneNodeId);
+
+        Assert.That(result, Is.Null);
+    }
+
+    // ─── item writes ──────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task GetItemByNodeIdAsync_FoundAndNotFound()
+    {
+        var item = Item(Guid.NewGuid(), Guid.NewGuid());
+        await SeedItemsAsync(item);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await NewService().GetItemByNodeIdAsync(item.Version.Node.Id), Is.Not.Null);
+            Assert.That(await NewService().GetItemByNodeIdAsync(Guid.NewGuid()), Is.Null);
+        });
+    }
+
+    [Test]
+    public void AddItemAsync_Null_Throws()
+    {
+        Assert.That(async () => await NewService().AddItemAsync(Guid.NewGuid(), null!), Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public async Task AddItemAsync_ZoneNotFound_Throws()
+    {
+        Assert.That(async () => await NewService().AddItemAsync(Guid.NewGuid(), new ContentZoneItemDTO { ComponentName = "X" }),
+            Throws.InvalidOperationException);
+    }
+
+    [Test]
+    public async Task AddItemAsync_AutoAssignsNodeAndOrdinal()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+        await SeedItemsAsync(Item(zoneNodeId, Guid.NewGuid(), ordinal: 5));
+
+        var item = await NewService().AddItemAsync(zoneNodeId, new ContentZoneItemDTO { ComponentName = "ContentBlock" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.Version.Node.Id, Is.Not.EqualTo(Guid.Empty));
+            Assert.That(item.ContentZoneNodeId, Is.EqualTo(zoneNodeId));
+            Assert.That(item.Ordinal, Is.EqualTo(6));
+            Assert.That(item.Version.State, Is.EqualTo(ContentVersionState.Published));
+        });
+    }
+
+    [Test]
+    public async Task AddItemAsync_PresetOrdinal_IsKept()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+
+        var item = await NewService().AddItemAsync(zoneNodeId, new ContentZoneItemDTO { ComponentName = "X", Ordinal = 9 });
+
+        Assert.That(item.Ordinal, Is.EqualTo(9));
+    }
+
+    [Test]
+    public async Task AddItemAsync_SaveFails_Throws()
+    {
+        var ctx = NewContext();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Zone"));
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "boom"));
+
+        var service = NewService(ctx, itemStore: itemStore);
+
+        Assert.That(async () => await service.AddItemAsync(zoneNodeId, new ContentZoneItemDTO { ComponentName = "X" }),
+            Throws.InvalidOperationException.With.Message.Contains("boom"));
+    }
+
+    [Test]
+    public void UpdateItemAsync_Null_Throws()
+    {
+        Assert.That(async () => await NewService().UpdateItemAsync(null!), Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_NoNode_ReturnsFalse()
+    {
+        Assert.That(await NewService().UpdateItemAsync(new ContentZoneItemDTO { ComponentName = "X" }), Is.False);
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_NonExistent_ReturnsFalse()
+    {
+        Assert.That(await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "X",
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } }
+        }), Is.False);
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_Existing_UpdatesAndPublishes()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        await SeedItemsAsync(Item(zoneNodeId, itemNodeId, 0, ordinal: 1, component: "Old"));
+
+        var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        });
+
+        var ctx = NewContext();
+        var store = TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
+        var published = await store.GetAsync(itemNodeId);
+        var versions = await store.GetAllVersionsAsync(itemNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(published!.ComponentName, Is.EqualTo("New"));
+            Assert.That(published.Ordinal, Is.EqualTo(1), "ordinal preserved from existing");
+            Assert.That(versions, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_SaveFails_ReturnsFalse()
+    {
+        var ctx = NewContext();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(Guid.NewGuid(), itemNodeId, 0);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "boom"));
+
+        var service = NewService(ctx, itemStore: itemStore);
+
+        var ok = await service.UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        });
+
+        Assert.That(ok, Is.False);
+    }
+
+    [Test]
+    public async Task RemoveItemAsync_NotFoundAndFound()
+    {
+        var item = Item(Guid.NewGuid(), Guid.NewGuid());
+        await SeedItemsAsync(item);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await NewService().RemoveItemAsync(Guid.NewGuid()), Is.False);
+            Assert.That(await NewService().RemoveItemAsync(item.Version.Node.Id), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_AssignsSequentialOrdinals_IgnoringUnknownIds()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var aNodeId = Guid.NewGuid();
+        var bNodeId = Guid.NewGuid();
+        await SeedItemsAsync(
+            Item(zoneNodeId, aNodeId, ordinal: 1),
+            Item(zoneNodeId, bNodeId, ordinal: 2));
+
+        var ok = await NewService().ReorderItemsAsync(zoneNodeId, new List<Guid> { bNodeId, aNodeId, Guid.NewGuid() });
+
+        var ctx = NewContext();
+        var store = TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
+        var a = await store.GetAsync(aNodeId);
+        var b = await store.GetAsync(bNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(b!.Ordinal, Is.EqualTo(1));
+            Assert.That(a!.Ordinal, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_SaveFails_SkipsPublish()
+    {
+        var ctx = NewContext();
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(zoneNodeId, itemNodeId, 0, ordinal: 1));
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "boom"));
+
+        var service = NewService(ctx, itemStore: itemStore);
+
+        var ok = await service.ReorderItemsAsync(zoneNodeId, new List<Guid> { itemNodeId });
+
+        Assert.That(ok, Is.True);
+        await itemStore.DidNotReceive().PublishAsync(itemNodeId, Arg.Any<CancellationToken>());
+    }
+
+    // ─── zone deletion ────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task DeleteZoneAsync_DeletesZoneItemsAndAssignments()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+        await SeedItemsAsync(Item(zoneNodeId, itemNodeId, 0));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = Guid.NewGuid() });
+
+        var ok = await NewService().DeleteZoneAsync(zoneNodeId);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneItemDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
+        });
+    }
+
+    // ─── ChangeSetScope / ContentStore edge-case coverage ─────────────────────
+
+    [Test]
+    public void ChangeSetScope_Constructor_NullArgs_Throws()
+    {
+        var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => new ChangeSetScope(null!, new DefaultContentUserContext()), Throws.ArgumentNullException);
+            Assert.That(() => new ChangeSetScope(ctx, null!), Throws.ArgumentNullException);
+        });
+    }
+
+    [Test]
+    public void ChangeSetScope_CurrentUserId_ReflectsAmbientScope()
+    {
+        var ctx = NewContext();
+        var userId = Guid.NewGuid();
+        var userContext = Substitute.For<IContentUserContext>();
+        userContext.CurrentUserId.Returns(userId);
+
+        var scope = new ChangeSetScope(ctx, userContext);
+
+        Assert.That(scope.CurrentUserId, Is.Null);
+
+        using (scope.Begin(ChangeSetKind.Save, Guid.NewGuid(), null))
+        {
+            Assert.That(scope.CurrentUserId, Is.EqualTo(userId));
+        }
+    }
+
+    [Test]
+    public void ChangeSetScope_NonLifoDispose_SkipsDetach()
+    {
+        var ctx = NewContext();
+        var scope = new ChangeSetScope(ctx, new DefaultContentUserContext());
+
+        var outer = scope.Begin(ChangeSetKind.Save, null, null);
+        var inner = scope.Begin(ChangeSetKind.Save, null, null);
+
+        outer.Dispose();
+        inner.Dispose();
+
+        Assert.Pass();
+    }
+
+    [Test]
+    public async Task ContentStore_SaveDraft_NullTitle_CoalescesToEmpty()
+    {
+        var ctx = NewContext();
+        var store = TestStore.Create<ContentZoneDTO>(ctx, "contentzones");
+
+        var dto = new ContentZoneDTO
+        {
+            Name = "Z",
+            Version = new ContentVersion { Title = null! }
+        };
+
+        var result = await store.SaveDraftAsync(dto, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(dto.Version.Title, Is.EqualTo(string.Empty));
+        });
     }
 }

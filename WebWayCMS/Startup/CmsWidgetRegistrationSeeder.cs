@@ -33,7 +33,7 @@ internal static class CmsWidgetRegistrationSeeder
 
         try
         {
-            var contentService = services.GetRequiredService<IContentService<WidgetRegistrationDTO>>();
+            var store = services.GetRequiredService<IContentStore<WidgetRegistrationDTO>>();
             var widgetService = services.GetRequiredService<IWidgetRegistrationService>();
             var existing = widgetService.GetActiveAsync().GetAwaiter().GetResult();
 
@@ -51,7 +51,7 @@ internal static class CmsWidgetRegistrationSeeder
             {
                 try
                 {
-                    SeedAssemblyWidgets(assembly, contentService, existingNames, logger);
+                    SeedAssemblyWidgets(assembly, store, existingNames, logger);
                 }
                 catch (Exception ex)
                 {
@@ -71,7 +71,7 @@ internal static class CmsWidgetRegistrationSeeder
 
     private static void SeedAssemblyWidgets(
         Assembly assembly,
-        IContentService<WidgetRegistrationDTO> contentService,
+        IContentStore<WidgetRegistrationDTO> store,
         HashSet<string> existingNames,
         ILogger logger)
     {
@@ -104,17 +104,10 @@ internal static class CmsWidgetRegistrationSeeder
 
             var dto = new WidgetRegistrationDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
-                    Id = Guid.NewGuid(),
                     Title = attribute.DisplayName ?? FormPropertyBuilder.InsertSpaces(componentName),
                     Slug = componentName.ToLowerInvariant(),
-                    IsPublished = true,
-                    PublicationDate = DateTime.UtcNow,
-                    CreationDate = DateTime.UtcNow,
-                    ModificationDate = DateTime.UtcNow,
-                    CreatedBy = Guid.Empty,
-                    LastModifiedBy = Guid.Empty,
                 },
                 ComponentName = componentName,
                 DisplayName = string.IsNullOrEmpty(attribute.DisplayName)
@@ -131,7 +124,8 @@ internal static class CmsWidgetRegistrationSeeder
 
             try
             {
-                contentService.CreateAsync(dto).GetAwaiter().GetResult();
+                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
+                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
                 existingNames.Add(componentName);
                 logger.Information("Seeded widget registration '{ComponentName}' as '{DisplayName}'", componentName, dto.DisplayName);
             }

@@ -10,17 +10,17 @@ public interface ICMSRouteService
 
     Task<List<CMSRouteDTO>> GetAllRoutesAsync(CancellationToken ct = default);
 
-    Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default);
+    Task<List<CMSRouteDTO>> GetByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default);
 
     Task<CMSRouteDTO?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
-    Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeMasterId = null, CancellationToken ct = default);
+    Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeNodeId = null, Guid? excludeRouteId = null, CancellationToken ct = default);
 
     Task<CMSRouteDTO> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default);
 
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
-    Task<bool> DeactivateByOwningContentAsync(Guid owningContentMasterId, CancellationToken ct = default);
+    Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default);
 }
 
 public sealed class CMSRouteMatchResult

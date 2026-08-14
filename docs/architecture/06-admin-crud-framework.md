@@ -6,6 +6,11 @@
 - `WebWayCMS.Controllers.Api` — `ContentZoneApiController` (in **`WebWayCMS.Admin`**)
 
 **Depends on:** Content Domain Models (resolves handlers), Content Zone Component Framework (zone controller uses `IWidgetRegistry`), Identity (`[Authorize]`), Form Generation Metadata (tag helper in views)
+
+> **Versioning note (Node/Version model):** the version routes are keyed on `nodeId` (not `masterId`),
+> and `IAdminCrudHandler` gained `SupportsPublishing`, `PublishRoles`, `PublishAsync`, `UnpublishAsync`,
+> and one-step `RestoreVersionAsync`. New routes: `POST publish|unpublish/{nodeId}`,
+> `POST versions/{nodeId}/restore/{id}`, `GET preview/{nodeId}`. See [01-data-tier](01-data-tier.md).
 **Consumed by:** The MCP toolsets, which dispatch through the same `IAdminHandlerRegistry`. Otherwise a leaf layer
 
 > **Where this lives.** The contracts (`IAdminCrudHandler` and friends) and `AdminCrudModel<T>` stay

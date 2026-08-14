@@ -5,6 +5,7 @@ public sealed record McpContentTypeInfo(
     string ContentType,
     string DisplayName,
     bool SupportsVersionHistory,
+    bool SupportsPublishing,
     bool HasChildren,
     string? ChildType,
     bool HasRegistry);

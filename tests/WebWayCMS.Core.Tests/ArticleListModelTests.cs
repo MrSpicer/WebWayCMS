@@ -16,44 +16,61 @@ namespace WebWayCMS.Core.Tests;
 [TestFixture]
 public class ArticleListModelTests
 {
-    private IContentService<ArticleListDTO> _listService = null!;
-    private IContentService<ArticleDTO> _articleService = null!;
+    private IContentStore<ArticleListDTO> _listStore = null!;
+    private IContentStore<ArticleDTO> _articleStore = null!;
     private IArticleModel _articleModel = null!;
+    private IChangeSetScope _changeSetScope = null!;
     private IMapper _mapper = null!;
     private ArticleListModel _model = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _listService = Substitute.For<IContentService<ArticleListDTO>>();
-        _articleService = Substitute.For<IContentService<ArticleDTO>>();
+        _listStore = Substitute.For<IContentStore<ArticleListDTO>>();
+        _articleStore = Substitute.For<IContentStore<ArticleDTO>>();
         _articleModel = Substitute.For<IArticleModel>();
+        _changeSetScope = Substitute.For<IChangeSetScope>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ArticleListModel(_listService, _articleService, _mapper, _articleModel);
+        _model = new ArticleListModel(_listStore, _articleStore, _mapper, _articleModel, _changeSetScope);
 
-        _listService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO>());
-        _articleService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO>());
+        _listStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO>());
+        _articleStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO>());
+        _articleStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO>());
     }
 
-    private static ArticleListDTO List(Guid? id = null, Guid master = default, int version = 0)
+    private static ArticleListDTO List(Guid? nodeId = null, int version = 0)
     {
-        var cid = id ?? Guid.NewGuid();
+        var nid = nodeId ?? Guid.NewGuid();
         return new ArticleListDTO
         {
-            ContentId = cid,
-            ContentMeta = new ContentDTO { Id = cid, MasterId = master == default ? Guid.NewGuid() : master, Version = version, Title = "L", Slug = "list" }
+            VersionId = Guid.NewGuid(),
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = nid, CreatedUtc = DateTime.UtcNow },
+                Title = "L",
+                Slug = "list",
+                VersionNumber = version,
+                State = ContentVersionState.Draft
+            }
         };
     }
 
-    private static ArticleDTO Article(Guid listMaster, bool published = true)
+    private static ArticleDTO Article(Guid listNodeId)
     {
-        var cid = Guid.NewGuid();
         return new ArticleDTO
         {
-            ContentId = cid,
+            VersionId = Guid.NewGuid(),
             Body = "b",
-            ArticleListMasterId = listMaster,
-            ContentMeta = new ContentDTO { Id = cid, Title = "A", IsPublished = published, PublicationDate = DateTime.UtcNow.AddDays(-1) }
+            AuthorName = "a",
+            ArticleListNodeId = listNodeId,
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
+                Title = "A",
+                Slug = "a",
+                VersionNumber = 0,
+                State = ContentVersionState.Published
+            }
         };
     }
 
@@ -65,10 +82,11 @@ public class ArticleListModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ArticleListModel(null!, _articleService, _mapper, _articleModel), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listService, null!, _mapper, _articleModel), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listService, _articleService, null!, _articleModel), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listService, _articleService, _mapper, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(null!, _articleStore, _mapper, _articleModel, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, null!, _mapper, _articleModel, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, null!, _articleModel, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _mapper, null!, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _mapper, _articleModel, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -87,26 +105,26 @@ public class ArticleListModelTests
     }
 
     [Test]
-    public async Task IArticleListModel_GetIndexViewModelAsync_FiltersPublished()
+    public async Task IArticleListModel_GetIndexViewModelAsync_MapsAllArticles()
     {
-        var lm = List().ContentMeta.MasterId;
-        _articleService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO>
+        var listNodeId = Guid.NewGuid();
+        _articleStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO>
         {
-            Article(lm, published: true),
-            Article(lm, published: false)
+            Article(listNodeId),
+            Article(Guid.NewGuid())
         });
 
         var vm = await ((IArticleListModel)_model).GetIndexViewModelAsync(default);
 
-        Assert.That(vm.Articles, Has.Count.EqualTo(1));
+        Assert.That(vm.Articles, Has.Count.EqualTo(2));
     }
 
     [Test]
     public async Task GetArticleListIndexAsync_CountsArticlesPerList()
     {
         var list = List();
-        _listService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { list });
-        _articleService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.ContentMeta.MasterId), Article(list.ContentMeta.MasterId) });
+        _listStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { list });
+        _articleStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.Version.Node.Id), Article(list.Version.Node.Id) });
 
         var vm = await _model.GetArticleListIndexAsync();
 
@@ -117,13 +135,13 @@ public class ArticleListModelTests
     public async Task GetArticleListUpsertAsync_NullId_FoundAndNotFound()
     {
         var list = List();
-        _listService.GetByIdAsync(list.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(list);
-        _listService.GetByIdAsync(Arg.Is<Guid>(g => g != list.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftAsync(Arg.Is<Guid>(g => g != list.Version.Node.Id), Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetArticleListUpsertAsync(null), Is.Not.Null);
-            Assert.That(await _model.GetArticleListUpsertAsync(list.ContentMeta.Id), Is.Not.Null);
+            Assert.That(await _model.GetArticleListUpsertAsync(list.Version.Node.Id), Is.Not.Null);
             Assert.That(await _model.GetArticleListUpsertAsync(Guid.NewGuid()), Is.Null);
         });
     }
@@ -137,13 +155,14 @@ public class ArticleListModelTests
     [Test]
     public async Task SaveArticleListUpsertAsync_CreateAndUpdate()
     {
-        _listService.UpdateAsync(Arg.Any<ArticleListDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _listStore.SaveDraftAsync(Arg.Any<ArticleListDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(true), new ContentWriteResult(false, "err"));
 
         Assert.Multiple(async () =>
         {
-            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { Id = null, Title = "T" })).Success, Is.True);
-            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { Id = Guid.NewGuid(), Title = "T" })).Success, Is.True);
-            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { Id = Guid.NewGuid(), Title = "T" })).Success, Is.False);
+            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { NodeId = null, Title = "T" })).Success, Is.True);
+            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { NodeId = Guid.NewGuid(), Title = "T" })).Success, Is.True);
+            Assert.That((await _model.SaveArticleListUpsertAsync(new ArticleListUpsertViewModel { NodeId = Guid.NewGuid(), Title = "T" })).Success, Is.False);
         });
     }
 
@@ -153,13 +172,13 @@ public class ArticleListModelTests
         Assert.That(await _model.DeleteArticleListAsync(Guid.NewGuid()), Is.False);
 
         var list = List();
-        _listService.GetByIdAsync(list.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(list);
-        _articleService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.ContentMeta.MasterId) });
-        _listService.DeleteAsync(list.ContentMeta.Id, false, true, Arg.Any<CancellationToken>()).Returns(true);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _articleStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.Version.Node.Id) });
+        _listStore.DeleteAsync(list.Version.Node.Id, false, Arg.Any<CancellationToken>()).Returns(true);
 
-        var ok = await _model.DeleteArticleListAsync(list.ContentMeta.Id);
+        var ok = await _model.DeleteArticleListAsync(list.Version.Node.Id);
 
-        await _articleService.Received().DeleteAsync(Arg.Any<Guid>(), false, true, Arg.Any<CancellationToken>());
+        await _articleStore.Received().DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>());
         Assert.That(ok, Is.True);
     }
 
@@ -167,13 +186,13 @@ public class ArticleListModelTests
     public async Task GetArticlesForListAsync_FoundAndNotFound()
     {
         var list = List();
-        _listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
-        _articleService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.ContentMeta.MasterId) });
+        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
+        _articleStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.Version.Node.Id) });
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetArticlesForListAsync(list.ContentMeta.MasterId), Is.Not.Null);
-            Assert.That(await _model.GetArticlesForListAsync(list.ContentMeta.MasterId), Is.Null);
+            Assert.That(await _model.GetArticlesForListAsync(list.Version.Node.Id), Is.Not.Null);
+            Assert.That(await _model.GetArticlesForListAsync(list.Version.Node.Id), Is.Null);
         });
     }
 
@@ -181,8 +200,8 @@ public class ArticleListModelTests
     public async Task GetArticlesForListBySlugAsync_FoundAndNotFound()
     {
         var list = List();
-        _listService.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
-        _listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
+        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
 
         Assert.Multiple(async () =>
         {
@@ -192,35 +211,13 @@ public class ArticleListModelTests
     }
 
     [Test]
-    public async Task VersionHistoryAndRestore()
+    public async Task VersionHistoryAndDeleteVersion()
     {
-        var master = Guid.NewGuid();
-        _listService.GetAllVersionsAsync(master, Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { List(master: master) });
-        Assert.That(await _model.GetVersionHistoryAsync(master), Is.Not.Null);
+        var nodeId = Guid.NewGuid();
+        _listStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { List(nodeId: nodeId) });
+        Assert.That(await _model.GetVersionHistoryAsync(nodeId), Is.Not.Null);
 
-        var historical = List(version: 1);
-        var latest = List(master: historical.ContentMeta.MasterId, version: 4);
-        _listService.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
-        _listService.GetByMasterIdAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(latest);
-        Assert.That((await _model.GetUpsertModelForRestoreAsync(historical.ContentMeta.Id))!.Version, Is.EqualTo(4));
-    }
-
-    [Test]
-    public async Task GetUpsertModelForRestore_NullWhenMissing()
-    {
-        _listService.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
-        Assert.That(await _model.GetUpsertModelForRestoreAsync(Guid.NewGuid()), Is.Null);
-
-        var historical = List();
-        _listService.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
-        _listService.GetByMasterIdAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
-        Assert.That(await _model.GetUpsertModelForRestoreAsync(historical.ContentMeta.Id), Is.Null);
-    }
-
-    [Test]
-    public async Task DeleteVersionAsync_Delegates()
-    {
-        _listService.DeleteAsync(Arg.Any<Guid>(), false, false, Arg.Any<CancellationToken>()).Returns(true);
+        _listStore.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         Assert.That(await _model.DeleteVersionAsync(Guid.NewGuid()), Is.True);
     }
 
@@ -228,13 +225,13 @@ public class ArticleListModelTests
     public async Task AdminHandlerMembers()
     {
         var list = List();
-        _listService.GetByIdAsync(list.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
         var query = new MvcHarness().NewHttpContext(Array.Empty<string>()).Request.Query;
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetIndexViewModelAsync(), Is.InstanceOf<ArticleListIndexViewModel>());
-            Assert.That(await _model.GetUpsertViewModelAsync(list.ContentMeta.Id, query), Is.Not.Null);
+            Assert.That(await _model.GetUpsertViewModelAsync(list.Version.Node.Id, query), Is.Not.Null);
             Assert.That(await _model.GetUpsertViewModelAsync(null, query), Is.Not.Null);
             Assert.That(_model.CreateEmptyUpsertViewModel(), Is.InstanceOf<ArticleListUpsertViewModel>());
             Assert.That(await _model.GetApiListAsync(), Is.Not.Null);
@@ -245,7 +242,7 @@ public class ArticleListModelTests
     [Test]
     public async Task GetUpsertViewModelAsync_NotFoundReturnsNull()
     {
-        _listService.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
+        _listStore.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
         var query = new MvcHarness().NewHttpContext(Array.Empty<string>()).Request.Query;
 
         Assert.That(await _model.GetUpsertViewModelAsync(Guid.NewGuid(), query), Is.Null);
@@ -254,7 +251,10 @@ public class ArticleListModelTests
     [Test]
     public async Task SaveUpsertAsync_ObjectOverload()
     {
-        var ok = await _model.SaveUpsertAsync((object)new ArticleListUpsertViewModel { Id = null, Title = "T" });
+        _listStore.SaveDraftAsync(Arg.Any<ArticleListDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
+
+        var ok = await _model.SaveUpsertAsync((object)new ArticleListUpsertViewModel { NodeId = null, Title = "T" });
         Assert.That(ok.Success, Is.True);
     }
 
@@ -262,22 +262,30 @@ public class ArticleListModelTests
     public async Task DeleteAsync_Override_Delegates()
     {
         var list = List();
-        _listService.GetByIdAsync(list.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(list);
-        _listService.DeleteAsync(list.ContentMeta.Id, false, true, Arg.Any<CancellationToken>()).Returns(true);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.DeleteAsync(list.Version.Node.Id, false, Arg.Any<CancellationToken>()).Returns(true);
 
-        Assert.That(await _model.DeleteAsync(list.ContentMeta.Id), Is.True);
+        Assert.That(await _model.DeleteAsync(list.Version.Node.Id), Is.True);
     }
 
     [Test]
     public async Task SecondaryApiList_MatchingAndNonMatchingKey()
     {
-        _listService.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { List() });
+        _listStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO> { List() });
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetSecondaryApiListAsync("articlelists"), Is.Not.Empty);
             Assert.That(await _model.GetSecondaryApiListAsync("other"), Is.Empty);
         });
+    }
+
+    [Test]
+    public async Task PublishAsync_DelegatesToStore()
+    {
+        _listStore.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+
+        Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
     }
 
     // --- Child handler ---
@@ -304,8 +312,8 @@ public class ArticleListModelTests
     public async Task ChildHandler_GetChildIndex_ReturnsListBySlug()
     {
         var list = List();
-        _listService.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
 
         Assert.That(await _model.ChildHandler!.GetChildIndexViewModelAsync("list"), Is.Not.Null);
     }
@@ -315,11 +323,11 @@ public class ArticleListModelTests
     {
         var child = _model.ChildHandler!;
         var list = List();
-        _listService.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
 
         // parent list missing -> null
-        _listService.GetBySlugAsync("missing", Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
+        _listStore.GetBySlugAsync("missing", Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
         Assert.That(await child.GetChildUpsertViewModelAsync("missing", Guid.NewGuid()), Is.Null);
 
         // article model returns a vm
@@ -337,8 +345,8 @@ public class ArticleListModelTests
     public async Task ChildHandler_SetViewData_SetsSlugAndTitle()
     {
         var list = List();
-        _listService.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listService.GetByMasterIdAsync(list.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
         var viewData = NewViewData();
 
         await _model.ChildHandler!.SetChildUpsertViewDataAsync(viewData, "list");

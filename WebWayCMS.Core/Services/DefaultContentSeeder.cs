@@ -9,12 +9,12 @@ namespace WebWayCMS.Services;
 
 public sealed class DefaultContentSeeder : IDefaultContentSeeder
 {
-    private readonly IPageService _pageService;
+    private readonly IContentStore<PageDTO> _pageStore;
     private readonly ICMSRouteService _routeService;
 
-    public DefaultContentSeeder(IPageService pageService, ICMSRouteService routeService)
+    public DefaultContentSeeder(IContentStore<PageDTO> pageStore, ICMSRouteService routeService)
     {
-        _pageService = pageService ?? throw new ArgumentNullException(nameof(pageService));
+        _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
     }
 
@@ -33,30 +33,22 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         {
             logger.Information("No page was found in database. Creating default Home page at route '/'.");
 
-            var now = DateTime.UtcNow;
-            var pageId = Guid.NewGuid();
-
             var homePage = new PageDTO
             {
                 ConfigurationJson = "{}",
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
-                    Id = pageId,
                     Title = "Home",
-                    Slug = "home",
-                    IsPublished = true,
-                    PublicationDate = now,
-                    CreationDate = now,
-                    ModificationDate = now,
-                    CreatedBy = Guid.Empty,
-                    LastModifiedBy = Guid.Empty
+                    Slug = "home"
                 }
             };
 
-            var created = await _pageService.CreateAsync(homePage, ct);
-            logger.Information("Created default Home page with ID {PageId}", created.ContentMeta.Id);
+            await _pageStore.SaveDraftAsync(homePage, null, ct);
+            var homeNodeId = homePage.Version.Node!.Id;
+            await _pageStore.PublishAsync(homeNodeId, ct);
+            logger.Information("Created default Home page with node ID {PageId}", homeNodeId);
 
-            await SeedRouteAsync("/", "GenericPage", null, "Page", created.ContentMeta, ct, logger, "Home");
+            await SeedRouteAsync("/", "GenericPage", "Page", homeNodeId, ct, logger, "Home");
         }
         else
         {
@@ -79,36 +71,28 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
 
     private async Task SeedAdminPageAsync(CancellationToken ct, ILogger logger)
     {
-        var now = DateTime.UtcNow;
-        var adminPageId = Guid.NewGuid();
-
         var adminPage = new PageDTO
         {
             ConfigurationJson = "{}",
             ViewName = "Dashboard",
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = adminPageId,
-                Title = "Admin",
-                Slug = "wadmin",
-                IsPublished = true,
-                PublicationDate = now,
-                CreationDate = now,
-                ModificationDate = now,
-                CreatedBy = Guid.Empty,
-                LastModifiedBy = Guid.Empty
+                Title = "Dashboard",
+                Slug = "wadmin"
             }
         };
 
-        var created = await _pageService.CreateAsync(adminPage, ct);
-        logger.Information("Created default Admin page with ID {PageId}", created.ContentMeta.Id);
+        await _pageStore.SaveDraftAsync(adminPage, null, ct);
+        var adminNodeId = adminPage.Version.Node!.Id;
+        await _pageStore.PublishAsync(adminNodeId, ct);
+        logger.Information("Created default Dashboard page with node ID {PageId}", adminNodeId);
 
-        await SeedRouteAsync("/wadmin", "GenericAdminPage", null, "Page", created.ContentMeta, ct, logger, "Admin");
+        await SeedRouteAsync("/wadmin", "GenericAdminPage", "Page", adminNodeId, ct, logger, "Dashboard");
     }
 
     private async Task SeedRouteAsync(
-        string pattern, string controllerName, string? viewName, string owningContentType,
-        ContentDTO owningContentMeta, CancellationToken ct, ILogger logger, string label)
+        string pattern, string controllerName, string owningContentType,
+        Guid contentNodeId, CancellationToken ct, ILogger logger, string label)
     {
         var defaults = JsonSerializer.Serialize(new Dictionary<string, string>
         {
@@ -127,20 +111,8 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             Pattern = pattern,
             DefaultsJson = defaults,
             DataTokensJson = dataTokens,
-            OwningContentMasterId = owningContentMeta.MasterId,
-            OwningContentType = owningContentType,
-            ContentMeta = new ContentDTO
-            {
-                Id = Guid.NewGuid(),
-                Title = $"{label} Route",
-                Slug = pattern.TrimStart('/'),
-                IsPublished = true,
-                PublicationDate = DateTime.UtcNow,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow,
-                CreatedBy = Guid.Empty,
-                LastModifiedBy = Guid.Empty
-            }
+            OwningContentNodeId = contentNodeId,
+            OwningContentType = owningContentType
         };
 
         await _routeService.UpsertAsync(route, ct);

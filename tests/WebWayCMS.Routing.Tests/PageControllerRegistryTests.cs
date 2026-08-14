@@ -39,8 +39,7 @@ public class PageControllerRegistryTests
             Order = order,
             ConfigurationTypeName = configTypeName,
             PropertyDefinitionsJson = propertyJson,
-            IsActive = true,
-            ContentMeta = new ContentDTO { IsPublished = true, IsDeleted = false, MasterId = Guid.NewGuid() }
+            IsActive = true
         };
 
     [SetUp]

@@ -13,7 +13,13 @@
 - `WebWayCMS.Data` — `MappingProfile`
 - `MySite` — `MappingProfile`
 
-**Depends on:** Data Tier (services consumed), Admin CRUD Framework interfaces (`IAdminCrudHandler`, `IAdminCrudChildHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
+**Depends on:** Data Tier (services consumed — now `IContentStore<T>`), Admin CRUD Framework interfaces (`IAdminCrudHandler`, `IAdminCrudChildHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
+
+> **Versioning note (Node/Version model):** `VersionedModel<T>`/`AdminCrudModel<T>` are now generic over
+> `IVersionedContent` and backed by `IContentStore<T>`. `AdminCrudModel<T>` opens a change-set scope around
+> `SaveUpsertAsync`, and gains `PublishAsync`/`UnpublishAsync`/`RestoreVersionAsync`. View models carry
+> `NodeId` + `ExpectedVersionNumber` (no `Id`/`MasterId`/`Version`/`IsPublished`). See
+> [01-data-tier](01-data-tier.md).
 **Consumed by:** Admin CRUD Framework (resolves `IAdminCrudHandler` implementations), view components/views (consume ViewModels)
 
 ---

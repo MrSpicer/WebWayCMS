@@ -90,6 +90,28 @@ body.admin-shell {
   color: #fff !important;
 }
 
+.admin-navbar .navbar-dropdown {
+  background-color: var(--admin-surface-raised) !important;
+  border-top: 1px solid var(--admin-border);
+  box-shadow: var(--admin-shadow-md);
+}
+
+.admin-navbar .navbar-dropdown .navbar-item {
+  background-color: transparent !important;
+  color: var(--admin-navbar-text) !important;
+}
+
+.admin-navbar .navbar-dropdown .navbar-item:hover,
+.admin-navbar .navbar-dropdown .navbar-item:focus {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+}
+
+.admin-navbar .navbar-dropdown .navbar-item[aria-current="page"] {
+  background: rgba(79, 70, 229, 0.35) !important;
+  color: #fff !important;
+}
+
 /* Mobile burger toggle background */
 @media screen and (max-width: 1023px) {
   .admin-navbar .navbar-menu.is-active {

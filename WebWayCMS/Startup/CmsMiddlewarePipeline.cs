@@ -49,11 +49,16 @@ internal static class CmsMiddlewarePipeline
 
         app.UseStaticFiles();
 
+        // Authentication runs BEFORE UseRouting so that HttpContext.User is populated when the
+        // DynamicRouteValueTransformer (CMSRouteTransformer) runs. The admin preview-aware read
+        // context resolves drafts based on the authenticated user's role + preview cookie, and the
+        // transformer calls into it during endpoint matching — which happens inside UseRouting.
+        app.UseAuthentication();
+
         app.UseRouting();
 
         app.UseRateLimiter();
 
-        app.UseAuthentication();
         app.UseAuthorization();
     }
 

@@ -1,7 +1,7 @@
 namespace WebWayCMS.Data.Models;
 
-public record ArticleListDTO : IContent
+public record ArticleListDTO : IVersionedContent
 {
-    public Guid ContentId { get; set; }
-    public ContentDTO ContentMeta { get; set; } = new();
+    public Guid VersionId { get; set; }
+    public ContentVersion Version { get; set; } = new();
 }

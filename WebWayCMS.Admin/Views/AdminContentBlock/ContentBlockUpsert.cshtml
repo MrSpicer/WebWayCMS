@@ -2,7 +2,7 @@
 @model WebWayCMS.Models.ContentBlock.ContentBlockUpsertViewModel
 
 @{
-    var isEdit = Model?.Id != null && Model.Id != Guid.Empty;
+    var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Content Block" : "New Content Block";
 }
 
@@ -19,7 +19,7 @@
                 <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
                 @if (isEdit)
                 {
-                    <p class="subtitle is-6 has-text-grey"><code class="is-size-7" title="@Model?.Id">@Model?.Id</code></p>
+                    <p class="subtitle is-6 has-text-grey"><code class="is-size-7" title="@Model?.NodeId">@Model?.NodeId</code></p>
                 }
             </div>
         </div>
@@ -46,7 +46,20 @@
                 </div>
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">
-                        <button class="button is-primary mr-3" type="submit">Save</button>
+                        <button class="button is-primary mr-3" type="submit">Save as Draft</button>
+                        @if (Model != null)
+                        {
+                            @if (Model.IsPublished)
+                            {
+                                <button type="submit" class="button is-warning mr-3"
+                                        asp-controller="AdminContent" asp-action="Unpublish"
+                                        asp-route-contentType="contentblocks" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+                            }
+                            else
+                            {
+                                <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
+                            }
+                        }
                         @if (!string.IsNullOrWhiteSpace(returnUrl))
                         {
                             <a href="@returnUrl" class="button">Cancel</a>

@@ -1,13 +1,9 @@
-using System.Threading;
-using System.Threading.Tasks;
-
 namespace WebWayCMS.Models.ContentZone;
 
 public class ContentZoneViewModel
 {
     /// <summary>
-    /// The database ID of the content zone (Guid.Empty if the zone doesn't exist yet).
-    /// Used internally for saving items but never displayed to users.
+    /// The content node ID of the content zone (Guid.Empty if the zone doesn't exist yet).
     /// </summary>
     public Guid Id { get; set; } = Guid.Empty;
 
@@ -18,7 +14,6 @@ public class ContentZoneViewModel
 
     /// <summary>
     /// The raw zone name passed to the ViewComponent (without ordinal suffix).
-    /// Used for display purposes in admin view.
     /// </summary>
     public string RawZoneName { get; set; } = string.Empty;
 
@@ -28,9 +23,9 @@ public class ContentZoneViewModel
     public List<ContentZoneObject> ZoneObjects { get; set; } = new();
 
     /// <summary>
-    /// The page MasterId this zone belongs to (if page-scoped). Used for assignment-based zone creation fallback.
+    /// The page node ID this zone belongs to (if page-scoped).
     /// </summary>
-    public Guid? ParentPageMasterId { get; set; }
+    public Guid? ParentPageNodeId { get; set; }
 
     /// <summary>
     /// Indicates whether the current user can edit this zone.

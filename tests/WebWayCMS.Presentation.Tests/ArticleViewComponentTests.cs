@@ -125,9 +125,9 @@ public class ArticleViewComponentTests
     public async Task ExplicitInterface_GenerateRoutesAsync_ReturnsRouteWithExpectedProperties()
     {
         IRoutableViewComponent routable = _component;
-        var masterId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
 
-        var routes = await routable.GenerateRoutesAsync("/blog", masterId, CancellationToken.None);
+        var routes = await routable.GenerateRoutesAsync("/blog", nodeId, CancellationToken.None);
 
         Assert.That(routes, Has.Count.EqualTo(1));
         var route = routes[0];
@@ -140,7 +140,7 @@ public class ArticleViewComponentTests
         using var defaults = JsonDocument.Parse(route.DefaultsJson);
         Assert.That(defaults.RootElement.GetProperty("_widget").GetString(), Is.EqualTo("Article"));
 
-        Assert.That(route.OwningContentMasterId, Is.EqualTo(masterId));
+        Assert.That(route.OwningContentNodeId, Is.EqualTo(nodeId));
         Assert.That(route.OwningContentType, Is.EqualTo("ArticleWidget"));
         Assert.That(route.Order, Is.EqualTo(1));
     }

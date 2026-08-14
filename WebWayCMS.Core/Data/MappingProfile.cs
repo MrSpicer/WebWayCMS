@@ -15,270 +15,204 @@ public sealed class MappingProfile : Profile
         // ContentBlock mappings
         CreateMap<ContentBlockDTO, ContentBlockViewModel>(s => new ContentBlockViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
             Content = s.Content ?? string.Empty,
-            PublicationDate = s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
         CreateMap<ContentBlockDTO, ContentBlockUpsertViewModel>(s => new ContentBlockUpsertViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
             Content = s.Content ?? string.Empty,
-            PublicationDate = s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<ContentBlockUpsertViewModel, ContentBlockDTO>(s =>
+        CreateMap<ContentBlockUpsertViewModel, ContentBlockDTO>(s => new ContentBlockDTO
         {
-            var meta = NewContentMeta(s);
-            return new ContentBlockDTO
-            {
-                ContentId = meta.Id,
-                Content = s.Content ?? string.Empty,
-                ContentMeta = meta
-            };
+            Content = s.Content ?? string.Empty,
+            Version = NewVersion(s)
         });
 
         CreateMap<ContentBlockDTO, ContentBlockItemViewModel>(s => new ContentBlockItemViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
         // Article mappings
         CreateMap<ArticleDTO, ArticleViewModel>(s => new ArticleViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title,
-            Slug = s.ContentMeta.Slug,
-            Body = s.Body,
-            AuthorName = s.AuthorName,
-            ArticleListId = s.ArticleListMasterId,
-            PublicationDate = s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            Body = s.Body ?? string.Empty,
+            AuthorName = s.AuthorName ?? string.Empty,
+            ArticleListId = s.ArticleListNodeId,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
         CreateMap<ArticleDTO, ArticleUpsertViewModel>(s => new ArticleUpsertViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
-            Body = s.Body,
-            Summary = s.Summary,
-            AuthorName = s.AuthorName,
-            ArticleListId = s.ArticleListMasterId,
-            PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            Body = s.Body ?? string.Empty,
+            Summary = s.Summary ?? string.Empty,
+            AuthorName = s.AuthorName ?? string.Empty,
+            ArticleListId = s.ArticleListNodeId,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<ArticleUpsertViewModel, ArticleDTO>(s =>
+        CreateMap<ArticleUpsertViewModel, ArticleDTO>(s => new ArticleDTO
         {
-            var meta = NewContentMeta(s);
-            return new ArticleDTO
-            {
-                ContentId = meta.Id,
-                Body = s.Body ?? string.Empty,
-                AuthorName = s.AuthorName ?? string.Empty,
-                Summary = s.Summary ?? string.Empty,
-                ArticleListMasterId = s.ArticleListId,
-                ContentMeta = meta
-            };
+            Body = s.Body ?? string.Empty,
+            AuthorName = s.AuthorName ?? string.Empty,
+            Summary = s.Summary ?? string.Empty,
+            ArticleListNodeId = s.ArticleListId,
+            Version = NewVersion(s)
         });
 
         // ArticleList mappings
         CreateMap<ArticleListDTO, ArticleListUpsertViewModel>(s => new ArticleListUpsertViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
-            PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<ArticleListUpsertViewModel, ArticleListDTO>(s =>
+        CreateMap<ArticleListUpsertViewModel, ArticleListDTO>(s => new ArticleListDTO
         {
-            var meta = NewContentMeta(s);
-            return new ArticleListDTO
-            {
-                ContentId = meta.Id,
-                ContentMeta = meta
-            };
+            Version = NewVersion(s)
         });
 
         CreateMap<ArticleListDTO, ArticleListItemViewModel>(s => new ArticleListItemViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
         // Page mappings
         CreateMap<PageDTO, PageUpsertViewModel>(s => new PageUpsertViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
             ConfigurationJson = s.ConfigurationJson ?? "{}",
             ViewName = s.ViewName,
-            PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            ControllerName = s.ControllerName,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<PageUpsertViewModel, PageDTO>(s =>
+        CreateMap<PageUpsertViewModel, PageDTO>(s => new PageDTO
         {
-            var meta = NewContentMeta(s);
-            return new PageDTO
-            {
-                ContentId = meta.Id,
-                ConfigurationJson = s.ConfigurationJson ?? "{}",
-                ViewName = s.ViewName,
-                ContentMeta = meta
-            };
+            ConfigurationJson = s.ConfigurationJson ?? "{}",
+            ViewName = s.ViewName,
+            ControllerName = s.ControllerName ?? string.Empty,
+            Version = NewVersion(s)
         });
 
         CreateMap<PageDTO, PageItemViewModel>(s => new PageItemViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            IsPublished = s.ContentMeta.IsPublished,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            NodeId = s.Version.Node.Id,
+            Title = s.Version.Title ?? string.Empty,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
         });
 
-        // CMSRoute mappings
+        // CMSRoute mappings (routes are not versioned)
         CreateMap<CMSRouteDTO, CMSRouteUpsertViewModel>(s => new CMSRouteUpsertViewModel
         {
-            Id = s.ContentMeta.Id,
-            MasterId = s.ContentMeta.MasterId,
-            Version = s.ContentMeta.Version,
-            Title = s.ContentMeta.Title ?? string.Empty,
-            Slug = s.ContentMeta.Slug ?? string.Empty,
+            Id = s.Id,
             Pattern = s.Pattern ?? string.Empty,
             DefaultsJson = s.DefaultsJson ?? "{}",
             ConstraintsJson = s.ConstraintsJson ?? "{}",
             DataTokensJson = s.DataTokensJson ?? "{}",
             Order = s.Order,
             OwningContentType = s.OwningContentType,
-            IsReserved = s.IsReserved,
-            PublicationDate = s.ContentMeta.PublicationDate == default ? (DateTime?)null : s.ContentMeta.PublicationDate,
-            PublicationEndDate = s.ContentMeta.PublicationEndDate,
-            IsPublished = s.ContentMeta.IsPublished,
-            IsArchived = s.ContentMeta.IsArchived,
-            IsHidden = s.ContentMeta.IsHidden,
-            IsDeleted = s.ContentMeta.IsDeleted,
-            CreationDate = s.ContentMeta.CreationDate,
-            ModificationDate = s.ContentMeta.ModificationDate
+            IsReserved = s.IsReserved
         });
 
-        CreateMap<CMSRouteUpsertViewModel, CMSRouteDTO>(s =>
+        CreateMap<CMSRouteUpsertViewModel, CMSRouteDTO>(s => new CMSRouteDTO
         {
-            var meta = NewContentMeta(s);
-            return new CMSRouteDTO
-            {
-                ContentId = meta.Id,
-                Pattern = s.Pattern ?? string.Empty,
-                DefaultsJson = s.DefaultsJson ?? "{}",
-                ConstraintsJson = s.ConstraintsJson ?? "{}",
-                DataTokensJson = s.DataTokensJson ?? "{}",
-                Order = s.Order,
-                OwningContentMasterId = s.MasterId,
-                OwningContentType = s.OwningContentType,
-                IsReserved = s.IsReserved,
-                ContentMeta = meta
-            };
+            Id = s.Id ?? Guid.Empty,
+            Pattern = s.Pattern ?? string.Empty,
+            DefaultsJson = s.DefaultsJson ?? "{}",
+            ConstraintsJson = s.ConstraintsJson ?? "{}",
+            DataTokensJson = s.DataTokensJson ?? "{}",
+            Order = s.Order,
+            OwningContentType = s.OwningContentType,
+            IsReserved = s.IsReserved
         });
     }
 
-    private static Guid NewId(BaseContentViewModel s)
-        => s.Id is { } id && id != Guid.Empty ? id : Guid.NewGuid();
-
-    private static ContentDTO NewContentMeta(BaseContentViewModel s)
+    private static ContentVersion NewVersion(BaseContentViewModel s)
         => new()
         {
-            Id = NewId(s),
+            Node = new ContentNode
+            {
+                Id = s.NodeId ?? Guid.Empty,
+                IsHidden = s.IsHidden
+            },
             Title = s.Title ?? string.Empty,
-            Slug = Uri.EscapeDataString(s.Slug ?? string.Empty),
-            CreationDate = DateTime.UtcNow,
-            ModificationDate = DateTime.UtcNow,
-            PublicationDate = PubDate(s),
-            PublicationEndDate = PubEnd(s),
-            IsPublished = s.IsPublished,
-            IsArchived = s.IsArchived,
-            IsHidden = s.IsHidden,
-            IsDeleted = s.IsDeleted,
-            MasterId = s.MasterId ?? Guid.Empty,
-            Version = s.Version ?? 0
+            Slug = s.Slug ?? string.Empty,
+            PublishStartUtc = PubDate(s),
+            PublishEndUtc = PubEnd(s)
         };
 
-    private static DateTime PubDate(BaseContentViewModel s)
-        => DateTime.SpecifyKind(s.PublicationDate ?? DateTime.UtcNow, DateTimeKind.Utc);
+    private static DateTime? PubDate(BaseContentViewModel s)
+        => s.PublicationDate.HasValue
+            ? DateTime.SpecifyKind(s.PublicationDate.Value, DateTimeKind.Utc)
+            : null;
 
     private static DateTime? PubEnd(BaseContentViewModel s)
         => s.PublicationEndDate.HasValue
             ? DateTime.SpecifyKind(s.PublicationEndDate.Value, DateTimeKind.Utc)
-            : (DateTime?)null;
+            : null;
 }

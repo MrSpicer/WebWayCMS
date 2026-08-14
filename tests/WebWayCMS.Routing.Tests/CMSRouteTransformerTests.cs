@@ -19,7 +19,7 @@ public class CMSRouteTransformerTests
 {
     private ICMSRouteService _routeService = null!;
     private IPageControllerRegistry _registry = null!;
-    private IPageService _pageService = null!;
+    private IContentStore<PageDTO> _pageStore = null!;
     private CMSRouteTransformer _transformer = null!;
 
     [SetUp]
@@ -27,8 +27,8 @@ public class CMSRouteTransformerTests
     {
         _routeService = Substitute.For<ICMSRouteService>();
         _registry = Substitute.For<IPageControllerRegistry>();
-        _pageService = Substitute.For<IPageService>();
-        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageService);
+        _pageStore = Substitute.For<IContentStore<PageDTO>>();
+        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore);
     }
 
     private static HttpContext CreateHttpContext(string path = "/test")
@@ -44,7 +44,7 @@ public class CMSRouteTransformerTests
         string action = "Index",
         string? dataTokensJson = null,
         string? pattern = "/test",
-        Guid? owningContentMasterId = null,
+        Guid? owningContentNodeId = null,
         Dictionary<string, string>? routeValues = null)
     {
         var route = new CMSRouteDTO
@@ -57,8 +57,7 @@ public class CMSRouteTransformerTests
             }),
             DataTokensJson = dataTokensJson ?? "{}",
             OwningContentType = owningContentType,
-            OwningContentMasterId = owningContentMasterId,
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentNodeId = owningContentNodeId
         };
 
         return new CMSRouteMatchResult
@@ -87,8 +86,7 @@ public class CMSRouteTransformerTests
         {
             Pattern = "/test",
             DefaultsJson = "{}",
-            OwningContentType = "Page",
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentType = "Page"
         };
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(new CMSRouteMatchResult
         {
@@ -141,7 +139,7 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_CodeBased_DoesNotCallPageService()
+    public async Task TransformAsync_CodeBased_DoesNotCallPageStore()
     {
         var context = CreateHttpContext();
         var match = CreateMatchResult("CodeBased", "MyPage");
@@ -149,7 +147,7 @@ public class CMSRouteTransformerTests
 
         await _transformer.TransformAsync(context, new RouteValueDictionary());
 
-        await _pageService.DidNotReceive().GetAllVersionsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _pageStore.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -233,16 +231,16 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_PageType_LoadsPageData()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "MyPage", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "MyPage", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         var pageInfo = new PageControllerInfo { Name = "MyPage" };
         _registry.GetByName("MyPage").Returns(pageInfo);
 
-        var pageDto = new PageDTO { ContentMeta = new ContentDTO { Title = "Test Page" } };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        var pageDto = new PageDTO();
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -269,20 +267,20 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_NonPageType_LoadsPageDataFromDataTokens()
     {
         var context = CreateHttpContext();
-        var parentPageId = Guid.NewGuid();
+        var parentPageNodeId = Guid.NewGuid();
         var dataTokens = JsonSerializer.Serialize(new Dictionary<string, string>
         {
-            { "ParentPageMasterId", parentPageId.ToString() }
+            { "ParentPageNodeId", parentPageNodeId.ToString() }
         });
         var match = CreateMatchResult("Widget", "MyWidget", dataTokensJson: dataTokens,
-            owningContentMasterId: Guid.NewGuid());
+            owningContentNodeId: Guid.NewGuid());
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("MyWidget").Returns(new PageControllerInfo { Name = "MyWidget" });
 
-        var pageDto = new PageDTO { ContentMeta = new ContentDTO { Title = "Parent Page" } };
-        _pageService.GetAllVersionsAsync(parentPageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        var pageDto = new PageDTO();
+        _pageStore.GetAsync(parentPageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -291,15 +289,15 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_NonPageType_InvalidParentPageMasterId_NoPageDataLoaded()
+    public async Task TransformAsync_NonPageType_InvalidParentPageNodeId_NoPageDataLoaded()
     {
         var context = CreateHttpContext();
         var dataTokens = JsonSerializer.Serialize(new Dictionary<string, string>
         {
-            { "ParentPageMasterId", "not-a-guid" }
+            { "ParentPageNodeId", "not-a-guid" }
         });
         var match = CreateMatchResult("Widget", "MyWidget", dataTokensJson: dataTokens,
-            owningContentMasterId: Guid.NewGuid());
+            owningContentNodeId: Guid.NewGuid());
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("MyWidget").Returns(new PageControllerInfo { Name = "MyWidget" });
@@ -311,10 +309,32 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
+    public async Task TransformAsync_NonPageType_ParentPageNotFound_NoPageDataLoaded()
+    {
+        var context = CreateHttpContext();
+        var parentPageNodeId = Guid.NewGuid();
+        var dataTokens = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            { "ParentPageNodeId", parentPageNodeId.ToString() }
+        });
+        var match = CreateMatchResult("Widget", "MyWidget", dataTokensJson: dataTokens,
+            owningContentNodeId: Guid.NewGuid());
+        _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
+
+        _registry.GetByName("MyWidget").Returns(new PageControllerInfo { Name = "MyWidget" });
+        _pageStore.GetAsync(parentPageNodeId, Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(context.Items.ContainsKey(CMSRouteTransformer.PageDataItemKey), Is.False);
+    }
+
+    [Test]
     public async Task TransformAsync_WithConfiguration_DeserializesAndSetsConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
+        var pageNodeId = Guid.NewGuid();
         var config = new SamplePageConfig { Title = "Hello", PageSize = 10 };
         var configJson = JsonSerializer.Serialize(config);
         var dataTokens = JsonSerializer.Serialize(new Dictionary<string, string>
@@ -322,7 +342,7 @@ public class CMSRouteTransformerTests
             { "ConfigurationJson", configJson }
         });
         var match = CreateMatchResult("Page", "Configured", dataTokensJson: dataTokens,
-            owningContentMasterId: pageId);
+            owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -333,11 +353,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = configJson
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -352,8 +371,8 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_WithConfiguration_InvalidJson_CreatesDefaultConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -364,11 +383,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = "{ invalid json"
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -381,8 +399,8 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_WithConfiguration_NullConfigJson_CreatesDefaultConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -393,11 +411,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = null!
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -410,8 +427,8 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_WithConfiguration_EmptyConfigJson_CreatesDefaultConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -422,11 +439,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = "{}"
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -439,8 +455,8 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_WithConfiguration_BlankConfigJson_CreatesDefaultConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -451,11 +467,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = ""
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -487,8 +502,8 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_WithConfiguration_NullJsonLiteral_CreatesDefaultConfig()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -499,11 +514,10 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
-            ContentMeta = new ContentDTO { Title = "Test Page" },
             ConfigurationJson = "null"
         };
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO> { pageDto });
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
+            .Returns(pageDto);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -516,7 +530,7 @@ public class CMSRouteTransformerTests
     public async Task TransformAsync_NoPageData_SetsDefaultConfig()
     {
         var context = CreateHttpContext();
-        var match = CreateMatchResult("Page", "Configured", owningContentMasterId: null);
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: null);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("Configured").Returns(new PageControllerInfo
@@ -575,10 +589,10 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_PageType_NoMasterId_GoesToElseBranch()
+    public async Task TransformAsync_PageType_NoNodeId_GoesToElseBranch()
     {
         var context = CreateHttpContext();
-        var match = CreateMatchResult("Page", "MyPage", owningContentMasterId: null);
+        var match = CreateMatchResult("Page", "MyPage", owningContentNodeId: null);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
@@ -590,7 +604,7 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_NonPageType_NoParentPageMasterIdKey_NoPageDataLoaded()
+    public async Task TransformAsync_NonPageType_NoParentPageNodeIdKey_NoPageDataLoaded()
     {
         var context = CreateHttpContext();
         var dataTokens = JsonSerializer.Serialize(new Dictionary<string, string>
@@ -598,7 +612,7 @@ public class CMSRouteTransformerTests
             { "SomeOtherKey", "some-value" }
         });
         var match = CreateMatchResult("Widget", "MyWidget", dataTokensJson: dataTokens,
-            owningContentMasterId: Guid.NewGuid());
+            owningContentNodeId: Guid.NewGuid());
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("MyWidget").Returns(new PageControllerInfo { Name = "MyWidget" });
@@ -610,16 +624,15 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_PageType_EmptyVersions_NoPageDataLoaded()
+    public async Task TransformAsync_PageType_GetAsyncReturnsNull_NoPageDataLoaded()
     {
         var context = CreateHttpContext();
-        var pageId = Guid.NewGuid();
-        var match = CreateMatchResult("Page", "MyPage", owningContentMasterId: pageId);
+        var pageNodeId = Guid.NewGuid();
+        var match = CreateMatchResult("Page", "MyPage", owningContentNodeId: pageNodeId);
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
 
         _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
-        _pageService.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageDTO>());
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
@@ -631,7 +644,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRouteService_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(null!, _registry, _pageService));
+            new CMSRouteTransformer(null!, _registry, _pageStore));
         Assert.That(ex!.ParamName, Is.EqualTo("routeService"));
     }
 
@@ -639,16 +652,16 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRegistry_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, null!, _pageService));
+            new CMSRouteTransformer(_routeService, null!, _pageStore));
         Assert.That(ex!.ParamName, Is.EqualTo("registry"));
     }
 
     [Test]
-    public void Constructor_NullPageService_ThrowsArgumentNullException()
+    public void Constructor_NullPageStore_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
             new CMSRouteTransformer(_routeService, _registry, null!));
-        Assert.That(ex!.ParamName, Is.EqualTo("pageService"));
+        Assert.That(ex!.ParamName, Is.EqualTo("pageStore"));
     }
 
     [Test]
@@ -659,8 +672,7 @@ public class CMSRouteTransformerTests
         {
             Pattern = "/test",
             DefaultsJson = "{ bad }",
-            OwningContentType = "Page",
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentType = "Page"
         };
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(new CMSRouteMatchResult
         {
@@ -685,8 +697,7 @@ public class CMSRouteTransformerTests
                 { "action", "Index" }
             }),
             DataTokensJson = "{ bad }",
-            OwningContentType = "Page",
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentType = "Page"
         };
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(new CMSRouteMatchResult
         {
@@ -708,8 +719,7 @@ public class CMSRouteTransformerTests
         {
             Pattern = "/test",
             DefaultsJson = null!,
-            OwningContentType = "Page",
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentType = "Page"
         };
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(new CMSRouteMatchResult
         {
@@ -734,8 +744,7 @@ public class CMSRouteTransformerTests
                 { "action", "Index" }
             }),
             DataTokensJson = null!,
-            OwningContentType = "Page",
-            ContentMeta = new ContentDTO { IsPublished = true }
+            OwningContentType = "Page"
         };
         _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(new CMSRouteMatchResult
         {

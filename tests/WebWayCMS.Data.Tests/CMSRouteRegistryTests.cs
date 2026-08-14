@@ -17,8 +17,7 @@ public class CMSRouteRegistryTests
 
     private static CMSRouteDTO RouteRow(string pattern) => new()
     {
-        Pattern = pattern,
-        ContentMeta = new ContentDTO { IsPublished = true, IsDeleted = false, MasterId = Guid.NewGuid() }
+        Pattern = pattern
     };
 
     [SetUp]

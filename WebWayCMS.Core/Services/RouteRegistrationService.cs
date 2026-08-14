@@ -21,7 +21,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
     public async Task RegisterContentRoutesAsync(
         IRoutableContent content, string routePattern, string controllerName,
-        Guid? viewModelId, Guid? viewModelMasterId, bool isPublished, CancellationToken ct = default)
+        Guid contentNodeId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(routePattern))
             return;
@@ -40,36 +40,23 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             {
                 { "RouteContentType", content.RouteContentType }
             }),
-            OwningContentMasterId = viewModelMasterId,
-            OwningContentType = content.RouteContentType,
-            ContentMeta = new ContentDTO
-            {
-                Id = Guid.NewGuid(),
-                MasterId = viewModelMasterId ?? Guid.NewGuid(),
-                IsPublished = isPublished,
-                Title = routePattern,
-                Slug = routePattern.TrimStart('/'),
-                PublicationDate = DateTime.UtcNow,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow,
-                CreatedBy = Guid.Empty,
-                LastModifiedBy = Guid.Empty
-            }
+            OwningContentNodeId = contentNodeId,
+            OwningContentType = content.RouteContentType
         };
 
         await _routeService.UpsertAsync(route, ct);
     }
 
-    public async Task UnregisterContentRoutesAsync(Guid contentMasterId, CancellationToken ct = default)
+    public async Task UnregisterContentRoutesAsync(Guid contentNodeId, CancellationToken ct = default)
     {
-        await _routeService.DeactivateByOwningContentAsync(contentMasterId, ct);
+        await _routeService.DeleteByOwningContentAsync(contentNodeId, ct);
     }
 
     public async Task RegisterWidgetRoutesAsync(
-        IRoutableViewComponent widget, Guid contentZoneItemMasterId, string parentRoute,
-        string parentDefaultsJson, Guid parentPageMasterId, bool isActive, CancellationToken ct = default)
+        IRoutableViewComponent widget, Guid contentZoneItemNodeId, string parentRoute,
+        string parentDefaultsJson, Guid parentPageNodeId, CancellationToken ct = default)
     {
-        var widgetRoutes = await widget.GenerateRoutesAsync(parentRoute, contentZoneItemMasterId, ct);
+        var widgetRoutes = await widget.GenerateRoutesAsync(parentRoute, contentZoneItemNodeId, ct);
 
         var parentDefaults = TryDeserialize<Dictionary<string, string>>(parentDefaultsJson)
             ?? new Dictionary<string, string>();
@@ -87,31 +74,27 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
             var dataTokens = TryDeserialize<Dictionary<string, string>>(widgetRoute.DataTokensJson)
                 ?? new Dictionary<string, string>();
-            dataTokens["ParentPageMasterId"] = parentPageMasterId.ToString();
+            dataTokens["ParentPageNodeId"] = parentPageNodeId.ToString();
             widgetRoute.DataTokensJson = JsonSerializer.Serialize(dataTokens);
 
-            widgetRoute.ContentMeta.IsPublished = isActive;
-            widgetRoute.ContentMeta.Title = widgetRoute.Pattern;
-            widgetRoute.ContentMeta.Slug = widgetRoute.Pattern.TrimStart('/');
-            if (widgetRoute.ContentMeta.Id == Guid.Empty)
-                widgetRoute.ContentMeta.Id = Guid.NewGuid();
-            if (widgetRoute.ContentMeta.MasterId == Guid.Empty)
-                widgetRoute.ContentMeta.MasterId = widgetRoute.ContentMeta.Id;
-            widgetRoute.ContentMeta.CreationDate = DateTime.UtcNow;
-            widgetRoute.ContentMeta.ModificationDate = DateTime.UtcNow;
-            widgetRoute.ContentMeta.PublicationDate = DateTime.UtcNow;
-            widgetRoute.ContentMeta.CreatedBy = Guid.Empty;
-            widgetRoute.ContentMeta.LastModifiedBy = Guid.Empty;
+            widgetRoute.OwningContentNodeId = contentZoneItemNodeId;
+            widgetRoute.OwningContentType ??= "ArticleWidget";
 
             await _routeService.UpsertAsync(widgetRoute, ct);
         }
     }
 
     public async Task TryRegisterWidgetRoutesAsync(
-        string componentName, Guid contentZoneItemMasterId, Guid? parentPageMasterId,
+        string componentName, Guid contentZoneItemNodeId, Guid? parentPageNodeId,
         bool isActive, CancellationToken ct = default)
     {
-        if (!parentPageMasterId.HasValue)
+        if (!isActive)
+        {
+            await _routeService.DeleteByOwningContentAsync(contentZoneItemNodeId, ct);
+            return;
+        }
+
+        if (!parentPageNodeId.HasValue)
             return;
 
         var widget = _routableWidgets.FirstOrDefault(w =>
@@ -119,14 +102,14 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         if (widget == null)
             return;
 
-        var pageRoutes = await _routeService.GetByOwningContentAsync(parentPageMasterId.Value, ct);
+        var pageRoutes = await _routeService.GetByOwningContentAsync(parentPageNodeId.Value, ct);
         var pageRoute = pageRoutes.FirstOrDefault();
         if (pageRoute == null)
             return;
 
         await RegisterWidgetRoutesAsync(
-            widget, contentZoneItemMasterId, pageRoute.Pattern, pageRoute.DefaultsJson,
-            parentPageMasterId.Value, isActive, ct);
+            widget, contentZoneItemNodeId, pageRoute.Pattern, pageRoute.DefaultsJson,
+            parentPageNodeId.Value, ct);
     }
 
     private static string NormalizeWidgetPattern(string parentRoute, string widgetPattern)

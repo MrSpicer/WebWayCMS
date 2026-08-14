@@ -43,8 +43,8 @@ public class GenericPageController : PageControllerBase<GenericPageConfiguration
     public override Task<IActionResult> Index()
     {
         _logger.Information("Rendering generic page: {PageId} - {PageTitle}",
-            CurrentPage?.ContentMeta.Id,
-            CurrentPage?.ContentMeta.Title);
+            CurrentPage?.Version.Node.Id,
+            CurrentPage?.Version.Title);
 
         var viewName = CurrentPage?.ViewName;
         if (!string.IsNullOrWhiteSpace(viewName) && !string.Equals(viewName, "Default", StringComparison.OrdinalIgnoreCase))

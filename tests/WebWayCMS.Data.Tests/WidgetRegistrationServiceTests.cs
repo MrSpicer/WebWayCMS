@@ -18,37 +18,39 @@ public class WidgetRegistrationServiceTests
 
     private WidgetRegistrationService NewService() => new(NewContext());
 
+    private static ContentNode Node(Guid id, bool isDeleted = false)
+        => new() { Id = id, ContentTypeKey = "widgets", IsDeleted = isDeleted };
+
     private static WidgetRegistrationDTO Widget(
         string componentName = "TestWidget",
         string displayName = "Test Widget",
         string category = "General",
         bool isActive = true,
-        bool isPublished = true,
+        ContentVersionState state = ContentVersionState.Published,
         bool isDeleted = false,
         int version = 0,
-        Guid? masterId = null)
+        ContentNode? node = null)
     {
-        var master = masterId ?? Guid.NewGuid();
-        var id = Guid.NewGuid();
+        node ??= Node(Guid.NewGuid(), isDeleted);
+        var versionId = Guid.NewGuid();
         return new WidgetRegistrationDTO
         {
-            ContentId = id,
+            VersionId = versionId,
             ComponentName = componentName,
             DisplayName = displayName,
             Category = category,
             IsActive = isActive,
             PropertyDefinitionsJson = "[]",
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = id,
-                MasterId = master,
-                Version = version,
+                Id = versionId,
+                NodeId = node.Id,
+                Node = node,
+                VersionNumber = version,
+                State = state,
                 Title = displayName,
                 Slug = componentName.ToLowerInvariant(),
-                IsPublished = isPublished,
-                IsDeleted = isDeleted,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow,
+                CreatedUtc = DateTime.UtcNow
             }
         };
     }
@@ -64,10 +66,10 @@ public class WidgetRegistrationServiceTests
     public async Task GetActiveAsync_ReturnsOnlyActivePublishedNonDeleted()
     {
         await SeedAsync(
-            Widget("A", isActive: true, isPublished: true),
-            Widget("B", isActive: false, isPublished: true),
-            Widget("C", isActive: true, isPublished: false),
-            Widget("D", isActive: true, isPublished: true, isDeleted: true));
+            Widget("A", isActive: true),
+            Widget("B", isActive: false),
+            Widget("C", isActive: true, state: ContentVersionState.Draft),
+            Widget("D", isActive: true, isDeleted: true));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
@@ -77,18 +79,18 @@ public class WidgetRegistrationServiceTests
     }
 
     [Test]
-    public async Task GetActiveAsync_ReturnsLatestVersionOnly()
+    public async Task GetActiveAsync_ReturnsPublishedVersionOnly()
     {
-        var master = Guid.NewGuid();
+        var node = Node(Guid.NewGuid());
         await SeedAsync(
-            Widget("A", version: 0, masterId: master),
-            Widget("A", version: 1, masterId: master));
+            Widget("A", version: 0, node: node, state: ContentVersionState.Archived),
+            Widget("A", version: 1, node: node, state: ContentVersionState.Published));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
 
         Assert.That(result, Has.Count.EqualTo(1));
-        Assert.That(result[0].ContentMeta.Version, Is.EqualTo(1));
+        Assert.That(result[0].Version.VersionNumber, Is.EqualTo(1));
     }
 
     [Test]

@@ -1,3 +1,4 @@
+@using WebWayCMS.Data.Models
 @using WebWayCMS.Models.Shared
 
 @model VersionHistoryViewModel
@@ -33,11 +34,11 @@
                     <tr>
                         <th scope="col">Version</th>
                         <th scope="col">Title</th>
+                        <th scope="col">State</th>
+                        <th scope="col">Author</th>
+                        <th scope="col">Change Note</th>
                         <th scope="col">Modified</th>
                         <th scope="col">Created</th>
-                        <th scope="col">Published</th>
-                        <th scope="col">Deleted</th>
-                        <th scope="col">Status</th>
                         <th scope="col"><span class="is-sr-only">Actions</span></th>
                     </tr>
                 </thead>
@@ -47,38 +48,50 @@
                         <tr>
                             <td><span class="tag is-light">v@(v.Version)</span></td>
                             <td>@v.Title</td>
+                            <td>
+                                @if (v.State == ContentVersionState.Published)
+                                {
+                                    <span class="tag is-success">Published</span>
+                                }
+                                else if (v.State == ContentVersionState.Draft)
+                                {
+                                    <span class="tag is-warning">Draft</span>
+                                }
+                                else if (v.State == ContentVersionState.Archived)
+                                {
+                                    <span class="tag is-dark">Archived</span>
+                                }
+                                else
+                                {
+                                    <span class="tag is-light">@v.State</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(v.AuthorName))
+                                {
+                                    @v.AuthorName
+                                }
+                                else if (v.CreatedBy.HasValue)
+                                {
+                                    <span class="has-text-grey-light">@v.CreatedBy</span>
+                                }
+                                else
+                                {
+                                    <span class="has-text-grey-light is-italic">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(v.ChangeNote))
+                                {
+                                    @v.ChangeNote
+                                }
+                                else
+                                {
+                                    <span class="has-text-grey-light is-italic">—</span>
+                                }
+                            </td>
                             <td>@v.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                             <td>@v.CreationDate.ToString("yyyy-MM-dd HH:mm")</td>
-                            <td>
-                                @if (v.IsPublished)
-                                {
-                                    <span class="tag is-success">Yes</span>
-                                }
-                                else
-                                {
-                                    <span class="tag is-warning">No</span>
-                                }
-                            </td>
-                            <td>
-                                @if (v.IsDeleted)
-                                {
-                                    <span class="tag is-danger">Yes</span>
-                                }
-                                else
-                                {
-                                    <span class="tag is-light">No</span>
-                                }
-                            </td>
-                            <td>
-                                @if (v.IsLatest)
-                                {
-                                    <span class="tag is-info">Current</span>
-                                }
-                                else
-                                {
-                                    <span class="tag is-light">Historical</span>
-                                }
-                            </td>
                             <td>
                                 <div class="buttons are-small">
                                     @if (Model.ParentKey != null)
@@ -88,15 +101,15 @@
                                            asp-route-contentType="@Model.ContentType"
                                            asp-route-parentKey="@Model.ParentKey"
                                            asp-route-childType="@Model.ChildType"
-                                           asp-route-masterId="@Model.MasterId"
+                                           asp-route-nodeId="@Model.NodeId"
                                            asp-route-id="@v.Id"
-                                           class="button is-small">Edit</a>
+                                           class="button is-small">Restore</a>
                                         @if (!v.IsLatest)
                                         {
                                             <button type="button" class="button is-small is-danger is-light"
                                                     data-delete-trigger
                                                     data-delete-name="v@(v.Version) of @Model.ItemTitle"
-                                                    data-delete-url="@Url.Action("ChildVersionDelete", "AdminContent", new { contentType = Model.ContentType, parentKey = Model.ParentKey, childType = Model.ChildType, masterId = Model.MasterId, id = v.Id })">
+                                                    data-delete-url="@Url.Action("ChildVersionDelete", "AdminContent", new { contentType = Model.ContentType, parentKey = Model.ParentKey, childType = Model.ChildType, nodeId = Model.NodeId, id = v.Id })">
                                                 <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                                 <span>Delete</span>
                                             </button>
@@ -104,18 +117,24 @@
                                     }
                                     else
                                     {
-                                        <a asp-controller="AdminContent"
-                                           asp-action="VersionRestoreEdit"
-                                           asp-route-contentType="@Model.ContentType"
-                                           asp-route-masterId="@Model.MasterId"
-                                           asp-route-id="@v.Id"
-                                           class="button is-small">Edit</a>
+                                        @if (!v.IsLatest)
+                                        {
+                                            <form asp-controller="AdminContent"
+                                                  asp-action="RestoreVersion"
+                                                  asp-route-contentType="@Model.ContentType"
+                                                  asp-route-nodeId="@Model.NodeId"
+                                                  asp-route-id="@v.Id"
+                                                  method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small">Restore</button>
+                                            </form>
+                                        }
                                         @if (!v.IsLatest)
                                         {
                                             <button type="button" class="button is-small is-danger is-light"
                                                     data-delete-trigger
                                                     data-delete-name="v@(v.Version) of @Model.ItemTitle"
-                                                    data-delete-url="@Url.Action("VersionDelete", "AdminContent", new { contentType = Model.ContentType, masterId = Model.MasterId, id = v.Id })">
+                                                    data-delete-url="@Url.Action("VersionDelete", "AdminContent", new { contentType = Model.ContentType, nodeId = Model.NodeId, id = v.Id })">
                                                 <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                                 <span>Delete</span>
                                             </button>

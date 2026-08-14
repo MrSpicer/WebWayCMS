@@ -9,7 +9,7 @@
 - `WebWayCMS.Data.Migrations` (auto-generated, do not edit)
 
 **Depends on:** PostgreSQL/Npgsql, EF Core 10, ASP.NET Identity (`CmsDbContext`)
-**Consumed by:** Content Domain Models, Admin CRUD Framework, CMS Bootstrap, Tests
+**Consumed by:** Content Domain Models, Admin CRUD Framework, CMS Bootstrap, Routing, Tests
 
 ---
 
@@ -17,11 +17,11 @@
 
 The CMS uses a single EF Core `DbContext`, `CmsDbContext`, which inherits from `IdentityDbContext`
 (non-generic — users are `IdentityUser`, roles `IdentityRole`). It covers the Identity tables, the
-shared `Content` table, and every content-type-specific table. All tables live in one PostgreSQL
-database connected via `DefaultConnection`, and a single `__EFMigrationsHistory` table tracks the
-migration history.
+content node/version/change-set tables, and every content-type-specific table. All tables live in one
+PostgreSQL database connected via `DefaultConnection`, and a single `__EFMigrationsHistory` table
+tracks migration history.
 
-The context itself is deliberately tiny and **declares no `DbSet<>` properties at all**:
+The context declares **no `DbSet<>` properties at all**:
 
 ```csharp
 public class CmsDbContext : IdentityDbContext
@@ -37,146 +37,150 @@ public class CmsDbContext : IdentityDbContext
 ```
 
 Entities are discovered through `IEntityTypeConfiguration<T>` classes in
-`WebWayCMS.Data/Data/EntityConfiguration/` — one sealed `{Name}DTOEntityConfiguration` per entity —
-and reached at runtime through `context.Set<T>()`. Adding a content type therefore means adding a
-configuration class, not editing the context.
+`WebWayCMS.Data/Data/EntityConfiguration/` and reached at runtime through `context.Set<T>()`. Adding a
+content type means adding a configuration class, not editing the context.
 
-The single shared helper that remains in `ContentModelConfiguration` is
-`ConfigureContentLink<T>()`, an `EntityTypeBuilder<T>` extension that wires the 1:1 shared-primary-key
-relationship every `IContent` type needs:
+The shared helper in `ContentModelConfiguration` is `ConfigureContentLink<T>()`, an
+`EntityTypeBuilder<T>` extension that wires the 1:1 shared-primary-key relationship every
+`IVersionedContent` type needs:
 
 ```csharp
-entity.HasKey(e => e.ContentId);
-entity.HasOne(e => e.ContentMeta)
+entity.HasKey(e => e.VersionId);
+entity.HasOne(e => e.Version)
       .WithOne()
-      .HasForeignKey<T>(e => e.ContentId)
+      .HasForeignKey<T>(e => e.VersionId)
       .OnDelete(DeleteBehavior.Cascade);
-entity.Navigation(e => e.ContentMeta).AutoInclude();
+entity.Navigation(e => e.Version).AutoInclude();
 ```
 
 ---
 
-## 2. `ContentDTO` / `IContent` — Fields and Semantics
+## 2. `ContentNode` / `ContentVersion` / `ChangeSet` — identity split from version
 
-The shared fields are a concrete `ContentDTO` (persisted to the single `Content` table). Content
-types **compose** it rather than inheriting — each implements `IContent` and is linked to its
-`ContentDTO` row by a shared-primary-key 1:1 relationship (`ContentId` is both PK and FK, and equals
-`ContentMeta.Id`). Shared fields are accessed via `dto.ContentMeta.X`.
+Identity and version are **split**. A logical content item is one `ContentNode`; its mutable,
+per-version data lives on one or more `ContentVersion` rows. Content types **compose** a
+`ContentVersion` rather than inheriting — each implements `IVersionedContent` and is linked to its
+version row by a shared-primary-key 1:1 relationship (`VersionId` is both PK and FK, and equals
+`Version.Id`).
 
 ```csharp
-public interface IContent
+public interface IVersionedContent
 {
-    Guid ContentId { get; set; }       // shared PK / FK to Content
-    ContentDTO ContentMeta { get; set; }
+    Guid VersionId { get; set; }
+    ContentVersion Version { get; set; }
 }
+```
 
-public record ContentDTO
+### `ContentNode` — one row per logical item, never versioned
+
+```csharp
+public record ContentNode
 {
-    public Guid Id { get; set; }          // Unique per row/version
-    public Guid MasterId { get; set; }    // Stable identity across versions
-    public int Version { get; set; }      // Monotonically increasing per MasterId
-
-    public string Slug { get; set; }      // URL-friendly identifier; auto-generated from Title if empty
-    public string Title { get; set; }
-
-    public Guid CreatedBy { get; set; }
-    public Guid LastModifiedBy { get; set; }
-
-    public DateTime CreationDate { get; set; }
-    public DateTime ModificationDate { get; set; }
-    public DateTime PublicationDate { get; set; }
-    public DateTime? PublicationEndDate { get; set; }
-
-    public bool IsPublished { get; set; }
+    public Guid Id { get; set; }              // stable identity (replaces the old MasterId)
+    public string ContentTypeKey { get; set; } // "pages", "articles", "contentzones", ...
+    public Guid? ParentNodeId { get; set; }
+    public Guid? SiteId { get; set; }          // multi-site seam; null = default site
+    public DateTime CreatedUtc { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public bool IsDeleted { get; set; }
     public bool IsArchived { get; set; }
     public bool IsHidden { get; set; }
-    public bool IsDeleted { get; set; }   // Soft-delete flag
-
-    public Guid? ParentMasterId { get; set; }  // FK to parent's MasterId (child resources)
-
-    public List<CustomField> CustomFields { get; set; } = new();  // JSONB flexible fields
 }
 ```
 
-**Versioning semantics:**
-- `ContentMeta.Id` is a new `Guid` on every save (and `ContentId` tracks it). Never reused.
-- `MasterId` is set to the original `Id` on first insert, then remains constant. Use `MasterId` as the stable reference to a logical content item.
-- `Version` starts at 0 and increments on every update. The row with the highest `Version` for a given `MasterId` is the current version.
+Every cross-entity foreign key points at `ContentNode.Id` (never at a version row).
 
-**Publishing flags:**
-- `IsPublished` — visible to public. When a new version is saved with `IsPublished = true`, all prior versions for the same `MasterId` have `IsPublished` set to `false`.
-- `IsArchived` — content is retained but hidden from normal queries (application-level convention; not enforced by the service).
-- `IsHidden` — content exists but should not appear in listings (application-level convention).
-- `IsDeleted` — soft delete marker. `GetAllAsync` and the route/registry queries exclude soft-deleted records.
+### `ContentVersion` — one row per version, per variant
 
-**`CustomFields`:** A `List<CustomField>` stored as JSONB. Provides a key-value extension point without schema migrations.
+```csharp
+public enum ContentVersionState { Draft = 0, InReview = 1, Approved = 2, Published = 3, Archived = 4 }
 
----
+public record ContentVersion
+{
+    public Guid Id { get; set; }
+    public Guid NodeId { get; set; }
+    public ContentNode Node { get; set; } = null!;
+    public int VersionNumber { get; set; }
 
-## 3. Built-in DTOs
+    // Variant axes — NON-NULLABLE with "" sentinels (see PostgreSQL note below)
+    public string Culture { get; set; } = string.Empty;   // "" = invariant
+    public string Segment { get; set; } = string.Empty;   // "" = default
 
-### `PageDTO`
-Implements `IContent`. Type-specific fields beyond the shared `ContentMeta`:
-- `ViewName` — optional override for the Razor view name (the seeded `/wadmin` page uses `"Dashboard"`)
-- `ConfigurationJson` — JSON-serialized page config object (type determined by the controller's `ConfigurationType`)
+    public ContentVersionState State { get; set; }
+    public bool IsCurrentDraft { get; set; }
 
-There is **no `Route` or `ControllerName` here**. A page's URL and dispatch controller live on its
-`CMSRouteDTO` row; the URL pattern is derived from `ContentMeta.Slug` on save. See
-[03-page-routing](03-page-routing.md).
+    public string Title { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
 
-### `ArticleListDTO`
-Parent container for articles. Implements `IContent` with no type-specific fields beyond `ContentMeta`.
+    public Guid? CreatedBy { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public Guid? PublishedBy { get; set; }
+    public DateTime? PublishedUtc { get; set; }
+    public DateTime? PublishStartUtc { get; set; }   // scheduling seam — NOT filtered yet
+    public DateTime? PublishEndUtc { get; set; }
 
-### `ArticleDTO`
-Implements `IContent`. Adds `Body`, `AuthorName`, `Summary`, and `ArticleListMasterId` (references the owning `ArticleListDTO`'s `MasterId`).
+    public string? ChangeNote { get; set; }
+    public Guid ChangeSetId { get; set; }
+    public List<CustomField> CustomFields { get; set; } = new();  // JSONB
+}
+```
 
-### `ContentBlockDTO`
-Implements `IContent`. Stores reusable content blocks (adds `Content`, the block body).
+**Why `Culture`/`Segment` are non-nullable `""` sentinels:** PostgreSQL treats NULLs as distinct in a
+unique index (`NULLS DISTINCT` is the default), so two invariant rows with `Culture = NULL` would not
+collide and the invariant indexes below would silently fail to enforce anything.
 
-### `CMSRouteDTO`
-Implements `IContent`. One row per CMS URL — table `CMSRoutes`, with a **unique index on `Pattern`**:
-- `Pattern` — normalized URL pattern (lowercase, leading slash, no trailing slash), e.g. `/about/team` or `/blog/{slug}`
-- `DefaultsJson` — route defaults; a `"controller"` key is required, `"action"` defaults to `"Index"`
-- `ConstraintsJson`, `DataTokensJson` — route constraints and data tokens. `DataTokens` is where a page route stores its `ConfigurationJson` and where a widget route stores its `ParentPageMasterId`
-- `Order` — match precedence; lower wins
-- `OwningContentMasterId` / `OwningContentType` — what created this route (`"Page"`, `"ArticleWidget"`, `"CodeBased"`)
-- `IsReserved` — when `true`, the pattern is never matched but still blocks reuse
+### `ChangeSet` — groups versions written by one operation
 
-### `WidgetRegistrationDTO`
-Implements `IContent`. One row per available widget — table `WidgetRegistrations`, `ComponentName`
-unique. Fields: `ComponentName`, `DisplayName`, `Description`, `Category` (default `"General"`),
-`IconClass`, `Order`, `ConfigurationTypeName`, `PropertyDefinitionsJson` (serialized
-`List<FormPropertyInfo>`), `IsActive`. Seeded from `[ContentZoneComponent]` at startup, then read
-through `IWidgetRegistry`.
+```csharp
+public enum ChangeSetKind { Save = 0, Publish = 1, Unpublish = 2, Restore = 3, Delete = 4 }
 
-### `PageControllerRegistrationDTO`
-Implements `IContent`. One row per available page type — table `PageControllerRegistrations`,
-`ControllerName` unique. Same shape as `WidgetRegistrationDTO` plus `ControllerTypeName`. Seeded
-from `[PageController]` at startup, then read through `IPageControllerRegistry`.
+public record ChangeSet
+{
+    public Guid Id { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public ChangeSetKind Kind { get; set; }
+    public Guid? RootNodeId { get; set; }
+    public string? Note { get; set; }
+}
+```
 
-### `ContentZoneDTO`
-Implements `IContent`. Key fields:
-- `Name` — slot identifier used for global lookup
-- `Description`
-- `Items` — navigation property: `List<ContentZoneItemDTO>` (loaded via EF Include)
+`IChangeSetScope` provides ambient scoping: `AdminCrudModel.SaveUpsertAsync` (and publish/restore)
+opens a scope; every `IContentStore<T>` write inside stamps `ChangeSetId = scope.Current`, so a
+composite save reads back as one history entry.
 
-### `ContentZoneItemDTO`
-Implements `IContent`. Versioned through its own `ContentMeta` (`Id`/`MasterId`/`Version`). Key fields:
-- `ContentZoneId` — FK to the owning `ContentZoneDTO` (its `ContentId`)
-- `ComponentName` — name of the `[ContentZoneComponent]` ViewComponent to render
-- `ComponentPropertiesJson` — JSON-serialized widget configuration
-- `Ordinal` — display order within the zone
-- `IsActive` — whether this item is currently visible
+### The two state invariants
 
-### `ContentZoneAssignmentDTO`
-Join record scoping a zone to a page slot or a nested zone slot:
-- `Id` — `Guid`
-- `SlotName` — string slot name, e.g. `"Main"`, `"Sidebar"`
-- `ContentZoneId` — references `ContentZoneDTO.MasterId`
-- `ParentPageMasterId?` — set for page-scoped assignments
-- `ParentZoneId?` — set for nested zone assignments; exactly one of these two is non-null
+- **Exactly one `IsCurrentDraft = true` per (NodeId, Culture, Segment), always.**
+- **At most one `State = Published` per (NodeId, Culture, Segment).**
+
+A version can be both — that is the steady state for published content with no pending edit, and it
+makes both reads a single-row index seek:
+
+| Operation | Effect |
+|---|---|
+| Create | v0: `Draft`, `IsCurrentDraft = true` |
+| Publish (no separate draft) | v0: `Published`, `IsCurrentDraft = true` |
+| Edit a published item | v1: `Draft`, `IsCurrentDraft = true`; v0: `Published`, `IsCurrentDraft = false` |
+| Publish v1 | v1: `Published`, `IsCurrentDraft = true`; v0: `Archived`, `IsCurrentDraft = false` |
+| Unpublish (no separate draft) | published row → `Draft` (stays `IsCurrentDraft`) |
+| Unpublish (separate draft exists) | published row → `Archived`; draft untouched |
+
+These are enforced **in code** by `ContentStore<T>` as the primary mechanism (so the unit-test suite,
+which runs on the EF InMemory provider, still validates them) and **by filtered unique indexes** as the
+DB backstop:
+
+- `UX_ContentVersion_PublishedVariant` — unique on `(NodeId, Culture, Segment)` where `"State" = 3`
+- `UX_ContentVersion_DraftVariant` — unique on `(NodeId, Culture, Segment)` where `"IsCurrentDraft"`
+- `UX_ContentVersion_Number` — unique on `(NodeId, Culture, Segment, VersionNumber)`
+
+> **Testing caveat:** the InMemory provider enforces neither filtered unique indexes nor check
+> constraints and ignores transactions, so the indexes themselves can only be verified against real
+> PostgreSQL (via `./scripts/StartIntegrationHost.sh`), not unit tests. See the note in
+> `tests/WebWayCMS.Data.Tests/TestContexts.cs`.
 
 ### `CustomField`
+
 ```csharp
 public record CustomField
 {
@@ -188,15 +192,67 @@ public record CustomField
 
 ---
 
+## 3. Built-in DTOs
+
+Each implements `IVersionedContent` (`VersionId` + `Version`). Type-specific fields:
+
+### `PageDTO`
+- `ControllerName` — the selected page controller (page type), persisted here so Publish can write the route
+- `ViewName` — optional Razor view override
+- `ConfigurationJson` — JSON page config (type determined by the controller's `ConfigurationType`)
+
+A page's URL lives on its `CMSRouteDTO`; routes are written on **Publish** (never Save).
+
+### `ArticleListDTO`
+Parent container for articles. No type-specific fields.
+
+### `ArticleDTO`
+`Body`, `AuthorName`, `Summary`, and `ArticleListNodeId` — a **real FK to `ContentNode.Id`** (replaces the soft `ArticleListMasterId`).
+
+### `ContentBlockDTO`
+`Content` (the reusable block body).
+
+### `CMSRouteDTO` — **not versioned**
+Plain entity, no `IVersionedContent`, no version history (matching `CMSRouteModel.SupportsVersionHistory => false` and the hard-delete-replace behaviour):
+- `Id` — plain `Guid`
+- `Pattern` — normalized URL pattern (unique index)
+- `DefaultsJson`, `ConstraintsJson`, `DataTokensJson` — route metadata (`DataTokens` stores a widget route's `ParentPageNodeId`)
+- `Order`, `OwningContentNodeId`, `OwningContentType`, `IsReserved`
+
+Routes are written by Publish, never by Save, so a draft slug change does not touch the route table
+until published.
+
+### `WidgetRegistrationDTO` / `PageControllerRegistrationDTO` / `FormComponentRegistrationDTO`
+Registration records (seeded at startup), each `IVersionedContent` with an `IsActive` type field and a
+published/draft `Version.State`.
+
+### `ContentZoneDTO`
+`Name`, `Description`. **There is no `Items` collection** — which item *versions* belong to a zone
+depends on the read context, so items are resolved through `IContentZoneService.GetItemsAsync(zoneNodeId)`.
+
+### `ContentZoneItemDTO`
+- `ContentZoneNodeId` — FK to the zone's `ContentNode.Id`
+- `Ordinal`, `ComponentName`, `ComponentPropertiesJson`, `IsActive`
+
+### `ContentZoneAssignmentDTO`
+Join record scoping a zone node to a page slot or a nested zone slot:
+- `Id`, `SlotName`
+- `ContentZoneNodeId` — FK to `ContentNode.Id`
+- `ParentPageNodeId?` / `ParentZoneNodeId?` — exactly one non-null (check constraint)
+
+---
+
 ## 4. Tables and Entity Configurations
 
-`CmsDbContext` covers 18 tables. Each CMS entity has exactly one sealed configuration class in
-`WebWayCMS.Data/Data/EntityConfiguration/`:
+`CmsDbContext` covers the Identity tables plus the content tables. Each CMS entity has exactly one
+sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 
 | Configuration class | Table |
 |---|---|
 | *(inherited from `IdentityDbContext`)* | `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, `AspNetUserClaims`, `AspNetRoleClaims`, `AspNetUserLogins`, `AspNetUserTokens` |
-| `ContentDTOEntityConfiguration` | `Content` (shared by all content types) |
+| `ContentNodeEntityConfiguration` | `ContentNodes` |
+| `ContentVersionEntityConfiguration` | `ContentVersions` |
+| `ChangeSetEntityConfiguration` | `ChangeSets` |
 | `ArticleDTOEntityConfiguration` | `Articles` |
 | `ArticleListDTOEntityConfiguration` | `ArticleLists` |
 | `ContentBlockDTOEntityConfiguration` | `ContentBlocks` |
@@ -207,188 +263,148 @@ public record CustomField
 | `CMSRouteDTOEntityConfiguration` | `CMSRoutes` |
 | `WidgetRegistrationDTOEntityConfiguration` | `WidgetRegistrations` |
 | `PageControllerRegistrationDTOEntityConfiguration` | `PageControllerRegistrations` |
+| `FormComponentRegistrationDTOEntityConfiguration` | `FormComponentRegistrations` |
 
-Migrations live in a single flat folder, `WebWayCMS.Data/Migrations/`, with one
-`InitialCreate` migration plus the model snapshot. `./scripts/RebuildEFMigrations.sh` wipes and
-regenerates it (destructive — it is not an additive migration workflow).
-
-Design-time scaffolding uses `CmsDbContextFactory`; its connection string comes from
-`WEBWAYCMS_DESIGNTIME_CONNECTION`, defaulting to a local `webwaycms_designtime` database.
+Migrations live in `WebWayCMS.Data/Migrations/`; `./scripts/RebuildEFMigrations.sh` wipes and
+regenerates a single `InitialCreate` (destructive, not additive).
 
 ---
 
-## 5. `IContentService<T>` — Full Method Semantics
+## 5. `IContentStore<T>` — the single write/read engine
 
-`ContentService<T>` is a sealed generic implementation registered once per content type. All queries use `AsNoTracking()` for reads. The "latest version only" query pattern is:
+`ContentStore<T>` is the single generic engine that replaced the old `ContentService<T>`,
+`PageService`, and the zone CRUD. It is registered once per content type with its `contentTypeKey`,
+and is read-context aware.
 
-```csharp
-.Where(e => !_set.Any(e2 => e2.MasterId == e.MasterId && e2.Version > e.Version))
-```
-
-This is an existence-based filter: exclude any row where a newer version (higher `Version`) exists for the same `MasterId`.
+**Reads (read-context aware — the public rendering path):**
 
 | Method | Behaviour |
-|--------|-----------|
-| `GetAllAsync` | Returns latest version of every non-soft-deleted item, ordered by `ModificationDate` descending |
-| `GetByIdAsync(id)` | Returns the exact row with that `Id` (any version) |
-| `GetByMasterIdAsync(masterId)` | Returns the latest version for the given `MasterId` |
-| `GetAllVersionsAsync(masterId)` | Returns all versions for a `MasterId`, newest first |
-| `GetBySlugAsync(slug)` | Returns the latest version with the given `Slug` |
-| `GetChildrenAsync(parentMasterId)` | Returns latest versions of all items with `ParentMasterId = parentMasterId` |
-| `GetRootsAsync()` | Returns latest versions of all items with `ParentMasterId = null` |
-| `CreateAsync(entity)` | Sets `Id = Guid.NewGuid()`, then `MasterId = Id`; auto-generates `Slug` from `Title` if empty; sets timestamps; `Version` stays 0 |
-| `UpdateAsync(entity)` | Verifies original `Id` exists; increments `Version`; assigns new `Id`; creates new row; clears `IsPublished` on prior versions if new version is published |
-| `UpsertAsync(entity)` | Delegates to `CreateAsync` if `Id` or `MasterId` is empty; otherwise `UpdateAsync` |
-| `DeleteAsync(id, softDelete, deleteHistory)` | See below |
+|---|---|
+| `GetAsync(nodeId)` | The single row selected by the read context for that node |
+| `GetAllAsync()` | One row per node, at the read context |
+| `GetBySlugAsync(slug)` | Row at the read context matching the slug |
+| `GetChildrenAsync(parentNodeId)` | Rows whose `Node.ParentNodeId` matches |
+| `GetRootsAsync()` | Rows whose `Node.ParentNodeId` is null |
 
-**Delete modes:**
-- `softDelete=false, deleteHistory=false` — hard-deletes the single row matching `id`
-- `softDelete=true, deleteHistory=false` — sets `IsDeleted=true`, `IsPublished=false` on the matching row, then calls `UpdateAsync` (creates a new version recording the soft-delete)
-- `deleteHistory=true, softDelete=false` — hard-deletes all versions for the same `MasterId`
-- `deleteHistory=true, softDelete=true` — marks all versions for the same `MasterId` as deleted
+Version selection lives in exactly one place, `ContentQueryExtensions.AtReadContext(ctx)`:
+
+```csharp
+q.Where(e => e.Version.Culture == ctx.Culture
+          && e.Version.Segment == ctx.Segment
+          && !e.Version.Node.IsDeleted
+          && (ctx.Mode == ContentReadMode.Draft
+                 ? e.Version.IsCurrentDraft
+                 : e.Version.State == ContentVersionState.Published));
+```
+
+Both branches are single-row index seeks against the filtered unique indexes. (Scheduled-publishing
+predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship as columns, unfiltered.)
+
+**Reads (version-explicit / admin):**
+
+| Method | Behaviour |
+|---|---|
+| `GetVersionAsync(versionId)` | Exact version row |
+| `GetAllVersionsAsync(nodeId)` | All versions newest-first |
+| `GetCurrentDraftAsync(nodeId)` | The `IsCurrentDraft` row (invariant variant) |
+| `GetAllCurrentDraftsAsync()` | Every current-draft row (admin lists) |
+
+**Writes** (return `ContentWriteResult(bool Success, string? ErrorMessage, Guid VersionId)`):
+
+| Method | Behaviour |
+|---|---|
+| `SaveDraftAsync(entity, expectedVersionNumber)` | New node ⇒ v0 draft. Existing ⇒ if current draft is `Published`, mint `VersionNumber+1` as a new draft and clear the published row's `IsCurrentDraft`; if already `Draft`, update in place. `VersionNumber` comes from `MAX` on the DB, never the client. `expectedVersionNumber` (a hidden form field) is compared against the current draft's number; mismatch returns the friendly stale-version message. |
+| `PublishAsync(nodeId)` | Promotes the current draft to `Published`; archives any prior published version. |
+| `UnpublishAsync(nodeId)` | Published current → `Draft`; or, with a separate draft, archives the published row and leaves the draft. |
+| `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
+| `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node. |
+| `DeleteVersionAsync(versionId)` | Removes a single version row + its type row. |
+
+**Concurrency:** the unique index `UX_ContentVersion_Number` is the backstop; `ContentStore<T>` catches
+`DbUpdateException` and maps it to the same stale-version message, so a true race degrades to the
+friendly error rather than corruption.
 
 ---
 
-## 6. `IPageService` and `ICMSRouteService`
+## 6. `ICMSRouteService` and the registration services
 
-`PageService` wraps `CmsDbContext` directly rather than reusing the generic `ContentService<T>`.
-It is now purely about page records — **all route concerns moved to `ICMSRouteService`**.
+`CMSRouteService` wraps plain `CMSRouteDTO` rows and `ICMSRouteRegistry` (a 60s cached list of active
+routes, invalidated on every write).
 
-| `IPageService` method | Behaviour |
-|--------|-----------|
-| `GetAllAsync` | Latest non-deleted versions |
-| `GetByIdAsync(id)` | Exact row by `Id` |
-| `GetAllVersionsAsync(masterId)` | All versions newest-first |
-| `CreateAsync(page)` | Sets `MasterId = Id`, `Version = 0`; sets timestamps |
-| `UpdateAsync(page)` | Increments version; new row; clears prior `IsPublished` if the new version is published |
-| `DeleteAsync(id)` | Hard-deletes ALL versions for the `MasterId` |
-| `DeleteVersionAsync(id)` | Deletes only the single version row matching `id` |
-
-| `ICMSRouteService` method | Behaviour |
-|--------|-----------|
-| `MatchRouteAsync(path)` | Normalizes the path, walks active routes by `Order`, skips `IsReserved` rows, returns the first pattern match plus its extracted route values |
-| `GetActiveRoutesAsync()` | Published, non-deleted, latest-version routes ordered by `Order` then `Pattern.Length` |
-| `GetByOwningContentAsync(masterId)` | All latest routes owned by a piece of content |
-| `GetByIdAsync(id)` | Exact row by `ContentId` |
-| `IsPatternAvailableAsync(pattern, excludeMasterId)` | `true` if no latest, non-deleted route occupies that pattern; optionally excludes one owner (for edit-in-place checks) |
-| `UpsertAsync(route)` | **Destructive replace** — hard-deletes the existing row for the owner (or pattern) and its `ContentMeta`, then inserts a fresh `Version = 0` row. Routes have no version history |
-| `DeleteAsync(masterId)` | Hard-deletes all versions for the `MasterId` |
-| `DeactivateByOwningContentAsync(masterId)` | Sets `IsPublished = false` on the owner's published routes (used when a page is unpublished or deleted) |
-
-**Pattern normalization** (`CMSRouteService.NormalizePattern`), applied to both stored patterns and
-incoming request paths:
-1. Blank ⇒ `/`
-2. Trim and lowercase
-3. Ensure leading `/`
-4. Remove trailing `/` unless the pattern is exactly `/`
-
-The pattern-matching syntax is documented in [03-page-routing](03-page-routing.md#3-icmsrouteservice--matching-semantics).
-
-Two more read-only services back the registries:
-
-| Service | Methods |
+| Method | Behaviour |
 |---|---|
-| `IWidgetRegistrationService` | `GetActiveAsync`, `GetByComponentNameAsync`, `GetActiveByCategoryAsync` |
-| `IPageControllerRegistrationService` | `GetActiveAsync`, `GetByControllerNameAsync`, `GetActiveByCategoryAsync` |
+| `MatchRouteAsync(path)` | Normalizes the path, walks active routes by `Order`, skips `IsReserved`, returns the first pattern match + route values |
+| `GetActiveRoutesAsync()` / `GetAllRoutesAsync()` | All routes ordered by `Order` then `Pattern.Length` |
+| `GetByOwningContentAsync(nodeId)` | Routes owned by a content node |
+| `GetByIdAsync(id)` | Exact row |
+| `IsPatternAvailableAsync(pattern, excludeNodeId?, excludeRouteId?)` | `true` if no route occupies that pattern (optional exclusions for edit-in-place) |
+| `UpsertAsync(route)` | **Destructive replace** — deletes the existing row for the owner/pattern and inserts a fresh row |
+| `DeleteAsync(id)` / `DeleteByOwningContentAsync(nodeId)` | Hard-delete route(s) |
 
-Both filter on `IsActive && IsPublished && !IsDeleted`, take the latest version per `MasterId`, and
-order by Category → Order → DisplayName.
+Three read-only services back the registries:
+
+| Service | Filter |
+|---|---|
+| `IWidgetRegistrationService` / `IPageControllerRegistrationService` / `IFormComponentRegistrationService` | `IsActive && Version.State == Published && !Version.Node.IsDeleted`, ordered by Category → Order → DisplayName |
 
 ---
 
 ## 7. `IContentZoneService`
 
-`ContentZoneService` wraps `CmsDbContext`. Zones and their items are both versioned.
-
-**Zone methods:**
-
-| Method | Behaviour |
-|--------|-----------|
-| `GetByNameAsync(name)` | Returns the published, non-deleted, latest-version zone with that name, including active items sorted by `Ordinal` |
-| `GetByIdAsync(id)` | Returns the zone with that exact `Id`, including items |
-| `GetAllAsync` | All latest, non-deleted zones including items |
-| `CreateAsync` | Sets `MasterId = Id`; sets timestamps; `Version = 0` |
-| `UpdateAsync` | Creates a new version row using `record with { }` syntax; preserves `MasterId` |
-| `DeleteAsync` | Hard-deletes the single zone row (not all versions) |
-
-**Item methods:**
+`ContentZoneService` handles zone assignments, item resolution, and item writes (zones and items are
+versioned through `IContentStore<T>`). Zone and item **reads** are read-context aware; zone **items**
+auto-publish on write (there is no separate publish surface for items), which preserves the inline
+editor's immediately-visible behaviour while still producing version history.
 
 | Method | Behaviour |
-|--------|-----------|
-| `AddItemAsync(zoneId, item)` | Sets `ContentZoneId`, `MasterId = Id`, `Version = 0`, `IsPublished = true`; auto-assigns `Ordinal` as `maxOrdinal + 1` |
-| `UpdateItemAsync(item)` | Creates a new version row; preserves `Ordinal`, `ContentZoneId`, `MasterId` |
-| `RemoveItemAsync(itemId)` | Hard-deletes the single item row |
-| `GetItemByIdAsync(itemId)` | Returns the exact item row |
-| `ReorderItemsAsync(zoneId, itemIdsInOrder)` | Updates `Ordinal` on the latest-version items in place (does not create new versions) |
-
-**Assignment and slot methods:**
-
-| Method | Behaviour |
-|--------|-----------|
-| `GetByPageSlotAsync(pageMasterId, slotName)` | Returns the assignment for a page's named slot, or `null` |
-| `GetOrCreateByPageSlotAsync(pageMasterId, slotName)` | Returns existing `(Zone, Assignment)` or creates both atomically in a transaction; double-checked locking inside the transaction prevents duplicate creation on concurrent first renders |
-| `GetByZoneSlotAsync(parentZoneId, slotName)` | Returns the assignment for a parent zone's named slot |
-| `GetOrCreateByZoneSlotAsync(parentZoneId, slotName)` | Same pattern for nested zone slots |
-| `GetOrCreateByNameAsync(name)` | Returns or creates a global zone by name (no assignment); also transactional |
-| `GetAllAssignmentsForPageAsync(pageMasterId)` | All assignments for a page |
-| `GetAllByPageAsync(pageMasterId)` | All latest zones assigned to a page |
-| `GetAllByParentZoneAsync(parentZoneId)` | All latest zones that are nested children of a zone |
-| `GetZoneIdsWithChildrenAsync(zoneIds)` | Returns which of the provided zone IDs have at least one child zone |
-| `GetAllVersionsAsync(masterId)` | All zone versions newest-first |
-| `GetAllItemVersionsAsync(itemMasterId)` | All item versions newest-first |
-| `GetAssignmentCountsByMasterIdAsync(masterIds)` | Assignment count per zone `MasterId` (used for admin "in use" indicators) |
+|---|---|
+| `GetItemsAsync(zoneNodeId)` | The zone's active items at the read context, ordered by `Ordinal` |
+| `GetZoneByNodeAsync(nodeId)` / `GetZoneByNameAsync(name)` | Zone at the read context |
+| `GetByPageSlotAsync` / `GetOrCreateByPageSlotAsync` | Page-slot assignment (transactional create) |
+| `GetByZoneSlotAsync` / `GetOrCreateByZoneSlotAsync` | Nested zone-slot assignment |
+| `GetOrCreateByNameAsync(name)` | Global zone by name |
+| `GetAllAssignmentsForPageAsync` / `GetAllByPageAsync` / `GetAllByParentZoneAsync` | Assignment/queries |
+| `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators |
+| `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks assignments to the owning page node |
+| `GetItemByNodeIdAsync` / `AddItemAsync` / `UpdateItemAsync` / `RemoveItemAsync` | Item CRUD (node-keyed) |
+| `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation) |
+| `DeleteZoneAsync(zoneNodeId)` | Removes assignments + items + the zone |
 
 ---
 
 ## 8. How to Add a New Content Type's Data Layer
 
-1. **Create a DTO** in `WebWayCMS.Data/Data/Models/` implementing `IContent`:
+1. **Create a DTO** in `WebWayCMS.Data/Data/Models/` implementing `IVersionedContent`:
    ```csharp
-   public record MyThingDTO : IContent
+   public record MyThingDTO : IVersionedContent
    {
-       public Guid ContentId { get; set; }
-       public ContentDTO ContentMeta { get; set; } = new();
+       public Guid VersionId { get; set; }
+       public ContentVersion Version { get; set; } = new();
        public string Body { get; set; } = string.Empty;
    }
    ```
 
-2. **Add an entity configuration class** in `WebWayCMS.Data/Data/EntityConfiguration/`. No change to
-   `CmsDbContext` is needed — `ApplyConfigurationsFromAssembly` picks it up:
+2. **Add an entity configuration class** in `WebWayCMS.Data/Data/EntityConfiguration/`:
    ```csharp
    public sealed class MyThingDTOEntityConfiguration : IEntityTypeConfiguration<MyThingDTO>
    {
        public void Configure(EntityTypeBuilder<MyThingDTO> entity)
        {
-           entity.ConfigureContentLink();          // shared PK/FK into Content
+           entity.ConfigureContentLink();          // shared PK/FK into ContentVersions
            entity.Property(e => e.Body).IsRequired();
            entity.ToTable("MyThings");
        }
    }
    ```
-   > **Constraint:** `CmsDbContext` calls `ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`,
-   > so it scans **only `WebWayCMS.Data`**. An `IEntityTypeConfiguration<T>` defined in a host
-   > assembly is not discovered, and the CMS currently exposes no hook for registering one. Adding a
-   > content type with its own table therefore means adding the DTO and its configuration to
-   > `WebWayCMS.Data`. Host-defined content that fits the existing shape can still use
-   > `ContentDTO.CustomFields` (JSONB) without a schema change.
+   `CmsDbContext` calls `ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`, so it scans
+   **only `WebWayCMS.Data`** — a content type with its own table must live in this assembly.
 
-3. **Add a migration** (from the repo root):
-   ```bash
-   dotnet ef migrations add AddMyThing \
-     --project WebWayCMS.Data --startup-project WebWayCMS.Data \
-     --context CmsDbContext --output-dir Migrations
-   ```
-   To wipe and regenerate the CMS migration from scratch, run `./scripts/RebuildEFMigrations.sh` —
-   note this is **destructive**: it deletes `WebWayCMS.Data/Migrations/*` and recreates a single
-   `InitialCreate`.
+3. **Add a migration** (or run `./scripts/RebuildEFMigrations.sh` to regenerate).
 
-4. **Register in DI** (`ServiceCollectionExtensions.cs`, or the host's `Program.cs` for a
-   host-defined type):
+4. **Register the store in DI** (`CmsRenderingRegistration.AddContentServices`):
    ```csharp
-   services.AddScoped<IContentService<MyThingDTO>>(sp =>
-       new ContentService<MyThingDTO>(sp.GetRequiredService<CmsDbContext>()));
+   AddContentStore<MyThingDTO>(services, "mythings");
    ```
-   `ContentService<T>` takes a plain `DbContext` and reaches entities via `Set<T>()`.
 
 Migrations are applied automatically at startup via `app.UseWebWayCms()` (or `UseWebWayCmsRendering()`).
 

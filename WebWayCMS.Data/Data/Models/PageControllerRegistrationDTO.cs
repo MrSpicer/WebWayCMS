@@ -1,9 +1,9 @@
 namespace WebWayCMS.Data.Models;
 
-public record PageControllerRegistrationDTO : IContent
+public record PageControllerRegistrationDTO : IVersionedContent
 {
-    public Guid ContentId { get; set; }
-    public ContentDTO ContentMeta { get; set; } = new();
+    public Guid VersionId { get; set; }
+    public ContentVersion Version { get; set; } = new();
 
     public string ControllerName { get; set; } = string.Empty;
     public string ControllerTypeName { get; set; } = string.Empty;

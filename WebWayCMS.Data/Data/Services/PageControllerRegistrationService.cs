@@ -19,11 +19,8 @@ public sealed class PageControllerRegistrationService : IPageControllerRegistrat
         return await _context.Set<PageControllerRegistrationDTO>()
             .AsNoTracking()
             .Where(p => p.IsActive
-                && p.ContentMeta.IsPublished
-                && !p.ContentMeta.IsDeleted
-                && !_context.Set<PageControllerRegistrationDTO>().Any(p2 =>
-                    p2.ContentMeta.MasterId == p.ContentMeta.MasterId
-                    && p2.ContentMeta.Version > p.ContentMeta.Version))
+                && p.Version.State == ContentVersionState.Published
+                && !p.Version.Node.IsDeleted)
             .OrderBy(p => p.Category)
             .ThenBy(p => p.Order)
             .ThenBy(p => p.DisplayName)
@@ -34,11 +31,8 @@ public sealed class PageControllerRegistrationService : IPageControllerRegistrat
     {
         return await _context.Set<PageControllerRegistrationDTO>()
             .AsNoTracking()
-            .Where(p => p.ControllerName == controllerName
-                && !p.ContentMeta.IsDeleted
-                && !_context.Set<PageControllerRegistrationDTO>().Any(p2 =>
-                    p2.ContentMeta.MasterId == p.ContentMeta.MasterId
-                    && p2.ContentMeta.Version > p.ContentMeta.Version))
+            .Where(p => p.ControllerName == controllerName && !p.Version.Node.IsDeleted)
+            .OrderByDescending(p => p.Version.VersionNumber)
             .FirstOrDefaultAsync(ct);
     }
 

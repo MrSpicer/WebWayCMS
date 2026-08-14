@@ -21,6 +21,12 @@ public interface IAdminCrudHandler
     /// </summary>
     string[]? WriteRoles { get; }
 
+    /// <summary>Whether this content type can be explicitly published/unpublished.</summary>
+    bool SupportsPublishing => true;
+
+    /// <summary>Roles allowed to publish/unpublish. Defaults to <see cref="WriteRoles"/>.</summary>
+    string[]? PublishRoles => WriteRoles;
+
     /// <summary>Absolute Razor view path, e.g. "~/Views/AdminContentBlock/ContentBlocks.cshtml".</summary>
     string IndexViewPath { get; }
 
@@ -48,6 +54,15 @@ public interface IAdminCrudHandler
 
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
+    Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)
+        => Task.FromResult(new AdminSaveResult(false, "Publishing is not supported."));
+
+    Task<AdminSaveResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default)
+        => Task.FromResult(new AdminSaveResult(false, "Unpublishing is not supported."));
+
+    Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, CancellationToken ct = default)
+        => Task.FromResult(new AdminSaveResult(false, "Restoring versions is not supported."));
+
     /// <summary>Returns [ { id, title } ] for entity picker dropdowns.</summary>
     Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 
@@ -65,7 +80,7 @@ public interface IAdminCrudHandler
 
     bool SupportsVersionHistory => false;
 
-    Task<VersionHistoryViewModel?> GetVersionHistoryViewModelAsync(Guid masterId, CancellationToken ct = default)
+    Task<VersionHistoryViewModel?> GetVersionHistoryViewModelAsync(Guid nodeId, CancellationToken ct = default)
         => Task.FromResult<VersionHistoryViewModel?>(null);
 
     Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)

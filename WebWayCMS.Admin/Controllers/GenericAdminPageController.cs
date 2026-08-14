@@ -27,8 +27,8 @@ public class GenericAdminPageController : PageControllerBase<GenericPageConfigur
     public override Task<IActionResult> Index()
     {
         _logger.Information("Rendering generic admin page: {PageId} - {PageTitle}",
-            CurrentPage?.ContentMeta.Id,
-            CurrentPage?.ContentMeta.Title);
+            CurrentPage?.Version.Node.Id,
+            CurrentPage?.Version.Title);
 
         var viewName = CurrentPage?.ViewName;
         if (!string.IsNullOrWhiteSpace(viewName))

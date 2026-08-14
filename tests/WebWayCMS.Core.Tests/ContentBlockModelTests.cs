@@ -13,26 +13,35 @@ namespace WebWayCMS.Core.Tests;
 [TestFixture]
 public class ContentBlockModelTests
 {
-    private IContentService<ContentBlockDTO> _service = null!;
+    private IContentStore<ContentBlockDTO> _store = null!;
+    private IChangeSetScope _changeSetScope = null!;
     private IMapper _mapper = null!;
     private ContentBlockModel _model = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _service = Substitute.For<IContentService<ContentBlockDTO>>();
+        _store = Substitute.For<IContentStore<ContentBlockDTO>>();
+        _changeSetScope = Substitute.For<IChangeSetScope>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ContentBlockModel(_service, _mapper);
+        _model = new ContentBlockModel(_store, _mapper, _changeSetScope);
     }
 
-    private static ContentBlockDTO Dto(Guid? id = null, Guid master = default, int version = 0, string title = "T")
+    private static ContentBlockDTO Dto(Guid? nodeId = null, int version = 0, string title = "T")
     {
-        var cid = id ?? Guid.NewGuid();
+        var nid = nodeId ?? Guid.NewGuid();
         return new ContentBlockDTO
         {
-            ContentId = cid,
+            VersionId = Guid.NewGuid(),
             Content = "c",
-            ContentMeta = new ContentDTO { Id = cid, MasterId = master, Version = version, Title = title }
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = nid, CreatedUtc = DateTime.UtcNow },
+                Title = title,
+                Slug = "s",
+                VersionNumber = version,
+                State = ContentVersionState.Draft
+            }
         };
     }
 
@@ -41,8 +50,9 @@ public class ContentBlockModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentBlockModel(null!, _mapper), Throws.ArgumentNullException);
-            Assert.That(() => new ContentBlockModel(_service, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(null!, _mapper, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(_store, null!, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(_store, _mapper, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -56,7 +66,9 @@ public class ContentBlockModelTests
             Assert.That(_model.IndexViewPath, Does.Contain("ContentBlocks.cshtml"));
             Assert.That(_model.UpsertViewPath, Does.Contain("ContentBlockUpsert.cshtml"));
             Assert.That(_model.SupportsVersionHistory, Is.True);
+            Assert.That(_model.SupportsPublishing, Is.True);
             Assert.That(_model.WriteRoles, Is.Null);
+            Assert.That(_model.PublishRoles, Is.Null);
             Assert.That(_model.HasSecondaryApiList, Is.False);
             Assert.That(_model.RegistryHandler, Is.Null);
             Assert.That(_model.ChildHandler, Is.Null);
@@ -64,22 +76,22 @@ public class ContentBlockModelTests
     }
 
     [Test]
-    public async Task GetViewModelByMasterIdAsync_FoundAndNotFound()
+    public async Task GetViewModelByNodeIdAsync_FoundAndNotFound()
     {
         var dto = Dto();
-        _service.GetByMasterIdAsync(dto.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(dto, (ContentBlockDTO?)null);
+        _store.GetAsync(dto.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(dto, (ContentBlockDTO?)null);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetViewModelByMasterIdAsync(dto.ContentMeta.MasterId), Is.Not.Null);
-            Assert.That(await _model.GetViewModelByMasterIdAsync(dto.ContentMeta.MasterId), Is.Null);
+            Assert.That(await _model.GetViewModelByNodeIdAsync(dto.Version.Node.Id), Is.Not.Null);
+            Assert.That(await _model.GetViewModelByNodeIdAsync(dto.Version.Node.Id), Is.Null);
         });
     }
 
     [Test]
     public async Task GetContentBlockIndexAsync_MapsAll()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentBlockDTO> { Dto(), Dto() });
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentBlockDTO> { Dto(), Dto() });
 
         var vm = await _model.GetContentBlockIndexAsync();
 
@@ -97,12 +109,12 @@ public class ContentBlockModelTests
     public async Task GetUpsertModelAsync_FoundAndNotFound()
     {
         var dto = Dto();
-        _service.GetByIdAsync(dto.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(dto);
-        _service.GetByIdAsync(Arg.Is<Guid>(g => g != dto.ContentMeta.Id), Arg.Any<CancellationToken>()).Returns((ContentBlockDTO?)null);
+        _store.GetCurrentDraftAsync(dto.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(dto);
+        _store.GetCurrentDraftAsync(Arg.Is<Guid>(g => g != dto.Version.Node.Id), Arg.Any<CancellationToken>()).Returns((ContentBlockDTO?)null);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetUpsertModelAsync(dto.ContentMeta.Id), Is.Not.Null);
+            Assert.That(await _model.GetUpsertModelAsync(dto.Version.Node.Id), Is.Not.Null);
             Assert.That(await _model.GetUpsertModelAsync(Guid.NewGuid()), Is.Null);
         });
     }
@@ -116,7 +128,8 @@ public class ContentBlockModelTests
     [Test]
     public async Task SaveUpsertAsync_SuccessAndFailure()
     {
-        _service.UpsertAsync(Arg.Any<ContentBlockDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _store.SaveDraftAsync(Arg.Any<ContentBlockDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(false, "err"));
 
         Assert.Multiple(async () =>
         {
@@ -128,7 +141,8 @@ public class ContentBlockModelTests
     [Test]
     public async Task SaveUpsertAsync_ObjectOverload_WrapsResult()
     {
-        _service.UpsertAsync(Arg.Any<ContentBlockDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _store.SaveDraftAsync(Arg.Any<ContentBlockDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(false, "err"));
 
         var ok = await _model.SaveUpsertAsync((object)new ContentBlockUpsertViewModel { Title = "T", Content = "c" });
         var fail = await _model.SaveUpsertAsync((object)new ContentBlockUpsertViewModel { Title = "T", Content = "c" });
@@ -141,9 +155,9 @@ public class ContentBlockModelTests
     }
 
     [Test]
-    public async Task DeleteAsync_DelegatesToService()
+    public async Task DeleteAsync_DelegatesToStore()
     {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, true, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.That(await _model.DeleteAsync(Guid.NewGuid()), Is.True);
     }
@@ -151,80 +165,87 @@ public class ContentBlockModelTests
     [Test]
     public async Task VersionHistory_BuildsWhenVersionsExistAndNullWhenNot()
     {
-        var master = Guid.NewGuid();
-        _service.GetAllVersionsAsync(master, Arg.Any<CancellationToken>())
-            .Returns(new List<ContentBlockDTO> { Dto(master: master, version: 1), Dto(master: master, version: 0) },
+        var nodeId = Guid.NewGuid();
+        _store.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<ContentBlockDTO> { Dto(nodeId: nodeId, version: 1), Dto(nodeId: nodeId, version: 0) },
                 new List<ContentBlockDTO>());
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _model.GetVersionHistoryAsync(master), Is.Not.Null);
-            Assert.That(await _model.GetVersionHistoryViewModelAsync(master), Is.Null);
+            Assert.That(await _model.GetVersionHistoryAsync(nodeId), Is.Not.Null);
+            Assert.That(await _model.GetVersionHistoryViewModelAsync(nodeId), Is.Null);
         });
     }
 
     [Test]
-    public async Task GetUpsertModelForRestore_Variants()
+    public async Task DeleteVersionAsync_DelegatesToStore()
     {
-        var historical = Dto(version: 1);
-        var latest = Dto(master: historical.ContentMeta.MasterId, version: 5);
-        _service.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
-        _service.GetByMasterIdAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(latest);
-
-        var vm = await _model.GetUpsertModelForRestoreAsync(historical.ContentMeta.Id);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(vm, Is.Not.Null);
-            Assert.That(vm!.Id, Is.EqualTo(latest.ContentMeta.Id));
-            Assert.That(vm.Version, Is.EqualTo(5));
-        });
-    }
-
-    [Test]
-    public async Task GetUpsertModelForRestore_NullWhenHistoricalOrLatestMissing()
-    {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentBlockDTO?)null);
-        Assert.That(await _model.GetUpsertModelForRestoreAsync(Guid.NewGuid()), Is.Null);
-
-        var historical = Dto();
-        _service.GetByIdAsync(historical.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(historical);
-        _service.GetByMasterIdAsync(historical.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns((ContentBlockDTO?)null);
-        Assert.That(await _model.GetUpsertModelForRestoreAsync(historical.ContentMeta.Id), Is.Null);
-    }
-
-    [Test]
-    public async Task DeleteVersionAsync_DelegatesToService()
-    {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, false, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.That(await _model.DeleteVersionAsync(Guid.NewGuid()), Is.True);
     }
 
     [Test]
+    public async Task PublishAsync_SuccessAndFailure()
+    {
+        _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(false, "err"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
+            Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task UnpublishAsync_SuccessAndFailure()
+    {
+        _store.UnpublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(false, "err"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await _model.UnpublishAsync(Guid.NewGuid())).Success, Is.True);
+            Assert.That((await _model.UnpublishAsync(Guid.NewGuid())).Success, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task RestoreVersionAsync_SuccessAndFailure()
+    {
+        _store.RestoreAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true), new ContentWriteResult(false, "err"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await _model.RestoreVersionAsync(Guid.NewGuid())).Success, Is.True);
+            Assert.That((await _model.RestoreVersionAsync(Guid.NewGuid())).Success, Is.False);
+        });
+    }
+
+    [Test]
     public async Task BaseHandlerDefaults_SecondaryApiListIsEmpty()
     {
-        // ContentBlockModel does not override the base GetSecondaryApiListAsync.
         Assert.That(await _model.GetSecondaryApiListAsync("anything"), Is.Empty);
     }
 
     [Test]
     public async Task AdminHandler_IndexUpsertCreateApiAndRestore()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentBlockDTO> { Dto() });
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentBlockDTO> { Dto() });
         var dto = Dto();
-        _service.GetByIdAsync(dto.ContentMeta.Id, Arg.Any<CancellationToken>()).Returns(dto);
-        _service.GetByMasterIdAsync(dto.ContentMeta.MasterId, Arg.Any<CancellationToken>()).Returns(dto);
+        _store.GetCurrentDraftAsync(dto.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(dto);
 
         var emptyQuery = new MvcHarness().NewHttpContext(Array.Empty<string>()).Request.Query;
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetIndexViewModelAsync(), Is.InstanceOf<ContentBlockIndexViewModel>());
-            Assert.That(await _model.GetUpsertViewModelAsync(dto.ContentMeta.Id, emptyQuery), Is.Not.Null);
+            Assert.That(await _model.GetUpsertViewModelAsync(dto.Version.Node.Id, emptyQuery), Is.Not.Null);
             Assert.That(_model.CreateEmptyUpsertViewModel(), Is.InstanceOf<ContentBlockUpsertViewModel>());
             Assert.That(await _model.GetApiListAsync(), Is.Not.Null);
-            Assert.That(await _model.GetRestoreVersionViewModelAsync(dto.ContentMeta.Id), Is.Not.Null);
+            Assert.That(await _model.GetRestoreVersionViewModelAsync(dto.Version.Node.Id), Is.Null);
         });
     }
 }

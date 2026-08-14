@@ -133,7 +133,7 @@ continue by default.
 
 > `EnsureDefaultHomePage` accepts a `seedAdminPage` flag. The rendering path passes `false` and
 > the admin path passes `true`. `DefaultContentSeeder.SeedDefaultPagesAsync` honours the flag —
-> when `false`, only the Home page is seeded; when `true`, the Admin page (at `/wadmin` with
+> when `false`, only the Home page is seeded; when `true`, the Dashboard page (at `/wadmin` with
 > `GenericAdminPageController`) is also seeded with its own independent guard.
 
 ---

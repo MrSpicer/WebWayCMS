@@ -18,38 +18,40 @@ public class FormComponentRegistrationServiceTests
 
     private FormComponentRegistrationService NewService() => new(NewContext());
 
+    private static ContentNode Node(Guid id, bool isDeleted = false)
+        => new() { Id = id, ContentTypeKey = "formcomponents", IsDeleted = isDeleted };
+
     private static FormComponentRegistrationDTO Component(
         string componentName = "TestComponent",
         string displayName = "Test Component",
         string category = "General",
         bool isActive = true,
-        bool isPublished = true,
+        ContentVersionState state = ContentVersionState.Published,
         bool isDeleted = false,
         int version = 0,
-        Guid? masterId = null,
+        ContentNode? node = null,
         int order = 0)
     {
-        var master = masterId ?? Guid.NewGuid();
-        var id = Guid.NewGuid();
+        node ??= Node(Guid.NewGuid(), isDeleted);
+        var versionId = Guid.NewGuid();
         return new FormComponentRegistrationDTO
         {
-            ContentId = id,
+            VersionId = versionId,
             ComponentName = componentName,
             DisplayName = displayName,
             Category = category,
             IsActive = isActive,
             Order = order,
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = id,
-                MasterId = master,
-                Version = version,
+                Id = versionId,
+                NodeId = node.Id,
+                Node = node,
+                VersionNumber = version,
+                State = state,
                 Title = displayName,
                 Slug = componentName.ToLowerInvariant(),
-                IsPublished = isPublished,
-                IsDeleted = isDeleted,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow,
+                CreatedUtc = DateTime.UtcNow
             }
         };
     }
@@ -65,10 +67,10 @@ public class FormComponentRegistrationServiceTests
     public async Task GetActiveAsync_ReturnsOnlyActivePublishedNonDeleted()
     {
         await SeedAsync(
-            Component("A", isActive: true, isPublished: true),
-            Component("B", isActive: false, isPublished: true),
-            Component("C", isActive: true, isPublished: false),
-            Component("D", isActive: true, isPublished: true, isDeleted: true));
+            Component("A", isActive: true),
+            Component("B", isActive: false),
+            Component("C", isActive: true, state: ContentVersionState.Draft),
+            Component("D", isActive: true, isDeleted: true));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
@@ -78,18 +80,18 @@ public class FormComponentRegistrationServiceTests
     }
 
     [Test]
-    public async Task GetActiveAsync_ReturnsLatestVersionOnly()
+    public async Task GetActiveAsync_ReturnsPublishedVersionOnly()
     {
-        var master = Guid.NewGuid();
+        var node = Node(Guid.NewGuid());
         await SeedAsync(
-            Component("A", version: 0, masterId: master),
-            Component("A", version: 1, masterId: master));
+            Component("A", version: 0, node: node, state: ContentVersionState.Archived),
+            Component("A", version: 1, node: node, state: ContentVersionState.Published));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
 
         Assert.That(result, Has.Count.EqualTo(1));
-        Assert.That(result[0].ContentMeta.Version, Is.EqualTo(1));
+        Assert.That(result[0].Version.VersionNumber, Is.EqualTo(1));
     }
 
     [Test]
@@ -158,16 +160,16 @@ public class FormComponentRegistrationServiceTests
     [Test]
     public async Task GetByComponentNameAsync_ReturnsLatestVersion()
     {
-        var master = Guid.NewGuid();
+        var node = Node(Guid.NewGuid());
         await SeedAsync(
-            Component("A", version: 0, masterId: master),
-            Component("A", version: 1, masterId: master));
+            Component("A", version: 0, node: node),
+            Component("A", version: 1, node: node));
 
         var service = NewService();
         var result = await service.GetByComponentNameAsync("A");
 
         Assert.That(result, Is.Not.Null);
-        Assert.That(result!.ContentMeta.Version, Is.EqualTo(1));
+        Assert.That(result!.Version.VersionNumber, Is.EqualTo(1));
     }
 
     [Test]

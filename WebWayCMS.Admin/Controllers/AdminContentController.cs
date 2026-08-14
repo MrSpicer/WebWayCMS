@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Controllers.Admin;
@@ -13,10 +15,12 @@ public class AdminContentController : Controller
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();
 
     private readonly IAdminHandlerRegistry _registry;
+    private readonly ICMSRouteService _routeService;
 
-    public AdminContentController(IAdminHandlerRegistry registry)
+    public AdminContentController(IAdminHandlerRegistry registry, ICMSRouteService routeService)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -73,7 +77,7 @@ public class AdminContentController : Controller
     [HttpPost("{contentType}/edit/{id:guid?}")]
     [ActionName("Edit")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> EditPost(string contentType, Guid? id, CancellationToken ct)
+    public async Task<IActionResult> EditPost(string contentType, Guid? id, CancellationToken ct, string? submitAction = null)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -95,6 +99,15 @@ public class AdminContentController : Controller
             return View(handler.UpsertViewPath, model);
         }
 
+        if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase)
+            && handler.SupportsPublishing
+            && result.NodeId.HasValue)
+        {
+            var publishResult = await handler.PublishAsync(result.NodeId.Value, ct);
+            if (!publishResult.Success)
+                TempData["Error"] = publishResult.ErrorMessage;
+        }
+
         return RedirectToAction(nameof(Index), new { contentType });
     }
 
@@ -109,6 +122,59 @@ public class AdminContentController : Controller
 
         await handler.DeleteAsync(id, ct);
         return RedirectToAction(nameof(Index), new { contentType });
+    }
+
+    // ─── Publishing ───────────────────────────────────────────────────────────
+
+    [HttpPost("{contentType}/publish/{nodeId:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Publish(string contentType, Guid nodeId, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+        if (!handler.SupportsPublishing) return NotFound();
+        if (!HasWriteAccess(handler.PublishRoles)) return Forbid();
+
+        var result = await handler.PublishAsync(nodeId, ct);
+        if (!result.Success)
+            TempData["Error"] = result.ErrorMessage;
+
+        return RedirectToAction(nameof(Index), new { contentType });
+    }
+
+    [HttpPost("{contentType}/unpublish/{nodeId:guid}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Unpublish(string contentType, Guid nodeId, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+        if (!handler.SupportsPublishing) return NotFound();
+        if (!HasWriteAccess(handler.PublishRoles)) return Forbid();
+
+        var result = await handler.UnpublishAsync(nodeId, ct);
+        if (!result.Success)
+            TempData["Error"] = result.ErrorMessage;
+
+        return RedirectToAction(nameof(Index), new { contentType });
+    }
+
+    [HttpGet("{contentType}/preview/{nodeId:guid}")]
+    [Authorize(Roles = "Admin,Editor")]
+    public async Task<IActionResult> Preview(string contentType, Guid nodeId, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+
+        Response.Cookies.Append(PreviewConstants.CookieName, PreviewConstants.CookieValue, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTimeOffset.UtcNow.AddMinutes(5)
+        });
+
+        var route = (await _routeService.GetByOwningContentAsync(nodeId, ct)).FirstOrDefault();
+        return Redirect(route?.Pattern ?? "/");
     }
 
     // ─── API list endpoints ────────────────────────────────────────────────────
@@ -170,22 +236,22 @@ public class AdminContentController : Controller
 
     // ─── Version History (top-level) ──────────────────────────────────────────
 
-    [HttpGet("{contentType}/versions/{masterId:guid}")]
+    [HttpGet("{contentType}/versions/{nodeId:guid}")]
     [ActionName("VersionHistory")]
-    public async Task<IActionResult> VersionHistory(string contentType, Guid masterId, CancellationToken ct)
+    public async Task<IActionResult> VersionHistory(string contentType, Guid nodeId, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
         if (!handler.SupportsVersionHistory) return NotFound();
 
-        var vm = await handler.GetVersionHistoryViewModelAsync(masterId, ct);
+        var vm = await handler.GetVersionHistoryViewModelAsync(nodeId, ct);
         if (vm == null) return NotFound();
         return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
     }
 
-    [HttpGet("{contentType}/versions/{masterId:guid}/edit/{id:guid}")]
+    [HttpGet("{contentType}/versions/{nodeId:guid}/edit/{id:guid}")]
     [ActionName("VersionRestoreEdit")]
-    public async Task<IActionResult> VersionRestoreEdit(string contentType, Guid masterId, Guid id, CancellationToken ct)
+    public async Task<IActionResult> VersionRestoreEdit(string contentType, Guid nodeId, Guid id, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -196,10 +262,27 @@ public class AdminContentController : Controller
         return View(handler.UpsertViewPath, vm);
     }
 
-    [HttpPost("{contentType}/versions/{masterId:guid}/delete/{id:guid}")]
+    [HttpPost("{contentType}/versions/{nodeId:guid}/restore/{id:guid}")]
+    [ActionName("RestoreVersion")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RestoreVersion(string contentType, Guid nodeId, Guid id, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+        if (!handler.SupportsVersionHistory) return NotFound();
+        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+
+        var result = await handler.RestoreVersionAsync(id, ct);
+        if (!result.Success)
+            TempData["Error"] = result.ErrorMessage;
+
+        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId });
+    }
+
+    [HttpPost("{contentType}/versions/{nodeId:guid}/delete/{id:guid}")]
     [ActionName("VersionDelete")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> VersionDelete(string contentType, Guid masterId, Guid id, CancellationToken ct)
+    public async Task<IActionResult> VersionDelete(string contentType, Guid nodeId, Guid id, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -207,7 +290,7 @@ public class AdminContentController : Controller
         if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
 
         await handler.DeleteVersionAsync(id, ct);
-        return RedirectToAction(nameof(VersionHistory), new { contentType, masterId });
+        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId });
     }
 
     // ─── Child CRUD ────────────────────────────────────────────────────────────
@@ -340,10 +423,10 @@ public class AdminContentController : Controller
 
     // ─── Child Version History ─────────────────────────────────────────────────
 
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}")]
+    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}")]
     [ActionName("ChildVersionHistory")]
     public async Task<IActionResult> ChildVersionHistory(
-        string contentType, string parentKey, string childType, Guid masterId, CancellationToken ct)
+        string contentType, string parentKey, string childType, Guid nodeId, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -353,15 +436,15 @@ public class AdminContentController : Controller
             return NotFound();
         if (!child.SupportsVersionHistory) return NotFound();
 
-        var vm = await child.GetChildVersionHistoryViewModelAsync(parentKey, masterId, ct);
+        var vm = await child.GetChildVersionHistoryViewModelAsync(parentKey, nodeId, ct);
         if (vm == null) return NotFound();
         return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
     }
 
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/edit/{id:guid}")]
+    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/edit/{id:guid}")]
     [ActionName("ChildVersionRestoreEdit")]
     public async Task<IActionResult> ChildVersionRestoreEdit(
-        string contentType, string parentKey, string childType, Guid masterId, Guid id, CancellationToken ct)
+        string contentType, string parentKey, string childType, Guid nodeId, Guid id, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -377,11 +460,11 @@ public class AdminContentController : Controller
         return View(child.ChildUpsertViewPath, vm);
     }
 
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/delete/{id:guid}")]
+    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}")]
     [ActionName("ChildVersionDelete")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ChildVersionDelete(
-        string contentType, string parentKey, string childType, Guid masterId, Guid id, CancellationToken ct)
+        string contentType, string parentKey, string childType, Guid nodeId, Guid id, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -393,6 +476,6 @@ public class AdminContentController : Controller
         if (!HasWriteAccess(child.WriteRoles)) return Forbid();
 
         await child.DeleteChildVersionAsync(id, ct);
-        return RedirectToAction(nameof(ChildVersionHistory), new { contentType, parentKey, childType, masterId });
+        return RedirectToAction(nameof(ChildVersionHistory), new { contentType, parentKey, childType, nodeId });
     }
 }

@@ -22,20 +22,22 @@ public class PageConfigWithThrowingDefault
 [TestFixture]
 public class PageControllerRegistrationModelTests
 {
-    private IContentService<PageControllerRegistrationDTO> _service = null!;
+    private IContentStore<PageControllerRegistrationDTO> _store = null!;
     private IPageControllerRegistry _registry = null!;
+    private IChangeSetScope _changeSetScope = null!;
     private PageControllerRegistrationModel _model = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _service = Substitute.For<IContentService<PageControllerRegistrationDTO>>();
+        _store = Substitute.For<IContentStore<PageControllerRegistrationDTO>>();
         _registry = Substitute.For<IPageControllerRegistry>();
-        _model = new PageControllerRegistrationModel(_service, _registry);
+        _changeSetScope = Substitute.For<IChangeSetScope>();
+        _model = new PageControllerRegistrationModel(_store, _registry, _changeSetScope);
     }
 
     private static PageControllerRegistrationDTO Dto(
-        Guid? id = null,
+        Guid? nodeId = null,
         string controllerName = "GenericPage",
         string controllerTypeName = "MyApp.GenericPageController",
         string displayName = "Generic Page",
@@ -43,20 +45,19 @@ public class PageControllerRegistrationModelTests
         bool isActive = true,
         string? configTypeName = null,
         string propertyJson = "[]",
-        bool published = true,
-        Guid masterId = default) =>
-        new()
+        int version = 0)
+    {
+        var nid = nodeId ?? Guid.NewGuid();
+        return new()
         {
-            ContentId = id ?? Guid.NewGuid(),
-            ContentMeta = new ContentDTO
+            VersionId = Guid.NewGuid(),
+            Version = new ContentVersion
             {
-                Id = id ?? Guid.NewGuid(),
-                MasterId = masterId == default ? Guid.NewGuid() : masterId,
-                Version = 0,
+                Node = new ContentNode { Id = nid, CreatedUtc = DateTime.UtcNow },
                 Title = displayName,
                 Slug = controllerName.ToLowerInvariant(),
-                IsPublished = published,
-                IsDeleted = false,
+                VersionNumber = version,
+                State = ContentVersionState.Draft
             },
             ControllerName = controllerName,
             ControllerTypeName = controllerTypeName,
@@ -69,15 +70,18 @@ public class PageControllerRegistrationModelTests
             PropertyDefinitionsJson = propertyJson,
             IsActive = isActive,
         };
+    }
 
     [Test]
     public void Constructor_NullArguments_Throw()
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageControllerRegistrationModel(null!, _registry),
+            Assert.That(() => new PageControllerRegistrationModel(null!, _registry, _changeSetScope),
                 Throws.ArgumentNullException);
-            Assert.That(() => new PageControllerRegistrationModel(_service, null!),
+            Assert.That(() => new PageControllerRegistrationModel(_store, null!, _changeSetScope),
+                Throws.ArgumentNullException);
+            Assert.That(() => new PageControllerRegistrationModel(_store, _registry, null!),
                 Throws.ArgumentNullException);
         });
     }
@@ -102,7 +106,7 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task GetIndexViewModelAsync_ReturnsList()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
         {
             Dto(controllerName: "A"),
             Dto(controllerName: "B"),
@@ -127,8 +131,8 @@ public class PageControllerRegistrationModelTests
     public async Task GetUpsertViewModelAsync_WithId_ReturnsPopulatedViewModel()
     {
         var id = Guid.NewGuid();
-        _service.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: id, controllerName: "GP", displayName: "Generic Page", configTypeName: "SomeType"));
+        _store.GetCurrentDraftAsync(id, Arg.Any<CancellationToken>()).Returns(Dto(
+            nodeId: id, controllerName: "GP", displayName: "Generic Page", configTypeName: "SomeType"));
 
         var result = await _model.GetUpsertViewModelAsync(id, new Microsoft.AspNetCore.Http.QueryCollection());
 
@@ -145,7 +149,7 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task GetUpsertViewModelAsync_NotFound_ReturnsNull()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
 
         var result = await _model.GetUpsertViewModelAsync(Guid.NewGuid(), new Microsoft.AspNetCore.Http.QueryCollection());
 
@@ -161,8 +165,8 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_Create_SavesAndInvalidates()
     {
-        _service.CreateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(controllerName: "New"));
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new PageControllerRegistrationUpsertViewModel
         {
@@ -179,7 +183,7 @@ public class PageControllerRegistrationModelTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            _service.Received(1).CreateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>());
+            _store.Received(1).SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
             _registry.Received(1).Invalidate();
         });
     }
@@ -188,13 +192,14 @@ public class PageControllerRegistrationModelTests
     public async Task SaveUpsertCoreAsync_Update_SavesAndInvalidates()
     {
         var id = Guid.NewGuid();
-        var existing = Dto(id: id, controllerName: "Old", displayName: "Old Page");
-        _service.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(existing);
-        _service.UpdateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        var existing = Dto(nodeId: id, controllerName: "Old", displayName: "Old Page");
+        _store.GetCurrentDraftAsync(id, Arg.Any<CancellationToken>()).Returns(existing);
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new PageControllerRegistrationUpsertViewModel
         {
-            Id = id,
+            NodeId = id,
             Title = "Updated",
             ControllerName = "Updated",
             ControllerTypeName = "MyApp.UpdatedController",
@@ -208,7 +213,7 @@ public class PageControllerRegistrationModelTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            _service.Received(1).UpdateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>());
+            _store.Received(1).SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
             _registry.Received(1).Invalidate();
         });
     }
@@ -216,11 +221,11 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_Update_NotFound_ReturnsError()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
 
         var vm = new PageControllerRegistrationUpsertViewModel
         {
-            Id = Guid.NewGuid(),
+            NodeId = Guid.NewGuid(),
             Title = "X",
             ControllerName = "X",
             ControllerTypeName = "Type.X",
@@ -237,10 +242,29 @@ public class PageControllerRegistrationModelTests
     }
 
     [Test]
+    public async Task SaveUpsertCoreAsync_SaveFailure_ReturnsError()
+    {
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "Save failed."));
+
+        var vm = new PageControllerRegistrationUpsertViewModel
+        {
+            Title = "New Page Type",
+            ControllerName = "New",
+            ControllerTypeName = "MyApp.NewController",
+            DisplayName = "New Page Type",
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.That(result.Success, Is.False);
+    }
+
+    [Test]
     public async Task SaveUpsertCoreAsync_WithConfigurationTypeName_BuildsProperties()
     {
-        _service.CreateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(controllerName: "Typed"));
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new PageControllerRegistrationUpsertViewModel
         {
@@ -250,6 +274,27 @@ public class PageControllerRegistrationModelTests
             DisplayName = "Typed Page",
             Category = "Content",
             ConfigurationTypeName = typeof(PageControllerRegistrationModelTests).FullName,
+        };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.That(result.Success, Is.True);
+    }
+
+    [Test]
+    public async Task SaveUpsertCoreAsync_WithSystemTypeName_BuildsEmptyProperties()
+    {
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
+
+        var vm = new PageControllerRegistrationUpsertViewModel
+        {
+            Title = "System Page",
+            ControllerName = "System",
+            ControllerTypeName = "Type.System",
+            DisplayName = "System Page",
+            Category = "Content",
+            ConfigurationTypeName = typeof(string).FullName,
         };
 
         var result = await _model.SaveUpsertAsync(vm);
@@ -281,8 +326,8 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task SaveUpsertCoreAsync_ThrowingDefaultValue_ReturnsError()
     {
-        _service.CreateAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<CancellationToken>())
-            .Returns(Dto(controllerName: "Throwing"));
+        _store.SaveDraftAsync(Arg.Any<PageControllerRegistrationDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
 
         var vm = new PageControllerRegistrationUpsertViewModel
         {
@@ -306,7 +351,7 @@ public class PageControllerRegistrationModelTests
     [Test]
     public async Task DeleteAsync_DeletesAndInvalidates()
     {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, true, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.DeleteAsync(Guid.NewGuid());
 
@@ -318,46 +363,56 @@ public class PageControllerRegistrationModelTests
     }
 
     [Test]
-    public async Task GetApiListAsync_ReturnsPublishedControllers()
+    public async Task DeleteAsync_Failure_DoesNotInvalidate()
     {
-        _service.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(false);
+
+        var result = await _model.DeleteAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
         {
-            Dto(controllerName: "A", displayName: "Alpha", published: true),
-            Dto(controllerName: "B", displayName: "Beta", published: false),
+            Assert.That(result, Is.False);
+            _registry.DidNotReceive().Invalidate();
+        });
+    }
+
+    [Test]
+    public async Task GetApiListAsync_ReturnsAllDrafts()
+    {
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        {
+            Dto(controllerName: "A", displayName: "Alpha"),
+            Dto(controllerName: "B", displayName: "Beta"),
         });
 
         var result = await _model.GetApiListAsync();
 
         var list = result.ToList();
-        Assert.That(list, Has.Count.EqualTo(1));
+        Assert.That(list, Has.Count.EqualTo(2));
     }
 
     [Test]
     public async Task GetRestoreVersionViewModelAsync_ReturnsViewModel()
     {
         var historicalId = Guid.NewGuid();
-        var masterId = Guid.NewGuid();
-        var latestId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
 
-        _service.GetByIdAsync(historicalId, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: historicalId, controllerName: "Hist", displayName: "History",
-            configTypeName: "SomeType", masterId: masterId));
-
-        _service.GetByMasterIdAsync(masterId, Arg.Any<CancellationToken>()).Returns(Dto(
-            id: latestId, controllerName: "Latest", masterId: masterId));
+        _store.GetVersionAsync(historicalId, Arg.Any<CancellationToken>()).Returns(Dto(
+            nodeId: nodeId, controllerName: "Hist", displayName: "History",
+            configTypeName: "SomeType"));
 
         var result = await _model.GetRestoreVersionViewModelAsync(historicalId);
 
         Assert.That(result, Is.InstanceOf<PageControllerRegistrationUpsertViewModel>());
         var vm = (PageControllerRegistrationUpsertViewModel)result!;
         Assert.That(vm.ControllerName, Is.EqualTo("Hist"));
-        Assert.That(vm.Id, Is.EqualTo(latestId));
+        Assert.That(vm.NodeId, Is.EqualTo(nodeId));
     }
 
     [Test]
     public async Task RestoreVersion_HistoricalNotFound_ReturnsNull()
     {
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
+        _store.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
 
         var result = await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid());
 
@@ -365,36 +420,32 @@ public class PageControllerRegistrationModelTests
     }
 
     [Test]
-    public async Task RestoreVersion_LatestNotFound_ReturnsNull()
+    public async Task VersionHistory_DelegatesToStore()
     {
-        var dto = Dto();
-        _service.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(dto);
-        _service.GetByMasterIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageControllerRegistrationDTO?)null);
+        var nodeId = Guid.NewGuid();
+        _store.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<PageControllerRegistrationDTO> { Dto(nodeId: nodeId) });
 
-        var result = await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid());
-
-        Assert.That(result, Is.Null);
-    }
-
-    [Test]
-    public async Task VersionHistory_DelegatesToService()
-    {
-        var masterId = Guid.NewGuid();
-        _service.GetAllVersionsAsync(masterId, Arg.Any<CancellationToken>())
-            .Returns(new List<PageControllerRegistrationDTO> { Dto() });
-
-        var result = await _model.GetVersionHistoryViewModelAsync(masterId);
+        var result = await _model.GetVersionHistoryViewModelAsync(nodeId);
 
         Assert.That(result, Is.Not.Null);
     }
 
     [Test]
-    public async Task DeleteVersion_DelegatesToService()
+    public async Task DeleteVersion_DelegatesToStore()
     {
-        _service.DeleteAsync(Arg.Any<Guid>(), false, false, Arg.Any<CancellationToken>()).Returns(true);
+        _store.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.DeleteVersionAsync(Guid.NewGuid());
 
         Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task PublishAsync_DelegatesToStore()
+    {
+        _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+
+        Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
     }
 }

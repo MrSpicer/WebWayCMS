@@ -8,8 +8,14 @@
 - `WebWayCMS.Controllers` — `PageControllerBase<TConfig>`, `GenericPageController`, `GenericAdminPageController`
 - `WebWayCMS.Attributes` — `[PageController]`, `[CmsRoute]`
 
-**Depends on:** Data Tier (`ICMSRouteService`, `IPageService`), Form Generation Metadata (`FormPropertyBuilder`), ASP.NET Core Routing
+**Depends on:** Data Tier (`ICMSRouteService`, `IContentStore<PageDTO>`), Form Generation Metadata (`FormPropertyBuilder`), ASP.NET Core Routing
 **Consumed by:** All page controllers (Web project + CMS built-ins), Content Zone `ViewComponent` (`CMS:PageData` from `HttpContext`), Admin page-edit UI (page-type dropdown populated from the registry)
+
+> **Versioning note (Node/Version model):** routes are **plain, unversioned** rows written by
+> **Publish, never Save**. A draft that changes a slug does not touch the route table until published.
+> The route transformer resolves pages through `IContentStore<PageDTO>.GetAsync(nodeId)` (read-context
+> aware — a rendering-only host serves published rows only). See
+> [01-data-tier](01-data-tier.md) for the model.
 
 ---
 
@@ -31,7 +37,7 @@ There are three ways a row gets into `CMSRoutes`:
 
 | Source | `OwningContentType` | Written by |
 |---|---|---|
-| A page, from its Slug | `"Page"` | `PageModel` → `IRouteRegistrationService.RegisterContentRoutesAsync` on save |
+| A page, from its Slug | `"Page"` | `PageModel` → `IRouteRegistrationService.RegisterContentRoutesAsync` on publish |
 | A routable widget placed in a zone | e.g. `"ArticleWidget"` | `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when the zone item is created |
 | A `[CmsRoute]`-decorated controller | `"CodeBased"` | `CmsRouteSeeder.EnsureCodeBasedRoutesSeeded` at startup |
 

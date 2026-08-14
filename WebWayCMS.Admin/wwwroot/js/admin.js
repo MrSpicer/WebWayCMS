@@ -14,6 +14,35 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ── Navbar "Advanced" dropdown ────────────────────────────
+    const advancedDropdown = document.getElementById('advancedDropdown');
+    const advancedTrigger = document.getElementById('advancedDropdownTrigger');
+
+    if (advancedDropdown && advancedTrigger) {
+        function setDropdown(open) {
+            advancedDropdown.classList.toggle('is-active', open);
+            advancedTrigger.setAttribute('aria-expanded', open.toString());
+        }
+
+        advancedTrigger.addEventListener('click', function (e) {
+            e.preventDefault();
+            setDropdown(!advancedDropdown.classList.contains('is-active'));
+        });
+
+        document.addEventListener('click', function (e) {
+            if (!advancedDropdown.contains(e.target)) {
+                setDropdown(false);
+            }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && advancedDropdown.classList.contains('is-active')) {
+                setDropdown(false);
+                advancedTrigger.focus();
+            }
+        });
+    }
+
     // ── Delete Confirmation Modal ──────────────────────────────
     (function () {
         const modal = document.getElementById('deleteConfirmModal');

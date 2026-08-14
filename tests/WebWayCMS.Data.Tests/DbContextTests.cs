@@ -13,12 +13,36 @@ public class DbContextTests
     public async Task CmsDbContext_ConfiguresAllEntitySets()
     {
         var db = TestContexts.NewDb();
-        var listId = Guid.NewGuid();
-        var articleId = Guid.NewGuid();
+        var listNodeId = Guid.NewGuid();
+        var listVersionId = Guid.NewGuid();
+        var articleNodeId = Guid.NewGuid();
+        var articleVersionId = Guid.NewGuid();
         await using (var ctx = TestContexts.Cms(db))
         {
-            ctx.Set<ArticleListDTO>().Add(new ArticleListDTO { ContentId = listId, ContentMeta = new ContentDTO { Id = listId, Title = "List" } });
-            ctx.Set<ArticleDTO>().Add(new ArticleDTO { ContentId = articleId, Body = "b", ArticleListMasterId = Guid.NewGuid(), ContentMeta = new ContentDTO { Id = articleId, Title = "Article" } });
+            ctx.Set<ArticleListDTO>().Add(new ArticleListDTO
+            {
+                VersionId = listVersionId,
+                Version = new ContentVersion
+                {
+                    Id = listVersionId,
+                    NodeId = listNodeId,
+                    Node = new ContentNode { Id = listNodeId, ContentTypeKey = "articlelists" },
+                    Title = "List"
+                }
+            });
+            ctx.Set<ArticleDTO>().Add(new ArticleDTO
+            {
+                VersionId = articleVersionId,
+                Body = "b",
+                ArticleListNodeId = listNodeId,
+                Version = new ContentVersion
+                {
+                    Id = articleVersionId,
+                    NodeId = articleNodeId,
+                    Node = new ContentNode { Id = articleNodeId, ContentTypeKey = "articles" },
+                    Title = "Article"
+                }
+            });
             await ctx.SaveChangesAsync();
         }
 

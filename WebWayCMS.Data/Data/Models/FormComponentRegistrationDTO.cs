@@ -1,9 +1,9 @@
 namespace WebWayCMS.Data.Models;
 
-public record FormComponentRegistrationDTO : IContent
+public record FormComponentRegistrationDTO : IVersionedContent
 {
-    public Guid ContentId { get; set; }
-    public ContentDTO ContentMeta { get; set; } = new();
+    public Guid VersionId { get; set; }
+    public ContentVersion Version { get; set; } = new();
 
     public string ComponentName { get; set; } = string.Empty;
     public string ViewComponentName { get; set; } = string.Empty;

@@ -7,5 +7,5 @@ public interface IRoutableViewComponent
     string ComponentName { get; }
 
     Task<IReadOnlyList<CMSRouteDTO>> GenerateRoutesAsync(
-        string parentRoute, Guid contentZoneItemMasterId, CancellationToken ct);
+        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct);
 }

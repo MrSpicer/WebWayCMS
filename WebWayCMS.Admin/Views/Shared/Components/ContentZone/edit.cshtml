@@ -87,9 +87,9 @@
             <form class="cz-widget-form" data-container="@containerId">
                 @* Hidden fields - IDs are auto-generated, never shown to users *@
                 <input type="hidden" name="zoneName" value="@Model.Name" />
-                @if (Model.ParentPageMasterId.HasValue)
+                @if (Model.ParentPageNodeId.HasValue)
                 {
-                    <input type="hidden" name="parentPageMasterId" value="@Model.ParentPageMasterId.Value" />
+                    <input type="hidden" name="parentPageNodeId" value="@Model.ParentPageNodeId.Value" />
                     <input type="hidden" name="slotName" value="@Model.RawZoneName" />
                 }
                 <input type="hidden" name="componentPropertiesJson" class="component-props-json" />

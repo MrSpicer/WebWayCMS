@@ -69,6 +69,22 @@ public sealed class ChildContentToolset
         return vm;
     }
 
+    [McpServerTool(Name = "get_child_version")]
+    [Description("Gets the editable view model for a single historical version of a child entity, identified by that version's id.")]
+    public async Task<object> GetChildVersion(
+        [Description("The parent content type.")] string contentType,
+        [Description("The child type.")] string childType,
+        [Description("The parent key (slug or Guid).")] string parentKey,
+        [Description("The id of the historical version.")] Guid versionId,
+        CancellationToken ct = default)
+    {
+        var child = ResolveVersioned(contentType, childType);
+        var vm = await child.GetChildRestoreVersionViewModelAsync(parentKey, versionId, ct);
+        if (vm == null)
+            throw new McpException($"No version found with id '{versionId}'.");
+        return vm;
+    }
+
     [McpServerTool(Name = "create_child")]
     [Description("Creates a new child entity under a parent. Supply the fields as a JSON object.")]
     public async Task<AdminSaveResult> CreateChild(

@@ -1,7 +1,7 @@
 @model WebWayCMS.Models.Article.ArticleListUpsertViewModel
 
 @{
-    var isEdit = Model?.Id != null && Model.Id != Guid.Empty;
+    var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Article List" : "New Article List";
 }
 
@@ -30,7 +30,20 @@
                 </div>
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">
-                        <button type="submit" class="button is-primary mr-3">Save</button>
+                        <button type="submit" class="button is-primary mr-3">Save as Draft</button>
+                        @if (Model != null)
+                        {
+                            @if (Model.IsPublished)
+                            {
+                                <button type="submit" class="button is-warning mr-3"
+                                        asp-controller="AdminContent" asp-action="Unpublish"
+                                        asp-route-contentType="articles" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+                            }
+                            else
+                            {
+                                <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
+                            }
+                        }
                         <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articles" class="button">Cancel</a>
                     </div>
                 </footer>

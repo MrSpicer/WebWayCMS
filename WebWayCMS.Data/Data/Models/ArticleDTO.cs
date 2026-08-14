@@ -1,12 +1,14 @@
 namespace WebWayCMS.Data.Models;
 
-public record ArticleDTO : IContent
+public record ArticleDTO : IVersionedContent
 {
-    public Guid ContentId { get; set; }
-    public ContentDTO ContentMeta { get; set; } = new();
+    public Guid VersionId { get; set; }
+    public ContentVersion Version { get; set; } = new();
 
     public string Body { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
-    public Guid ArticleListMasterId { get; set; }
+
+    /// <summary>FK to <see cref="ContentNode.Id"/> — a real foreign key, not a soft reference.</summary>
+    public Guid ArticleListNodeId { get; set; }
 }

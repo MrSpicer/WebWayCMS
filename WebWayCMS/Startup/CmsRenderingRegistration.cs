@@ -55,54 +55,35 @@ internal static class CmsRenderingRegistration
 
     private static void AddContentServices(IServiceCollection services)
     {
-        services.AddScoped<IContentService<ArticleDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<ArticleDTO>(ctx);
-        });
+        services.AddScoped<IContentReadContext, PublishedContentReadContext>();
+        services.AddScoped<IContentUserContext, HttpContentUserContext>();
+        services.AddScoped<IChangeSetScope, ChangeSetScope>();
 
-        services.AddScoped<IContentService<ArticleListDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<ArticleListDTO>(ctx);
-        });
-
-        services.AddScoped<IContentService<ContentBlockDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<ContentBlockDTO>(ctx);
-        });
+        AddContentStore<PageDTO>(services, "pages");
+        AddContentStore<ArticleDTO>(services, "articles");
+        AddContentStore<ArticleListDTO>(services, "articlelists");
+        AddContentStore<ContentBlockDTO>(services, "contentblocks");
+        AddContentStore<ContentZoneDTO>(services, "contentzones");
+        AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems");
+        AddContentStore<WidgetRegistrationDTO>(services, "widgets");
+        AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes");
+        AddContentStore<FormComponentRegistrationDTO>(services, "formcomponents");
 
         services.AddScoped<IContentZoneService, ContentZoneService>();
-        services.AddScoped<IPageService, PageService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
         services.AddScoped<IPageControllerRegistrationService, PageControllerRegistrationService>();
-
         services.AddScoped<IFormComponentRegistrationService, FormComponentRegistrationService>();
+    }
 
-        services.AddScoped<IContentService<WidgetRegistrationDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<WidgetRegistrationDTO>(ctx);
-        });
-
-        services.AddScoped<IContentService<PageControllerRegistrationDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<PageControllerRegistrationDTO>(ctx);
-        });
-
-        services.AddScoped<IContentService<CMSRouteDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<CMSRouteDTO>(ctx);
-        });
-
-        services.AddScoped<IContentService<FormComponentRegistrationDTO>>(sp =>
-        {
-            var ctx = sp.GetRequiredService<CmsDbContext>();
-            return new ContentService<FormComponentRegistrationDTO>(ctx);
-        });
+    private static void AddContentStore<T>(IServiceCollection services, string contentTypeKey)
+        where T : class, IVersionedContent
+    {
+        services.AddScoped<IContentStore<T>>(sp => new ContentStore<T>(
+            sp.GetRequiredService<CmsDbContext>(),
+            sp.GetRequiredService<IContentReadContext>(),
+            sp.GetRequiredService<IChangeSetScope>(),
+            sp.GetRequiredService<IContentUserContext>(),
+            contentTypeKey));
     }
 
     private static void AddRoutingServices(IServiceCollection services)

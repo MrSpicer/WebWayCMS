@@ -26,6 +26,26 @@ MCP endpoint on the public host.
 Both modes talk to the same `CmsDbContext` and the same tables. There is no separate "published"
 store; rendering-only hosts simply have no write surface.
 
+### The read context is a mode boundary (security, not convenience)
+
+Version selection is driven by `IContentReadContext`, registered **per mode**:
+
+- `AddWebWayCmsRendering` registers a sealed `PublishedContentReadContext` that hard-codes
+  `ContentReadMode.Published`. A rendering-only host is therefore **physically incapable of serving a
+  draft** — there is no preview cookie and no code path to a draft read.
+- `AddWebWayCmsAdmin` replaces it with `PreviewAwareReadContext`, which serves `Draft` only when the
+  request carries a valid `wwcms_preview` cookie **and** the user is authenticated as `Admin`/`Editor`.
+
+This is the same DI boundary described in §5: the rendering path resolves a context that can only ever
+return published rows.
+
+### Cache staleness on split deployments
+
+Publishing is now an explicit action users expect to take effect immediately, but the route registry
+and widget caches are per-process (60s / 5min TTLs) with per-process invalidation. On a split
+admin + rendering-only deployment, a publish will **not** appear on the rendering instance until its
+TTL expires. Not solved here — plan around it if you run a split topology.
+
 ---
 
 ## 2. What Each Mode Registers

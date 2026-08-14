@@ -1,3 +1,4 @@
+@using WebWayCMS.Data.Models
 @using WebWayCMS.Models.ContentZone
 
 @model ContentZoneIndexViewModel
@@ -78,7 +79,7 @@
                                 <td>@zone.Name</td>
                                 <td>@zone.Description</td>
                                 <td>
-                                    @if (zone.ContentMeta.IsPublished)
+                                    @if (zone.Version.State == ContentVersionState.Published)
                                     {
                                         <span class="tag is-success">Yes</span>
                                     }
@@ -87,11 +88,11 @@
                                         <span class="tag is-warning">No</span>
                                     }
                                 </td>
-                                <td>@zone.ContentMeta.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td><span class="tag is-light">v@(zone.ContentMeta.Version)</span></td>
-                                <td>@Model.AssignmentCountsByMasterId.GetValueOrDefault(zone.ContentMeta.MasterId, 0)</td>
+                                <td>@zone.Version.CreatedUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td><span class="tag is-light">v@(zone.Version.VersionNumber)</span></td>
+                                <td>@Model.AssignmentCountsByNodeId.GetValueOrDefault(zone.Version.Node.Id, 0)</td>
                                 <td>
-                                    @if (!Model.AssignmentCountsByMasterId.ContainsKey(zone.ContentMeta.MasterId) || Model.AssignmentCountsByMasterId[zone.ContentMeta.MasterId] == 0)
+                                    @if (!Model.AssignmentCountsByNodeId.ContainsKey(zone.Version.Node.Id) || Model.AssignmentCountsByNodeId[zone.Version.Node.Id] == 0)
                                     {
                                         <span class="tag is-success">Yes</span>
                                     }
@@ -104,23 +105,37 @@
                                     <div class="buttons are-small">
                                         <a asp-controller="AdminContent" asp-action="VersionHistory"
                                            asp-route-contentType="contentzones"
-                                           asp-route-masterId="@zone.ContentMeta.MasterId"
+                                           asp-route-nodeId="@zone.Version.Node.Id"
                                            class="button is-small is-info is-light">Versions</a>
                                         <a asp-controller="AdminContent" asp-action="Edit"
                                            asp-route-contentType="contentzones"
-                                           asp-route-id="@zone.ContentId"
+                                           asp-route-id="@zone.Version.Node.Id"
                                            class="button is-small">Edit</a>
-                                        <a href="/wadmin/contentzones/zone-edit/@zone.ContentId" class="button is-small is-primary is-light">Edit Zone</a>
-                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.ContentId" asp-route-childType="items" class="button is-small is-info is-light">Advanced (@zone.Items.Count)</a>
-                                        @if (Model.ZoneIdsWithChildren.Contains(zone.ContentId))
+                                        <a href="/wadmin/contentzones/zone-edit/@zone.Version.Node.Id" class="button is-small is-primary is-light">Edit Zone</a>
+                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.Version.Node.Id" asp-route-childType="items" class="button is-small is-info is-light">Advanced</a>
+                                        @if (Model.ZoneIdsWithChildren.Contains(zone.Version.Node.Id))
                                         {
-                                            <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?zoneId=@zone.ContentId"
+                                            <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?zoneId=@zone.Version.Node.Id"
                                                class="button is-small is-info is-light">Child Zones</a>
+                                        }
+                                        @if (!(zone.Version.State == WebWayCMS.Data.Models.ContentVersionState.Published))
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            </form>
                                         }
                                         <button type="button" class="button is-small is-danger is-light"
                                                 data-delete-trigger
                                                 data-delete-name="@zone.Name"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentzones", id = zone.ContentId })">
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentzones", id = zone.Version.Node.Id })">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                             <span>Delete</span>
                                         </button>

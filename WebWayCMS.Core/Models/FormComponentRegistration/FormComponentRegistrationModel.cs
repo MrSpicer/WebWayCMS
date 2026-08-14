@@ -16,16 +16,18 @@ namespace WebWayCMS.Models.FormComponentRegistration;
 [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
 public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponentRegistrationDTO>
 {
-    private readonly IContentService<FormComponentRegistrationDTO> _service;
+    private readonly IContentStore<FormComponentRegistrationDTO> _store;
     private readonly IFormComponentRegistry _formComponentRegistry;
     private readonly FormComponentRegistrationRegistryHandler _registryHandler;
 
+    protected override IContentStore<FormComponentRegistrationDTO> Store => _store;
+
     protected override string VersionHistoryContentType => "formcomponents";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/formcomponents";
-    protected override Task<List<FormComponentRegistrationDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-        => _service.GetAllVersionsAsync(masterId, ct);
+    protected override Task<List<FormComponentRegistrationDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
+        => _store.GetAllVersionsAsync(nodeId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _service.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
+        => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "formcomponents";
     public override string DisplayName => "Form Component Registration";
@@ -33,17 +35,19 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
     public override string UpsertViewPath => "~/Views/FormComponentRegistration/FormComponentRegistrationUpsert.cshtml";
 
     public FormComponentRegistrationModel(
-        IContentService<FormComponentRegistrationDTO> service,
-        IFormComponentRegistry formComponentRegistry)
+        IContentStore<FormComponentRegistrationDTO> store,
+        IFormComponentRegistry formComponentRegistry,
+        IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _formComponentRegistry = formComponentRegistry ?? throw new ArgumentNullException(nameof(formComponentRegistry));
         _registryHandler = new FormComponentRegistrationRegistryHandler(formComponentRegistry);
     }
 
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
         return new FormComponentRegistrationIndexViewModel { Registrations = dtos };
     }
 
@@ -52,18 +56,16 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
         if (id == null || id == Guid.Empty)
             return new FormComponentRegistrationUpsertViewModel();
 
-        var dto = await _service.GetByIdAsync(id.Value, ct);
+        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
         if (dto == null)
             return null;
 
         return new FormComponentRegistrationUpsertViewModel
         {
-            Id = dto.ContentId,
-            MasterId = dto.ContentMeta.MasterId,
-            Version = dto.ContentMeta.Version,
-            Title = dto.ContentMeta.Title,
-            Slug = dto.ContentMeta.Slug,
-            IsPublished = dto.ContentMeta.IsPublished,
+            NodeId = dto.Version.Node.Id,
+            ExpectedVersionNumber = dto.Version.VersionNumber,
+            Title = dto.Version.Title,
+            Slug = dto.Version.Slug,
             ComponentName = dto.ComponentName,
             ViewComponentName = dto.ViewComponentName,
             DisplayName = dto.DisplayName,
@@ -77,6 +79,7 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
             WriteViewName = dto.WriteViewName,
             ReadViewName = dto.ReadViewName,
             IsActive = dto.IsActive,
+            IsPublished = dto.Version.State == ContentVersionState.Published,
         };
     }
 
@@ -85,21 +88,21 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
     protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (FormComponentRegistrationUpsertViewModel)model;
-        var isEdit = vm.Id.HasValue && vm.Id != Guid.Empty;
+        var isEdit = vm.NodeId.HasValue && vm.NodeId != Guid.Empty;
 
+        FormComponentRegistrationDTO dto;
         if (isEdit)
         {
-            var existing = await _service.GetByIdAsync(vm.Id!.Value, ct);
+            var existing = await _store.GetCurrentDraftAsync(vm.NodeId!.Value, ct);
             if (existing == null)
                 return new AdminSaveResult(false, "Form component registration not found.");
 
-            var updated = existing with
+            dto = existing with
             {
-                ContentMeta = existing.ContentMeta with
+                Version = existing.Version with
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 ComponentName = vm.ComponentName,
                 ViewComponentName = vm.ViewComponentName,
@@ -115,21 +118,15 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
                 ReadViewName = vm.ReadViewName,
                 IsActive = vm.IsActive,
             };
-
-            var ok = await _service.UpdateAsync(updated, ct);
-            if (ok)
-                _formComponentRegistry.Invalidate();
-            return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
         }
         else
         {
-            var dto = new FormComponentRegistrationDTO
+            dto = new FormComponentRegistrationDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
                     Title = vm.Title,
                     Slug = vm.Slug ?? string.Empty,
-                    IsPublished = vm.IsPublished,
                 },
                 ComponentName = vm.ComponentName,
                 ViewComponentName = vm.ViewComponentName,
@@ -145,16 +142,19 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
                 ReadViewName = vm.ReadViewName,
                 IsActive = vm.IsActive,
             };
-
-            await _service.CreateAsync(dto, ct);
-            _formComponentRegistry.Invalidate();
-            return new AdminSaveResult(true);
         }
+
+        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
+        if (!result.Success)
+            return new AdminSaveResult(false, result.ErrorMessage ?? "Save failed.");
+
+        _formComponentRegistry.Invalidate();
+        return new AdminSaveResult(true, NodeId: result.NodeId);
     }
 
     public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _service.DeleteAsync(id, false, true, ct);
+        var result = await _store.DeleteAsync(id, softDelete: false, ct);
         if (result)
             _formComponentRegistry.Invalidate();
         return result;
@@ -162,12 +162,11 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
         return dtos
-            .Where(d => d.ContentMeta.IsPublished)
             .Select(d => (object)new
             {
-                id = d.ContentMeta.MasterId,
+                id = d.Version.Node.Id,
                 title = d.DisplayName ?? d.ComponentName
             });
     }
@@ -176,18 +175,14 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
 
     public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
     {
-        var historical = await _service.GetByIdAsync(historicalId, ct);
+        var historical = await _store.GetVersionAsync(historicalId, ct);
         if (historical == null) return null;
-        var latest = await _service.GetByMasterIdAsync(historical.ContentMeta.MasterId, ct);
-        if (latest == null) return null;
         return new FormComponentRegistrationUpsertViewModel
         {
-            Id = latest.ContentId,
-            MasterId = latest.ContentMeta.MasterId,
-            Version = latest.ContentMeta.Version,
-            Title = historical.ContentMeta.Title,
-            Slug = historical.ContentMeta.Slug,
-            IsPublished = historical.ContentMeta.IsPublished,
+            NodeId = historical.Version.Node.Id,
+            ExpectedVersionNumber = historical.Version.VersionNumber,
+            Title = historical.Version.Title,
+            Slug = historical.Version.Slug,
             ComponentName = historical.ComponentName,
             ViewComponentName = historical.ViewComponentName,
             DisplayName = historical.DisplayName,
@@ -201,6 +196,7 @@ public sealed class FormComponentRegistrationModel : AdminCrudModel<FormComponen
             WriteViewName = historical.WriteViewName,
             ReadViewName = historical.ReadViewName,
             IsActive = historical.IsActive,
+            IsPublished = historical.Version.State == ContentVersionState.Published,
         };
     }
 

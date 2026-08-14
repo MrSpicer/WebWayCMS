@@ -73,15 +73,29 @@
                                         <span class="tag is-warning is-light">Inactive</span>
                                     }
                                 </td>
-                                <td><span class="tag is-light">v@(w.ContentMeta.Version)</span></td>
+                                <td><span class="tag is-light">v@(w.Version.VersionNumber)</span></td>
                                 <td>
                                     <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="widgets" asp-route-masterId="@w.ContentMeta.MasterId" class="button is-small is-info is-light">Versions</a>
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.ContentId" class="button is-small">Edit</a>
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" class="button is-small is-info is-light">Versions</a>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.Version.Node.Id" class="button is-small">Edit</a>
+                                        @if (!(w.Version.State == WebWayCMS.Data.Models.ContentVersionState.Published))
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            </form>
+                                        }
                                         <button type="button" class="button is-small is-danger is-light"
                                                 data-delete-trigger
                                                 data-delete-name="@w.DisplayName"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "widgets", id = w.ContentId })">
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "widgets", id = w.Version.Node.Id })">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                             <span>Delete</span>
                                         </button>

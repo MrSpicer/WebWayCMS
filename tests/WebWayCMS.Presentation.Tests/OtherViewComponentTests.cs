@@ -40,13 +40,13 @@ public class ContentBlockViewComponentTests
     public async Task ValidId_RendersFoundOrFallbackViewModel()
     {
         var id = Guid.NewGuid();
-        _model.GetViewModelByMasterIdAsync(id, Arg.Any<CancellationToken>()).Returns(new ContentBlockViewModel(), (ContentBlockViewModel?)null);
+        _model.GetViewModelByNodeIdAsync(id, Arg.Any<CancellationToken>()).Returns(new ContentBlockViewModel(), (ContentBlockViewModel?)null);
 
         Assert.That(ViewComponentHarness.Model(await _component.InvokeAsync(new ContentBlockContentZoneConfiguration { ContentBlockID = id })),
             Is.InstanceOf<ContentBlockViewModel>());
-        // Second call returns null -> falls back to a new view model carrying the id.
+        // Second call returns null -> falls back to a new view model carrying the node id.
         var fallback = (ContentBlockViewModel)ViewComponentHarness.Model(await _component.InvokeAsync(new ContentBlockContentZoneConfiguration { ContentBlockID = id }))!;
-        Assert.That(fallback.Id, Is.EqualTo(id));
+        Assert.That(fallback.NodeId, Is.EqualTo(id));
     }
 }
 
@@ -104,8 +104,12 @@ public class ContentZoneViewComponentTests
     [Test]
     public async Task PageScoped_TopLevelSlot_GetsOrCreatesByPageSlot()
     {
-        _http.Items["CMS:PageData"] = new PageDTO { ContentMeta = new ContentDTO { MasterId = Guid.NewGuid() } };
-        _model.GetOrCreateViewModelByPageSlotAsync(Arg.Any<Guid>(), "Main", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
+        var pageNodeId = Guid.NewGuid();
+        _http.Items["CMS:PageData"] = new PageDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = pageNodeId } }
+        };
+        _model.GetOrCreateViewModelByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
 
         var result = await _component.InvokeAsync(zoneName: "Main");
 
@@ -115,7 +119,11 @@ public class ContentZoneViewComponentTests
     [Test]
     public async Task PageScoped_NestedSlot_GetsOrCreatesByZoneSlot()
     {
-        _http.Items["CMS:PageData"] = new PageDTO { ContentMeta = new ContentDTO { MasterId = Guid.NewGuid() } };
+        var pageNodeId = Guid.NewGuid();
+        _http.Items["CMS:PageData"] = new PageDTO
+        {
+            Version = new ContentVersion { Node = new ContentNode { Id = pageNodeId } }
+        };
         _component.ViewComponentContext.ViewData["ContentZone:ParentZoneId"] = Guid.NewGuid();
         _model.GetOrCreateViewModelByZoneSlotAsync(Arg.Any<Guid>(), "Sub", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
 
@@ -243,7 +251,7 @@ public class PageViewComponentTests
     {
         Path = route,
         Title = route,
-        PageId = Guid.NewGuid(),
+        PageNodeId = Guid.NewGuid(),
         IsPublished = published,
         IsHidden = hidden,
         Children = children.ToList()
@@ -260,7 +268,7 @@ public class PageViewComponentTests
                 Node("/draft", published: false),
                 Node("/hidden", hidden: true),
                 Node("/wadmin/x"),
-                new() { Path = "/intermediate", PageId = null } // no PageId -> filtered out
+                new() { Path = "/intermediate", PageNodeId = null } // no PageNodeId -> filtered out
 			}
         });
 

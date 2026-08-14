@@ -1,10 +1,11 @@
 @model WebWayCMS.Controllers.GenericPageConfiguration
 
+@using WebWayCMS.Data.Models
 @using WebWayCMS.Data.Services
-@inject IPageService PageService
-@inject IContentService<ArticleDTO> ArticleService
-@inject IContentService<ContentBlockDTO> ContentBlockService
-@inject IContentZoneService ContentZoneService
+@inject IContentStore<PageDTO> PageStore
+@inject IContentStore<ArticleDTO> ArticleStore
+@inject IContentStore<ContentBlockDTO> ContentBlockStore
+@inject IContentStore<ContentZoneDTO> ZoneStore
 @inject ICMSRouteService CmsRouteService
 @inject IPageControllerRegistrationService PageTypeService
 @inject IWidgetRegistrationService WidgetService
@@ -13,14 +14,14 @@
     ViewData["Title"] = "Dashboard";
     Layout = "~/Views/Shared/_AdminLayout.cshtml";
 
-    var allPages         = await PageService.GetAllAsync();
-    var allArticles      = await ArticleService.GetAllAsync();
-    var allContentBlocks = await ContentBlockService.GetAllAsync();
-    var allZones         = await ContentZoneService.GetAllAsync();
+    var allPages         = await PageStore.GetAllCurrentDraftsAsync();
+    var allArticles      = await ArticleStore.GetAllCurrentDraftsAsync();
+    var allContentBlocks = await ContentBlockStore.GetAllCurrentDraftsAsync();
+    var allZones         = await ZoneStore.GetAllCurrentDraftsAsync();
 
     var totalPages     = allPages.Count;
-    var publishedPages = allPages.Count(p => p.ContentMeta.IsPublished);
-    var draftPages     = allPages.Count(p => !p.ContentMeta.IsPublished);
+    var publishedPages = allPages.Count(p => p.Version.State == ContentVersionState.Published);
+    var draftPages     = allPages.Count(p => p.Version.State != ContentVersionState.Published);
     var totalArticles  = allArticles.Count;
     var totalBlocks    = allContentBlocks.Count;
     var totalZones     = allZones.Count;
@@ -31,25 +32,9 @@
     var activeWidgets    = await WidgetService.GetActiveAsync();
     var widgetCategories = await WidgetService.GetActiveByCategoryAsync();
 
-    var recentPages    = allPages.OrderByDescending(p => p.ContentMeta.ModificationDate).Take(8).ToList();
-    var recentArticles = allArticles.OrderByDescending(a => a.ContentMeta.ModificationDate).Take(5).ToList();
+    var recentPages    = allPages.OrderByDescending(p => p.Version.CreatedUtc).Take(8).ToList();
+    var recentArticles = allArticles.OrderByDescending(a => a.Version.CreatedUtc).Take(5).ToList();
 }
-
-@* @if (!string.IsNullOrWhiteSpace(Model.Meta))
-{
-    @section Meta {
-        @Html.Raw(Model.Meta)
-    }
-}
-
-@if (!string.IsNullOrWhiteSpace(Model.Style))
-{
-    @section Styles {
-        <style>
-            @Html.Raw(Model.Style)
-        </style>
-    }
-} *@
 
 <section class="section">
 <div class="container is-fluid">
@@ -59,7 +44,7 @@
             <div class="level-left">
                 <div>
                     <h1 class="title">Dashboard</h1>
-                    <p class="subtitle">Welcome to the CMS!</p>
+                    <p class="subtitle">Welcome to WebWay CMS!</p>
                 </div>
             </div>
             <div class="level-right">
@@ -253,9 +238,9 @@
                                         @foreach (var p in recentPages)
                                         {
                                             <tr>
-                                                <td>@p.ContentMeta.Title</td>
+                                                <td>@p.Version.Title</td>
                                                 <td>
-                                                    @if (p.ContentMeta.IsPublished)
+                                                    @if (p.Version.State == ContentVersionState.Published)
                                                     {
                                                         <span class="tag is-success">Published</span>
                                                     }
@@ -264,17 +249,17 @@
                                                         <span class="tag is-warning">Draft</span>
                                                     }
                                                 </td>
-                                                <td>@p.ContentMeta.ModificationDate.ToString("MMM d, yyyy")</td>
+                                                <td>@p.Version.CreatedUtc.ToString("MMM d, yyyy")</td>
                                                 <td>
                                                     <div class="buttons are-small">
                                                         @{
-                                                            var route = activeRoutes.FirstOrDefault(r => r.OwningContentType == "Page" && r.OwningContentMasterId == p.ContentMeta.MasterId);
+                                                            var route = activeRoutes.FirstOrDefault(r => r.OwningContentType == "Page" && r.OwningContentNodeId == p.Version.Node.Id);
                                                         }
                                                         @if (route != null)
                                                         {
                                                             <a href="@route.Pattern" target="_blank" rel="noopener" class="button is-info is-light">View</a>
                                                         }
-                                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@p.ContentMeta.Id" class="button is-light">Edit</a>
+                                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@p.Version.Node.Id" class="button is-light">Edit</a>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -357,7 +342,7 @@
                                 @foreach (var article in recentArticles)
                                 {
                                     <tr>
-                                        <td>@article.ContentMeta.Title</td>
+                                        <td>@article.Version.Title</td>
                                         <td>
                                             @if (string.IsNullOrWhiteSpace(article.AuthorName))
                                             {
@@ -372,7 +357,7 @@
                                             }
                                         </td>
                                         <td>
-                                            @if (article.ContentMeta.IsPublished)
+                                            @if (article.Version.State == ContentVersionState.Published)
                                             {
                                                 <span class="tag is-success">Published</span>
                                             }
@@ -381,7 +366,7 @@
                                                 <span class="tag is-warning">Draft</span>
                                             }
                                         </td>
-                                        <td>@article.ContentMeta.ModificationDate.ToString("MMM d, yyyy")</td>
+                                        <td>@article.Version.CreatedUtc.ToString("MMM d, yyyy")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -397,12 +382,3 @@
 </section>
 
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
-
-@* @if (!string.IsNullOrWhiteSpace(Model.Script))
-{
-    @section Scripts {
-        <script>
-            @Html.Raw(Model.Script)
-        </script>
-    }
-} *@

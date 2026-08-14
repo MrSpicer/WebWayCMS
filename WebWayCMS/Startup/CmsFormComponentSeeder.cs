@@ -34,7 +34,7 @@ internal static class CmsFormComponentSeeder
 
         try
         {
-            var contentService = services.GetRequiredService<IContentService<FormComponentRegistrationDTO>>();
+            var store = services.GetRequiredService<IContentStore<FormComponentRegistrationDTO>>();
             var formComponentService = services.GetRequiredService<IFormComponentRegistrationService>();
             var existing = formComponentService.GetActiveAsync().GetAwaiter().GetResult();
 
@@ -56,7 +56,7 @@ internal static class CmsFormComponentSeeder
             {
                 try
                 {
-                    SeedAssemblyFormComponents(assembly, contentService, existingByComponentName, logger);
+                    SeedAssemblyFormComponents(assembly, store, existingByComponentName, logger);
                 }
                 catch (Exception ex)
                 {
@@ -76,7 +76,7 @@ internal static class CmsFormComponentSeeder
 
     private static void SeedAssemblyFormComponents(
         Assembly assembly,
-        IContentService<FormComponentRegistrationDTO> contentService,
+        IContentStore<FormComponentRegistrationDTO> store,
         Dictionary<string, FormComponentRegistrationDTO> existingByComponentName,
         ILogger logger)
     {
@@ -124,7 +124,8 @@ internal static class CmsFormComponentSeeder
                         WriteViewName = writeViewName,
                         ReadViewName = readViewName
                     };
-                    contentService.UpdateAsync(updated).GetAwaiter().GetResult();
+                    var save = store.SaveDraftAsync(updated, null).GetAwaiter().GetResult();
+                    store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
                     logger.Information("Re-synced form component registration '{ComponentName}'", componentName);
                 }
                 continue;
@@ -132,19 +133,12 @@ internal static class CmsFormComponentSeeder
 
             var dto = new FormComponentRegistrationDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
-                    Id = Guid.NewGuid(),
                     Title = string.IsNullOrEmpty(attribute.DisplayName)
                         ? FormPropertyBuilder.InsertSpaces(componentName)
                         : attribute.DisplayName,
                     Slug = componentName.ToLowerInvariant(),
-                    IsPublished = true,
-                    PublicationDate = DateTime.UtcNow,
-                    CreationDate = DateTime.UtcNow,
-                    ModificationDate = DateTime.UtcNow,
-                    CreatedBy = Guid.Empty,
-                    LastModifiedBy = Guid.Empty,
                 },
                 ComponentName = componentName,
                 ViewComponentName = viewComponentName,
@@ -165,7 +159,8 @@ internal static class CmsFormComponentSeeder
 
             try
             {
-                contentService.CreateAsync(dto).GetAwaiter().GetResult();
+                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
+                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
                 existingByComponentName[componentName] = dto;
                 logger.Information("Seeded form component registration '{ComponentName}' as '{DisplayName}'", componentName, dto.DisplayName);
             }

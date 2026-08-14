@@ -44,10 +44,10 @@ public class VersionToolsetTests
     [Test]
     public async Task ListVersions_WhenFound_ReturnsHistory()
     {
-        var vm = new VersionHistoryViewModel { MasterId = Guid.NewGuid() };
+        var vm = new VersionHistoryViewModel { NodeId = Guid.NewGuid() };
         _handler.GetVersionHistoryViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
 
-        Assert.That(await _tools.ListVersions("contentblocks", vm.MasterId), Is.SameAs(vm));
+        Assert.That(await _tools.ListVersions("contentblocks", vm.NodeId), Is.SameAs(vm));
     }
 
     [Test]
@@ -80,25 +80,14 @@ public class VersionToolsetTests
     }
 
     [Test]
-    public async Task RestoreVersion_WhenFound_SavesRestoredModel()
+    public async Task RestoreVersion_ReturnsHandlerResult()
     {
-        var vm = new FakeUpsertViewModel { Title = "restored" };
-        _handler.GetRestoreVersionViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
-        _handler.SaveUpsertAsync(vm, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+        var versionId = Guid.NewGuid();
+        _handler.RestoreVersionAsync(versionId, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
 
-        var result = await _tools.RestoreVersion("contentblocks", Guid.NewGuid());
+        var result = await _tools.RestoreVersion("contentblocks", versionId);
 
         Assert.That(result.Success, Is.True);
-    }
-
-    [Test]
-    public void RestoreVersion_WhenMissing_Throws()
-    {
-        _handler.GetRestoreVersionViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((object?)null);
-
-        Assert.That(async () => await _tools.RestoreVersion("contentblocks", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
     }
 
     [Test]

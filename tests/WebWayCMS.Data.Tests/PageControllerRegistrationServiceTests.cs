@@ -18,37 +18,43 @@ public class PageControllerRegistrationServiceTests
 
     private PageControllerRegistrationService NewService() => new(NewContext());
 
+    private static ContentNode Node(Guid id, bool isDeleted = false)
+        => new() { Id = id, ContentTypeKey = "pagecontrollers", IsDeleted = isDeleted };
+
     private static PageControllerRegistrationDTO Dto(
         string controllerName = "GenericPage",
         string displayName = "Generic Page",
         string category = "General",
         bool isActive = true,
-        bool isPublished = true,
+        ContentVersionState state = ContentVersionState.Published,
         bool isDeleted = false,
         int version = 0,
-        Guid? masterId = null) =>
-        new()
+        ContentNode? node = null)
+    {
+        node ??= Node(Guid.NewGuid(), isDeleted);
+        var versionId = Guid.NewGuid();
+        return new PageControllerRegistrationDTO
         {
-            ContentId = Guid.NewGuid(),
+            VersionId = versionId,
             ControllerName = controllerName,
             ControllerTypeName = "Type." + controllerName,
             DisplayName = displayName,
             Category = category,
             IsActive = isActive,
             PropertyDefinitionsJson = "[]",
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = Guid.NewGuid(),
-                MasterId = masterId ?? Guid.NewGuid(),
-                Version = version,
+                Id = versionId,
+                NodeId = node.Id,
+                Node = node,
+                VersionNumber = version,
+                State = state,
                 Title = displayName,
                 Slug = controllerName.ToLowerInvariant(),
-                IsPublished = isPublished,
-                IsDeleted = isDeleted,
-                CreationDate = DateTime.UtcNow,
-                ModificationDate = DateTime.UtcNow,
+                CreatedUtc = DateTime.UtcNow
             }
         };
+    }
 
     private async Task SeedAsync(params PageControllerRegistrationDTO[] dtos)
     {
@@ -61,10 +67,10 @@ public class PageControllerRegistrationServiceTests
     public async Task GetActiveAsync_ReturnsOnlyActivePublishedNonDeleted()
     {
         await SeedAsync(
-            Dto("A", isActive: true, isPublished: true),
-            Dto("B", isActive: false, isPublished: true),
-            Dto("C", isActive: true, isPublished: false),
-            Dto("D", isActive: true, isPublished: true, isDeleted: true));
+            Dto("A", isActive: true),
+            Dto("B", isActive: false),
+            Dto("C", isActive: true, state: ContentVersionState.Draft),
+            Dto("D", isActive: true, isDeleted: true));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
@@ -74,18 +80,18 @@ public class PageControllerRegistrationServiceTests
     }
 
     [Test]
-    public async Task GetActiveAsync_ReturnsLatestVersionOnly()
+    public async Task GetActiveAsync_ReturnsPublishedVersionOnly()
     {
-        var master = Guid.NewGuid();
+        var node = Node(Guid.NewGuid());
         await SeedAsync(
-            Dto("A", version: 0, masterId: master),
-            Dto("A", version: 1, masterId: master));
+            Dto("A", version: 0, node: node, state: ContentVersionState.Archived),
+            Dto("A", version: 1, node: node, state: ContentVersionState.Published));
 
         var service = NewService();
         var result = await service.GetActiveAsync();
 
         Assert.That(result, Has.Count.EqualTo(1));
-        Assert.That(result[0].ContentMeta.Version, Is.EqualTo(1));
+        Assert.That(result[0].Version.VersionNumber, Is.EqualTo(1));
     }
 
     [Test]

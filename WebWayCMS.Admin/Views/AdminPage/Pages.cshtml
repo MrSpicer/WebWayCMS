@@ -89,7 +89,7 @@
                     </span>
                 </td>
                 <td>
-                    @if (node.PageId.HasValue)
+                    @if (node.PageNodeId.HasValue)
                     {
                         @node.Title
                     }
@@ -99,7 +99,7 @@
                     }
                 </td>
                 <td>
-                    @if (node.PageId.HasValue)
+                    @if (node.PageNodeId.HasValue)
                     {
                         if (node.IsPublished)
                         {
@@ -112,21 +112,33 @@
                     }
                 </td>
                 <td>
-                    @if (node.PageId.HasValue)
+                    @if (node.PageNodeId.HasValue)
                     {
                         <div class="buttons are-small">
                             <a href="@node.Path" target="_blank" class="button is-small is-light" rel="noopener">View</a>
-                            @if (node.PageMasterId.HasValue)
+                            <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info is-light">Versions</a>
+                            <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?pageId=@node.PageNodeId"
+                               class="button is-small is-info is-light">Content Zones</a>
+                            <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageNodeId" class="button is-small">Edit</a>
+                            @if (!node.IsPublished)
                             {
-                                <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-masterId="@node.PageMasterId" class="button is-small is-info is-light">Versions</a>
-                                <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?pageId=@node.PageMasterId"
-                                   class="button is-small is-info is-light">Content Zones</a>
+                                <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info">Preview</a>
+                                <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post" class="is-inline-block">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="button is-small is-success">Publish</button>
+                                </form>
                             }
-                            <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageId" class="button is-small">Edit</a>
+                            else
+                            {
+                                <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post" class="is-inline-block">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                </form>
+                            }
                             <button type="button" class="button is-small is-danger is-light"
                                     data-delete-trigger
                                     data-delete-name="@node.Title"
-                                    data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageId })">
+                                    data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageNodeId })">
                                 <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                 <span>Delete</span>
                             </button>

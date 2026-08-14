@@ -81,7 +81,7 @@ public class ArticleViewComponent : ViewComponent, IRoutableViewComponent
     string IRoutableViewComponent.ComponentName => "Article";
 
     Task<IReadOnlyList<CMSRouteDTO>> IRoutableViewComponent.GenerateRoutesAsync(
-        string parentRoute, Guid contentZoneItemMasterId, CancellationToken ct)
+        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct)
     {
         var route = new CMSRouteDTO
         {
@@ -96,7 +96,7 @@ public class ArticleViewComponent : ViewComponent, IRoutableViewComponent
                 {
                     { "_widget", "Article" }
                 }),
-            OwningContentMasterId = contentZoneItemMasterId,
+            OwningContentNodeId = contentZoneItemNodeId,
             OwningContentType = "ArticleWidget",
             Order = 1
         };

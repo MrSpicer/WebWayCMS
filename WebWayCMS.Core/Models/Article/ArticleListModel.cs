@@ -11,15 +11,17 @@ namespace WebWayCMS.Models.Article;
 
 public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleListModel
 {
-    private readonly IContentService<ArticleDTO> _articleService;
-    private readonly IContentService<ArticleListDTO> _articleListService;
+    private readonly IContentStore<ArticleDTO> _articleStore;
+    private readonly IContentStore<ArticleListDTO> _listStore;
     private readonly IMapper _mapper;
     private readonly ArticleChildHandler _childHandler;
 
+    protected override IContentStore<ArticleListDTO> Store => _listStore;
+
     protected override string VersionHistoryContentType => "articles";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/articles";
-    protected override Task<List<ArticleListDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _articleListService.GetAllVersionsAsync(masterId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _articleListService.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
+    protected override Task<List<ArticleListDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _listStore.GetAllVersionsAsync(nodeId, ct);
+    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _listStore.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "articles";
     public override string DisplayName => "Article List";
@@ -29,13 +31,15 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     public override IAdminCrudChildHandler? ChildHandler => _childHandler;
 
     public ArticleListModel(
-        IContentService<ArticleListDTO> articleListService,
-        IContentService<ArticleDTO> articleService,
+        IContentStore<ArticleListDTO> listStore,
+        IContentStore<ArticleDTO> articleStore,
         IMapper mapper,
-        IArticleModel articleModel)
+        IArticleModel articleModel,
+        IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
-        _articleService = articleService ?? throw new ArgumentNullException(nameof(articleService));
-        _articleListService = articleListService ?? throw new ArgumentNullException(nameof(articleListService));
+        _articleStore = articleStore ?? throw new ArgumentNullException(nameof(articleStore));
+        _listStore = listStore ?? throw new ArgumentNullException(nameof(listStore));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         _childHandler = new ArticleChildHandler(this, articleModel ?? throw new ArgumentNullException(nameof(articleModel)));
     }
@@ -44,9 +48,8 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     async Task<ArticleListViewModel> IArticleListModel.GetIndexViewModelAsync(CancellationToken ct)
     {
         var vm = new ArticleListViewModel();
-        var articles = await _articleService.GetAllAsync(ct);
+        var articles = await _articleStore.GetAllAsync(ct);
         vm.Articles = articles
-            .Where(p => p.ContentMeta.IsPublished && p.ContentMeta.PublicationDate <= DateTime.UtcNow)
             .Select(p => _mapper.Map<ArticleViewModel>(p))
             .ToList();
         return vm;
@@ -54,25 +57,25 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
 
     public async Task<ArticleListIndexViewModel> GetArticleListIndexAsync(CancellationToken ct = default)
     {
-        var lists = await _articleListService.GetAllAsync(ct);
-        var articles = await _articleService.GetAllAsync(ct);
+        var lists = await _listStore.GetAllCurrentDraftsAsync(ct);
+        var articles = await _articleStore.GetAllCurrentDraftsAsync(ct);
 
         var vm = new ArticleListIndexViewModel
         {
             ArticleLists = lists.Select(l =>
             {
                 var item = _mapper.Map<ArticleListItemViewModel>(l);
-                item.ArticleCount = articles.Count(p => p.ArticleListMasterId == l.ContentMeta.MasterId);
+                item.ArticleCount = articles.Count(p => p.ArticleListNodeId == l.Version.Node.Id);
                 return item;
             }).ToList()
         };
         return vm;
     }
 
-    public async Task<ArticleListUpsertViewModel?> GetArticleListUpsertAsync(Guid? id, CancellationToken ct = default)
+    public async Task<ArticleListUpsertViewModel?> GetArticleListUpsertAsync(Guid? nodeId, CancellationToken ct = default)
     {
-        if (id == null) return new ArticleListUpsertViewModel();
-        var dto = await _articleListService.GetByIdAsync(id.Value, ct);
+        if (nodeId == null) return new ArticleListUpsertViewModel();
+        var dto = await _listStore.GetCurrentDraftAsync(nodeId.Value, ct);
         if (dto == null) return null;
         return _mapper.Map<ArticleListUpsertViewModel>(dto);
     }
@@ -82,41 +85,35 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
         if (model == null) throw new ArgumentNullException(nameof(model));
 
         var dto = _mapper.Map<ArticleListDTO>(model);
-
-        if (model.Id == null || model.Id == Guid.Empty)
-        {
-            await _articleListService.CreateAsync(dto, ct);
-            return (true, null);
-        }
-
-        var success = await _articleListService.UpdateAsync(dto, ct);
-        if (!success) return (false, "Unable to update article list. It may have been removed.");
+        var result = await _listStore.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
+        if (!result.Success) return (false, result.ErrorMessage ?? "Unable to update article list. It may have been removed.");
+        model.NodeId = result.NodeId;
         return (true, null);
     }
 
-    public async Task<bool> DeleteArticleListAsync(Guid id, CancellationToken ct = default)
+    public async Task<bool> DeleteArticleListAsync(Guid nodeId, CancellationToken ct = default)
     {
-        var list = await _articleListService.GetByIdAsync(id, ct);
+        var list = await _listStore.GetCurrentDraftAsync(nodeId, ct);
         if (list == null) return false;
-        var articles = await _articleService.GetAllAsync(ct);
-        foreach (var p in articles.Where(p => p.ArticleListMasterId == list.ContentMeta.MasterId))
-            await _articleService.DeleteAsync(p.ContentMeta.Id, false, true, ct);
-        return await _articleListService.DeleteAsync(id, false, true, ct);
+        var articles = await _articleStore.GetAllCurrentDraftsAsync(ct);
+        foreach (var article in articles.Where(p => p.ArticleListNodeId == nodeId))
+            await _articleStore.DeleteAsync(article.Version.Node.Id, softDelete: false, ct);
+        return await _listStore.DeleteAsync(nodeId, softDelete: false, ct);
     }
 
-    public async Task<ArticleListViewModel?> GetArticlesForListAsync(Guid articleListMasterId, CancellationToken ct = default)
+    public async Task<ArticleListViewModel?> GetArticlesForListAsync(Guid articleListNodeId, CancellationToken ct = default)
     {
-        var list = await _articleListService.GetByMasterIdAsync(articleListMasterId, ct);
+        var list = await _listStore.GetAsync(articleListNodeId, ct);
         if (list == null) return null;
 
-        var articles = await _articleService.GetAllAsync(ct);
+        var articles = await _articleStore.GetAllAsync(ct);
         return new ArticleListViewModel
         {
-            ArticleListId = list.ContentMeta.MasterId,
-            ArticleListTitle = list.ContentMeta.Title,
-            ArticleListSlug = list.ContentMeta.Slug,
+            ArticleListId = list.Version.Node.Id,
+            ArticleListTitle = list.Version.Title ?? string.Empty,
+            ArticleListSlug = list.Version.Slug ?? string.Empty,
             Articles = articles
-                .Where(p => p.ArticleListMasterId == list.ContentMeta.MasterId)
+                .Where(p => p.ArticleListNodeId == list.Version.Node.Id)
                 .Select(p => _mapper.Map<ArticleViewModel>(p))
                 .ToList()
         };
@@ -124,31 +121,19 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
 
     public async Task<ArticleListViewModel?> GetArticlesForListBySlugAsync(string slug, CancellationToken ct = default)
     {
-        var list = await _articleListService.GetBySlugAsync(slug, ct);
+        var list = await _listStore.GetBySlugAsync(slug, ct);
         if (list == null) return null;
 
-        return await GetArticlesForListAsync(list.ContentMeta.MasterId, ct);
+        return await GetArticlesForListAsync(list.Version.Node.Id, ct);
     }
 
-    public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid masterId, CancellationToken ct = default)
-        => BuildVersionHistoryAsync(masterId, ct: ct);
-
-    public async Task<ArticleListUpsertViewModel?> GetUpsertModelForRestoreAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var historical = await _articleListService.GetByIdAsync(historicalId, ct);
-        if (historical == null) return null;
-        var latest = await _articleListService.GetByMasterIdAsync(historical.ContentMeta.MasterId, ct);
-        if (latest == null) return null;
-        var vm = _mapper.Map<ArticleListUpsertViewModel>(historical);
-        vm.Id = latest.ContentMeta.Id;
-        vm.Version = latest.ContentMeta.Version;
-        return vm;
-    }
+    public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
+        => BuildVersionHistoryAsync(nodeId, ct: ct);
 
     public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => DeleteVersionCoreAsync(id, ct);
 
-    // IAdminCrudHandler members (override AdminCrudModel<T> abstract members)
+    // IAdminCrudHandler members
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
         => await GetArticleListIndexAsync(ct);
 
@@ -166,7 +151,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
         var vm = (ArticleListUpsertViewModel)model;
         var result = await SaveArticleListUpsertAsync(vm, ct);
         return result.Success
-            ? new AdminSaveResult(true)
+            ? new AdminSaveResult(true, NodeId: vm.NodeId)
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
@@ -176,7 +161,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
         var vm = await ((IArticleListModel)this).GetIndexViewModelAsync(ct);
-        return vm.Articles.Select(p => (object)new { id = p.Id, title = p.Title });
+        return vm.Articles.Select(p => (object)new { id = p.NodeId, title = p.Title });
     }
 
     public override async Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default)
@@ -185,11 +170,8 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
             return Enumerable.Empty<object>();
 
         var vm = await GetArticleListIndexAsync(ct);
-        return vm.ArticleLists.Select(l => (object)new { id = l.Id, title = l.Title });
+        return vm.ArticleLists.Select(l => (object)new { id = l.NodeId, title = l.Title });
     }
-
-    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-        => await GetUpsertModelForRestoreAsync(historicalId, ct);
 }
 
 /// <summary>Manages articles within an article list (child entities).</summary>
@@ -251,8 +233,8 @@ internal sealed class ArticleChildHandler : IAdminCrudChildHandler
 
     public bool SupportsVersionHistory => true;
 
-    public Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid masterId, CancellationToken ct = default)
-        => _articleModel.GetVersionHistoryAsync(masterId, parentKey, ct);
+    public Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default)
+        => _articleModel.GetVersionHistoryAsync(nodeId, parentKey, ct);
 
     public async Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
         => await _articleModel.GetUpsertModelForRestoreAsync(historicalId, ct);

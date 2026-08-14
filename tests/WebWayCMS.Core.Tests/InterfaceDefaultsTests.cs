@@ -78,6 +78,24 @@ public class InterfaceDefaultsTests
     }
 
     [Test]
+    public async Task IAdminCrudHandler_PublishingDefaults()
+    {
+        IAdminCrudHandler handler = new MinimalHandler();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(handler.SupportsPublishing, Is.True);
+            Assert.That(handler.PublishRoles, Is.Null);
+            Assert.That((await handler.PublishAsync(Guid.NewGuid())).Success, Is.False);
+            Assert.That((await handler.PublishAsync(Guid.NewGuid())).ErrorMessage, Is.EqualTo("Publishing is not supported."));
+            Assert.That((await handler.UnpublishAsync(Guid.NewGuid())).Success, Is.False);
+            Assert.That((await handler.UnpublishAsync(Guid.NewGuid())).ErrorMessage, Is.EqualTo("Unpublishing is not supported."));
+            Assert.That((await handler.RestoreVersionAsync(Guid.NewGuid())).Success, Is.False);
+            Assert.That((await handler.RestoreVersionAsync(Guid.NewGuid())).ErrorMessage, Is.EqualTo("Restoring versions is not supported."));
+        });
+    }
+
+    [Test]
     public async Task IAdminCrudChildHandler_DefaultMembers()
     {
         IAdminCrudChildHandler child = new MinimalChild();

@@ -41,7 +41,7 @@ consume the whole thing as a NuGet package.
   drag-reorder for every content type automatically, including types you add yourself.
 - **Database-backed content zones** — named slots in views hold ordered widget instances with
   inline add/remove/reorder editing.
-- **Built-in content versioning** — every content type gets version history for free.
+- **Built-in content versioning** — every content type gets version history and a draft/publish workflow for free (identity split from version; edits are drafts until published).
 - **Two deployment modes from one codebase** — full admin, or a rendering-only mode for a public
   front end with no admin surface.
 - **MCP server** — exposes the entire admin CRUD surface to AI agents generically (no per-type tool
@@ -84,38 +84,6 @@ and is linked as a git submodule:
 ```
 git submodule update --init --recursive
 ```
-
-### Make Scripts Executable
-```
-chmod +x ./scripts/*
-```
-
-### Setup Local Database
-```
-./WebWayCMS.TestHost/Scripts/SetupLocalPostgresDBContainer.sh
-```
-
-This creates a `postgres:18-alpine` Docker container. It prompts for database name, user,
-password, and host port, defaulting to the values already hardcoded in
-`WebWayCMS.TestHost/appsettings.json` (`integration-host` on port `16196`).
-
-### Pack the CMS packages
-A host project consumes the CMS as the `WebWayCMS` NuGet package from a local feed. Pack the
-libraries after cloning (and after changing CMS source) before building or running such a host:
-```
-./scripts/PackLocalPackages.sh
-```
-
-> The integration host (`WebWayCMS.TestHost`) uses **project references** rather than the
-> package feed, so it does not need this step.
-
-### Development - Hot Reload
-```
-./WebWayCMS.TestHost/Scripts/HotReloadRun.sh
-```
-
-Runs `dotnet watch run` against the integration host with `ASPNETCORE_ENVIRONMENT=Development`, so
-C# and Razor changes are picked up without a manual rebuild.
 
 ### Content-Security-Policy configuration
 

@@ -10,6 +10,8 @@ using NSubstitute;
 using NUnit.Framework;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Mcp.Tests;
 
@@ -21,6 +23,8 @@ public class ContentToolsetTests
     private ContentToolset _tools = null!;
 
     private static JsonElement Json(string raw) => JsonSerializer.Deserialize<JsonElement>(raw);
+
+    private static T Prop<T>(object o, string name) => (T)o.GetType().GetProperty(name)!.GetValue(o)!;
 
     [SetUp]
     public void SetUp()
@@ -52,6 +56,7 @@ public class ContentToolsetTests
         _handler.ChildHandler.Returns(child);
         _handler.RegistryHandler.Returns(Substitute.For<IAdminRegistryHandler>());
         _handler.SupportsVersionHistory.Returns(true);
+        _handler.SupportsPublishing.Returns(true);
 
         var info = _tools.ListContentTypes().Single();
 
@@ -60,9 +65,28 @@ public class ContentToolsetTests
             Assert.That(info.ContentType, Is.EqualTo("contentblocks"));
             Assert.That(info.DisplayName, Is.EqualTo("Content Block"));
             Assert.That(info.SupportsVersionHistory, Is.True);
+            Assert.That(info.SupportsPublishing, Is.True);
             Assert.That(info.HasChildren, Is.True);
             Assert.That(info.ChildType, Is.EqualTo("articles"));
             Assert.That(info.HasRegistry, Is.True);
+        });
+    }
+
+    [Test]
+    public void ListContentTypes_WithoutChildOrRegistry_FlagsAreFalse()
+    {
+        _handler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
+        _handler.RegistryHandler.Returns((IAdminRegistryHandler?)null);
+
+        var info = _tools.ListContentTypes().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(info.SupportsVersionHistory, Is.False);
+            Assert.That(info.SupportsPublishing, Is.False);
+            Assert.That(info.HasChildren, Is.False);
+            Assert.That(info.ChildType, Is.Null);
+            Assert.That(info.HasRegistry, Is.False);
         });
     }
 
@@ -165,6 +189,90 @@ public class ContentToolsetTests
         _handler.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.That((await _tools.DeleteContent("contentblocks", Guid.NewGuid())).Deleted, Is.True);
+    }
+
+    [Test]
+    public async Task PublishContent_WhenSupported_ReturnsResult()
+    {
+        _handler.SupportsPublishing.Returns(true);
+        _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+
+        Assert.That((await _tools.PublishContent("contentblocks", Guid.NewGuid())).Success, Is.True);
+    }
+
+    [Test]
+    public void PublishContent_WhenUnsupported_Throws()
+    {
+        _handler.SupportsPublishing.Returns(false);
+
+        Assert.That(async () => await _tools.PublishContent("contentblocks", Guid.NewGuid()),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public async Task UnpublishContent_WhenSupported_ReturnsResult()
+    {
+        _handler.SupportsPublishing.Returns(true);
+        _handler.UnpublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+
+        Assert.That((await _tools.UnpublishContent("contentblocks", Guid.NewGuid())).Success, Is.True);
+    }
+
+    [Test]
+    public void UnpublishContent_WhenUnsupported_Throws()
+    {
+        _handler.SupportsPublishing.Returns(false);
+
+        Assert.That(async () => await _tools.UnpublishContent("contentblocks", Guid.NewGuid()),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public void GetContentState_WhenMissing_Throws()
+    {
+        _handler.GetVersionHistoryViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((VersionHistoryViewModel?)null);
+
+        Assert.That(async () => await _tools.GetContentState("contentblocks", Guid.NewGuid()),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public async Task GetContentState_ReturnsDraftAndPublishedSummary()
+    {
+        var nodeId = Guid.NewGuid();
+        _handler.GetVersionHistoryViewModelAsync(nodeId, Arg.Any<CancellationToken>()).Returns(
+            new VersionHistoryViewModel
+            {
+                Versions = new List<VersionItemViewModel>
+                {
+                    new VersionItemViewModel { State = ContentVersionState.Published, IsPublished = true, IsLatest = false, Version = 3 },
+                    new VersionItemViewModel { State = ContentVersionState.Draft, IsPublished = false, IsLatest = true, Version = 4 }
+                }
+            },
+            new VersionHistoryViewModel
+            {
+                Versions = new List<VersionItemViewModel>
+                {
+                    new VersionItemViewModel { State = ContentVersionState.Draft, IsPublished = false, IsLatest = false, Version = 2 }
+                }
+            });
+
+        var published = await _tools.GetContentState("contentblocks", nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Prop<bool>(published, "isPublished"), Is.True);
+            Assert.That(Prop<bool>(published, "hasDraft"), Is.True);
+            Assert.That(Prop<int?>(published, "currentVersionNumber"), Is.EqualTo(4));
+        });
+
+        var draftOnly = await _tools.GetContentState("contentblocks", nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(Prop<bool>(draftOnly, "isPublished"), Is.False);
+            Assert.That(Prop<bool>(draftOnly, "hasDraft"), Is.False);
+            Assert.That(Prop<int?>(draftOnly, "currentVersionNumber"), Is.Null);
+        });
     }
 
     [Test]

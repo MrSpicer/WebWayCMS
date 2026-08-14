@@ -84,6 +84,25 @@ public class ChildContentToolsetTests
     }
 
     [Test]
+    public async Task GetChildVersion_WhenFound_ReturnsViewModel()
+    {
+        var vm = new FakeUpsertViewModel();
+        _child.GetChildRestoreVersionViewModelAsync("parent", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
+
+        Assert.That(await _tools.GetChildVersion("articles", "items", "parent", Guid.NewGuid()), Is.SameAs(vm));
+    }
+
+    [Test]
+    public void GetChildVersion_WhenMissing_Throws()
+    {
+        _child.GetChildRestoreVersionViewModelAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((object?)null);
+
+        Assert.That(async () => await _tools.GetChildVersion("articles", "items", "parent", Guid.NewGuid()),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
     public async Task CreateChild_MergesFieldsAndSaves()
     {
         _child.CreateEmptyChildUpsertViewModel().Returns(new FakeUpsertViewModel());
@@ -166,10 +185,10 @@ public class ChildContentToolsetTests
     [Test]
     public async Task ListChildVersions_WhenFound_ReturnsHistory()
     {
-        var vm = new VersionHistoryViewModel { MasterId = Guid.NewGuid() };
+        var vm = new VersionHistoryViewModel { NodeId = Guid.NewGuid() };
         _child.GetChildVersionHistoryViewModelAsync("parent", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
 
-        Assert.That(await _tools.ListChildVersions("articles", "items", "parent", vm.MasterId), Is.SameAs(vm));
+        Assert.That(await _tools.ListChildVersions("articles", "items", "parent", vm.NodeId), Is.SameAs(vm));
     }
 
     [Test]

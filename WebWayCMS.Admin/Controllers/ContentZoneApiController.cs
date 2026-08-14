@@ -47,40 +47,31 @@ public class ContentZoneApiController : ControllerBase
         try
         {
             // Get or create the zone
-            Guid zoneId;
+            Guid zoneNodeId;
             if (request.ZoneId.HasValue && request.ZoneId.Value != Guid.Empty)
             {
-                zoneId = request.ZoneId.Value;
+                zoneNodeId = request.ZoneId.Value;
             }
             else
             {
                 // Prefer assignment-based lookup if context is provided
-                if (request.ParentPageMasterId.HasValue && !string.IsNullOrWhiteSpace(request.SlotName))
+                if (request.ParentPageNodeId.HasValue && !string.IsNullOrWhiteSpace(request.SlotName))
                 {
-                    var (zone, _) = await _service.GetOrCreateByPageSlotAsync(request.ParentPageMasterId.Value, request.SlotName, ct);
-                    zoneId = zone.ContentId;
+                    var (zone, _) = await _service.GetOrCreateByPageSlotAsync(request.ParentPageNodeId.Value, request.SlotName, ct);
+                    zoneNodeId = zone.Version.Node.Id;
                 }
                 else
                 {
                     // Fallback: name-based lookup or create
-                    var existingZone = await _service.GetByNameAsync(request.ZoneName, ct);
+                    var existingZone = await _service.GetZoneByNameAsync(request.ZoneName, ct);
                     if (existingZone != null)
                     {
-                        zoneId = existingZone.ContentId;
+                        zoneNodeId = existingZone.Version.Node.Id;
                     }
                     else
                     {
-                        var newZone = new ContentZoneDTO
-                        {
-                            Name = request.ZoneName,
-                            ContentMeta = new ContentDTO
-                            {
-                                Title = request.ZoneName,
-                                IsPublished = true
-                            }
-                        };
-                        var createdZone = await _service.CreateAsync(newZone, ct);
-                        zoneId = createdZone.ContentId;
+                        var createdZone = await _service.GetOrCreateByNameAsync(request.ZoneName, ct);
+                        zoneNodeId = createdZone.Version.Node.Id;
                     }
                 }
             }
@@ -88,11 +79,11 @@ public class ContentZoneApiController : ControllerBase
             // Create or update the item
             if (request.ItemId.HasValue && request.ItemId.Value != Guid.Empty)
             {
-                // Update existing item — service preserves Ordinal, ContentZoneId, MasterId from existing record
+                // Update existing item — service preserves Ordinal and ContentZoneNodeId from existing record
                 var item = new ContentZoneItemDTO
                 {
-                    ContentId = request.ItemId.Value,
-                    ContentZoneId = zoneId,
+                    Version = new ContentVersion { Node = new ContentNode { Id = request.ItemId.Value } },
+                    ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
                     ComponentPropertiesJson = request.ComponentPropertiesJson ?? "{}",
                     IsActive = true
@@ -102,38 +93,38 @@ public class ContentZoneApiController : ControllerBase
                 if (!updated)
                     return NotFound(new { error = "Item not found." });
 
-                var existingItem = await _service.GetItemByIdAsync(item.ContentId, ct);
+                var existingItem = await _service.GetItemByNodeIdAsync(request.ItemId.Value, ct);
                 if (existingItem != null)
                 {
-                    var pageMasterId = request.ParentPageMasterId
-                        ?? await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+                    var pageNodeId = request.ParentPageNodeId
+                        ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
                     await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                        item.ComponentName, existingItem.ContentMeta.MasterId,
-                        pageMasterId, item.IsActive, ct);
+                        item.ComponentName, existingItem.Version.Node.Id,
+                        pageNodeId, item.IsActive, ct);
                 }
 
-                return Ok(new { success = true, itemId = item.ContentId, zoneId = zoneId });
+                return Ok(new { success = true, itemId = request.ItemId.Value, zoneId = zoneNodeId });
             }
             else
             {
                 // Create new item - ID is auto-generated
                 var item = new ContentZoneItemDTO
                 {
-                    ContentZoneId = zoneId,
+                    ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
                     ComponentPropertiesJson = request.ComponentPropertiesJson ?? "{}",
                     IsActive = true
                 };
 
-                var createdItem = await _service.AddItemAsync(zoneId, item, ct);
+                var createdItem = await _service.AddItemAsync(zoneNodeId, item, ct);
 
-                var pageMasterId = request.ParentPageMasterId
-                    ?? await _service.GetParentPageMasterForZoneAsync(zoneId, ct);
+                var pageNodeId = request.ParentPageNodeId
+                    ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
                 await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                    item.ComponentName, createdItem.ContentMeta.MasterId,
-                    pageMasterId, createdItem.IsActive, ct);
+                    item.ComponentName, createdItem.Version.Node!.Id,
+                    pageNodeId, createdItem.IsActive, ct);
 
-                return Ok(new { success = true, itemId = createdItem.ContentId, zoneId = zoneId });
+                return Ok(new { success = true, itemId = createdItem.Version.Node.Id, zoneId = zoneNodeId });
             }
         }
         catch (Exception ex)
@@ -152,12 +143,12 @@ public class ContentZoneApiController : ControllerBase
     {
         try
         {
-            var item = await _service.GetItemByIdAsync(itemId, ct);
+            var item = await _service.GetItemByNodeIdAsync(itemId, ct);
             if (item != null)
             {
-                var pageMasterId = await _service.GetParentPageMasterForZoneAsync(item.ContentZoneId, ct);
+                var pageNodeId = await _service.GetParentPageNodeForZoneAsync(item.ContentZoneNodeId, ct);
                 await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                    item.ComponentName, item.ContentMeta.MasterId, pageMasterId, false, ct);
+                    item.ComponentName, item.Version.Node.Id, pageNodeId, false, ct);
             }
 
             var deleted = await _service.RemoveItemAsync(itemId, ct);
@@ -179,16 +170,15 @@ public class ContentZoneApiController : ControllerBase
     [HttpGet("items/{itemId:guid}")]
     public async Task<IActionResult> GetItem(Guid itemId, CancellationToken ct)
     {
-        var zone = await _service.GetAllAsync(ct);
-        var item = zone.SelectMany(z => z.Items).FirstOrDefault(i => i.ContentId == itemId);
+        var item = await _service.GetItemByNodeIdAsync(itemId, ct);
 
         if (item == null)
             return NotFound(new { error = "Item not found." });
 
         return Ok(new
         {
-            id = item.ContentId,
-            zoneId = item.ContentZoneId,
+            id = item.Version.Node.Id,
+            zoneId = item.ContentZoneNodeId,
             componentName = item.ComponentName,
             componentPropertiesJson = item.ComponentPropertiesJson,
             ordinal = item.Ordinal,
@@ -208,23 +198,23 @@ public class SaveItemRequest
     public string ZoneName { get; set; } = string.Empty;
 
     /// <summary>
-    /// The human-readable slot name (e.g. "Main"). Used with ParentPageMasterId for assignment lookup.
+    /// The human-readable slot name (e.g. "Main"). Used with ParentPageNodeId for assignment lookup.
     /// </summary>
     public string? SlotName { get; set; }
 
     /// <summary>
-    /// The page MasterId to scope zone creation via assignment lookup.
+    /// The page node ID to scope zone creation via assignment lookup.
     /// </summary>
-    public Guid? ParentPageMasterId { get; set; }
+    public Guid? ParentPageNodeId { get; set; }
 
     /// <summary>
-    /// The zone ID if known (optional, zone will be looked up by assignment or name if not provided).
+    /// The zone node ID if known (optional, zone will be looked up by assignment or name if not provided).
     /// This is set automatically and never displayed to users.
     /// </summary>
     public Guid? ZoneId { get; set; }
 
     /// <summary>
-    /// The item ID if updating an existing item.
+    /// The item node ID if updating an existing item.
     /// This is set automatically and never displayed to users.
     /// </summary>
     public Guid? ItemId { get; set; }

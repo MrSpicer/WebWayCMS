@@ -14,17 +14,19 @@ namespace WebWayCMS.Models.Page;
 
 public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableContent
 {
-    private readonly IPageService _service;
+    private readonly IContentStore<PageDTO> _store;
     private readonly IMapper _mapper;
     private readonly PageRegistryHandler _registryHandler;
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly ICMSRouteService _routeService;
     private readonly IPageControllerRegistry _controllerRegistry;
 
+    protected override IContentStore<PageDTO> Store => _store;
+
     protected override string VersionHistoryContentType => "pages";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/pages";
-    protected override Task<List<PageDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct) => _service.GetAllVersionsAsync(masterId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _service.DeleteVersionAsync(id, ct);
+    protected override Task<List<PageDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
+    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "pages";
     public override string DisplayName => "Page";
@@ -35,14 +37,16 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     string IRoutableContent.RouteContentType => "Page";
 
     public PageModel(
-        IPageService service,
+        IContentStore<PageDTO> store,
         IMapper mapper,
         IPageControllerRegistry registry,
         IViewDiscoveryService viewDiscovery,
         IRouteRegistrationService routeRegistration,
-        ICMSRouteService routeService)
+        ICMSRouteService routeService,
+        IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
@@ -52,42 +56,29 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             viewDiscovery ?? throw new ArgumentNullException(nameof(viewDiscovery)));
     }
 
-    async Task<IReadOnlyList<CMSRouteDTO>> IRoutableContent.GetRoutesAsync(Guid contentMasterId, CancellationToken ct)
+    async Task<IReadOnlyList<CMSRouteDTO>> IRoutableContent.GetRoutesAsync(Guid contentNodeId, CancellationToken ct)
     {
-        var routes = await _routeService.GetByOwningContentAsync(contentMasterId, ct);
+        var routes = await _routeService.GetByOwningContentAsync(contentNodeId, ct);
         return routes.AsReadOnly();
     }
 
     public async Task<PageIndexViewModel> GetPageIndexAsync(CancellationToken ct = default)
     {
-        var pages = await _service.GetAllAsync(ct);
+        var pages = await _store.GetAllCurrentDraftsAsync(ct);
         var activeRoutes = await _routeService.GetAllRoutesAsync(ct);
         return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes) };
     }
 
-    public async Task<PageUpsertViewModel?> GetPageUpsertAsync(Guid? id, CancellationToken ct = default)
+    public async Task<PageUpsertViewModel?> GetPageUpsertAsync(Guid? nodeId, CancellationToken ct = default)
     {
-        if (id == null || id == Guid.Empty)
-        {
+        if (nodeId == null || nodeId == Guid.Empty)
             return new PageUpsertViewModel();
-        }
 
-        var dto = await _service.GetByIdAsync(id.Value, ct);
+        var dto = await _store.GetCurrentDraftAsync(nodeId.Value, ct);
         if (dto == null)
             return null;
 
-        var vm = _mapper.Map<PageUpsertViewModel>(dto);
-
-        var routes = await _routeService.GetByOwningContentAsync(dto.ContentMeta.MasterId, ct);
-        var activeRoute = routes.FirstOrDefault();
-        if (activeRoute != null)
-        {
-            var defaults = DeserializeDefaults(activeRoute.DefaultsJson);
-            if (defaults != null && defaults.TryGetValue("controller", out var controllerName))
-                vm.ControllerName = controllerName;
-        }
-
-        return vm;
+        return _mapper.Map<PageUpsertViewModel>(dto);
     }
 
     public async Task<(bool Success, string? ErrorMessage)> SavePageUpsertAsync(PageUpsertViewModel model, CancellationToken ct = default)
@@ -95,78 +86,47 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (model == null) throw new ArgumentNullException(nameof(model));
 
         var dto = _mapper.Map<PageDTO>(model);
-
-        if (model.Id.HasValue && model.Id != Guid.Empty)
-        {
-            var ok = await _service.UpdateAsync(dto, ct);
-            if (!ok) return (false, "Failed to update page.");
-        }
-        else
-        {
-            await _service.CreateAsync(dto, ct);
-        }
-
-        // After saving the page DTO, the ContentMeta is populated (MasterId is set).
-        // We need to re-read to get the actual MasterId for the CMSRoute.
-        var savedDto = await _service.GetByIdAsync(dto.ContentId, ct);
-        if (savedDto == null) return (false, "Failed to read saved page.");
-
-        var routePattern = await DeriveRoutePatternForSaveAsync(
-            model.Slug ?? string.Empty,
-            model.ParentRoutePrefix,
-            savedDto.ContentMeta.MasterId,
-            ct);
-
-        await _routeRegistration.RegisterContentRoutesAsync(
-            this,
-            routePattern,
-            model.ControllerName,
-            savedDto.ContentMeta.Id,
-            savedDto.ContentMeta.MasterId,
-            isPublished: savedDto.ContentMeta.IsPublished,
-            ct: ct);
-
+        var result = await _store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
+        if (!result.Success) return (false, result.ErrorMessage ?? "Failed to update page.");
+        model.NodeId = result.NodeId;
         return (true, null);
     }
 
-    public async Task<bool> DeletePageAsync(Guid id, CancellationToken ct = default)
+    public async Task<bool> DeletePageAsync(Guid nodeId, CancellationToken ct = default)
     {
-        var entity = await _service.GetByIdAsync(id, ct);
+        var entity = await _store.GetCurrentDraftAsync(nodeId, ct);
         if (entity != null)
-        {
-            await _routeRegistration.UnregisterContentRoutesAsync(entity.ContentMeta.MasterId, ct);
-        }
-        return await _service.DeleteAsync(id, ct);
+            await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
+        return await _store.DeleteAsync(nodeId, softDelete: false, ct);
     }
 
-    public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid masterId, CancellationToken ct = default)
-        => BuildVersionHistoryAsync(masterId, ct: ct);
-
-    public async Task<PageUpsertViewModel?> GetPageUpsertForRestoreAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var historical = await _service.GetByIdAsync(historicalId, ct);
-        if (historical == null) return null;
-        var latest = await _service.GetAllVersionsAsync(historical.ContentMeta.MasterId, ct);
-        var latestVersion = latest.FirstOrDefault();
-        if (latestVersion == null) return null;
-        var vm = _mapper.Map<PageUpsertViewModel>(historical);
-        vm.Id = latestVersion.ContentMeta.Id;
-        vm.Version = latestVersion.ContentMeta.Version;
-
-        var routes = await _routeService.GetByOwningContentAsync(historical.ContentMeta.MasterId, ct);
-        var activeRoute = routes.FirstOrDefault();
-        if (activeRoute != null)
-        {
-            var defaults = DeserializeDefaults(activeRoute.DefaultsJson);
-            if (defaults != null && defaults.TryGetValue("controller", out var controllerName))
-                vm.ControllerName = controllerName;
-        }
-
-        return vm;
-    }
+    public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
+        => BuildVersionHistoryAsync(nodeId, ct: ct);
 
     public Task<bool> DeletePageVersionAsync(Guid id, CancellationToken ct = default)
         => DeleteVersionCoreAsync(id, ct);
+
+    public async Task<(bool Success, string? ErrorMessage)> PublishPageAsync(Guid nodeId, CancellationToken ct = default)
+    {
+        var result = await _store.PublishAsync(nodeId, ct);
+        if (!result.Success) return (false, result.ErrorMessage);
+
+        var page = await _store.GetAsync(nodeId, ct);
+        if (page == null) return (false, "Failed to read published page.");
+
+        var routePattern = await DeriveRoutePatternForPublishAsync(page.Version.Slug, nodeId, ct);
+        await _routeRegistration.RegisterContentRoutesAsync(this, routePattern, page.ControllerName, nodeId, ct);
+        return (true, null);
+    }
+
+    public async Task<(bool Success, string? ErrorMessage)> UnpublishPageAsync(Guid nodeId, CancellationToken ct = default)
+    {
+        var result = await _store.UnpublishAsync(nodeId, ct);
+        if (!result.Success) return (false, result.ErrorMessage);
+
+        await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
+        return (true, null);
+    }
 
     // IAdminCrudHandler members
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
@@ -199,9 +159,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         var vm = (PageUpsertViewModel)model;
 
-        var excludeMasterId = vm.MasterId.HasValue && vm.MasterId != Guid.Empty ? vm.MasterId : null;
-        var routePattern = DeriveRoutePatternFromSlug(vm.Slug ?? string.Empty, vm.ParentRoutePrefix);
-        var routeAvailable = await _routeService.IsPatternAvailableAsync(routePattern, excludeMasterId, ct);
+        var excludeNodeId = vm.NodeId.HasValue && vm.NodeId != Guid.Empty ? vm.NodeId : null;
+        var effectiveSlug = string.IsNullOrWhiteSpace(vm.Slug) ? vm.Title : vm.Slug;
+        var routePattern = DeriveRoutePatternFromSlug(effectiveSlug, vm.ParentRoutePrefix);
+        var routeAvailable = await _routeService.IsPatternAvailableAsync(routePattern, excludeNodeId, null, ct);
         if (!routeAvailable)
             return new AdminSaveResult(false, "A page with this slug already exists at this location.", "Slug");
 
@@ -211,7 +172,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         var result = await SavePageUpsertAsync(vm, ct);
         return result.Success
-            ? new AdminSaveResult(true)
+            ? new AdminSaveResult(true, NodeId: vm.NodeId)
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
@@ -222,12 +183,32 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         var vm = await GetPageIndexAsync(ct);
         return vm.Pages
-            .Where(n => n.PageId.HasValue)
-            .Select(n => (object)new { id = n.PageMasterId!.Value, title = n.Title });
+            .Where(n => n.PageNodeId.HasValue)
+            .Select(n => (object)new { id = n.PageNodeId!.Value, title = n.Title });
+    }
+
+    public override async Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)
+    {
+        var result = await PublishPageAsync(nodeId, ct);
+        return result.Success
+            ? new AdminSaveResult(true)
+            : new AdminSaveResult(false, result.ErrorMessage);
+    }
+
+    public override async Task<AdminSaveResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default)
+    {
+        var result = await UnpublishPageAsync(nodeId, ct);
+        return result.Success
+            ? new AdminSaveResult(true)
+            : new AdminSaveResult(false, result.ErrorMessage);
     }
 
     public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-        => await GetPageUpsertForRestoreAsync(historicalId, ct);
+    {
+        var historical = await _store.GetVersionAsync(historicalId, ct);
+        if (historical == null) return null;
+        return _mapper.Map<PageUpsertViewModel>(historical);
+    }
 
     public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => DeletePageVersionAsync(id, ct);
@@ -236,20 +217,22 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private static List<PageTreeNode> BuildTree(List<PageDTO> pages, List<CMSRouteDTO> activeRoutes)
     {
         var routeMap = activeRoutes
-            .Where(r => r.OwningContentType == "Page" && r.OwningContentMasterId.HasValue)
-            .GroupBy(r => r.OwningContentMasterId!.Value)
+            .Where(r => r.OwningContentType == "Page" && r.OwningContentNodeId.HasValue)
+            .GroupBy(r => r.OwningContentNodeId!.Value)
             .ToDictionary(g => g.Key, g => g.First());
 
         var pageRouteMap = new Dictionary<Guid, string>();
         foreach (var page in pages)
         {
-            if (routeMap.TryGetValue(page.ContentMeta.MasterId, out var route))
-                pageRouteMap[page.ContentMeta.MasterId] = route.Pattern;
+            if (routeMap.TryGetValue(page.Version.Node.Id, out var route))
+                pageRouteMap[page.Version.Node.Id] = route.Pattern;
+            else
+                pageRouteMap[page.Version.Node.Id] = DerivePatternFromSlug(page.Version.Slug);
         }
 
         var sortedPages = pages
-            .Where(p => pageRouteMap.ContainsKey(p.ContentMeta.MasterId))
-            .OrderBy(p => pageRouteMap[p.ContentMeta.MasterId])
+            .Where(p => pageRouteMap.ContainsKey(p.Version.Node.Id))
+            .OrderBy(p => pageRouteMap[p.Version.Node.Id])
             .ToList();
 
         var roots = new List<PageTreeNode>();
@@ -257,7 +240,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         foreach (var page in sortedPages)
         {
-            if (!pageRouteMap.TryGetValue(page.ContentMeta.MasterId, out var currentRoute))
+            if (!pageRouteMap.TryGetValue(page.Version.Node.Id, out var currentRoute))
                 continue;
 
             if (currentRoute == "/")
@@ -267,24 +250,20 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     rootNode = new PageTreeNode
                     {
                         Path = "/",
-                        Title = page.ContentMeta.Title,
-                        PageId = page.ContentMeta.Id,
-                        PageMasterId = page.ContentMeta.MasterId,
-                        PageVersion = page.ContentMeta.Version,
-                        IsPublished = page.ContentMeta.IsPublished,
-                        IsHidden = page.ContentMeta.IsHidden
+                        Title = page.Version.Title,
+                        PageNodeId = page.Version.Node.Id,
+                        IsPublished = page.Version.State == ContentVersionState.Published,
+                        IsHidden = page.Version.Node.IsHidden
                     };
                     nodeMap["/"] = rootNode;
                     roots.Insert(0, rootNode);
                 }
                 else
                 {
-                    rootNode.Title = page.ContentMeta.Title;
-                    rootNode.PageId = page.ContentMeta.Id;
-                    rootNode.PageMasterId = page.ContentMeta.MasterId;
-                    rootNode.PageVersion = page.ContentMeta.Version;
-                    rootNode.IsPublished = page.ContentMeta.IsPublished;
-                    rootNode.IsHidden = page.ContentMeta.IsHidden;
+                    rootNode.Title = page.Version.Title;
+                    rootNode.PageNodeId = page.Version.Node.Id;
+                    rootNode.IsPublished = page.Version.State == ContentVersionState.Published;
+                    rootNode.IsHidden = page.Version.Node.IsHidden;
                 }
                 continue;
             }
@@ -302,12 +281,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     node = new PageTreeNode
                     {
                         Path = currentPath,
-                        Title = isLeaf ? page.ContentMeta.Title : segments[i],
-                        PageId = isLeaf ? page.ContentMeta.Id : null,
-                        PageMasterId = isLeaf ? page.ContentMeta.MasterId : null,
-                        PageVersion = isLeaf ? page.ContentMeta.Version : 0,
-                        IsPublished = isLeaf && page.ContentMeta.IsPublished,
-                        IsHidden = isLeaf && page.ContentMeta.IsHidden
+                        Title = isLeaf ? page.Version.Title : segments[i],
+                        PageNodeId = isLeaf ? page.Version.Node.Id : null,
+                        IsPublished = isLeaf && page.Version.State == ContentVersionState.Published,
+                        IsHidden = isLeaf && page.Version.Node.IsHidden
                     };
                     nodeMap[currentPath] = node;
 
@@ -326,12 +303,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 }
                 else if (isLeaf)
                 {
-                    node.Title = page.ContentMeta.Title;
-                    node.PageId = page.ContentMeta.Id;
-                    node.PageMasterId = page.ContentMeta.MasterId;
-                    node.PageVersion = page.ContentMeta.Version;
-                    node.IsPublished = page.ContentMeta.IsPublished;
-                    node.IsHidden = page.ContentMeta.IsHidden;
+                    node.Title = page.Version.Title;
+                    node.PageNodeId = page.Version.Node.Id;
+                    node.IsPublished = page.Version.State == ContentVersionState.Published;
+                    node.IsHidden = page.Version.Node.IsHidden;
                 }
             }
         }
@@ -339,19 +314,18 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         return roots;
     }
 
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static Dictionary<string, string>? DeserializeDefaults(string defaultsJson)
+    private async Task<string> DeriveRoutePatternForPublishAsync(string slug, Guid nodeId, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(defaultsJson) || defaultsJson == "{}")
-            return null;
-        try
+        var existingRoutes = await _routeService.GetByOwningContentAsync(nodeId, ct);
+        var existing = existingRoutes.FirstOrDefault();
+        string? prefix = null;
+        if (existing != null)
         {
-            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(defaultsJson);
+            var lastSlash = existing.Pattern.LastIndexOf('/');
+            prefix = lastSlash > 0 ? existing.Pattern[..lastSlash] : null;
         }
-        catch
-        {
-            return null;
-        }
+
+        return DeriveRoutePatternFromSlug(System.Net.WebUtility.UrlDecode(slug), prefix);
     }
 
     private static string DeriveRoutePatternFromSlug(string slug, string? parentRoutePrefix)
@@ -366,22 +340,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         return "/" + slug;
     }
 
-    private async Task<string> DeriveRoutePatternForSaveAsync(
-        string slug, string? parentRoutePrefix, Guid contentMasterId, CancellationToken ct)
+    private static string DerivePatternFromSlug(string slug)
     {
-        if (!string.IsNullOrWhiteSpace(parentRoutePrefix))
-            return DeriveRoutePatternFromSlug(slug, parentRoutePrefix);
-
-        var existingRoutes = await _routeService.GetByOwningContentAsync(contentMasterId, ct);
-        var existing = existingRoutes?.FirstOrDefault();
-        if (existing != null)
-        {
-            var lastSlash = existing.Pattern.LastIndexOf('/');
-            var prefix = lastSlash > 0 ? existing.Pattern[..lastSlash] : null;
-            return DeriveRoutePatternFromSlug(slug, prefix);
-        }
-
-        return DeriveRoutePatternFromSlug(slug, null);
+        var decoded = System.Net.WebUtility.UrlDecode(slug);
+        if (string.Equals(decoded, "home", StringComparison.OrdinalIgnoreCase))
+            return "/";
+        return "/" + decoded;
     }
 }
 

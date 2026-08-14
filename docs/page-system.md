@@ -2,6 +2,12 @@
 
 The page system drives dynamic URL routing — every database-managed page is dispatched to a custom controller type that you define in the Web project (or the CMS library).
 
+> **Model change:** page routes are now **plain, unversioned** rows written by **Publish** (never Save),
+> and the route transformer resolves pages through `IContentStore<PageDTO>.GetAsync(nodeId)`. A page's
+> `ControllerName` is persisted on `PageDTO` so Publish can write its route. See
+> [architecture/01-data-tier.md](architecture/01-data-tier.md) and
+> [architecture/03-page-routing.md](architecture/03-page-routing.md).
+
 ## Table of Contents
 
 - [System Overview](#system-overview)

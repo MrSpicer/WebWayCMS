@@ -34,7 +34,7 @@ public class PageViewComponent : ViewComponent
     private static List<PageNavigationItem> MapNodes(List<PageTreeNode> nodes, PageContentZoneConfiguration config)
     {
         var filteredNodes = nodes
-            .Where(n => n.PageId.HasValue)
+            .Where(n => n.PageNodeId.HasValue)
             .Where(n => config.ShowDraftPages || n.IsPublished)
             .Where(n => config.ShowHiddenPages || !n.IsHidden);
 

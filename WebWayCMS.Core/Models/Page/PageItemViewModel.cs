@@ -2,9 +2,7 @@ namespace WebWayCMS.Models.Page;
 
 public sealed class PageItemViewModel
 {
-    public Guid Id { get; init; }
-    public Guid MasterId { get; init; }
-    public int Version { get; init; }
+    public Guid NodeId { get; init; }
     public string Title { get; init; } = string.Empty;
     public bool IsPublished { get; init; }
     public DateTime CreationDate { get; init; }

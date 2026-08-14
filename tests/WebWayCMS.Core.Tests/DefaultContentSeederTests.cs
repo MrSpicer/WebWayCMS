@@ -11,20 +11,28 @@ namespace WebWayCMS.Core.Tests;
 [TestFixture]
 public class DefaultContentSeederTests
 {
-    private IPageService _pageService = null!;
+    private IContentStore<PageDTO> _pageStore = null!;
     private ICMSRouteService _routeService = null!;
     private DefaultContentSeeder _seeder = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _pageService = Substitute.For<IPageService>();
+        _pageStore = Substitute.For<IContentStore<PageDTO>>();
         _routeService = Substitute.For<ICMSRouteService>();
-        _seeder = new DefaultContentSeeder(_pageService, _routeService);
+        _seeder = new DefaultContentSeeder(_pageStore, _routeService);
+    }
+
+    private void StubSaveToAssignNode()
+    {
+        _pageStore.SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true))
+            .AndDoes(c => c.Arg<PageDTO>().Version.Node = new ContentNode { Id = Guid.NewGuid() });
+        _pageStore.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
     }
 
     [Test]
-    public void Constructor_NullPageService_Throws()
+    public void Constructor_NullPageStore_Throws()
     {
         Assert.That(
             () => new DefaultContentSeeder(null!, Substitute.For<ICMSRouteService>()),
@@ -35,7 +43,7 @@ public class DefaultContentSeederTests
     public void Constructor_NullRouteService_Throws()
     {
         Assert.That(
-            () => new DefaultContentSeeder(Substitute.For<IPageService>(), null!),
+            () => new DefaultContentSeeder(Substitute.For<IContentStore<PageDTO>>(), null!),
             Throws.ArgumentNullException);
     }
 
@@ -44,12 +52,12 @@ public class DefaultContentSeederTests
     {
         _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(null));
-        var created = new PageDTO { ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), Title = "Home" } };
-        _pageService.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(created);
+        StubSaveToAssignNode();
 
         await _seeder.SeedDefaultPagesAsync(false);
 
-        await _pageService.Received(1).CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>());
+        await _pageStore.Received(1).SaveDraftAsync(Arg.Any<PageDTO>(), null, Arg.Any<CancellationToken>());
+        await _pageStore.Received(1).PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/"), Arg.Any<CancellationToken>());
     }
 
@@ -61,7 +69,7 @@ public class DefaultContentSeederTests
 
         await _seeder.SeedDefaultPagesAsync(false);
 
-        await _pageService.DidNotReceive().CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>());
+        await _pageStore.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -82,12 +90,11 @@ public class DefaultContentSeederTests
             .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
         _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<CMSRouteMatchResult?>(null));
-        var created = new PageDTO { ContentMeta = new ContentDTO { Id = Guid.NewGuid(), MasterId = Guid.NewGuid(), Title = "Admin" } };
-        _pageService.CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>()).Returns(created);
+        StubSaveToAssignNode();
 
         await _seeder.SeedDefaultPagesAsync(true);
 
-        await _pageService.Received(1).CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>());
+        await _pageStore.Received(1).SaveDraftAsync(Arg.Any<PageDTO>(), null, Arg.Any<CancellationToken>());
         await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
     }
 
@@ -101,7 +108,7 @@ public class DefaultContentSeederTests
 
         await _seeder.SeedDefaultPagesAsync(true);
 
-        await _pageService.DidNotReceive().CreateAsync(Arg.Any<PageDTO>(), Arg.Any<CancellationToken>());
+        await _pageStore.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

@@ -6,7 +6,7 @@ using WebWayCMS.Models.ContentBlock;
 namespace WebWayCMS.ViewComponents;
 
 /// <summary>
-/// Renders a reusable HTML content block by ID.
+/// Renders a reusable HTML content block by node ID.
 /// </summary>
 [ContentZoneComponent(
     DisplayName = "Content Block",
@@ -30,7 +30,7 @@ public class ContentBlockViewComponent : ViewComponent
         if (config == null || config.ContentBlockID == Guid.Empty)
             return Content(string.Empty);
 
-        var vm = await _model.GetViewModelByMasterIdAsync(config.ContentBlockID, CancellationToken.None);
-        return View(vm ?? new ContentBlockViewModel { Id = config.ContentBlockID });
+        var vm = await _model.GetViewModelByNodeIdAsync(config.ContentBlockID, CancellationToken.None);
+        return View(vm ?? new ContentBlockViewModel { NodeId = config.ContentBlockID });
     }
 }

@@ -34,39 +34,22 @@ public class CMSRouteServiceTests
         await ctx.SaveChangesAsync();
 
         var active = await ctx.Set<CMSRouteDTO>()
-            .Where(r => r.ContentMeta.IsPublished && !r.ContentMeta.IsDeleted)
             .OrderBy(r => r.Order)
             .ThenBy(r => r.Pattern.Length)
             .ToListAsync();
         _registry.GetActiveRoutes().Returns(active);
     }
 
-    private static CMSRouteDTO RouteRow(string pattern, bool isPublished = true,
-        bool isDeleted = false, bool isReserved = false,
-        Guid? masterId = null, int version = 0,
-        Guid? owningContentMasterId = null)
+    private static CMSRouteDTO RouteRow(string pattern, bool isReserved = false,
+        Guid? id = null, Guid? owningContentNodeId = null, int order = 0) => new()
     {
-        var mId = masterId ?? Guid.NewGuid();
-        var id = Guid.NewGuid();
-        return new CMSRouteDTO
-        {
-            ContentId = id,
-            Pattern = pattern,
-            IsReserved = isReserved,
-            OwningContentType = "Page",
-            OwningContentMasterId = owningContentMasterId,
-            ContentMeta = new ContentDTO
-            {
-                Id = id,
-                MasterId = mId,
-                Version = version,
-                IsPublished = isPublished,
-                IsDeleted = isDeleted,
-                Title = pattern,
-                Slug = pattern.TrimStart('/')
-            }
-        };
-    }
+        Id = id ?? Guid.NewGuid(),
+        Pattern = pattern,
+        IsReserved = isReserved,
+        OwningContentType = "Page",
+        OwningContentNodeId = owningContentNodeId,
+        Order = order
+    };
 
     [Test]
     public void Constructor_NullContext_Throws()
@@ -94,7 +77,7 @@ public class CMSRouteServiceTests
     public async Task MatchRouteAsync_ReservedAndNonReserved_ReturnsNonReserved()
     {
         await SeedAsync(
-            RouteRow("/test", isReserved: true, masterId: Guid.NewGuid()),
+            RouteRow("/test", isReserved: true, id: Guid.NewGuid()),
             RouteRow("/test-nonreserved", isReserved: false));
 
         var result = await NewService().MatchRouteAsync("/test-nonreserved");
@@ -169,12 +152,23 @@ public class CMSRouteServiceTests
     }
 
     [Test]
-    public async Task IsPatternAvailableAsync_ExcludeMasterId_AllowsSelf()
+    public async Task IsPatternAvailableAsync_ExcludeNodeId_AllowsSelf()
     {
-        var owningMasterId = Guid.NewGuid();
-        await SeedAsync(RouteRow("/test", owningContentMasterId: owningMasterId, isReserved: true));
+        var owningNodeId = Guid.NewGuid();
+        await SeedAsync(RouteRow("/test", owningContentNodeId: owningNodeId, isReserved: true));
 
-        var available = await NewService().IsPatternAvailableAsync("/test", excludeMasterId: owningMasterId);
+        var available = await NewService().IsPatternAvailableAsync("/test", excludeNodeId: owningNodeId);
+
+        Assert.That(available, Is.True);
+    }
+
+    [Test]
+    public async Task IsPatternAvailableAsync_ExcludeRouteId_AllowsSelf()
+    {
+        var route = RouteRow("/test", isReserved: true);
+        await SeedAsync(route);
+
+        var available = await NewService().IsPatternAvailableAsync("/test", excludeRouteId: route.Id);
 
         Assert.That(available, Is.True);
     }
@@ -191,21 +185,28 @@ public class CMSRouteServiceTests
     }
 
     [Test]
+    public async Task GetAllRoutesAsync_ReturnsAllRoutes()
+    {
+        await SeedAsync(RouteRow("/a"), RouteRow("/b"));
+
+        var routes = await NewService().GetAllRoutesAsync();
+
+        Assert.That(routes, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void UpsertAsync_Null_Throws()
+    {
+        Assert.That(async () => await NewService().UpsertAsync(null!), Throws.ArgumentNullException);
+    }
+
+    [Test]
     public async Task UpsertAsync_StoresIsReserved()
     {
         var route = new CMSRouteDTO
         {
             Pattern = "/test",
-            IsReserved = true,
-            ContentMeta = new ContentDTO
-            {
-                Id = Guid.NewGuid(),
-                MasterId = Guid.NewGuid(),
-                Version = 0,
-                IsPublished = true,
-                Title = "test",
-                Slug = "test"
-            }
+            IsReserved = true
         };
 
         await NewService().UpsertAsync(route);
@@ -220,30 +221,37 @@ public class CMSRouteServiceTests
     [Test]
     public async Task UpsertAsync_ExistingRoute_ReplacesIt()
     {
-        var existing = RouteRow("/test", owningContentMasterId: Guid.NewGuid(), masterId: Guid.NewGuid());
+        var owningNodeId = Guid.NewGuid();
+        var existing = RouteRow("/test", owningContentNodeId: owningNodeId, id: Guid.NewGuid());
         await SeedAsync(existing);
 
         var replacement = new CMSRouteDTO
         {
             Pattern = "/test",
-            OwningContentMasterId = existing.OwningContentMasterId,
-            IsReserved = true,
-            ContentMeta = new ContentDTO
-            {
-                Id = Guid.NewGuid(),
-                Title = "Replaced",
-                Slug = "test",
-                IsPublished = true
-            }
+            OwningContentNodeId = owningNodeId,
+            IsReserved = true
         };
 
         await NewService().UpsertAsync(replacement);
 
         _registry.Received().Invalidate();
 
-        var routes = await NewService().GetByOwningContentAsync(existing.OwningContentMasterId!.Value);
+        var routes = await NewService().GetByOwningContentAsync(owningNodeId);
         Assert.That(routes, Has.Count.EqualTo(1));
         Assert.That(routes[0].IsReserved, Is.True);
+    }
+
+    [Test]
+    public async Task UpsertAsync_PresetId_IsKept()
+    {
+        var presetId = Guid.NewGuid();
+        var route = new CMSRouteDTO { Id = presetId, Pattern = "/preset" };
+
+        await NewService().UpsertAsync(route);
+
+        await using var verify = NewContext();
+        var stored = await verify.Set<CMSRouteDTO>().SingleAsync(r => r.Id == presetId);
+        Assert.That(stored.Id, Is.EqualTo(presetId));
     }
 
     [Test]
@@ -252,10 +260,16 @@ public class CMSRouteServiceTests
         var route = RouteRow("/test", isReserved: true);
         await SeedAsync(route);
 
-        var result = await NewService().GetByIdAsync(route.ContentId);
+        var result = await NewService().GetByIdAsync(route.Id);
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.IsReserved, Is.True);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_NotFound_ReturnsNull()
+    {
+        Assert.That(await NewService().GetByIdAsync(Guid.NewGuid()), Is.Null);
     }
 
     [Test]
@@ -264,13 +278,13 @@ public class CMSRouteServiceTests
         var route = RouteRow("/test");
         await SeedAsync(route);
 
-        var deleted = await NewService().DeleteAsync(route.ContentId);
+        var deleted = await NewService().DeleteAsync(route.Id);
 
         _registry.Received().Invalidate();
 
         Assert.That(deleted, Is.True);
         await using var verify = NewContext();
-        Assert.That(await verify.Set<CMSRouteDTO>().AnyAsync(r => r.ContentId == route.ContentId), Is.False);
+        Assert.That(await verify.Set<CMSRouteDTO>().AnyAsync(r => r.Id == route.Id), Is.False);
     }
 
     [Test]
@@ -280,31 +294,31 @@ public class CMSRouteServiceTests
     }
 
     [Test]
-    public async Task DeactivateByOwningContentAsync_FoundRoute_Deactivates()
+    public async Task DeleteByOwningContentAsync_FoundRoute_Deletes()
     {
-        var owningMasterId = Guid.NewGuid();
-        await SeedAsync(RouteRow("/test", owningContentMasterId: owningMasterId, isReserved: true));
+        var owningNodeId = Guid.NewGuid();
+        await SeedAsync(RouteRow("/test", owningContentNodeId: owningNodeId, isReserved: true));
 
-        var deactivated = await NewService().DeactivateByOwningContentAsync(owningMasterId);
+        var deleted = await NewService().DeleteByOwningContentAsync(owningNodeId);
 
         _registry.Received().Invalidate();
 
-        Assert.That(deactivated, Is.True);
+        Assert.That(deleted, Is.True);
     }
 
     [Test]
-    public async Task DeactivateByOwningContentAsync_NoRoutes_ReturnsFalse()
+    public async Task DeleteByOwningContentAsync_NoRoutes_ReturnsFalse()
     {
-        Assert.That(await NewService().DeactivateByOwningContentAsync(Guid.NewGuid()), Is.False);
+        Assert.That(await NewService().DeleteByOwningContentAsync(Guid.NewGuid()), Is.False);
     }
 
     [Test]
     public async Task GetByOwningContentAsync_ReturnsRoutes()
     {
-        var owningMasterId = Guid.NewGuid();
-        await SeedAsync(RouteRow("/test", owningContentMasterId: owningMasterId, isReserved: true));
+        var owningNodeId = Guid.NewGuid();
+        await SeedAsync(RouteRow("/test", owningContentNodeId: owningNodeId, isReserved: true));
 
-        var routes = await NewService().GetByOwningContentAsync(owningMasterId);
+        var routes = await NewService().GetByOwningContentAsync(owningNodeId);
 
         Assert.That(routes, Has.Count.EqualTo(1));
         Assert.That(routes[0].IsReserved, Is.True);

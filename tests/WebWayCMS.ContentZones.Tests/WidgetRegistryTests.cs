@@ -25,7 +25,10 @@ public class WidgetRegistryTests
         string category = "General",
         string? configType = null,
         string propertyJson = "[]",
-        int order = 0) => new()
+        int order = 0)
+    {
+        var versionId = Guid.NewGuid();
+        return new WidgetRegistrationDTO
         {
             ComponentName = name,
             DisplayName = displayName,
@@ -36,8 +39,18 @@ public class WidgetRegistryTests
             ConfigurationTypeName = configType,
             PropertyDefinitionsJson = propertyJson,
             IsActive = true,
-            ContentMeta = new ContentDTO { IsPublished = true, IsDeleted = false, MasterId = Guid.NewGuid() }
+            VersionId = versionId,
+            Version = new ContentVersion
+            {
+                Id = versionId,
+                NodeId = Guid.NewGuid(),
+                Node = new ContentNode { Id = Guid.NewGuid(), ContentTypeKey = "widgets" },
+                State = ContentVersionState.Published,
+                Title = name,
+                Slug = name.ToLowerInvariant(),
+            }
         };
+    }
 
     [SetUp]
     public void SetUp()

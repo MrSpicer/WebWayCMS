@@ -6,6 +6,7 @@ using NUnit.Framework;
 
 using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Core.Tests;
@@ -20,6 +21,7 @@ public class AdminContentControllerTests
 {
     private MvcHarness _harness = null!;
     private IAdminHandlerRegistry _registry = null!;
+    private ICMSRouteService _routeService = null!;
     private IAdminCrudHandler _handler = null!;
     private IAdminCrudChildHandler _child = null!;
     private IAdminRegistryHandler _registryHandler = null!;
@@ -30,6 +32,7 @@ public class AdminContentControllerTests
     {
         _harness = new MvcHarness();
         _registry = Substitute.For<IAdminHandlerRegistry>();
+        _routeService = Substitute.For<ICMSRouteService>();
         _handler = Substitute.For<IAdminCrudHandler>();
         _child = Substitute.For<IAdminCrudChildHandler>();
         _registryHandler = Substitute.For<IAdminRegistryHandler>();
@@ -50,7 +53,7 @@ public class AdminContentControllerTests
         _child.CreateEmptyChildUpsertViewModel().Returns(_ => new FakeUpsert());
         _child.WriteRoles.Returns((string[]?)null);
 
-        _controller = new AdminContentController(_registry);
+        _controller = new AdminContentController(_registry, _routeService);
         _harness.Configure(_controller, new[] { "Admin" });
     }
 
@@ -58,7 +61,7 @@ public class AdminContentControllerTests
 
     [Test]
     public void Constructor_Null_Throws()
-        => Assert.That(() => new AdminContentController(null!), Throws.ArgumentNullException);
+        => Assert.That(() => new AdminContentController(null!, Substitute.For<ICMSRouteService>()), Throws.ArgumentNullException);
 
     [Test]
     public async Task Index_NotFoundAndView()

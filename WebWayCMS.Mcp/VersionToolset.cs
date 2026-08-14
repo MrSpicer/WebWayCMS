@@ -31,16 +31,16 @@ public sealed class VersionToolset
     }
 
     [McpServerTool(Name = "list_versions")]
-    [Description("Lists the version history for a content item, identified by its masterId (shared across all versions).")]
+    [Description("Lists the version history for a content item, identified by its nodeId (shared across all versions).")]
     public async Task<VersionHistoryViewModel> ListVersions(
         [Description("The content type.")] string contentType,
-        [Description("The masterId shared by every version of the item.")] Guid masterId,
+        [Description("The nodeId shared by every version of the item.")] Guid nodeId,
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
-        var vm = await handler.GetVersionHistoryViewModelAsync(masterId, ct);
+        var vm = await handler.GetVersionHistoryViewModelAsync(nodeId, ct);
         if (vm == null)
-            throw new McpException($"No version history found for masterId '{masterId}'.");
+            throw new McpException($"No version history found for nodeId '{nodeId}'.");
         return vm;
     }
 
@@ -59,17 +59,14 @@ public sealed class VersionToolset
     }
 
     [McpServerTool(Name = "restore_version")]
-    [Description("Restores a historical version by saving it as the new current version of the item.")]
+    [Description("Restores a historical version as a new draft of the item in a single step. The MCP endpoint runs with effective admin authority, so this acts as the current user.")]
     public async Task<AdminSaveResult> RestoreVersion(
         [Description("The content type.")] string contentType,
         [Description("The id of the historical version to restore.")] Guid versionId,
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
-        var vm = await handler.GetRestoreVersionViewModelAsync(versionId, ct);
-        if (vm == null)
-            throw new McpException($"No version found with id '{versionId}'.");
-        return await handler.SaveUpsertAsync(vm, ct);
+        return await handler.RestoreVersionAsync(versionId, ct);
     }
 
     [McpServerTool(Name = "delete_version")]

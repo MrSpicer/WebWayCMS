@@ -17,16 +17,16 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
 
     private readonly ICMSRouteService _routeService;
     private readonly IPageControllerRegistry _registry;
-    private readonly IPageService _pageService;
+    private readonly IContentStore<PageDTO> _pageStore;
 
     public CMSRouteTransformer(
         ICMSRouteService routeService,
         IPageControllerRegistry registry,
-        IPageService pageService)
+        IContentStore<PageDTO> pageStore)
     {
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-        _pageService = pageService ?? throw new ArgumentNullException(nameof(pageService));
+        _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
     }
 
     public override async ValueTask<RouteValueDictionary> TransformAsync(
@@ -60,25 +60,22 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
             if (controllerInfo == null)
                 return null!;
 
-            if (route.OwningContentType == "Page" && route.OwningContentMasterId.HasValue)
+            if (route.OwningContentType == "Page" && route.OwningContentNodeId.HasValue)
             {
-                var pageVersion = await _pageService.GetAllVersionsAsync(
-                    route.OwningContentMasterId.Value);
-                var latestPage = pageVersion.FirstOrDefault();
-                if (latestPage != null)
-                    httpContext.Items[PageDataItemKey] = latestPage;
+                var page = await _pageStore.GetAsync(route.OwningContentNodeId.Value);
+                if (page != null)
+                    httpContext.Items[PageDataItemKey] = page;
             }
             else
             {
                 var dataTokens = TryDeserialize<Dictionary<string, string>>(route.DataTokensJson);
                 if (dataTokens != null
-                    && dataTokens.TryGetValue("ParentPageMasterId", out var pageMasterStr)
-                    && Guid.TryParse(pageMasterStr, out var pageMasterId))
+                    && dataTokens.TryGetValue("ParentPageNodeId", out var pageNodeStr)
+                    && Guid.TryParse(pageNodeStr, out var pageNodeId))
                 {
-                    var pageVersion = await _pageService.GetAllVersionsAsync(pageMasterId);
-                    var latestPage = pageVersion.FirstOrDefault();
-                    if (latestPage != null)
-                        httpContext.Items[PageDataItemKey] = latestPage;
+                    var page = await _pageStore.GetAsync(pageNodeId);
+                    if (page != null)
+                        httpContext.Items[PageDataItemKey] = page;
                 }
             }
 

@@ -33,7 +33,7 @@ internal static class CmsPageControllerSeeder
 
         try
         {
-            var contentService = services.GetRequiredService<IContentService<PageControllerRegistrationDTO>>();
+            var store = services.GetRequiredService<IContentStore<PageControllerRegistrationDTO>>();
             var pageControllerService = services.GetRequiredService<IPageControllerRegistrationService>();
             var existing = pageControllerService.GetActiveAsync().GetAwaiter().GetResult();
 
@@ -55,7 +55,7 @@ internal static class CmsPageControllerSeeder
             {
                 try
                 {
-                    SeedAssemblyPageControllers(assembly, contentService, existingByName, logger);
+                    SeedAssemblyPageControllers(assembly, store, existingByName, logger);
                 }
                 catch (Exception ex)
                 {
@@ -75,7 +75,7 @@ internal static class CmsPageControllerSeeder
 
     private static void SeedAssemblyPageControllers(
         Assembly assembly,
-        IContentService<PageControllerRegistrationDTO> contentService,
+        IContentStore<PageControllerRegistrationDTO> store,
         Dictionary<string, PageControllerRegistrationDTO> existingByName,
         ILogger logger)
     {
@@ -124,7 +124,8 @@ internal static class CmsPageControllerSeeder
                         ConfigurationTypeName = expectedConfigTypeName,
                         PropertyDefinitionsJson = propertyDefinitionsJson
                     };
-                    contentService.UpdateAsync(updated).GetAwaiter().GetResult();
+                    var save = store.SaveDraftAsync(updated, null).GetAwaiter().GetResult();
+                    store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
                     logger.Information("Re-synced config metadata for page controller '{ControllerName}'", controllerName);
                 }
                 continue;
@@ -132,19 +133,12 @@ internal static class CmsPageControllerSeeder
 
             var dto = new PageControllerRegistrationDTO
             {
-                ContentMeta = new ContentDTO
+                Version = new ContentVersion
                 {
-                    Id = Guid.NewGuid(),
                     Title = string.IsNullOrEmpty(attribute.DisplayName)
                         ? FormPropertyBuilder.InsertSpaces(controllerName)
                         : attribute.DisplayName,
                     Slug = controllerName.ToLowerInvariant(),
-                    IsPublished = true,
-                    PublicationDate = DateTime.UtcNow,
-                    CreationDate = DateTime.UtcNow,
-                    ModificationDate = DateTime.UtcNow,
-                    CreatedBy = Guid.Empty,
-                    LastModifiedBy = Guid.Empty,
                 },
                 ControllerName = controllerName,
                 ControllerTypeName = type.FullName ?? type.Name,
@@ -162,7 +156,8 @@ internal static class CmsPageControllerSeeder
 
             try
             {
-                contentService.CreateAsync(dto).GetAwaiter().GetResult();
+                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
+                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
                 existingByName[controllerName] = dto;
                 logger.Information("Seeded page controller registration '{ControllerName}' as '{DisplayName}'", controllerName, dto.DisplayName);
             }

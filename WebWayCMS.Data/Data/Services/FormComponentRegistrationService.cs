@@ -19,11 +19,8 @@ public sealed class FormComponentRegistrationService : IFormComponentRegistratio
         return await _context.Set<FormComponentRegistrationDTO>()
             .AsNoTracking()
             .Where(f => f.IsActive
-                && f.ContentMeta.IsPublished
-                && !f.ContentMeta.IsDeleted
-                && !_context.Set<FormComponentRegistrationDTO>().Any(f2 =>
-                    f2.ContentMeta.MasterId == f.ContentMeta.MasterId
-                    && f2.ContentMeta.Version > f.ContentMeta.Version))
+                && f.Version.State == ContentVersionState.Published
+                && !f.Version.Node.IsDeleted)
             .OrderBy(f => f.Category)
             .ThenBy(f => f.Order)
             .ThenBy(f => f.DisplayName)
@@ -34,11 +31,8 @@ public sealed class FormComponentRegistrationService : IFormComponentRegistratio
     {
         return await _context.Set<FormComponentRegistrationDTO>()
             .AsNoTracking()
-            .Where(f => f.ComponentName == componentName
-                && !f.ContentMeta.IsDeleted
-                && !_context.Set<FormComponentRegistrationDTO>().Any(f2 =>
-                    f2.ContentMeta.MasterId == f.ContentMeta.MasterId
-                    && f2.ContentMeta.Version > f.ContentMeta.Version))
+            .Where(f => f.ComponentName == componentName && !f.Version.Node.IsDeleted)
+            .OrderByDescending(f => f.Version.VersionNumber)
             .FirstOrDefaultAsync(ct);
     }
 

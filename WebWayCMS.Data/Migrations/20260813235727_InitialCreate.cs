@@ -52,30 +52,57 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Content",
+                name: "ChangeSets",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Slug = table.Column<string>(type: "text", nullable: false),
-                    Title = table.Column<string>(type: "character varying(20000)", maxLength: 20000, nullable: false),
-                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: false),
-                    LastModifiedBy = table.Column<Guid>(type: "uuid", nullable: false),
-                    PublicationDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    PublicationEndDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ModificationDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    CreationDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    IsPublished = table.Column<bool>(type: "boolean", nullable: false),
-                    IsArchived = table.Column<bool>(type: "boolean", nullable: false),
-                    IsHidden = table.Column<bool>(type: "boolean", nullable: false),
-                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
-                    MasterId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ParentMasterId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Version = table.Column<int>(type: "integer", nullable: false),
-                    CustomFields = table.Column<string>(type: "jsonb", nullable: true)
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
+                    Kind = table.Column<int>(type: "integer", nullable: false),
+                    RootNodeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Note = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Content", x => x.Id);
+                    table.PrimaryKey("PK_ChangeSets", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CMSRoutes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Pattern = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
+                    DefaultsJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
+                    ConstraintsJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    DataTokensJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    OwningContentNodeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    OwningContentType = table.Column<string>(type: "text", nullable: true),
+                    IsReserved = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CMSRoutes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ContentNodes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentTypeKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    ParentNodeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    SiteId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    IsArchived = table.Column<bool>(type: "boolean", nullable: false),
+                    IsHidden = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentNodes", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -185,18 +212,80 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ArticleLists",
+                name: "ContentVersions",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    NodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionNumber = table.Column<int>(type: "integer", nullable: false),
+                    Culture = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    Segment = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    State = table.Column<int>(type: "integer", nullable: false),
+                    IsCurrentDraft = table.Column<bool>(type: "boolean", nullable: false),
+                    Title = table.Column<string>(type: "character varying(20000)", maxLength: 20000, nullable: false),
+                    Slug = table.Column<string>(type: "character varying(20000)", maxLength: 20000, nullable: false),
+                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    PublishedBy = table.Column<Guid>(type: "uuid", nullable: true),
+                    PublishedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    PublishStartUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    PublishEndUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ChangeNote = table.Column<string>(type: "text", nullable: true),
+                    ChangeSetId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CustomFields = table.Column<string>(type: "jsonb", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_ArticleLists", x => x.ContentId);
+                    table.PrimaryKey("PK_ContentVersions", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_ArticleLists_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_ContentVersions_ContentNodes_NodeId",
+                        column: x => x.NodeId,
+                        principalTable: "ContentNodes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ContentZoneAssignments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SlotName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ContentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ParentPageNodeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ParentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentZoneAssignments", x => x.Id);
+                    table.CheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentZoneNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentZoneNodeId\" IS NOT NULL)");
+                    table.ForeignKey(
+                        name: "FK_ContentZoneAssignments_ContentNodes_ContentZoneNodeId",
+                        column: x => x.ContentZoneNodeId,
+                        principalTable: "ContentNodes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_ContentZoneAssignments_ContentNodes_ParentZoneNodeId",
+                        column: x => x.ParentZoneNodeId,
+                        principalTable: "ContentNodes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ArticleLists",
+                columns: table => new
+                {
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ArticleLists", x => x.VersionId);
+                    table.ForeignKey(
+                        name: "FK_ArticleLists_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -205,44 +294,25 @@ namespace WebWayCMS.Data.Migrations
                 name: "Articles",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     Body = table.Column<string>(type: "text", nullable: false),
                     AuthorName = table.Column<string>(type: "text", nullable: false),
                     Summary = table.Column<string>(type: "text", nullable: false),
-                    ArticleListMasterId = table.Column<Guid>(type: "uuid", nullable: false)
+                    ArticleListNodeId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Articles", x => x.ContentId);
+                    table.PrimaryKey("PK_Articles", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_Articles_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_Articles_ContentNodes_ArticleListNodeId",
+                        column: x => x.ArticleListNodeId,
+                        principalTable: "ContentNodes",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "CMSRoutes",
-                columns: table => new
-                {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Pattern = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
-                    DefaultsJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
-                    ConstraintsJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
-                    DataTokensJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
-                    Order = table.Column<int>(type: "integer", nullable: false),
-                    OwningContentMasterId = table.Column<Guid>(type: "uuid", nullable: true),
-                    OwningContentType = table.Column<string>(type: "text", nullable: true),
-                    IsReserved = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CMSRoutes", x => x.ContentId);
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_CMSRoutes_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_Articles_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -251,16 +321,44 @@ namespace WebWayCMS.Data.Migrations
                 name: "ContentBlocks",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     Content = table.Column<string>(type: "character varying(10000)", maxLength: 10000, nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_ContentBlocks", x => x.ContentId);
+                    table.PrimaryKey("PK_ContentBlocks", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_ContentBlocks_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_ContentBlocks_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ContentZoneItems",
+                columns: table => new
+                {
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Ordinal = table.Column<int>(type: "integer", nullable: false),
+                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ComponentPropertiesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentZoneItems", x => x.VersionId);
+                    table.ForeignKey(
+                        name: "FK_ContentZoneItems_ContentNodes_ContentZoneNodeId",
+                        column: x => x.ContentZoneNodeId,
+                        principalTable: "ContentNodes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_ContentZoneItems_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -269,17 +367,17 @@ namespace WebWayCMS.Data.Migrations
                 name: "ContentZones",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Description = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_ContentZones", x => x.ContentId);
+                    table.PrimaryKey("PK_ContentZones", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_ContentZones_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_ContentZones_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -288,7 +386,7 @@ namespace WebWayCMS.Data.Migrations
                 name: "FormComponentRegistrations",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ViewComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
@@ -305,11 +403,11 @@ namespace WebWayCMS.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_FormComponentRegistrations", x => x.ContentId);
+                    table.PrimaryKey("PK_FormComponentRegistrations", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_FormComponentRegistrations_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_FormComponentRegistrations_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -318,7 +416,7 @@ namespace WebWayCMS.Data.Migrations
                 name: "PageControllerRegistrations",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     ControllerName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ControllerTypeName = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
                     DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
@@ -332,11 +430,11 @@ namespace WebWayCMS.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PageControllerRegistrations", x => x.ContentId);
+                    table.PrimaryKey("PK_PageControllerRegistrations", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_PageControllerRegistrations_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_PageControllerRegistrations_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -345,17 +443,18 @@ namespace WebWayCMS.Data.Migrations
                 name: "Pages",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ControllerName = table.Column<string>(type: "text", nullable: false),
                     ViewName = table.Column<string>(type: "text", nullable: true),
                     ConfigurationJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Pages", x => x.ContentId);
+                    table.PrimaryKey("PK_Pages", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_Pages_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_Pages_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -364,7 +463,7 @@ namespace WebWayCMS.Data.Migrations
                 name: "WidgetRegistrations",
                 columns: table => new
                 {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Description = table.Column<string>(type: "text", nullable: false),
@@ -377,75 +476,19 @@ namespace WebWayCMS.Data.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_WidgetRegistrations", x => x.ContentId);
+                    table.PrimaryKey("PK_WidgetRegistrations", x => x.VersionId);
                     table.ForeignKey(
-                        name: "FK_WidgetRegistrations_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ContentZoneAssignments",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    SlotName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    ContentZoneId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ParentPageMasterId = table.Column<Guid>(type: "uuid", nullable: true),
-                    ParentZoneId = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ContentZoneAssignments", x => x.Id);
-                    table.CheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageMasterId\" IS NOT NULL AND \"ParentZoneId\" IS NULL) OR (\"ParentPageMasterId\" IS NULL AND \"ParentZoneId\" IS NOT NULL)");
-                    table.ForeignKey(
-                        name: "FK_ContentZoneAssignments_ContentZones_ContentZoneId",
-                        column: x => x.ContentZoneId,
-                        principalTable: "ContentZones",
-                        principalColumn: "ContentId",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_ContentZoneAssignments_ContentZones_ParentZoneId",
-                        column: x => x.ParentZoneId,
-                        principalTable: "ContentZones",
-                        principalColumn: "ContentId",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ContentZoneItems",
-                columns: table => new
-                {
-                    ContentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ContentZoneId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Ordinal = table.Column<int>(type: "integer", nullable: false),
-                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    ComponentPropertiesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ContentZoneItems", x => x.ContentId);
-                    table.ForeignKey(
-                        name: "FK_ContentZoneItems_ContentZones_ContentZoneId",
-                        column: x => x.ContentZoneId,
-                        principalTable: "ContentZones",
-                        principalColumn: "ContentId",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_ContentZoneItems_Content_ContentId",
-                        column: x => x.ContentId,
-                        principalTable: "Content",
+                        name: "FK_WidgetRegistrations_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Articles_ArticleListMasterId",
+                name: "IX_Articles_ArticleListNodeId",
                 table: "Articles",
-                column: "ArticleListMasterId");
+                column: "ArticleListNodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AspNetRoleClaims_RoleId",
@@ -485,9 +528,14 @@ namespace WebWayCMS.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_CMSRoutes_OwningContentMasterId",
+                name: "IX_ChangeSets_RootNodeId",
+                table: "ChangeSets",
+                column: "RootNodeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CMSRoutes_OwningContentNodeId",
                 table: "CMSRoutes",
-                column: "OwningContentMasterId");
+                column: "OwningContentNodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CMSRoutes_Pattern",
@@ -496,43 +544,68 @@ namespace WebWayCMS.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Content_MasterId",
-                table: "Content",
-                column: "MasterId");
+                name: "IX_ContentNodes_ParentNodeId",
+                table: "ContentNodes",
+                column: "ParentNodeId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Content_ParentMasterId",
-                table: "Content",
-                column: "ParentMasterId");
+                name: "IX_ContentNodes_SiteId",
+                table: "ContentNodes",
+                column: "SiteId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Content_Slug",
-                table: "Content",
+                name: "IX_ContentVersions_ChangeSetId",
+                table: "ContentVersions",
+                column: "ChangeSetId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentVersions_Slug",
+                table: "ContentVersions",
                 column: "Slug");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneAssignments_ContentZoneId",
+                name: "UX_ContentVersion_DraftVariant",
+                table: "ContentVersions",
+                columns: new[] { "NodeId", "Culture", "Segment", "IsCurrentDraft" },
+                unique: true,
+                filter: "\"IsCurrentDraft\"");
+
+            migrationBuilder.CreateIndex(
+                name: "UX_ContentVersion_Number",
+                table: "ContentVersions",
+                columns: new[] { "NodeId", "Culture", "Segment", "VersionNumber" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "UX_ContentVersion_PublishedVariant",
+                table: "ContentVersions",
+                columns: new[] { "NodeId", "Culture", "Segment" },
+                unique: true,
+                filter: "\"State\" = 3");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentZoneAssignments_ContentZoneNodeId",
                 table: "ContentZoneAssignments",
-                column: "ContentZoneId");
+                column: "ContentZoneNodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentZoneAssignments_PageSlot",
                 table: "ContentZoneAssignments",
-                columns: new[] { "ParentPageMasterId", "SlotName" },
+                columns: new[] { "ParentPageNodeId", "SlotName" },
                 unique: true,
-                filter: "\"ParentPageMasterId\" IS NOT NULL");
+                filter: "\"ParentPageNodeId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentZoneAssignments_ZoneSlot",
                 table: "ContentZoneAssignments",
-                columns: new[] { "ParentZoneId", "SlotName" },
+                columns: new[] { "ParentZoneNodeId", "SlotName" },
                 unique: true,
-                filter: "\"ParentZoneId\" IS NOT NULL");
+                filter: "\"ParentZoneNodeId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneItems_ContentZoneId_Ordinal",
+                name: "IX_ContentZoneItems_ContentZoneNodeId_Ordinal",
                 table: "ContentZoneItems",
-                columns: new[] { "ContentZoneId", "Ordinal" });
+                columns: new[] { "ContentZoneNodeId", "Ordinal" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_FormComponentRegistrations_Category",
@@ -608,6 +681,9 @@ namespace WebWayCMS.Data.Migrations
                 name: "AspNetUserTokens");
 
             migrationBuilder.DropTable(
+                name: "ChangeSets");
+
+            migrationBuilder.DropTable(
                 name: "CMSRoutes");
 
             migrationBuilder.DropTable(
@@ -618,6 +694,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ContentZoneItems");
+
+            migrationBuilder.DropTable(
+                name: "ContentZones");
 
             migrationBuilder.DropTable(
                 name: "FormComponentRegistrations");
@@ -638,10 +717,10 @@ namespace WebWayCMS.Data.Migrations
                 name: "AspNetUsers");
 
             migrationBuilder.DropTable(
-                name: "ContentZones");
+                name: "ContentVersions");
 
             migrationBuilder.DropTable(
-                name: "Content");
+                name: "ContentNodes");
         }
     }
 }

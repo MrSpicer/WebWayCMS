@@ -44,7 +44,6 @@
                             <th scope="col">Pattern</th>
                             <th scope="col">Owning Type</th>
                             <th scope="col">Reserved</th>
-                            <th scope="col">Published</th>
                             <th scope="col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
@@ -62,16 +61,6 @@
                                     else
                                     {
                                         <span class="tag" aria-hidden="true"></span>
-                                    }
-                                </td>
-                                <td>
-                                    @if (route.IsPublished)
-                                    {
-                                        <span class="tag is-success">Published</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="tag is-light">Draft</span>
                                     }
                                 </td>
                                 <td>

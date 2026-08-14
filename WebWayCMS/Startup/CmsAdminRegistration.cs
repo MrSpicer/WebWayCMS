@@ -20,6 +20,9 @@ internal static class CmsAdminRegistration
         services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
         services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
 
+        // Replace the rendering-only published read context with the preview-aware one.
+        services.AddScoped<WebWayCMS.Data.Services.IContentReadContext, PreviewAwareReadContext>();
+
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.ContentBlock.ContentBlockModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Page.PageModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Article.ArticleListModel>());

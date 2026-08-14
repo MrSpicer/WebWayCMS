@@ -2,7 +2,7 @@
 @model PageUpsertViewModel
 
 @{
-    var isNew = Model.Id == null || Model.Id == Guid.Empty;
+    var isNew = Model.NodeId == null || Model.NodeId == Guid.Empty;
     ViewData["Title"] = isNew ? "Create Page" : "Edit Page";
 }
 
@@ -42,7 +42,17 @@
                 </div>
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">
-                        <button class="button is-primary mr-3" type="submit">Save</button>
+                        <button class="button is-primary mr-3" type="submit">Save as Draft</button>
+                        @if (Model.IsPublished)
+                        {
+                            <button type="submit" class="button is-warning mr-3"
+                                    asp-controller="AdminContent" asp-action="Unpublish"
+                                    asp-route-contentType="pages" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+                        }
+                        else
+                        {
+                            <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
+                        }
                         <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages" class="button">Cancel</a>
                     </div>
                 </footer>

@@ -7,15 +7,15 @@ public interface IRouteRegistrationService
 {
     Task RegisterContentRoutesAsync(
         IRoutableContent content, string routePattern, string controllerName,
-        Guid? viewModelId, Guid? viewModelMasterId, bool isPublished, CancellationToken ct = default);
+        Guid contentNodeId, CancellationToken ct = default);
 
-    Task UnregisterContentRoutesAsync(Guid contentMasterId, CancellationToken ct = default);
+    Task UnregisterContentRoutesAsync(Guid contentNodeId, CancellationToken ct = default);
 
     Task RegisterWidgetRoutesAsync(
-        IRoutableViewComponent widget, Guid contentZoneItemMasterId, string parentRoute,
-        string parentDefaultsJson, Guid parentPageMasterId, bool isActive, CancellationToken ct = default);
+        IRoutableViewComponent widget, Guid contentZoneItemNodeId, string parentRoute,
+        string parentDefaultsJson, Guid parentPageNodeId, CancellationToken ct = default);
 
     Task TryRegisterWidgetRoutesAsync(
-        string componentName, Guid contentZoneItemMasterId, Guid? parentPageMasterId,
+        string componentName, Guid contentZoneItemNodeId, Guid? parentPageNodeId,
         bool isActive, CancellationToken ct = default);
 }

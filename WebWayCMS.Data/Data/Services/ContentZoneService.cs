@@ -6,199 +6,273 @@ using WebWayCMS.Data.Models;
 namespace WebWayCMS.Data.Services;
 
 /// <summary>
-/// Service for managing ContentZones and their items.
+/// Manages content zones: item resolution, assignment (slot) management, and item writes.
+/// Zone and item versioning is delegated to the generic <see cref="IContentStore{T}"/>. Zone items
+/// auto-publish on write (there is no separate publish surface for items), preserving the inline
+/// editor's immediately-visible behaviour while still producing proper version history.
 /// </summary>
 public sealed class ContentZoneService : IContentZoneService
 {
     private readonly CmsDbContext _context;
+    private readonly IContentStore<ContentZoneDTO> _zoneStore;
+    private readonly IContentStore<ContentZoneItemDTO> _itemStore;
+    private readonly IContentReadContext _readContext;
+    private readonly IChangeSetScope _changeSetScope;
 
-    public ContentZoneService(CmsDbContext context)
+    public ContentZoneService(
+        CmsDbContext context,
+        IContentStore<ContentZoneDTO> zoneStore,
+        IContentStore<ContentZoneItemDTO> itemStore,
+        IContentReadContext readContext,
+        IChangeSetScope changeSetScope)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
+        _zoneStore = zoneStore ?? throw new ArgumentNullException(nameof(zoneStore));
+        _itemStore = itemStore ?? throw new ArgumentNullException(nameof(itemStore));
+        _readContext = readContext ?? throw new ArgumentNullException(nameof(readContext));
+        _changeSetScope = changeSetScope ?? throw new ArgumentNullException(nameof(changeSetScope));
     }
 
-    public async Task<ContentZoneDTO?> GetByNameAsync(string name, CancellationToken ct = default)
+    // ─── item resolution ──────────────────────────────────────────────────────
+
+    public async Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
+    {
+        return await _context.Set<ContentZoneItemDTO>()
+            .AsNoTracking()
+            .AtReadContext(_readContext)
+            .Where(i => i.ContentZoneNodeId == zoneNodeId && i.IsActive)
+            .OrderBy(i => i.Ordinal)
+            .ToListAsync(ct);
+    }
+
+    // ─── zone reads ───────────────────────────────────────────────────────────
+
+    public Task<ContentZoneDTO?> GetZoneByNodeAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => _zoneStore.GetAsync(zoneNodeId, ct);
+
+    public async Task<ContentZoneDTO?> GetZoneByNameAsync(string name, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(name))
             return null;
 
         return await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
             .AsNoTracking()
-            .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
-            .FirstOrDefaultAsync(ct);
+            .AtReadContext(_readContext)
+            .FirstOrDefaultAsync(z => z.Name == name, ct);
     }
 
-    public async Task<ContentZoneDTO?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    // ─── assignment management ────────────────────────────────────────────────
+
+    public async Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
     {
-        return await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
-            .FirstOrDefaultAsync(z => z.ContentId == id, ct);
+            .FirstOrDefaultAsync(a => a.ParentPageNodeId == pageNodeId && a.SlotName == slotName, ct);
     }
 
-    public async Task<List<ContentZoneDTO>> GetAllAsync(CancellationToken ct = default)
+    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
     {
-        return await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
+        var assignment = await GetByPageSlotAsync(pageNodeId, slotName, ct);
+        if (assignment != null)
+        {
+            var zone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+            if (zone != null)
+                return (zone, assignment);
+        }
+
+        using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            assignment = await _context.Set<ContentZoneAssignmentDTO>()
+                .FirstOrDefaultAsync(a => a.ParentPageNodeId == pageNodeId && a.SlotName == slotName, ct);
+
+            if (assignment != null)
+            {
+                var existingZone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+                await transaction.RollbackAsync(ct);
+                return (existingZone ?? NewZone(slotName), assignment);
+            }
+
+            var zone = await CreatePublishedZoneAsync(slotName, ct);
+            var newAssignment = new ContentZoneAssignmentDTO
+            {
+                Id = Guid.NewGuid(),
+                SlotName = slotName,
+                ContentZoneNodeId = zone.Version.Node!.Id,
+                ContentZoneNode = zone.Version.Node,
+                ParentPageNodeId = pageNodeId,
+                ParentZoneNodeId = null
+            };
+            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
+            await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            return (zone, newAssignment);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<ContentZoneAssignmentDTO?> GetByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
+    {
+        return await _context.Set<ContentZoneAssignmentDTO>()
             .AsNoTracking()
-            .Where(z => !z.ContentMeta.IsDeleted
-                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
+            .FirstOrDefaultAsync(a => a.ParentZoneNodeId == parentZoneNodeId && a.SlotName == slotName, ct);
+    }
+
+    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
+    {
+        var assignment = await GetByZoneSlotAsync(parentZoneNodeId, slotName, ct);
+        if (assignment != null)
+        {
+            var zone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+            if (zone != null)
+                return (zone, assignment);
+        }
+
+        using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            assignment = await _context.Set<ContentZoneAssignmentDTO>()
+                .FirstOrDefaultAsync(a => a.ParentZoneNodeId == parentZoneNodeId && a.SlotName == slotName, ct);
+
+            if (assignment != null)
+            {
+                var existingZone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+                await transaction.RollbackAsync(ct);
+                return (existingZone ?? NewZone(slotName), assignment);
+            }
+
+            var zone = await CreatePublishedZoneAsync(slotName, ct);
+            var newAssignment = new ContentZoneAssignmentDTO
+            {
+                Id = Guid.NewGuid(),
+                SlotName = slotName,
+                ContentZoneNodeId = zone.Version.Node!.Id,
+                ContentZoneNode = zone.Version.Node,
+                ParentPageNodeId = null,
+                ParentZoneNodeId = parentZoneNodeId
+            };
+            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
+            await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            return (zone, newAssignment);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default)
+    {
+        var zone = await GetZoneByNameAsync(name, ct);
+        if (zone != null)
+            return zone;
+
+        using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            zone = await GetZoneByNameAsync(name, ct);
+            if (zone != null)
+            {
+                await transaction.RollbackAsync(ct);
+                return zone;
+            }
+
+            zone = await CreatePublishedZoneAsync(name, ct);
+            await transaction.CommitAsync(ct);
+            return zone;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        return await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => a.ParentPageNodeId == pageNodeId)
+            .ToListAsync(ct);
+    }
+
+    public async Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => a.ParentPageNodeId == pageNodeId)
+            .ToListAsync(ct);
+
+        var nodeIds = assignments.Select(a => a.ContentZoneNodeId).ToList();
+
+        return await _context.Set<ContentZoneDTO>()
+            .AsNoTracking()
+            .AtReadContext(_readContext)
+            .Where(z => nodeIds.Contains(z.Version.NodeId))
             .OrderBy(z => z.Name)
             .ToListAsync(ct);
     }
 
-    public async Task<ContentZoneDTO> CreateAsync(ContentZoneDTO zone, CancellationToken ct = default)
+    public async Task<List<ContentZoneDTO>> GetAllByParentZoneAsync(Guid parentZoneNodeId, CancellationToken ct = default)
     {
-        if (zone == null) throw new ArgumentNullException(nameof(zone));
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => a.ParentZoneNodeId == parentZoneNodeId)
+            .ToListAsync(ct);
 
-        var meta = zone.ContentMeta;
+        var nodeIds = assignments.Select(a => a.ContentZoneNodeId).ToList();
 
-        if (meta.Id == Guid.Empty)
-            meta.Id = Guid.NewGuid();
-
-        zone.ContentId = meta.Id;
-
-        var now = DateTime.UtcNow;
-        meta.CreationDate = now;
-        meta.ModificationDate = now;
-        if (meta.PublicationDate == default)
-            meta.PublicationDate = now;
-
-        meta.MasterId = meta.Id;
-        _context.Set<ContentZoneDTO>().Add(zone);
-        await _context.SaveChangesAsync(ct);
-        return zone;
+        return await _context.Set<ContentZoneDTO>()
+            .AsNoTracking()
+            .AtReadContext(_readContext)
+            .Where(z => nodeIds.Contains(z.Version.NodeId))
+            .OrderBy(z => z.Name)
+            .ToListAsync(ct);
     }
 
-    public async Task<bool> UpdateAsync(ContentZoneDTO zone, CancellationToken ct = default)
+    public async Task<HashSet<Guid>> GetZoneNodeIdsWithChildrenAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default)
     {
-        if (zone == null) throw new ArgumentNullException(nameof(zone));
+        var ids = zoneNodeIds.ToList();
+        if (ids.Count == 0)
+            return [];
 
-        var existing = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == zone.ContentId, ct);
-        if (existing == null) return false;
+        var parentIds = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => a.ParentZoneNodeId != null && ids.Contains(a.ParentZoneNodeId.Value))
+            .Select(a => a.ParentZoneNodeId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
 
-        var newMeta = existing.ContentMeta with
-        {
-            Id = Guid.NewGuid(),
-            Version = existing.ContentMeta.Version + 1,
-            Title = zone.ContentMeta.Title,
-            IsPublished = zone.ContentMeta.IsPublished,
-            IsArchived = zone.ContentMeta.IsArchived,
-            IsHidden = zone.ContentMeta.IsHidden,
-            ModificationDate = DateTime.UtcNow,
-            CustomFields = existing.ContentMeta.CustomFields.Select(c => c with { }).ToList()
-        };
-        var newVersion = existing with
-        {
-            ContentId = newMeta.Id,
-            ContentMeta = newMeta,
-            Name = zone.Name,
-            Description = zone.Description
-        };
-        _context.Set<ContentZoneDTO>().Add(newVersion);
-        await _context.SaveChangesAsync(ct);
-        return true;
+        return [.. parentIds];
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    public async Task<Dictionary<Guid, int>> GetAssignmentCountsByNodeIdAsync(IEnumerable<Guid> nodeIds, CancellationToken ct = default)
     {
-        var existing = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == id, ct);
-        if (existing == null) return false;
+        var ids = nodeIds.ToList();
+        if (ids.Count == 0) return [];
 
-        _context.Set<ContentZoneDTO>().Remove(existing);
-        _context.Remove(existing.ContentMeta);
-        await _context.SaveChangesAsync(ct);
-        return true;
+        return await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => ids.Contains(a.ContentZoneNodeId))
+            .GroupBy(a => a.ContentZoneNodeId)
+            .Select(g => new { NodeId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.NodeId, x => x.Count, ct);
     }
 
-    public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneId, ContentZoneItemDTO item, CancellationToken ct = default)
-    {
-        if (item == null) throw new ArgumentNullException(nameof(item));
+    // ─── parent resolution ────────────────────────────────────────────────────
 
-        var zone = await _context.Set<ContentZoneDTO>().FirstOrDefaultAsync(z => z.ContentId == zoneId, ct);
-        if (zone == null)
-            throw new InvalidOperationException($"Content zone with ID {zoneId} not found.");
-
-        var meta = item.ContentMeta;
-        if (meta.Id == Guid.Empty)
-            meta.Id = Guid.NewGuid();
-
-        item.ContentId = meta.Id;
-        item.ContentZoneId = zoneId;
-        meta.MasterId = meta.Id;
-        meta.Version = 0;
-        meta.IsPublished = true;
-        meta.CreationDate = DateTime.UtcNow;
-        meta.ModificationDate = DateTime.UtcNow;
-
-        // Auto-assign ordinal if not set
-        if (item.Ordinal == 0)
-        {
-            var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
-                .Where(i => i.ContentZoneId == zoneId)
-                .MaxAsync(i => (int?)i.Ordinal, ct) ?? 0;
-            item.Ordinal = maxOrdinal + 1;
-        }
-
-        _context.Set<ContentZoneItemDTO>().Add(item);
-        await _context.SaveChangesAsync(ct);
-        return item;
-    }
-
-    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default)
-    {
-        if (item == null) throw new ArgumentNullException(nameof(item));
-
-        var existing = await _context.Set<ContentZoneItemDTO>().FirstOrDefaultAsync(i => i.ContentId == item.ContentId, ct);
-        if (existing == null) return false;
-
-        var newMeta = existing.ContentMeta with
-        {
-            Id = Guid.NewGuid(),
-            Version = existing.ContentMeta.Version + 1,
-            ModificationDate = DateTime.UtcNow,
-            CustomFields = existing.ContentMeta.CustomFields.Select(c => c with { }).ToList()
-        };
-        var newVersion = existing with
-        {
-            ContentId = newMeta.Id,
-            ContentMeta = newMeta,
-            ComponentName = item.ComponentName,
-            ComponentPropertiesJson = item.ComponentPropertiesJson,
-            IsActive = item.IsActive
-            // Ordinal, ContentZoneId, MasterId preserved from existing
-        };
-        _context.Set<ContentZoneItemDTO>().Add(newVersion);
-        await _context.SaveChangesAsync(ct);
-        return true;
-    }
-
-    public async Task<bool> RemoveItemAsync(Guid itemId, CancellationToken ct = default)
-    {
-        var existing = await _context.Set<ContentZoneItemDTO>().FirstOrDefaultAsync(i => i.ContentId == itemId, ct);
-        if (existing == null) return false;
-
-        _context.Set<ContentZoneItemDTO>().Remove(existing);
-        _context.Remove(existing.ContentMeta);
-        await _context.SaveChangesAsync(ct);
-        return true;
-    }
-
-    public async Task<Guid?> GetParentPageMasterForZoneAsync(Guid zoneId, CancellationToken ct = default)
+    public async Task<Guid?> GetParentPageNodeForZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
     {
         var visited = new HashSet<Guid>();
-        Guid? currentZoneId = zoneId;
+        Guid? currentZoneId = zoneNodeId;
 
         while (currentZoneId.HasValue)
         {
@@ -207,362 +281,145 @@ public sealed class ContentZoneService : IContentZoneService
 
             var assignment = await _context.Set<ContentZoneAssignmentDTO>()
                 .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.ContentZoneId == currentZoneId.Value, ct);
+                .FirstOrDefaultAsync(a => a.ContentZoneNodeId == currentZoneId.Value, ct);
 
             if (assignment == null)
                 return null;
 
-            if (assignment.ParentPageMasterId.HasValue)
-                return assignment.ParentPageMasterId.Value;
+            if (assignment.ParentPageNodeId.HasValue)
+                return assignment.ParentPageNodeId.Value;
 
-            currentZoneId = assignment.ParentZoneId;
+            currentZoneId = assignment.ParentZoneNodeId;
         }
 
         return null;
     }
 
-    public async Task<ContentZoneItemDTO?> GetItemByIdAsync(Guid itemId, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneItemDTO>()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(i => i.ContentId == itemId, ct);
-    }
+    // ─── item writes ──────────────────────────────────────────────────────────
 
-    public async Task<bool> ReorderItemsAsync(Guid zoneId, List<Guid> itemIdsInOrder, CancellationToken ct = default)
-    {
-        var items = await _context.Set<ContentZoneItemDTO>()
-            .Where(i => i.ContentZoneId == zoneId
-                && !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-            .ToListAsync(ct);
+    public Task<ContentZoneItemDTO?> GetItemByNodeIdAsync(Guid itemNodeId, CancellationToken ct = default)
+        => _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
 
-        for (int i = 0; i < itemIdsInOrder.Count; i++)
+    public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default)
+    {
+        if (item == null) throw new ArgumentNullException(nameof(item));
+
+        var zone = await _zoneStore.GetCurrentDraftAsync(zoneNodeId, ct)
+            ?? throw new InvalidOperationException($"Content zone with ID {zoneNodeId} not found.");
+
+        item.ContentZoneNodeId = zoneNodeId;
+
+        if (item.Ordinal == 0)
         {
-            var item = items.FirstOrDefault(x => x.ContentId == itemIdsInOrder[i]);
-            if (item != null)
-            {
-                item.Ordinal = i + 1;
-                item.ContentMeta.ModificationDate = DateTime.UtcNow;
-            }
+            var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
+                .Where(i => i.ContentZoneNodeId == zoneNodeId)
+                .MaxAsync(i => (int?)i.Ordinal, ct) ?? 0;
+            item.Ordinal = maxOrdinal + 1;
         }
 
-        await _context.SaveChangesAsync(ct);
+        using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
+
+        var save = await _itemStore.SaveDraftAsync(item, null, ct);
+        if (!save.Success)
+            throw new InvalidOperationException(save.ErrorMessage ?? "Failed to add content zone item.");
+
+        await _itemStore.PublishAsync(save.NodeId, ct);
+        return item;
+    }
+
+    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default)
+    {
+        if (item == null) throw new ArgumentNullException(nameof(item));
+
+        var nodeId = item.Version.Node?.Id ?? Guid.Empty;
+        if (nodeId == Guid.Empty)
+            return false;
+
+        var existing = await _itemStore.GetCurrentDraftAsync(nodeId, ct);
+        if (existing == null)
+            return false;
+
+        var updated = existing with
+        {
+            ComponentName = item.ComponentName,
+            ComponentPropertiesJson = item.ComponentPropertiesJson,
+            IsActive = item.IsActive
+            // Ordinal and ContentZoneNodeId are preserved from the existing record.
+        };
+
+        using var _ = _changeSetScope.Begin(ChangeSetKind.Save, nodeId, null);
+
+        var save = await _itemStore.SaveDraftAsync(updated, null, ct);
+        if (!save.Success)
+            return false;
+
+        await _itemStore.PublishAsync(nodeId, ct);
         return true;
     }
 
-    public async Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
+    public async Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default)
     {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
+        return await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
     }
 
-    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageMasterId, string slotName, CancellationToken ct = default)
+    public async Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default)
     {
-        var assignment = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
+        using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
 
-        if (assignment != null)
+        for (int i = 0; i < itemNodeIdsInOrder.Count; i++)
         {
-            var latestZone = await _context.Set<ContentZoneDTO>()
-                .Include(z => z.Items.Where(i =>
-                    i.IsActive &&
-                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                    .OrderBy(i => i.Ordinal))
-                .AsNoTracking()
-                .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
-                .OrderByDescending(z => z.ContentMeta.Version)
-                .FirstOrDefaultAsync(ct);
+            var itemNodeId = itemNodeIdsInOrder[i];
+            var current = await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
+            if (current == null)
+                continue;
 
-            if (latestZone != null)
-                return (latestZone, assignment);
+            var updated = current with { Ordinal = i + 1 };
+            var save = await _itemStore.SaveDraftAsync(updated, null, ct);
+            if (save.Success)
+                await _itemStore.PublishAsync(itemNodeId, ct);
         }
 
-        // Create zone + assignment atomically
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            // Re-check inside transaction to avoid duplicate creation
-            assignment = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.ParentPageMasterId == pageMasterId && a.SlotName == slotName, ct);
-
-            if (assignment != null)
-            {
-                var latestZone = await _context.Set<ContentZoneDTO>()
-                    .Include(z => z.Items.Where(i =>
-                        i.IsActive &&
-                        !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                        .OrderBy(i => i.Ordinal))
-                    .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
-                    .OrderByDescending(z => z.ContentMeta.Version)
-                    .FirstOrDefaultAsync(ct);
-
-                await transaction.RollbackAsync(ct);
-                return (latestZone!, assignment);
-            }
-
-            var zone = NewPublishedZone(slotName);
-            _context.Set<ContentZoneDTO>().Add(zone);
-
-            var newAssignment = new ContentZoneAssignmentDTO
-            {
-                Id = Guid.NewGuid(),
-                SlotName = slotName,
-                ContentZoneId = zone.ContentId,
-                ParentPageMasterId = pageMasterId,
-                ParentZoneId = null
-            };
-            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
-            await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            newAssignment.ContentZone = zone;
-            return (zone, newAssignment);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+        return true;
     }
 
-    public async Task<ContentZoneAssignmentDTO?> GetByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
-    }
+    // ─── helpers ──────────────────────────────────────────────────────────────
 
-    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByZoneSlotAsync(Guid parentZoneId, string slotName, CancellationToken ct = default)
-    {
-        var assignment = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
-
-        if (assignment != null)
-        {
-            var latestZone = await _context.Set<ContentZoneDTO>()
-                .Include(z => z.Items.Where(i =>
-                    i.IsActive &&
-                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                    .OrderBy(i => i.Ordinal))
-                .AsNoTracking()
-                .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
-                .OrderByDescending(z => z.ContentMeta.Version)
-                .FirstOrDefaultAsync(ct);
-
-            if (latestZone != null)
-                return (latestZone, assignment);
-        }
-
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            assignment = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.ParentZoneId == parentZoneId && a.SlotName == slotName, ct);
-
-            if (assignment != null)
-            {
-                var latestZone = await _context.Set<ContentZoneDTO>()
-                    .Include(z => z.Items.Where(i =>
-                        i.IsActive &&
-                        !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                        .OrderBy(i => i.Ordinal))
-                    .Where(z => z.ContentMeta.MasterId == assignment.ContentZoneId && !z.ContentMeta.IsDeleted)
-                    .OrderByDescending(z => z.ContentMeta.Version)
-                    .FirstOrDefaultAsync(ct);
-
-                await transaction.RollbackAsync(ct);
-                return (latestZone!, assignment);
-            }
-
-            var zone = NewPublishedZone(slotName);
-            _context.Set<ContentZoneDTO>().Add(zone);
-
-            var newAssignment = new ContentZoneAssignmentDTO
-            {
-                Id = Guid.NewGuid(),
-                SlotName = slotName,
-                ContentZoneId = zone.ContentId,
-                ParentPageMasterId = null,
-                ParentZoneId = parentZoneId
-            };
-            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
-            await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            newAssignment.ContentZone = zone;
-            return (zone, newAssignment);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
-    }
-
-    public async Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageMasterId, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentPageMasterId == pageMasterId)
-            .ToListAsync(ct);
-    }
-
-    public async Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageMasterId, CancellationToken ct = default)
+    public async Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
     {
         var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentPageMasterId == pageMasterId)
+            .Where(a => a.ContentZoneNodeId == zoneNodeId || a.ParentZoneNodeId == zoneNodeId)
             .ToListAsync(ct);
+        _context.Set<ContentZoneAssignmentDTO>().RemoveRange(assignments);
 
-        var masterIds = assignments.Select(a => a.ContentZoneId).ToList();
-
-        return await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
-            .AsNoTracking()
-            .Where(z => masterIds.Contains(z.ContentMeta.MasterId) && !z.ContentMeta.IsDeleted
-                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
-            .OrderBy(z => z.Name)
-            .ToListAsync(ct);
-    }
-
-    public async Task<List<ContentZoneDTO>> GetAllByParentZoneAsync(Guid parentZoneId, CancellationToken ct = default)
-    {
-        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentZoneId == parentZoneId)
-            .ToListAsync(ct);
-
-        var masterIds = assignments.Select(a => a.ContentZoneId).ToList();
-
-        return await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
-            .AsNoTracking()
-            .Where(z => masterIds.Contains(z.ContentMeta.MasterId) && !z.ContentMeta.IsDeleted
-                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
-            .OrderBy(z => z.Name)
-            .ToListAsync(ct);
-    }
-
-    public async Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default)
-    {
-        var zone = await _context.Set<ContentZoneDTO>()
-            .Include(z => z.Items.Where(i =>
-                i.IsActive &&
-                !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                .OrderBy(i => i.Ordinal))
-            .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
-            .FirstOrDefaultAsync(ct);
-
-        if (zone != null)
-            return zone;
-
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            zone = await _context.Set<ContentZoneDTO>()
-                .Include(z => z.Items.Where(i =>
-                    i.IsActive &&
-                    !_context.Set<ContentZoneItemDTO>().Any(i2 => i2.ContentMeta.MasterId == i.ContentMeta.MasterId && i2.ContentMeta.Version > i.ContentMeta.Version))
-                    .OrderBy(i => i.Ordinal))
-                .Where(z => z.Name == name && !z.ContentMeta.IsDeleted && z.ContentMeta.IsPublished
-                    && !_context.Set<ContentZoneDTO>().Any(z2 => z2.ContentMeta.MasterId == z.ContentMeta.MasterId && z2.ContentMeta.Version > z.ContentMeta.Version))
-                .FirstOrDefaultAsync(ct);
-
-            if (zone != null)
-            {
-                await transaction.RollbackAsync(ct);
-                return zone;
-            }
-
-            zone = NewPublishedZone(name);
-            _context.Set<ContentZoneDTO>().Add(zone);
-            await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-            return zone;
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
-    }
-
-    public async Task<HashSet<Guid>> GetZoneIdsWithChildrenAsync(IEnumerable<Guid> zoneIds, CancellationToken ct = default)
-    {
-        var ids = zoneIds.ToList();
-        if (ids.Count == 0)
-            return [];
-
-        var parentIds = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentZoneId != null && ids.Contains(a.ParentZoneId.Value))
-            .Select(a => a.ParentZoneId!.Value)
+        var items = await _context.Set<ContentZoneItemDTO>()
+            .Where(i => i.ContentZoneNodeId == zoneNodeId)
+            .Select(i => i.Version.NodeId)
             .Distinct()
             .ToListAsync(ct);
+        foreach (var itemNodeId in items)
+            await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
 
-        return [.. parentIds];
+        return await _zoneStore.DeleteAsync(zoneNodeId, softDelete: false, ct);
     }
 
-    public async Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct = default)
+    private async Task<ContentZoneDTO> CreatePublishedZoneAsync(string name, CancellationToken ct)
     {
-        return await _context.Set<ContentZoneDTO>()
-            .AsNoTracking()
-            .Where(z => z.ContentMeta.MasterId == masterId)
-            .OrderByDescending(z => z.ContentMeta.Version)
-            .ToListAsync(ct);
+        var zone = NewZone(name);
+        var save = await _zoneStore.SaveDraftAsync(zone, null, ct);
+        if (!save.Success)
+            throw new InvalidOperationException(save.ErrorMessage ?? "Failed to create content zone.");
+        await _zoneStore.PublishAsync(save.NodeId, ct);
+        return zone;
     }
 
-    public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemMasterId, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneItemDTO>()
-            .AsNoTracking()
-            .Where(i => i.ContentMeta.MasterId == itemMasterId)
-            .OrderByDescending(i => i.ContentMeta.Version)
-            .ToListAsync(ct);
-    }
-
-    public async Task<Dictionary<Guid, int>> GetAssignmentCountsByMasterIdAsync(IEnumerable<Guid> masterIds, CancellationToken ct = default)
-    {
-        var ids = masterIds.ToList();
-        if (ids.Count == 0) return [];
-
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => ids.Contains(a.ContentZoneId))
-            .GroupBy(a => a.ContentZoneId)
-            .Select(g => new { MasterId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.MasterId, x => x.Count, ct);
-    }
-
-    private static ContentZoneDTO NewPublishedZone(string name)
-    {
-        var zoneId = Guid.NewGuid();
-        var now = DateTime.UtcNow;
-        return new ContentZoneDTO
+    private static ContentZoneDTO NewZone(string name)
+        => new()
         {
-            ContentId = zoneId,
-            ContentMeta = new ContentDTO
+            Version = new ContentVersion
             {
-                Id = zoneId,
-                MasterId = zoneId,
                 Title = name,
-                IsPublished = true,
-                CreationDate = now,
-                ModificationDate = now,
-                PublicationDate = now
+                Node = new ContentNode()
             },
             Name = name
         };
-    }
 }

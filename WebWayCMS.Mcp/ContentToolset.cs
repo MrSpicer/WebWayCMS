@@ -25,13 +25,14 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "list_content_types")]
-    [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, child entities, or a component registry.")]
+    [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, publishing, child entities, or a component registry.")]
     public IReadOnlyList<McpContentTypeInfo> ListContentTypes() =>
         _handlers
             .Select(h => new McpContentTypeInfo(
                 h.ContentType,
                 h.DisplayName,
                 h.SupportsVersionHistory,
+                h.SupportsPublishing,
                 h.ChildHandler != null,
                 h.ChildHandler?.ChildType,
                 h.RegistryHandler != null))
@@ -111,6 +112,51 @@ public sealed class ContentToolset
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
         return new McpDeleteResult(await handler.DeleteAsync(id, ct));
+    }
+
+    [McpServerTool(Name = "publish_content")]
+    [Description("Publishes the current draft of a content item, making it the live published version. The MCP endpoint runs with effective admin authority, so this acts as an authorized publisher.")]
+    public async Task<AdminSaveResult> PublishContent(
+        [Description("The content type.")] string contentType,
+        [Description("The node id of the item to publish.")] Guid nodeId,
+        CancellationToken ct = default)
+    {
+        var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        if (!handler.SupportsPublishing)
+            throw new McpException($"Content type '{contentType}' does not support publishing.");
+        return await handler.PublishAsync(nodeId, ct);
+    }
+
+    [McpServerTool(Name = "unpublish_content")]
+    [Description("Unpublishes the current published version of a content item. If a separate draft exists it is left untouched and the published version is archived.")]
+    public async Task<AdminSaveResult> UnpublishContent(
+        [Description("The content type.")] string contentType,
+        [Description("The node id of the item to unpublish.")] Guid nodeId,
+        CancellationToken ct = default)
+    {
+        var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        if (!handler.SupportsPublishing)
+            throw new McpException($"Content type '{contentType}' does not support publishing.");
+        return await handler.UnpublishAsync(nodeId, ct);
+    }
+
+    [McpServerTool(Name = "get_content_state")]
+    [Description("Gets the current draft/published state of a content item as { isPublished, hasDraft, currentVersionNumber }.")]
+    public async Task<object> GetContentState(
+        [Description("The content type.")] string contentType,
+        [Description("The node id of the item.")] Guid nodeId,
+        CancellationToken ct = default)
+    {
+        var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        var vm = await handler.GetVersionHistoryViewModelAsync(nodeId, ct);
+        if (vm == null)
+            throw new McpException($"No '{contentType}' item found with id '{nodeId}'.");
+        return new
+        {
+            isPublished = vm.Versions.Any(v => v.IsPublished),
+            hasDraft = vm.Versions.Any(v => v.State == WebWayCMS.Data.Models.ContentVersionState.Draft && v.IsLatest),
+            currentVersionNumber = vm.Versions.FirstOrDefault(v => v.IsLatest)?.Version
+        };
     }
 
     [McpServerTool(Name = "list_registry")]
