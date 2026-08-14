@@ -65,7 +65,22 @@ public class ContentZoneApiControllerTests
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _controller = new ContentZoneApiController(_service, _routeRegistration);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
+        _routeRegistration.TryRegisterWidgetRoutesAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
     }
+
+    private static ContentZoneItemDTO Item(Guid itemNodeId, Guid zoneNodeId, bool active = true)
+        => new()
+        {
+            ContentZoneNodeId = zoneNodeId,
+            ComponentName = "X",
+            IsActive = active,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        };
+
+    private static object? ValueOf(object? obj, string prop)
+        => obj?.GetType().GetProperty(prop)?.GetValue(obj);
 
     [Test]
     public void Constructor_Null_Throws()
@@ -177,6 +192,18 @@ public class ContentZoneApiControllerTests
     }
 
     [Test]
+    public async Task SaveItem_UnresolvedZone_ReturnsBadRequest()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.Empty } } };
+        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+
+        var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageNodeId = pageNodeId, SlotName = "Main" }, default);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+    }
+
+    [Test]
     public async Task DeleteItem_Success_NotFound_Exception()
     {
         _service.RemoveItemAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
@@ -205,6 +232,128 @@ public class ContentZoneApiControllerTests
             Assert.That(await _controller.GetItem(nodeId, default), Is.InstanceOf<OkObjectResult>());
             Assert.That(await _controller.GetItem(Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
         });
+    }
+
+    [Test]
+    public async Task SaveItem_NewItem_RouteRegistrationFails_Returns500()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var parentId = Guid.NewGuid();
+
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Item(itemNodeId, zoneId));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, parentId, true, Arg.Any<CancellationToken>())
+            .Returns((false, "boom"));
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ZoneId = zoneId,
+            ParentPageNodeId = parentId,
+            ComponentName = "X",
+            ZoneName = "Z"
+        }, default);
+
+        var objectResult = (ObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(objectResult.StatusCode, Is.EqualTo(500));
+            Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("boom"));
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_UpdateItem_RouteRegistrationFails_Returns500()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var parentId = Guid.NewGuid();
+
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>())
+            .Returns(Item(itemNodeId, zoneId));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, parentId, true, Arg.Any<CancellationToken>())
+            .Returns((false, "boom"));
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ZoneId = zoneId,
+            ItemId = itemNodeId,
+            ParentPageNodeId = parentId,
+            ComponentName = "X",
+            ZoneName = "Z"
+        }, default);
+
+        var objectResult = (ObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(objectResult.StatusCode, Is.EqualTo(500));
+            Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("boom"));
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_RouteRegistrationSucceeds_ReturnsOkWithIds()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var parentId = Guid.NewGuid();
+
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Item(itemNodeId, zoneId));
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ZoneId = zoneId,
+            ParentPageNodeId = parentId,
+            ComponentName = "X",
+            ZoneName = "Z"
+        }, default);
+
+        var ok = (OkObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(ValueOf(ok.Value, "itemId"), Is.EqualTo(itemNodeId));
+            Assert.That(ValueOf(ok.Value, "zoneId"), Is.EqualTo(zoneId));
+        });
+    }
+
+    [Test]
+    public async Task DeleteItem_RouteRegistrationFails_Returns500()
+    {
+        var itemNodeId = Guid.NewGuid();
+        var zoneId = Guid.NewGuid();
+        var parentId = Guid.NewGuid();
+
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>())
+            .Returns(Item(itemNodeId, zoneId));
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(parentId);
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, parentId, false, Arg.Any<CancellationToken>())
+            .Returns((false, "boom"));
+
+        var result = await _controller.DeleteItem(itemNodeId, default);
+
+        var objectResult = (ObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(objectResult.StatusCode, Is.EqualTo(500));
+            Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("boom"));
+        });
+    }
+
+    [Test]
+    public async Task DeleteItem_ItemMissing_SkipsRouteCall_ReturnsNotFound()
+    {
+        var itemNodeId = Guid.NewGuid();
+
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+        _service.RemoveItemAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(false);
+
+        var result = await _controller.DeleteItem(itemNodeId, default);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+        await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 }
 

@@ -36,6 +36,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             var homePage = new PageDTO
             {
                 ConfigurationJson = "{}",
+                ControllerName = "GenericPage",
                 Version = new ContentVersion
                 {
                     Title = "Home",
@@ -75,6 +76,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         {
             ConfigurationJson = "{}",
             ViewName = "Dashboard",
+            ControllerName = "GenericAdminPage",
             Version = new ContentVersion
             {
                 Title = "Dashboard",
@@ -115,7 +117,10 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             OwningContentType = owningContentType
         };
 
-        await _routeService.UpsertAsync(route, ct);
-        logger.Information("Created default {Label} route at pattern '{Pattern}'", label, pattern);
+        var result = await _routeService.UpsertAsync(route, ct);
+        if (result.Success)
+            logger.Information("Created default {Label} route at pattern '{Pattern}'", label, pattern);
+        else
+            logger.Warning("Failed to create default {Label} route at pattern '{Pattern}': {ErrorMessage}", label, pattern, result.ErrorMessage);
     }
 }

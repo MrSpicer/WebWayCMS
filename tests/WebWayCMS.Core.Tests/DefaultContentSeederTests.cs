@@ -29,6 +29,8 @@ public class DefaultContentSeederTests
             .Returns(new ContentWriteResult(true))
             .AndDoes(c => c.Arg<PageDTO>().Version.Node = new ContentNode { Id = Guid.NewGuid() });
         _pageStore.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
     }
 
     [Test]
@@ -56,7 +58,8 @@ public class DefaultContentSeederTests
 
         await _seeder.SeedDefaultPagesAsync(false);
 
-        await _pageStore.Received(1).SaveDraftAsync(Arg.Any<PageDTO>(), null, Arg.Any<CancellationToken>());
+        await _pageStore.Received(1).SaveDraftAsync(
+            Arg.Is<PageDTO>(p => p.ControllerName == "GenericPage"), null, Arg.Any<CancellationToken>());
         await _pageStore.Received(1).PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/"), Arg.Any<CancellationToken>());
     }
@@ -94,7 +97,8 @@ public class DefaultContentSeederTests
 
         await _seeder.SeedDefaultPagesAsync(true);
 
-        await _pageStore.Received(1).SaveDraftAsync(Arg.Any<PageDTO>(), null, Arg.Any<CancellationToken>());
+        await _pageStore.Received(1).SaveDraftAsync(
+            Arg.Is<PageDTO>(p => p.ControllerName == "GenericAdminPage"), null, Arg.Any<CancellationToken>());
         await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
     }
 
@@ -126,5 +130,33 @@ public class DefaultContentSeederTests
         {
             Environment.SetEnvironmentVariable("WEBWAYCMS_SKIP_DEFAULTPAGE", previous);
         }
+    }
+
+    [Test]
+    public async Task SeedDefaultPages_RouteUpsertFails_LogsWarningAndCompletesWithoutThrowing()
+    {
+        _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(null));
+        StubSaveToAssignNode();
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "boom", null));
+
+        Assert.That(async () => await _seeder.SeedDefaultPagesAsync(false), Throws.Nothing);
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/"), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SeedDefaultPages_AdminPageRouteUpsertFails_LogsWarningAndCompletesWithoutThrowing()
+    {
+        _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(null));
+        StubSaveToAssignNode();
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "boom", null));
+
+        Assert.That(async () => await _seeder.SeedDefaultPagesAsync(true), Throws.Nothing);
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
     }
 }

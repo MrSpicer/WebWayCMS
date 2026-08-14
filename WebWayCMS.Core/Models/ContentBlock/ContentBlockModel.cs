@@ -77,6 +77,15 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
 
+    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+    {
+        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
+        if (loaded == null) return null;
+        var vm = _mapper.Map<ContentBlockUpsertViewModel>(loaded.Value.Historical);
+        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
+        return vm;
+    }
+
     public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => DeleteVersionCoreAsync(id, ct);
 

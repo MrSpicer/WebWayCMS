@@ -9,6 +9,9 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
     public string? ParentRoutePrefix { get; set; }
 
+    [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
+    public Guid? ParentNodeId { get; set; }
+
     [Required]
     [FormProperty(Label = "Page Controller", EditorType = EditorType.PageControllerPicker, IsRequired = true, Order = 3,
         HelpText = "The page type determines what the page renders and what configuration options are available.",

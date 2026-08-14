@@ -13,6 +13,8 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed class ContentZoneService : IContentZoneService
 {
+    private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<ContentZoneService>();
+
     private readonly CmsDbContext _context;
     private readonly IContentStore<ContentZoneDTO> _zoneStore;
     private readonly IContentStore<ContentZoneItemDTO> _itemStore;
@@ -75,45 +77,12 @@ public sealed class ContentZoneService : IContentZoneService
         var assignment = await GetByPageSlotAsync(pageNodeId, slotName, ct);
         if (assignment != null)
         {
-            var zone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+            var zone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
             if (zone != null)
                 return (zone, assignment);
         }
 
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            assignment = await _context.Set<ContentZoneAssignmentDTO>()
-                .FirstOrDefaultAsync(a => a.ParentPageNodeId == pageNodeId && a.SlotName == slotName, ct);
-
-            if (assignment != null)
-            {
-                var existingZone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
-                await transaction.RollbackAsync(ct);
-                return (existingZone ?? NewZone(slotName), assignment);
-            }
-
-            var zone = await CreatePublishedZoneAsync(slotName, ct);
-            var newAssignment = new ContentZoneAssignmentDTO
-            {
-                Id = Guid.NewGuid(),
-                SlotName = slotName,
-                ContentZoneNodeId = zone.Version.Node!.Id,
-                ContentZoneNode = zone.Version.Node,
-                ParentPageNodeId = pageNodeId,
-                ParentZoneNodeId = null
-            };
-            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
-            await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            return (zone, newAssignment);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+        return await ResolveOrCreateAssignmentAsync(pageNodeId, null, slotName, assignment, ct);
     }
 
     public async Task<ContentZoneAssignmentDTO?> GetByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
@@ -128,57 +97,24 @@ public sealed class ContentZoneService : IContentZoneService
         var assignment = await GetByZoneSlotAsync(parentZoneNodeId, slotName, ct);
         if (assignment != null)
         {
-            var zone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
+            var zone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
             if (zone != null)
                 return (zone, assignment);
         }
 
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            assignment = await _context.Set<ContentZoneAssignmentDTO>()
-                .FirstOrDefaultAsync(a => a.ParentZoneNodeId == parentZoneNodeId && a.SlotName == slotName, ct);
-
-            if (assignment != null)
-            {
-                var existingZone = await _zoneStore.GetAsync(assignment.ContentZoneNodeId, ct);
-                await transaction.RollbackAsync(ct);
-                return (existingZone ?? NewZone(slotName), assignment);
-            }
-
-            var zone = await CreatePublishedZoneAsync(slotName, ct);
-            var newAssignment = new ContentZoneAssignmentDTO
-            {
-                Id = Guid.NewGuid(),
-                SlotName = slotName,
-                ContentZoneNodeId = zone.Version.Node!.Id,
-                ContentZoneNode = zone.Version.Node,
-                ParentPageNodeId = null,
-                ParentZoneNodeId = parentZoneNodeId
-            };
-            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
-            await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            return (zone, newAssignment);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+        return await ResolveOrCreateAssignmentAsync(null, parentZoneNodeId, slotName, assignment, ct);
     }
 
     public async Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default)
     {
-        var zone = await GetZoneByNameAsync(name, ct);
+        var zone = await GetZoneByNameIncludingDraftsAsync(name, ct);
         if (zone != null)
             return zone;
 
         using var transaction = await _context.Database.BeginTransactionAsync(ct);
         try
         {
-            zone = await GetZoneByNameAsync(name, ct);
+            zone = await GetZoneByNameIncludingDraftsAsync(name, ct);
             if (zone != null)
             {
                 await transaction.RollbackAsync(ct);
@@ -384,6 +320,65 @@ public sealed class ContentZoneService : IContentZoneService
 
     // ─── helpers ──────────────────────────────────────────────────────────────
 
+    private async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> ResolveOrCreateAssignmentAsync(
+        Guid? parentPageNodeId, Guid? parentZoneNodeId, string slotName,
+        ContentZoneAssignmentDTO? assignment, CancellationToken ct)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            assignment = parentPageNodeId.HasValue
+                ? await _context.Set<ContentZoneAssignmentDTO>()
+                    .FirstOrDefaultAsync(a => a.ParentPageNodeId == parentPageNodeId.Value && a.SlotName == slotName, ct)
+                : await _context.Set<ContentZoneAssignmentDTO>()
+                    .FirstOrDefaultAsync(a => a.ParentZoneNodeId == parentZoneNodeId!.Value && a.SlotName == slotName, ct);
+
+            if (assignment != null)
+            {
+                var existingZone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
+                if (existingZone != null)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return (existingZone, assignment);
+                }
+
+                // Dangling assignment: the zone it points to no longer exists. Create a real zone and
+                // repoint the assignment instead of handing back an unpersisted Guid.Empty zone.
+                _logger.Warning(
+                    "Content zone assignment {AssignmentId} pointed at missing zone {StaleZoneNodeId} for slot '{SlotName}'; repairing.",
+                    assignment.Id, assignment.ContentZoneNodeId, slotName);
+
+                var repairedZone = await CreatePublishedZoneAsync(slotName, ct);
+                assignment.ContentZoneNodeId = repairedZone.Version.Node!.Id;
+                assignment.ContentZoneNode = repairedZone.Version.Node;
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+                return (repairedZone, assignment);
+            }
+
+            var zone = await CreatePublishedZoneAsync(slotName, ct);
+            var newAssignment = new ContentZoneAssignmentDTO
+            {
+                Id = Guid.NewGuid(),
+                SlotName = slotName,
+                ContentZoneNodeId = zone.Version.Node!.Id,
+                ContentZoneNode = zone.Version.Node,
+                ParentPageNodeId = parentPageNodeId,
+                ParentZoneNodeId = parentZoneNodeId
+            };
+            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
+            await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            return (zone, newAssignment);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
     public async Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
     {
         var assignments = await _context.Set<ContentZoneAssignmentDTO>()
@@ -400,6 +395,23 @@ public sealed class ContentZoneService : IContentZoneService
             await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
 
         return await _zoneStore.DeleteAsync(zoneNodeId, softDelete: false, ct);
+    }
+
+    private async Task<ContentZoneDTO?> ResolveZoneAsync(Guid zoneNodeId, CancellationToken ct)
+        => await _zoneStore.GetAsync(zoneNodeId, ct)
+        ?? await _zoneStore.GetCurrentDraftAsync(zoneNodeId, ct);
+
+    private async Task<ContentZoneDTO?> GetZoneByNameIncludingDraftsAsync(string name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var published = await GetZoneByNameAsync(name, ct);
+        if (published != null)
+            return published;
+
+        var drafts = await _zoneStore.GetAllCurrentDraftsAsync(ct) ?? [];
+        return drafts.FirstOrDefault(z => z.Name == name);
     }
 
     private async Task<ContentZoneDTO> CreatePublishedZoneAsync(string name, CancellationToken ct)

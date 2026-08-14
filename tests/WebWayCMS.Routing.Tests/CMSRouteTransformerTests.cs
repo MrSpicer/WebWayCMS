@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Http;
@@ -35,6 +36,14 @@ public class CMSRouteTransformerTests
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
+        return context;
+    }
+
+    private static HttpContext CreatePreviewHttpContext(string path, params string[] roles)
+    {
+        var context = CreateHttpContext(path);
+        var identity = new ClaimsIdentity(roles.Select(r => new Claim(ClaimTypes.Role, r)), "Test");
+        context.User = new ClaimsPrincipal(identity);
         return context;
     }
 
@@ -238,7 +247,7 @@ public class CMSRouteTransformerTests
         var pageInfo = new PageControllerInfo { Name = "MyPage" };
         _registry.GetByName("MyPage").Returns(pageInfo);
 
-        var pageDto = new PageDTO();
+        var pageDto = new PageDTO { ControllerName = "MyPage" };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
             .Returns(pageDto);
 
@@ -278,7 +287,7 @@ public class CMSRouteTransformerTests
 
         _registry.GetByName("MyWidget").Returns(new PageControllerInfo { Name = "MyWidget" });
 
-        var pageDto = new PageDTO();
+        var pageDto = new PageDTO { ControllerName = "MyWidget" };
         _pageStore.GetAsync(parentPageNodeId, Arg.Any<CancellationToken>())
             .Returns(pageDto);
 
@@ -353,6 +362,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = configJson
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -383,6 +393,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = "{ invalid json"
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -411,6 +422,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = null!
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -439,6 +451,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = "{}"
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -467,6 +480,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = ""
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -514,6 +528,7 @@ public class CMSRouteTransformerTests
 
         var pageDto = new PageDTO
         {
+            ControllerName = "Configured",
             ConfigurationJson = "null"
         };
         _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>())
@@ -756,5 +771,199 @@ public class CMSRouteTransformerTests
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
         Assert.That(result, Is.Not.Null);
+    }
+
+    // ─── preview path ─────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task TransformAsync_Preview_ResolvesNeverPublishedDraft()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+
+        var page = new PageDTO { ControllerName = "MyPage", ConfigurationJson = "{}" };
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result!["controller"], Is.EqualTo("MyPage"));
+            Assert.That(result["action"], Is.EqualTo("Index"));
+            Assert.That(context.Items[CMSRouteTransformer.PageDataItemKey], Is.SameAs(page));
+            Assert.That(context.Items["CMS:RouteData"], Is.TypeOf<CMSRouteDTO>());
+        });
+        await _routeService.DidNotReceive().MatchRouteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_EditorRole_Resolves()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Editor");
+
+        var page = new PageDTO { ControllerName = "MyPage", ConfigurationJson = "{}" };
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!["controller"], Is.EqualTo("MyPage"));
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_WithConfiguration_SetsConfig()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+
+        var page = new PageDTO { ControllerName = "Configured", ConfigurationJson = "{\"Title\":\"Hello\"}" };
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("Configured").Returns(new PageControllerInfo
+        {
+            Name = "Configured",
+            ConfigurationType = typeof(SamplePageConfig)
+        });
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Not.Null);
+        var config = context.Items[CMSRouteTransformer.PageConfigItemKey] as SamplePageConfig;
+        Assert.That(config, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_Unauthenticated_ReturnsNull()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreateHttpContext($"/_preview/{nodeId}");
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_NonAdminOrEditor_ReturnsNull()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Viewer");
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_PageNotFound_ReturnsNull()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_ControllerNotFound_ReturnsNull()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+        var page = new PageDTO { ControllerName = "Missing", ConfigurationJson = "{}" };
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("Missing").Returns((PageControllerInfo?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_MalformedNodeId_FallsThrough()
+    {
+        var context = CreateHttpContext("/_preview/not-a-guid");
+        _routeService.MatchRouteAsync("/_preview/not-a-guid", Arg.Any<CancellationToken>()).Returns((CMSRouteMatchResult?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+        await _pageStore.DidNotReceive().GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_ExtraSegment_FallsThrough()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreateHttpContext($"/_preview/{nodeId}/extra");
+        _routeService.MatchRouteAsync($"/_preview/{nodeId}/extra", Arg.Any<CancellationToken>()).Returns((CMSRouteMatchResult?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+        await _pageStore.DidNotReceive().GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TransformAsync_PageOwner_StashesConfigViaSharedHelper()
+    {
+        var context = CreateHttpContext();
+        var pageNodeId = Guid.NewGuid();
+        var configJson = "{\"Title\":\"Hello\",\"PageSize\":10}";
+        var match = CreateMatchResult("Page", "Configured", owningContentNodeId: pageNodeId);
+        _routeService.MatchRouteAsync("/test", Arg.Any<CancellationToken>()).Returns(match);
+
+        _registry.GetByName("Configured").Returns(new PageControllerInfo
+        {
+            Name = "Configured",
+            ConfigurationType = typeof(SamplePageConfig)
+        });
+
+        var pageDto = new PageDTO { ControllerName = "Configured", ConfigurationJson = configJson };
+        _pageStore.GetAsync(pageNodeId, Arg.Any<CancellationToken>()).Returns(pageDto);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.Null);
+            Assert.That(context.Items[CMSRouteTransformer.PageDataItemKey], Is.SameAs(pageDto));
+            var config = context.Items[CMSRouteTransformer.PageConfigItemKey] as SamplePageConfig;
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Title, Is.EqualTo("Hello"));
+            Assert.That(config.PageSize, Is.EqualTo(10));
+        });
+    }
+
+    [Test]
+    public async Task ResolvePreviewAsync_StashesConfigViaSharedHelper()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+        var configJson = "{\"Title\":\"Hello\",\"PageSize\":10}";
+
+        var page = new PageDTO { ControllerName = "Configured", ConfigurationJson = configJson };
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("Configured").Returns(new PageControllerInfo
+        {
+            Name = "Configured",
+            ConfigurationType = typeof(SamplePageConfig)
+        });
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.Null);
+            Assert.That(context.Items[CMSRouteTransformer.PageDataItemKey], Is.SameAs(page));
+            var config = context.Items[CMSRouteTransformer.PageConfigItemKey] as SamplePageConfig;
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Title, Is.EqualTo("Hello"));
+            Assert.That(config.PageSize, Is.EqualTo(10));
+        });
     }
 }

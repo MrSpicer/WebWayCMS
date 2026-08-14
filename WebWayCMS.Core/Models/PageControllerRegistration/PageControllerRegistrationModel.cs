@@ -163,12 +163,13 @@ public sealed class PageControllerRegistrationModel : AdminCrudModel<PageControl
 
     public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
     {
-        var historical = await _store.GetVersionAsync(historicalId, ct);
-        if (historical == null) return null;
+        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
+        if (loaded == null) return null;
+        var historical = loaded.Value.Historical;
         return new PageControllerRegistrationUpsertViewModel
         {
             NodeId = historical.Version.Node.Id,
-            ExpectedVersionNumber = historical.Version.VersionNumber,
+            ExpectedVersionNumber = loaded.Value.CurrentVersionNumber,
             Title = historical.Version.Title,
             Slug = historical.Version.Slug,
             ControllerName = historical.ControllerName,

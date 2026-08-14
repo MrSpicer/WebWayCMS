@@ -35,7 +35,7 @@ public class RouteRegistrationServiceTests
     public async Task RegisterContentRoutesAsync_ValidPattern_CreatesRoute()
     {
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await _service.RegisterContentRoutesAsync(
             new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid());
@@ -58,34 +58,40 @@ public class RouteRegistrationServiceTests
     }
 
     [Test]
-    public async Task TryRegisterWidgetRoutesAsync_Inactive_DeletesRoutes()
+    public async Task TryRegisterWidgetRoutesAsync_Inactive_ReturnsSuccessTuple()
     {
-        await _service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), Guid.NewGuid(), false);
+        var result = await _service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), Guid.NewGuid(), false);
 
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.ErrorMessage, Is.Null);
         await _routeService.Received(1).DeleteByOwningContentAsync(
             Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task TryRegisterWidgetRoutesAsync_NoParentPageNode_ReturnsEarly()
+    public async Task TryRegisterWidgetRoutesAsync_NoParentPageNode_ReturnsSuccessTuple()
     {
-        await _service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), null, true);
+        var result = await _service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), null, true);
 
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.ErrorMessage, Is.Null);
         await _routeService.DidNotReceive().GetByOwningContentAsync(
             Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task TryRegisterWidgetRoutesAsync_NoMatchingWidget_ReturnsEarly()
+    public async Task TryRegisterWidgetRoutesAsync_NoMatchingWidget_ReturnsSuccessTuple()
     {
-        await _service.TryRegisterWidgetRoutesAsync("NonExistent", Guid.NewGuid(), Guid.NewGuid(), true);
+        var result = await _service.TryRegisterWidgetRoutesAsync("NonExistent", Guid.NewGuid(), Guid.NewGuid(), true);
 
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.ErrorMessage, Is.Null);
         await _routeService.DidNotReceive().GetByOwningContentAsync(
             Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task TryRegisterWidgetRoutesAsync_NoPageRoute_ReturnsEarly()
+    public async Task TryRegisterWidgetRoutesAsync_NoPageRoute_ReturnsSuccessTuple()
     {
         var routable = Substitute.For<IRoutableViewComponent>();
         routable.ComponentName.Returns("Article");
@@ -94,10 +100,57 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO>());
 
-        await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
+        var result = await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.ErrorMessage, Is.Null);
         await routable.DidNotReceive().GenerateRoutesAsync(
             Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TryRegisterWidgetRoutesAsync_RegistrationFails_PropagatesFailureTuple()
+    {
+        var routable = Substitute.For<IRoutableViewComponent>();
+        routable.ComponentName.Returns("Article");
+        routable.GenerateRoutesAsync("/page", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/article" } });
+
+        var service = new RouteRegistrationService(_routeService, new[] { routable });
+        var pageRoute = new CMSRouteDTO { Pattern = "/page", DefaultsJson = "{}" };
+        _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { pageRoute });
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "collision", null));
+
+        var result = await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
+        });
+    }
+
+    [Test]
+    public async Task RegisterWidgetRoutesAsync_ExistingStaleRouteForOwner_DeletedBeforeReRegistering()
+    {
+        var routable = Substitute.For<IRoutableViewComponent>();
+        routable.ComponentName.Returns("Article");
+        routable.GenerateRoutesAsync("/page", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/article" } });
+
+        var service = new RouteRegistrationService(_routeService, new[] { routable });
+        var contentZoneItemNodeId = Guid.NewGuid();
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        var result = await service.RegisterWidgetRoutesAsync(
+            routable, contentZoneItemNodeId, "/page", "{}", Guid.NewGuid());
+
+        Assert.That(result.Success, Is.True);
+        await _routeService.Received(1).DeleteByOwningContentAsync(
+            contentZoneItemNodeId, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -116,7 +169,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -125,6 +178,72 @@ public class RouteRegistrationServiceTests
         await _routeService.Received(1).UpsertAsync(
             Arg.Is<CMSRouteDTO>(r => r.Pattern == "/page/article"),
             Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TryRegisterWidgetRoutesAsync_MultiRouteWidget_UpsertsAllRoutes()
+    {
+        var routable = Substitute.For<IRoutableViewComponent>();
+        routable.ComponentName.Returns("Article");
+        routable.GenerateRoutesAsync("/page", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO>
+            {
+                new() { Pattern = "/a" },
+                new() { Pattern = "/b" }
+            });
+
+        var service = new RouteRegistrationService(_routeService, new[] { routable });
+        var pageRoute = new CMSRouteDTO { Pattern = "/page", DefaultsJson = "{}" };
+        _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { pageRoute });
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
+
+        await _routeService.Received(2).UpsertAsync(
+            Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RegisterContentRoutesAsync_UpsertFailure_Propagates()
+    {
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "collision", null));
+
+        var result = await _service.RegisterContentRoutesAsync(
+            new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
+        });
+    }
+
+    [Test]
+    public async Task RegisterWidgetRoutesAsync_UpsertFailure_Propagates()
+    {
+        var routable = Substitute.For<IRoutableViewComponent>();
+        routable.ComponentName.Returns("Article");
+        routable.GenerateRoutesAsync("/page", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/article" } });
+
+        var service = new RouteRegistrationService(_routeService, new[] { routable });
+        var pageRoute = new CMSRouteDTO { Pattern = "/page", DefaultsJson = "{}" };
+        _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { pageRoute });
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "collision", null));
+
+        var result = await service.RegisterWidgetRoutesAsync(
+            routable, Guid.NewGuid(), "/page", "{}", Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
+        });
     }
 
     [Test]
@@ -143,7 +262,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -168,7 +287,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -193,7 +312,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -218,7 +337,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -243,7 +362,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Widget", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -268,7 +387,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -292,7 +411,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -316,7 +435,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -340,7 +459,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -365,7 +484,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -389,7 +508,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -471,7 +590,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 
@@ -495,7 +614,7 @@ public class RouteRegistrationServiceTests
         _routeService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { pageRoute });
         _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
-            .Returns(x => x.Arg<CMSRouteDTO>());
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         await service.TryRegisterWidgetRoutesAsync("Article", Guid.NewGuid(), Guid.NewGuid(), true);
 

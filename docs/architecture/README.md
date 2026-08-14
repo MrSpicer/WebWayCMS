@@ -92,10 +92,10 @@ Project references between them (nothing else — dependencies only flow downwar
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Data Tier                                                          │
-│  IContent (has-a ContentDTO) ← PageDTO · ArticleDTO · CMSRouteDTO   │
-│    · WidgetRegistrationDTO · PageControllerRegistrationDTO · etc.   │
+│  IVersionedContent (has-a ContentVersion) ← PageDTO · ArticleDTO    │
+│    · CMSRouteDTO · WidgetRegistrationDTO · ...                      │
 │  CmsDbContext (one context, IEntityTypeConfiguration<T> per entity) │
-│  IContentService<T> · IPageService · IContentZoneService            │
+│  IContentStore<T> · IContentZoneService                             │
 │  ICMSRouteService · IWidgetRegistrationService                      │
 │  IPageControllerRegistrationService                                 │
 └─────────────────────────────────────────────────────────────────────┘
@@ -115,7 +115,7 @@ Project references between them (nothing else — dependencies only flow downwar
 ## Area Summaries
 
 ### [Area 1: Data Tier](01-data-tier.md)
-A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. It declares no `DbSet`s — entities are discovered through `IEntityTypeConfiguration<T>` classes and reached via `Set<T>()`. The shared `ContentDTO` (composed via `IContent`, persisted to one `Content` table) defines the universal versioning pattern (Id/MasterId/Version). `IContentService<T>` provides generic versioned CRUD; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation; `ICMSRouteService` owns URL patterns.
+A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. It declares no `DbSet`s — entities are discovered through `IEntityTypeConfiguration<T>` classes and reached via `Set<T>()`. Identity (`ContentNode`) is split from version (`ContentVersion`); content types compose a `ContentVersion` via `IVersionedContent`. `IContentStore<T>` provides generic versioned CRUD; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation; `ICMSRouteService` owns URL patterns.
 
 ### [Area 2: Form Generation & Configuration Metadata](02-form-generation.md)
 Pure-reflection subsystem that drives all admin form rendering from C# attributes. `[FormProperty]` decorates config class properties with editor type, validation hints, and layout options. `FormPropertyBuilder` reflects these into `List<FormPropertyInfo>`. `FormFieldsTagHelper` (`<form-fields for="@Model">`) renders Bulma-styled HTML from that list — no per-type Razor form boilerplate needed.

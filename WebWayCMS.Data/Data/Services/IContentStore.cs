@@ -21,7 +21,10 @@ public interface IContentStore<T> where T : class, IVersionedContent
 
     // current-draft reads (admin editing/listing)
     Task<T?> GetCurrentDraftAsync(Guid nodeId, CancellationToken ct = default);
+    Task<T?> GetCurrentDraftBySlugAsync(string slug, CancellationToken ct = default);
     Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default);
+    Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default);
+    Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default);
 
     // writes
     Task<ContentWriteResult> SaveDraftAsync(T entity, int? expectedVersionNumber, CancellationToken ct = default);

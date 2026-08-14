@@ -9,6 +9,9 @@ public sealed class CMSRouteUpsertViewModel
     [FormProperty(EditorType = EditorType.Hidden, FormComponent = "Hidden")]
     public Guid? Id { get; set; }
 
+    [FormProperty(EditorType = EditorType.Hidden, FormComponent = "Hidden")]
+    public Guid? OwningContentNodeId { get; set; }
+
     [Required]
     [FormProperty(Label = "Pattern", EditorType = EditorType.Text, IsRequired = true, Order = 2,
         Placeholder = "/about or /blog/{slug}",

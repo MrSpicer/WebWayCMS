@@ -220,6 +220,8 @@ public class CMSRouteModelTests
         };
 
         _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         var (success, error) = await _model.SaveRouteUpsertAsync(vm);
 
@@ -241,6 +243,8 @@ public class CMSRouteModelTests
         };
 
         _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), id, Arg.Any<CancellationToken>()).Returns(true);
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         var (success, _) = await _model.SaveRouteUpsertAsync(vm);
 
@@ -260,6 +264,8 @@ public class CMSRouteModelTests
         var vm = new CMSRouteUpsertViewModel { Pattern = "/test" };
 
         _routeService.IsPatternAvailableAsync("/test", Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
 
         var result = await _model.SaveUpsertAsync(vm);
 

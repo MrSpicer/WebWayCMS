@@ -234,6 +234,40 @@ public class ContentZoneServiceTests
     }
 
     [Test]
+    public async Task GetOrCreateByPageSlotAsync_UnpublishedZone_FoundViaDraftLookup()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main", state: ContentVersionState.Draft));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+
+        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageNodeId, "Main");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(zone.Version.Node.Id, Is.EqualTo(zoneNodeId));
+            Assert.That(assignment.ContentZoneNodeId, Is.EqualTo(zoneNodeId));
+        });
+    }
+
+    [Test]
+    public async Task GetOrCreateByPageSlotAsync_DanglingAssignment_RepairsAndRepoints()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+
+        var (zone, assignment) = await NewService().GetOrCreateByPageSlotAsync(pageNodeId, "Main");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(zone.Version.Node.Id, Is.Not.EqualTo(Guid.Empty));
+            Assert.That(zone.Version.Node.Id, Is.Not.EqualTo(zoneNodeId));
+            Assert.That(assignment.ContentZoneNodeId, Is.EqualTo(zone.Version.Node.Id));
+        });
+    }
+
+    [Test]
     public async Task GetOrCreateByPageSlotAsync_ZoneBecomesAvailableInTransaction_ReturnsZone()
     {
         var ctx = NewContext();
@@ -385,6 +419,17 @@ public class ContentZoneServiceTests
             Assert.That(zone.Name, Is.EqualTo("Fresh"));
             Assert.That(zone.Version.State, Is.EqualTo(ContentVersionState.Published));
         });
+    }
+
+    [Test]
+    public async Task GetOrCreateByNameAsync_UnpublishedZone_DoesNotDuplicate()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Global", state: ContentVersionState.Draft));
+
+        var zone = await NewService().GetOrCreateByNameAsync("Global");
+
+        Assert.That(zone.Version.Node.Id, Is.EqualTo(zoneNodeId));
     }
 
     [Test]

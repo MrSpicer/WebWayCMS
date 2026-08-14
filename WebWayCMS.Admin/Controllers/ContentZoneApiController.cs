@@ -76,6 +76,9 @@ public class ContentZoneApiController : ControllerBase
                 }
             }
 
+            if (zoneNodeId == Guid.Empty)
+                return BadRequest(new { error = "Could not resolve the content zone." });
+
             // Create or update the item
             if (request.ItemId.HasValue && request.ItemId.Value != Guid.Empty)
             {
@@ -98,9 +101,11 @@ public class ContentZoneApiController : ControllerBase
                 {
                     var pageNodeId = request.ParentPageNodeId
                         ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
-                    await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                    var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
                         item.ComponentName, existingItem.Version.Node.Id,
                         pageNodeId, item.IsActive, ct);
+                    if (!routeResult.Success)
+                        return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
                 }
 
                 return Ok(new { success = true, itemId = request.ItemId.Value, zoneId = zoneNodeId });
@@ -120,9 +125,11 @@ public class ContentZoneApiController : ControllerBase
 
                 var pageNodeId = request.ParentPageNodeId
                     ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
-                await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
                     item.ComponentName, createdItem.Version.Node!.Id,
                     pageNodeId, createdItem.IsActive, ct);
+                if (!routeResult.Success)
+                    return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
 
                 return Ok(new { success = true, itemId = createdItem.Version.Node.Id, zoneId = zoneNodeId });
             }
@@ -147,8 +154,10 @@ public class ContentZoneApiController : ControllerBase
             if (item != null)
             {
                 var pageNodeId = await _service.GetParentPageNodeForZoneAsync(item.ContentZoneNodeId, ct);
-                await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
                     item.ComponentName, item.Version.Node.Id, pageNodeId, false, ct);
+                if (!routeResult.Success)
+                    return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
             }
 
             var deleted = await _service.RemoveItemAsync(itemId, ct);

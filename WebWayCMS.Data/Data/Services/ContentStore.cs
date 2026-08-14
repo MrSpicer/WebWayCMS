@@ -97,15 +97,49 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
                                       && e.Version.Culture == string.Empty
                                       && e.Version.Segment == string.Empty
-                                      && e.Version.IsCurrentDraft, ct);
+                                      && e.Version.IsCurrentDraft
+                                      && !e.Version.Node.IsDeleted, ct);
+
+    public Task<T?> GetCurrentDraftBySlugAsync(string slug, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+            return Task.FromResult<T?>(null);
+        return _set.AsNoTracking()
+                   .FirstOrDefaultAsync(e => e.Version.Culture == string.Empty
+                                          && e.Version.Segment == string.Empty
+                                          && e.Version.IsCurrentDraft
+                                          && !e.Version.Node.IsDeleted
+                                          && e.Version.Slug == slug, ct);
+    }
 
     public Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default)
         => _set.AsNoTracking()
                .Where(e => e.Version.Culture == string.Empty
                         && e.Version.Segment == string.Empty
-                        && e.Version.IsCurrentDraft)
+                        && e.Version.IsCurrentDraft
+                        && !e.Version.Node.IsDeleted)
                .OrderByDescending(e => e.Version.CreatedUtc)
                .ToListAsync(ct);
+
+    public Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default)
+        => _set.AsNoTracking()
+               .Where(e => e.Version.Node.ParentNodeId == parentNodeId
+                        && e.Version.Culture == string.Empty
+                        && e.Version.Segment == string.Empty
+                        && e.Version.IsCurrentDraft
+                        && !e.Version.Node.IsDeleted)
+               .OrderByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
+    public Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default)
+        => _set.AsNoTracking()
+               .Where(e => e.Version.Culture == string.Empty
+                        && e.Version.Segment == string.Empty
+                        && e.Version.State == ContentVersionState.Published
+                        && !e.Version.Node.IsDeleted)
+               .Select(e => e.Version.NodeId)
+               .Distinct()
+               .ToHashSetAsync(ct);
 
     // ─── writes ───────────────────────────────────────────────────────────────
 
@@ -430,8 +464,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     {
         if (source == null) return;
         target.IsHidden = source.IsHidden;
-        target.IsArchived = source.IsArchived;
-        target.IsDeleted = source.IsDeleted;
+        target.ParentNodeId = source.ParentNodeId;
     }
 
     private static string NormalizeSlug(string? title, string slug)

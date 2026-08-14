@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using NSubstitute;
 
@@ -50,6 +51,23 @@ public class CMSRouteServiceTests
         OwningContentNodeId = owningContentNodeId,
         Order = order
     };
+
+    private sealed class ThrowingCmsDbContext : CmsDbContext
+    {
+        public ThrowingCmsDbContext(DbContextOptions<CmsDbContext> options) : base(options) { }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => throw new DbUpdateException("conflict", (Exception?)null);
+    }
+
+    private CMSRouteService NewThrowingService(string db)
+    {
+        var options = new DbContextOptionsBuilder<CmsDbContext>()
+            .UseInMemoryDatabase(db)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+        return new CMSRouteService(new ThrowingCmsDbContext(options), _registry);
+    }
 
     [Test]
     public void Constructor_NullContext_Throws()
@@ -252,6 +270,89 @@ public class CMSRouteServiceTests
         await using var verify = NewContext();
         var stored = await verify.Set<CMSRouteDTO>().SingleAsync(r => r.Id == presetId);
         Assert.That(stored.Id, Is.EqualTo(presetId));
+    }
+
+    [Test]
+    public async Task UpsertAsync_PatternRename_ReplacesOwnRow()
+    {
+        var owningNodeId = Guid.NewGuid();
+        var existing = RouteRow("/old", owningContentNodeId: owningNodeId, id: Guid.NewGuid());
+        await SeedAsync(existing);
+
+        var renamed = new CMSRouteDTO
+        {
+            Id = existing.Id,
+            Pattern = "/new",
+            OwningContentNodeId = owningNodeId
+        };
+
+        var result = await NewService().UpsertAsync(renamed);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.Route!.Id, Is.EqualTo(existing.Id));
+            var owned = await NewService().GetByOwningContentAsync(owningNodeId);
+            Assert.That(owned, Has.Count.EqualTo(1));
+            Assert.That(owned[0].Pattern, Is.EqualTo("/new"));
+        });
+    }
+
+    [Test]
+    public async Task UpsertAsync_ForeignOwnerCollision_ReturnsFailure()
+    {
+        var pageA = Guid.NewGuid();
+        var pageB = Guid.NewGuid();
+        await SeedAsync(RouteRow("/docs/child", owningContentNodeId: pageA));
+
+        var steal = new CMSRouteDTO { Pattern = "/docs/child", OwningContentNodeId = pageB };
+
+        var result = await NewService().UpsertAsync(steal);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.Not.Null);
+            Assert.That(await NewService().GetByOwningContentAsync(pageA), Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task UpsertAsync_ConcurrentInsertRaceLosesToUniqueIndex_ReturnsCollisionResult()
+    {
+        var service = NewThrowingService(_db);
+
+        var result = await service.UpsertAsync(new CMSRouteDTO { Pattern = "/test" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("This route pattern is already in use by another content item."));
+            Assert.That(result.Route, Is.Null);
+        });
+        _registry.DidNotReceive().Invalidate();
+    }
+
+    [Test]
+    public async Task UpsertAsync_SameOwnerDifferentPatterns_KeepsBoth()
+    {
+        var owner = Guid.NewGuid();
+
+        await NewService().UpsertAsync(new CMSRouteDTO { Pattern = "/a", OwningContentNodeId = owner });
+        await NewService().UpsertAsync(new CMSRouteDTO { Pattern = "/b", OwningContentNodeId = owner });
+
+        var routes = await NewService().GetByOwningContentAsync(owner);
+        Assert.That(routes, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task IsPatternAvailableAsync_NullOwnerRow_IsNotIgnored()
+    {
+        await SeedAsync(RouteRow("/test", owningContentNodeId: null));
+
+        var available = await NewService().IsPatternAvailableAsync("/test", excludeNodeId: Guid.NewGuid());
+
+        Assert.That(available, Is.False);
     }
 
     [Test]

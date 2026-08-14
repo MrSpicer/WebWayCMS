@@ -16,7 +16,7 @@ public interface ICMSRouteService
 
     Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeNodeId = null, Guid? excludeRouteId = null, CancellationToken ct = default);
 
-    Task<CMSRouteDTO> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default);
+    Task<(bool Success, string? ErrorMessage, CMSRouteDTO? Route)> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default);
 
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 

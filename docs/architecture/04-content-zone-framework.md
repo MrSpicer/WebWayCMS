@@ -23,8 +23,8 @@
 Content zones are named database-backed slots that appear in Razor views. Each zone holds an ordered list of *widget instances* — rows in `ContentZoneItems` that reference a ViewComponent by name and store a JSON configuration blob.
 
 Zones can be:
-- **Page-scoped** — tied to a specific page via `ContentZoneAssignments (ParentPageMasterId, SlotName)`
-- **Nested** — tied to a parent zone via `ContentZoneAssignments (ParentZoneId, SlotName)`
+- **Page-scoped** — tied to a specific page via `ContentZoneAssignments (ParentPageNodeId, SlotName)`
+- **Nested** — tied to a parent zone via `ContentZoneAssignments (ParentZoneNodeId, SlotName)`
 - **Global** — looked up by name only, shared across all pages
 
 Widgets are ViewComponents decorated with `[ContentZoneComponent]`. They receive their stored JSON configuration deserialized into a typed object.
@@ -62,7 +62,7 @@ await Component.InvokeAsync("ContentZone", new
 
 1. **Direct ID lookup** — if `zoneId` is provided, call `_model.GetViewModelByIdAsync(zoneId)` and skip all other steps
 2. **Nested zone** — if `ViewData["ContentZone:ParentZoneId"]` is set (a parent zone is rendering), call `_model.GetOrCreateViewModelByZoneSlotAsync(parentZoneId, zoneName)`
-3. **Page-scoped zone** — if `HttpContext.Items["CMS:PageData"]` is a `PageDTO` and `IsGlobal = false`, call `_model.GetOrCreateViewModelByPageSlotAsync(pageMasterId, zoneName)`
+3. **Page-scoped zone** — if `HttpContext.Items["CMS:PageData"]` is a `PageDTO` and `IsGlobal = false`, call `_model.GetOrCreateViewModelByPageSlotAsync(pageNodeId, zoneName)`
 4. **Global zone** — otherwise, call `_model.GetOrCreateViewModelAsync(zoneName)`
 
 If the resolved `ContentZoneViewModel` is `null`, an empty view model is constructed (zone exists conceptually but has no DB record yet).
@@ -73,11 +73,20 @@ If the resolved `ContentZoneViewModel` is `null`, an empty view model is constru
 
 Zones are created on demand. The first time a page is rendered in admin edit mode, `GetOrCreateByPageSlotAsync` runs inside a database transaction:
 
-1. Check if an assignment exists for `(pageMasterId, slotName)`
-2. If yes, return the existing zone
-3. If no, begin transaction → re-check (double-checked locking) → create `ContentZoneDTO` + `ContentZoneAssignmentDTO` atomically → commit
+1. Check if an assignment exists for `(pageNodeId, slotName)`
+2. If yes, resolve the zone **draft-aware** — `GetAsync` (published) then `GetCurrentDraftAsync`
+   (draft) — and return it. An *unpublished* zone is therefore found and reused, not silently
+   duplicated.
+3. If the assignment points at a zone that no longer exists (both lookups miss), the assignment is
+   **dangling** — create a real published zone and **repoint** the assignment to it. Get-or-create
+   never hands back an unpersisted zone with `Node.Id == Guid.Empty`.
+4. If no assignment exists, begin transaction → re-check (double-checked locking) → create
+   `ContentZoneDTO` + `ContentZoneAssignmentDTO` atomically → commit
 
-This means zones do not need to be seeded or pre-created. They appear in the database only when an admin first visits a page in edit mode. The same pattern applies to global zones (`GetOrCreateByNameAsync`) and nested zones (`GetOrCreateByZoneSlotAsync`).
+This means zones do not need to be seeded or pre-created. They appear in the database only when an
+admin first visits a page in edit mode. The same pattern applies to global zones
+(`GetOrCreateByNameAsync`, which also uses a draft-aware name lookup) and nested zones
+(`GetOrCreateByZoneSlotAsync`).
 
 ---
 
@@ -114,7 +123,7 @@ caches the result for **5 minutes**. `Invalidate()` drops the cache immediately 
 `WidgetRegistrationModel` calls it, so admin edits take effect at once.
 
 `GetActiveAsync` returns rows where `IsActive && IsPublished && !IsDeleted`, latest version per
-`MasterId`, ordered by Category → Order → DisplayName.
+`NodeId`, ordered by Category → Order → DisplayName.
 
 **Interface:**
 ```csharp

@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.Controllers.Admin.Handlers;
-using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Controllers.Admin;
@@ -15,12 +14,10 @@ public class AdminContentController : Controller
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();
 
     private readonly IAdminHandlerRegistry _registry;
-    private readonly ICMSRouteService _routeService;
 
-    public AdminContentController(IAdminHandlerRegistry registry, ICMSRouteService routeService)
+    public AdminContentController(IAdminHandlerRegistry registry)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-        _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -164,6 +161,7 @@ public class AdminContentController : Controller
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
+        if (!handler.SupportsPreview) return NotFound();
 
         Response.Cookies.Append(PreviewConstants.CookieName, PreviewConstants.CookieValue, new CookieOptions
         {
@@ -173,8 +171,7 @@ public class AdminContentController : Controller
             Expires = DateTimeOffset.UtcNow.AddMinutes(5)
         });
 
-        var route = (await _routeService.GetByOwningContentAsync(nodeId, ct)).FirstOrDefault();
-        return Redirect(route?.Pattern ?? "/");
+        return Redirect($"/_preview/{nodeId}");
     }
 
     // ─── API list endpoints ────────────────────────────────────────────────────

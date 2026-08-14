@@ -62,8 +62,10 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
             return (false, "This route pattern is already in use.");
 
         var dto = _mapper.Map<CMSRouteDTO>(model);
-        await _routeService.UpsertAsync(dto, ct);
-        return (true, null);
+        var result = await _routeService.UpsertAsync(dto, ct);
+        return result.Success
+            ? (true, null)
+            : (false, result.ErrorMessage ?? "Failed to save route.");
     }
 
     public async Task<bool> DeleteRouteAsync(Guid id, CancellationToken ct = default)

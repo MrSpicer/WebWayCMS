@@ -22,7 +22,7 @@ The page system drives dynamic URL routing — every database-managed page is di
 ## System Overview
 
 Routing is database-backed. A page's URL is a row in the `CMSRoutes` table, derived from the page's
-**Slug** and written whenever the page is saved.
+**Slug** (plus `ContentNode.ParentNodeId`) and written when the page is **published** — never on save.
 
 On every request, `CMSRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all
 route `{**slug}` registered by the CMS inside `UseWebWayCms()`. It:
@@ -30,7 +30,7 @@ route `{**slug}` registered by the CMS inside `UseWebWayCms()`. It:
 1. Normalises the request path (lowercase, strips a trailing slash).
 2. Matches the path against the active `CMSRoutes` patterns via `ICMSRouteService.MatchRouteAsync`, ordered by `Order`. First match wins; reserved routes are skipped.
 3. Reads `controller` (required) and `action` (default `"Index"`) from the matched route's `DefaultsJson`, and resolves the controller against `IPageControllerRegistry`.
-4. Loads the owning page (via the route's `OwningContentMasterId`) and deserialises the config from the page record's `ConfigurationJson` column into the controller's declared config type, storing both the `PageDTO` and the config object in `HttpContext.Items`.
+4. Loads the owning page (via the route's `OwningContentNodeId`) and deserialises the config from the page record's `ConfigurationJson` column into the controller's declared config type, storing both the `PageDTO` and the config object in `HttpContext.Items`.
 5. Returns `{ controller, action }` plus any route values captured by the pattern — ASP.NET Core dispatches to `{ControllerName}Controller.Index()`.
 
 The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage` (the `PageDTO`) and `PageConfig` (the typed config) as read-only properties backed by `HttpContext.Items`. The `Index()` action typically renders a Razor view with `PageConfig` as the model, and the view places one or more **ContentZones** for admin-managed widget regions.
@@ -48,7 +48,7 @@ The controller extends `PageControllerBase<TConfig>`, which exposes `CurrentPage
 | `PageControllerBase<TConfig>` | `WebWayCMS.Core/Controllers/PageControllerBase.cs` | Abstract base class; exposes `CurrentPage` and `PageConfig` |
 | `[PageController]` | `WebWayCMS.Forms/Attributes/PageControllerAttribute.cs` | Marks a controller as a page type; drives admin UI metadata |
 | `PageControllerRegistry` | `WebWayCMS.Routing/Pages/PageControllerRegistry.cs` | Caches page-type metadata loaded from the database |
-| `IRouteRegistrationService` | `WebWayCMS.Core/Services/RouteRegistrationService.cs` | Writes a page's route row on save; unpublishes it on unpublish |
+| `IRouteRegistrationService` | `WebWayCMS.Core/Services/RouteRegistrationService.cs` | Writes a page's route row on publish; hard-deletes it on unpublish |
 | `GenericPageController` | `WebWayCMS.Core/Controllers/GenericPageController.cs` | Built-in default page type; canonical implementation example |
 
 ---
@@ -177,31 +177,30 @@ protected TConfig PageConfig => HttpContext.Items["CMS:PageConfig"] as TConfig ?
 ```
 
 `PageDTO` is deliberately small — it carries only page-specific fields, plus the shared
-`ContentMeta`:
+`ContentVersion` (via `IVersionedContent`):
 
 | Property | Type | Description |
 |---|---|---|
-| `ContentId` | `Guid` | Shared primary key / FK into the `Content` table; equals `ContentMeta.Id` |
-| `ContentMeta` | `ContentDTO` | All shared fields (see below) |
+| `VersionId` | `Guid` | Shared primary key / FK into `ContentVersions`; equals `Version.Id` |
+| `Version` | `ContentVersion` | All shared fields (see below) |
 | `ViewName` | `string?` | Optional view override; when set, the controller renders this view instead of `Index` |
 | `ConfigurationJson` | `string` | Raw JSON for the page's controller configuration |
 
-Shared fields are read through `CurrentPage.ContentMeta`:
+Shared fields are read through `CurrentPage.Version` (or `CurrentPage.Version.Node`):
 
 | Property | Type | Description |
 |---|---|---|
-| `Id` | `Guid` | Primary key of this version |
-| `MasterId` | `Guid` | Stable identifier across all versions of the page |
+| `Node.Id` | `Guid` | Stable identifier across all versions of the page |
 | `Title` | `string` | Page title |
-| `Slug` | `string` | URL segment; the page's route pattern is derived from this |
-| `IsPublished` | `bool` | Publication state; unpublishing also unpublishes the page's route |
-| `IsHidden` | `bool` | Hidden from navigation but still accessible |
-| `Version` | `int` | Monotonically increasing version number |
+| `Slug` | `string` | URL segment; the page's route pattern is derived from this (plus `Node.ParentNodeId`) |
+| `State` | `ContentVersionState` | `Published`/`Draft`/`Archived`/…; the page's route is written on publish |
+| `Node.IsHidden` | `bool` | Hidden from navigation but still accessible |
+| `VersionNumber` | `int` | Monotonically increasing version number |
 
-There is **no `Route` or `ControllerName` on `PageDTO`** — both live on the page's `CMSRoutes` row
-(`Pattern`, and `controller` inside `DefaultsJson`). Read the matched row from
-`HttpContext.Items["CMS:RouteData"]` if a page type needs its own URL at runtime. For the full set
-of shared fields, see `ContentDTO` in [`docs/content-system.md`](content-system.md).
+There is **no `Route` on `PageDTO`** — the URL lives on the page's `CMSRoutes` row (`Pattern`), and
+`ControllerName` selects the page type. Read the matched row from `HttpContext.Items["CMS:RouteData"]`
+if a page type needs its own URL at runtime. For the full set of shared fields, see `ContentVersion`
+in [`docs/content-system.md`](content-system.md) and [architecture/01-data-tier.md](architecture/01-data-tier.md).
 
 **Route value access:** values captured by the route pattern are available as ordinary route values
 through `RouteData.Values`:
@@ -220,7 +219,7 @@ ContentZones are admin-managed widget regions. Invoke them from your view with:
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })
 ```
 
-Each zone name is scoped to the current page's `MasterId` automatically. For zones shared across all pages (e.g. a footer), pass `IsGlobal = true`:
+Each zone name is scoped to the current page's `NodeId` automatically. For zones shared across all pages (e.g. a footer), pass `IsGlobal = true`:
 
 ```cshtml
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Footer", IsGlobal = true })

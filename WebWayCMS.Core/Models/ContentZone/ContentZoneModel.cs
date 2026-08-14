@@ -293,12 +293,13 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
     {
-        var historical = await _zoneStore.GetVersionAsync(historicalId, ct);
-        if (historical == null) return null;
+        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
+        if (loaded == null) return null;
+        var historical = loaded.Value.Historical;
         return new ContentZoneUpsertViewModel
         {
             NodeId = historical.Version.Node.Id,
-            ExpectedVersionNumber = historical.Version.VersionNumber,
+            ExpectedVersionNumber = loaded.Value.CurrentVersionNumber,
             Title = historical.Version.Title,
             Slug = historical.Version.Slug,
             Name = historical.Name,
@@ -317,22 +318,27 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     private async Task<ContentZoneViewModel> MapToViewModelAsync(ContentZoneDTO zone, CancellationToken ct)
     {
-        var items = await _service.GetItemsAsync(zone.Version.Node.Id, ct);
         var vm = new ContentZoneViewModel
         {
             Id = zone.Version.Node.Id,
             Name = zone.Name,
-            ZoneObjects = items
-                .Select(i => new ContentZoneObject
-                {
-                    Id = i.Version.Node.Id,
-                    Ordinal = i.Ordinal,
-                    ZoneId = i.ContentZoneNodeId,
-                    ComponentName = i.ComponentName,
-                    ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson)
-                })
-                .ToList()
+            ZoneObjects = new List<ContentZoneObject>()
         };
+
+        if (zone.Version.Node.Id == Guid.Empty)
+            return vm;
+
+        var items = await _service.GetItemsAsync(zone.Version.Node.Id, ct);
+        vm.ZoneObjects = items
+            .Select(i => new ContentZoneObject
+            {
+                Id = i.Version.Node.Id,
+                Ordinal = i.Ordinal,
+                ZoneId = i.ContentZoneNodeId,
+                ComponentName = i.ComponentName,
+                ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson)
+            })
+            .ToList();
         return vm;
     }
 
@@ -544,11 +550,13 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
     {
         var historical = await _model.GetItemVersionAsync(historicalId, ct);
         if (historical == null) return null;
+        var current = await _model.GetItemByNodeIdAsync(historical.Version.Node.Id, ct);
+        if (current == null) return null;
         return new ContentZoneItemUpsertViewModel
         {
             NodeId = historical.Version.Node.Id,
             ContentZoneNodeId = historical.ContentZoneNodeId,
-            ExpectedVersionNumber = historical.Version.VersionNumber,
+            ExpectedVersionNumber = current.Version.VersionNumber,
             ComponentName = historical.ComponentName,
             ComponentPropertiesJson = historical.ComponentPropertiesJson,
             IsActive = historical.IsActive,

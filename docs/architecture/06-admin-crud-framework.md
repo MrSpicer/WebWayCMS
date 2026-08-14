@@ -61,8 +61,15 @@ public interface IAdminCrudHandler
     IAdminRegistryHandler? RegistryHandler { get; }
     IAdminCrudChildHandler? ChildHandler { get; }
 
+    bool SupportsPublishing => true;
+    bool SupportsPreview => false;
+    string[]? PublishRoles => WriteRoles;
+    Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default);
+    Task<AdminSaveResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default);
+    Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, CancellationToken ct = default);
+
     bool SupportsVersionHistory => false;
-    Task<VersionHistoryViewModel?> GetVersionHistoryViewModelAsync(Guid masterId, CancellationToken ct = default);
+    Task<VersionHistoryViewModel?> GetVersionHistoryViewModelAsync(Guid nodeId, CancellationToken ct = default);
     Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default);
     Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default);
 }
@@ -102,7 +109,7 @@ public interface IAdminCrudChildHandler
     Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default);
 
     bool SupportsVersionHistory => false;
-    Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid masterId, CancellationToken ct = default);
+    Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default);
     Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default);
     Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default);
 }
@@ -175,9 +182,18 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/wadmin/{contentType}/versions/{masterId:guid}` | `VersionHistory` |
-| GET | `/wadmin/{contentType}/versions/{masterId:guid}/edit/{id:guid}` | `VersionRestoreEdit` |
-| POST | `/wadmin/{contentType}/versions/{masterId:guid}/delete/{id:guid}` | `VersionDelete` |
+| GET | `/wadmin/{contentType}/versions/{nodeId:guid}` | `VersionHistory` |
+| GET | `/wadmin/{contentType}/versions/{nodeId:guid}/edit/{id:guid}` | `VersionRestoreEdit` |
+| POST | `/wadmin/{contentType}/versions/{nodeId:guid}/restore/{id:guid}` | `RestoreVersion` |
+| POST | `/wadmin/{contentType}/versions/{nodeId:guid}/delete/{id:guid}` | `VersionDelete` |
+
+**Publishing & preview:**
+
+| Method | Route | Action |
+|--------|-------|--------|
+| POST | `/wadmin/{contentType}/publish/{nodeId:guid}` | `Publish` |
+| POST | `/wadmin/{contentType}/unpublish/{nodeId:guid}` | `Unpublish` |
+| GET | `/wadmin/{contentType}/preview/{nodeId:guid}` | `Preview` — sets the preview cookie and redirects to `/_preview/{nodeId}` (gated on `SupportsPreview`) |
 
 **Child CRUD:**
 
@@ -194,9 +210,9 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}` | `ChildVersionHistory` |
-| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/edit/{id:guid}` | `ChildVersionRestoreEdit` |
-| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{masterId:guid}/delete/{id:guid}` | `ChildVersionDelete` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}` | `ChildVersionHistory` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/edit/{id:guid}` | `ChildVersionRestoreEdit` |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}` | `ChildVersionDelete` |
 
 ---
 
@@ -205,12 +221,19 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 Version history is opt-in per handler. `AdminCrudModel<T>` sets `SupportsVersionHistory = true` by default; `IAdminCrudHandler` default interface implementation sets it to `false`.
 
 Flow:
-1. User visits `/wadmin/{contentType}/versions/{masterId}`
+1. User visits `/wadmin/{contentType}/versions/{nodeId}`
 2. Controller checks `handler.SupportsVersionHistory`; returns 404 if false
 3. Calls `GetVersionHistoryViewModelAsync` → renders shared `VersionHistory.cshtml`
 4. User clicks "Restore" → `VersionRestoreEdit` loads the historical version via `GetRestoreVersionViewModelAsync`
 5. The restore view renders the existing upsert form pre-filled with historical data; saving it creates a new version on top of the current latest
 6. User can delete individual versions via `VersionDelete` → `DeleteVersionAsync`
+
+**Restore-edit forms stamp the *current* draft's version number.** The centralized
+`AdminCrudModel.LoadRestoreVersionAsync(historicalId)` helper loads both the historical version and
+the node's current draft, and every handler's `GetRestoreVersionViewModelAsync` stamps the returned
+ViewModel's `ExpectedVersionNumber` with the **current** draft's `VersionNumber` (never the historical
+row's). This is what lets a restore-edit of an *older* version save cleanly instead of failing the
+concurrency check with "changed by someone else".
 
 Child resources follow the same pattern with `ChildVersionHistory*` routes.
 

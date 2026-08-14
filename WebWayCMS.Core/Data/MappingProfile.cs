@@ -32,7 +32,7 @@ public sealed class MappingProfile : Profile
             NodeId = s.Version.Node.Id,
             ExpectedVersionNumber = s.Version.VersionNumber,
             Title = s.Version.Title ?? string.Empty,
-            Slug = s.Version.Slug ?? string.Empty,
+            Slug = System.Net.WebUtility.UrlDecode(s.Version.Slug) ?? string.Empty,
             Content = s.Content ?? string.Empty,
             PublicationDate = s.Version.PublishStartUtc,
             PublicationEndDate = s.Version.PublishEndUtc,
@@ -80,7 +80,7 @@ public sealed class MappingProfile : Profile
             NodeId = s.Version.Node.Id,
             ExpectedVersionNumber = s.Version.VersionNumber,
             Title = s.Version.Title ?? string.Empty,
-            Slug = s.Version.Slug ?? string.Empty,
+            Slug = System.Net.WebUtility.UrlDecode(s.Version.Slug) ?? string.Empty,
             Body = s.Body ?? string.Empty,
             Summary = s.Summary ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
@@ -137,7 +137,7 @@ public sealed class MappingProfile : Profile
             NodeId = s.Version.Node.Id,
             ExpectedVersionNumber = s.Version.VersionNumber,
             Title = s.Version.Title ?? string.Empty,
-            Slug = s.Version.Slug ?? string.Empty,
+            Slug = System.Net.WebUtility.UrlDecode(s.Version.Slug) ?? string.Empty,
             ConfigurationJson = s.ConfigurationJson ?? "{}",
             ViewName = s.ViewName,
             ControllerName = s.ControllerName,
@@ -149,12 +149,17 @@ public sealed class MappingProfile : Profile
             ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<PageUpsertViewModel, PageDTO>(s => new PageDTO
+        CreateMap<PageUpsertViewModel, PageDTO>(s =>
         {
-            ConfigurationJson = s.ConfigurationJson ?? "{}",
-            ViewName = s.ViewName,
-            ControllerName = s.ControllerName ?? string.Empty,
-            Version = NewVersion(s)
+            var version = NewVersion(s);
+            version.Node.ParentNodeId = s.ParentNodeId;
+            return new PageDTO
+            {
+                ConfigurationJson = s.ConfigurationJson ?? "{}",
+                ViewName = s.ViewName,
+                ControllerName = s.ControllerName ?? string.Empty,
+                Version = version
+            };
         });
 
         CreateMap<PageDTO, PageItemViewModel>(s => new PageItemViewModel
@@ -170,6 +175,7 @@ public sealed class MappingProfile : Profile
         CreateMap<CMSRouteDTO, CMSRouteUpsertViewModel>(s => new CMSRouteUpsertViewModel
         {
             Id = s.Id,
+            OwningContentNodeId = s.OwningContentNodeId,
             Pattern = s.Pattern ?? string.Empty,
             DefaultsJson = s.DefaultsJson ?? "{}",
             ConstraintsJson = s.ConstraintsJson ?? "{}",
@@ -182,6 +188,7 @@ public sealed class MappingProfile : Profile
         CreateMap<CMSRouteUpsertViewModel, CMSRouteDTO>(s => new CMSRouteDTO
         {
             Id = s.Id ?? Guid.Empty,
+            OwningContentNodeId = s.OwningContentNodeId,
             Pattern = s.Pattern ?? string.Empty,
             DefaultsJson = s.DefaultsJson ?? "{}",
             ConstraintsJson = s.ConstraintsJson ?? "{}",

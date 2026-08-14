@@ -313,6 +313,24 @@ public class MappingTests
         });
     }
 
+    [Test]
+    public void Map_PageUpsert_ToDto_CarriesParentNodeId()
+    {
+        var parentNodeId = Guid.NewGuid();
+        var vm = new PageUpsertViewModel
+        {
+            NodeId = Guid.NewGuid(),
+            ParentNodeId = parentNodeId,
+            Title = "Child",
+            Slug = "child",
+            ControllerName = "GenericPage"
+        };
+
+        var dto = _mapper.Map<PageDTO>(vm);
+
+        Assert.That(dto.Version.Node.ParentNodeId, Is.EqualTo(parentNodeId));
+    }
+
     // --- CMSRoute ---
 
     [Test]
@@ -386,5 +404,61 @@ public class MappingTests
             Assert.That(n.ConstraintsJson, Is.EqualTo("{}"));
             Assert.That(n.DataTokensJson, Is.EqualTo("{}"));
         });
+    }
+
+    // --- DTO -> UpsertViewModel decodes the stored (escaped) slug (#7) ---
+
+    [Test]
+    public void PageDTO_ToUpsertViewModel_DecodesEscapedSlug()
+    {
+        var dto = new PageDTO
+        {
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid() },
+                Title = "Hello World",
+                Slug = Uri.EscapeDataString("hello world")
+            }
+        };
+
+        var vm = _mapper.Map<PageUpsertViewModel>(dto);
+
+        Assert.That(vm.Slug, Is.EqualTo("hello world"));
+    }
+
+    [Test]
+    public void ArticleDTO_ToUpsertViewModel_DecodesEscapedSlug()
+    {
+        var dto = new ArticleDTO
+        {
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid() },
+                Title = "Hello World",
+                Slug = Uri.EscapeDataString("hello world")
+            }
+        };
+
+        var vm = _mapper.Map<ArticleUpsertViewModel>(dto);
+
+        Assert.That(vm.Slug, Is.EqualTo("hello world"));
+    }
+
+    [Test]
+    public void ContentBlockDTO_ToUpsertViewModel_DecodesEscapedSlug()
+    {
+        var dto = new ContentBlockDTO
+        {
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = Guid.NewGuid() },
+                Title = "Hello World",
+                Slug = Uri.EscapeDataString("hello world")
+            }
+        };
+
+        var vm = _mapper.Map<ContentBlockUpsertViewModel>(dto);
+
+        Assert.That(vm.Slug, Is.EqualTo("hello world"));
     }
 }

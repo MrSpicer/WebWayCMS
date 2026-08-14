@@ -24,6 +24,9 @@ public interface IAdminCrudHandler
     /// <summary>Whether this content type can be explicitly published/unpublished.</summary>
     bool SupportsPublishing => true;
 
+    /// <summary>Whether this content type can be previewed (renders its current draft).</summary>
+    bool SupportsPreview => false;
+
     /// <summary>Roles allowed to publish/unpublish. Defaults to <see cref="WriteRoles"/>.</summary>
     string[]? PublishRoles => WriteRoles;
 

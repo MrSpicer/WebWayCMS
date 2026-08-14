@@ -86,7 +86,7 @@ public sealed class CMSRouteService : ICMSRouteService
             .Where(r => r.Pattern == pattern);
 
         if (excludeNodeId.HasValue)
-            query = query.Where(r => r.OwningContentNodeId != excludeNodeId.Value);
+            query = query.Where(r => r.OwningContentNodeId == null || r.OwningContentNodeId != excludeNodeId.Value);
 
         if (excludeRouteId.HasValue)
             query = query.Where(r => r.Id != excludeRouteId.Value);
@@ -94,16 +94,51 @@ public sealed class CMSRouteService : ICMSRouteService
         return !await query.AnyAsync(ct);
     }
 
-    public async Task<CMSRouteDTO> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default)
+    public async Task<(bool Success, string? ErrorMessage, CMSRouteDTO? Route)> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default)
     {
         if (route == null) throw new ArgumentNullException(nameof(route));
 
         route.Pattern = NormalizePattern(route.Pattern);
 
-        var existing = await _context.Set<CMSRouteDTO>()
-            .Where(r => (route.OwningContentNodeId.HasValue && r.OwningContentNodeId == route.OwningContentNodeId.Value)
-                     || r.Pattern == route.Pattern)
-            .ToListAsync(ct);
+        var pattern = route.Pattern;
+        var owner = route.OwningContentNodeId;
+        var routeId = route.Id;
+
+        // A row that holds this pattern under a *different* owner is a collision: never steal it.
+        var conflictQuery = _context.Set<CMSRouteDTO>()
+            .Where(r => r.Pattern == pattern && r.Id != routeId);
+        conflictQuery = owner.HasValue
+            ? conflictQuery.Where(r => r.OwningContentNodeId == null || r.OwningContentNodeId != owner.Value)
+            : conflictQuery.Where(r => r.OwningContentNodeId != null);
+
+        if (await conflictQuery.AnyAsync(ct))
+            return (false, "This route pattern is already in use by another content item.", null);
+
+        // Replace only this route's own row(s): same (owner, pattern) identity, plus the row being
+        // edited by id (covers a pattern rename, where the old pattern no longer matches).
+        var existing = new List<CMSRouteDTO>();
+
+        if (routeId != Guid.Empty)
+        {
+            existing.AddRange(await _context.Set<CMSRouteDTO>()
+                .Where(r => r.Id == routeId)
+                .ToListAsync(ct));
+        }
+
+        if (owner.HasValue)
+        {
+            existing.AddRange(await _context.Set<CMSRouteDTO>()
+                .Where(r => r.Pattern == pattern && r.OwningContentNodeId == owner.Value)
+                .ToListAsync(ct));
+        }
+        else
+        {
+            existing.AddRange(await _context.Set<CMSRouteDTO>()
+                .Where(r => r.Pattern == pattern && r.OwningContentNodeId == null)
+                .ToListAsync(ct));
+        }
+
+        existing = existing.GroupBy(r => r.Id).Select(g => g.First()).ToList();
 
         if (existing.Count > 0)
         {
@@ -115,9 +150,18 @@ public sealed class CMSRouteService : ICMSRouteService
             route.Id = Guid.NewGuid();
 
         _context.Set<CMSRouteDTO>().Add(route);
-        await _context.SaveChangesAsync(ct);
+        try
+        {
+            await _context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Pattern is the only unique index on CMSRoutes; a concurrent insert that lost the race
+            // to the same pattern surfaces here, even though the pre-check above saw no conflict.
+            return (false, "This route pattern is already in use by another content item.", null);
+        }
         _registry.Invalidate();
-        return route;
+        return (true, null, route);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)

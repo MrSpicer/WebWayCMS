@@ -49,9 +49,20 @@
   register `PreviewAwareReadContext` (Draft only with a `wwcms_preview` cookie + Admin/Editor role).
   Version selection lives in one place: `ContentQueryExtensions.AtReadContext`.
 - **Edits are drafts until an explicit Publish.** Routes are written by Publish (never Save) via
-  `ICMSRouteService`; a draft slug change doesn't touch the route table until published. Publish/unpublish
-  are `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`; preview is `GET /wadmin/{contentType}/preview/{nodeId}`
-  (sets the preview cookie and redirects). Restore is one-step (`RestoreVersionAsync`, DTO-level clone).
+  `ICMSRouteService`; a draft slug change doesn't touch the route table until published.
+  `CMSRouteService.UpsertAsync` keys the replace on `(OwningContentNodeId, Pattern)` and returns
+  `(bool Success, string? ErrorMessage, CMSRouteDTO? Route)` — a foreign owner on the same pattern is
+  a collision, never a silent steal. Publish/unpublish are
+  `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`. Restore is one-step (`RestoreVersionAsync`,
+  DTO-level clone). A page's parent is persisted on `ContentNode.ParentNodeId` (not a route prefix);
+  the publish-time slug-collision check (`PageModel.IsSlugAvailableAsync`) and the admin tree both
+  derive nested URLs from it.
+- **Preview renders the current draft with no route row.** `GET /wadmin/{contentType}/preview/{nodeId}`
+  (gated on `IAdminCrudHandler.SupportsPreview`, `true` only for `PageModel`) sets the `wwcms_preview`
+  cookie and redirects to `/_preview/{nodeId}`. `CMSRouteTransformer` special-cases that path: it
+  requires an authenticated Admin/Editor, loads the draft via `IContentStore<PageDTO>.GetCurrentDraftAsync`,
+  and dispatches to the page's controller — so a never-published page can preview. The cookie is what
+  makes `PreviewAwareReadContext` serve drafts for the zones/widgets rendered inside the previewed page.
 - Zone **items** auto-publish on write (no separate publish surface), preserving the inline editor's
   immediately-visible behaviour. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
 - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).

@@ -74,8 +74,7 @@ thereafter by `IWidgetRegistry`. Manage it at `/wadmin/widgets`. See
 Create a domain model over the **unified `CmsDbContext`** and register it in DI:
 ```csharp
 // In Program.cs MapTypes():
-services.AddScoped<IContentService<MyThingDTO>>(sp =>
-    new ContentService<MyThingDTO>(sp.GetRequiredService<CmsDbContext>()));
+AddContentStore<MyThingDTO>(services, "mythings");
 services.AddScoped<MyThingModel>();
 services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyThingModel>());
 ```
@@ -83,7 +82,7 @@ The host does **not** create its own `DbContext` — there is one context for th
 
 > The DTO and its `IEntityTypeConfiguration<T>` must live in `WebWayCMS.Data`, because
 > `CmsDbContext` only scans its own assembly for configurations. For host-specific fields on an
-> existing type, use `ContentDTO.CustomFields` (JSONB) instead. See
+> existing type, use `ContentVersion.CustomFields` (JSONB) instead. See
 > [Area 1](01-data-tier.md#8-how-to-add-a-new-content-types-data-layer).
 
 See [Area 5](05-content-domain-models.md) and [Area 6](06-admin-crud-framework.md).

@@ -172,8 +172,8 @@ Two consequences worth knowing:
 
 The `ContentZoneViewComponent` resolves zones via the `ContentZoneAssignments` table rather than path strings:
 
-- **Page-scoped zones** look up by `(ParentPageMasterId, SlotName)` in `ContentZoneAssignments`. If no assignment exists and the user is an admin, a `ContentZoneDTO` + `ContentZoneAssignment` record are created automatically.
-- **Nested zones** (zones rendered inside another zone's layout component) look up by `(ParentZoneId, SlotName)` using the parent zone's ID stored in render context.
+- **Page-scoped zones** look up by `(ParentPageNodeId, SlotName)` in `ContentZoneAssignments`. If no assignment exists and the user is an admin, a `ContentZoneDTO` + `ContentZoneAssignment` record are created automatically.
+- **Nested zones** (zones rendered inside another zone's layout component) look up by `(ParentZoneNodeId, SlotName)` using the parent zone's ID stored in render context.
 - **Global zones** (`IsGlobal = true`) bypass assignment lookup and use name-based lookup on `ContentZoneDTO.Name`.
 
 The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Main"`, `"Sidebar"`) rather than an opaque path. Zone identity is determined by the assignment record, not the name.

@@ -28,6 +28,7 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public abstract string DisplayName { get; }
     public virtual string[]? WriteRoles => null;
     public virtual bool SupportsPublishing => true;
+    public virtual bool SupportsPreview => false;
     public virtual string[]? PublishRoles => WriteRoles;
 
     public abstract string IndexViewPath { get; }
@@ -71,6 +72,23 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
 
     public virtual Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
         => Task.FromResult<object?>(null);
+
+    /// <summary>
+    /// Loads a historical version together with the current draft's version number, so a restore-edit
+    /// form always carries the <see cref="BaseContentViewModel.ExpectedVersionNumber"/> of the *current*
+    /// draft rather than the historical row. Returns null when either is missing.
+    /// </summary>
+    protected async Task<(TDto Historical, int CurrentVersionNumber)?> LoadRestoreVersionAsync(
+        Guid historicalId, CancellationToken ct = default)
+    {
+        var historical = await Store.GetVersionAsync(historicalId, ct);
+        if (historical == null) return null;
+
+        var current = await Store.GetCurrentDraftAsync(historical.Version.Node.Id, ct);
+        if (current == null) return null;
+
+        return (historical, current.Version.VersionNumber);
+    }
 
     public virtual async Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)
     {

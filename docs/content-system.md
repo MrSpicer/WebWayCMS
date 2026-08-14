@@ -5,13 +5,11 @@ The content system provides a generic, versioned approach to managing all CMS co
 > **Model change (Node/Version split):** the older `ContentDTO`/`IContent` (identity and version in one
 > row) has been replaced by `ContentNode` (stable identity) + `ContentVersion` (per-version data).
 > Content types implement `IVersionedContent`; `ContentService<T>`/`PageService` are gone, replaced by
-> `IContentStore<T>`. The `ContentDTO and IContent` section below is retained for historical context only
-> — the authoritative reference is [architecture/01-data-tier.md](architecture/01-data-tier.md).
+> `IContentStore<T>`. The authoritative reference is [architecture/01-data-tier.md](architecture/01-data-tier.md).
 
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
-- [ContentDTO and IContent](#contentdto-and-icontent)
 - [Built-in Content Types](#built-in-content-types)
 - [Adding a New Content Type](#adding-a-new-content-type)
 
@@ -20,22 +18,22 @@ The content system provides a generic, versioned approach to managing all CMS co
 ## Architecture Overview
 
 ```
-ContentDTO (shared fields, own "Content" table)
-    ▲ 1:1 (ContentId shared primary key / FK)
-    │
-IContent { Guid ContentId; ContentDTO ContentMeta; }
+ContentNode (stable identity) ── 1:N ── ContentVersion (per-version data)
+    └── every cross-entity FK points at ContentNode.Id
+
+IVersionedContent { Guid VersionId; ContentVersion Version; }  (1:1 shared PK/FK)
     ├── ContentBlockDTO
     ├── ArticleDTO
     ├── ArticleListDTO
     ├── PageDTO
     ├── ContentZoneDTO
     ├── ContentZoneItemDTO
-    ├── CMSRouteDTO
     ├── WidgetRegistrationDTO
     └── PageControllerRegistrationDTO
+    (CMSRouteDTO is NOT versioned — plain row, written by Publish)
 
-IContentService<T where T : class, IContent>
-    └── ContentService<T>  (single generic implementation)
+IContentStore<T where T : class, IVersionedContent>   (single generic engine)
+    └── ContentStore<T>
 
 VersionedModel<TDto>  (abstract)
     └── AdminCrudModel<TDto>  (abstract, also implements IAdminCrudHandler)
@@ -62,60 +60,6 @@ When adding a new standalone content type, extend `AdminCrudModel<TDto>`.
 
 ---
 
-## ContentDTO and IContent
-
-**Files:** `WebWayCMS.Data/Data/Models/ContentDTO.cs`, `WebWayCMS.Data/Data/Models/IContent.cs`
-
-The shared fields live in their own concrete record, `ContentDTO`, persisted to a single shared
-`Content` table. Content types do **not** inherit it — they **compose** it via the `IContent`
-interface (has-a, not is-a):
-
-```csharp
-public interface IContent
-{
-    Guid ContentId { get; set; }       // shared primary key / FK to Content
-    ContentDTO ContentMeta { get; set; }
-}
-
-public record ContentDTO
-{
-    public Guid Id { get; set; }          // Primary key; new Guid per version
-    public Guid MasterId { get; set; }    // Constant across all versions of one item
-    public int Version { get; set; }      // Monotonically increasing; 0 on first save
-
-    public string Slug { get; set; }      // URL segment; auto-derived from Title if blank
-    public string Title { get; set; }
-
-    public Guid CreatedBy { get; set; }
-    public Guid LastModifiedBy { get; set; }
-    public DateTime CreationDate { get; set; }
-    public DateTime ModificationDate { get; set; }
-
-    public DateTime PublicationDate { get; set; }
-    public DateTime? PublicationEndDate { get; set; }
-
-    public bool IsPublished { get; set; }
-    public bool IsArchived { get; set; }
-    public bool IsHidden { get; set; }
-    public bool IsDeleted { get; set; }
-
-    public Guid? ParentMasterId { get; set; }   // FK to a parent's MasterId (child resources)
-
-    public List<CustomField> CustomFields { get; set; } = new();
-}
-```
-
-Each content type table uses a **shared primary key 1:1** relationship: its `ContentId` column is
-both its PK and the FK into the single `Content` table, and `ContentId == ContentMeta.Id`. Shared
-fields are read/written through `dto.ContentMeta.X` (e.g. `article.ContentMeta.Title`).
-
-**Single shared table in the unified context.** All content types map to the same `Content` table
-via the shared `CmsDbContext`. The context declares no `DbSet`s: it calls
-`ApplyConfigurationsFromAssembly`, and each entity has a sealed `IEntityTypeConfiguration<T>` class
-in `WebWayCMS.Data/Data/EntityConfiguration/`. Those configurations call the shared
-`entity.ConfigureContentLink()` helper, which wires the 1:1 shared-primary-key relationship.
-
-
 ## Built-in Content Types
 
 Seven top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
@@ -135,19 +79,19 @@ admin URL segment (`/wadmin/{ContentType}`) and the key MCP tools use.
 
 ### ContentBlock
 
-Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Referenced elsewhere in views by MasterId.
+Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Referenced elsewhere in views by NodeId.
 
 ### Article / ArticleList
 
-`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListMasterId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/wadmin/articles/{listSlug}/articles`.
+`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListNodeId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/wadmin/articles/{listSlug}/articles`.
 
 ### Page
 
-Adds `string? ViewName` (optional view override) and `string ConfigurationJson` (per-page controller config). A page has **no route or controller column** — its URL is a `CMSRouteDTO` row derived from `ContentMeta.Slug` when the page is saved. See [`docs/page-system.md`](page-system.md).
+Adds `string? ViewName` (optional view override) and `string ConfigurationJson` (per-page controller config). A page has **no route or controller column** — its URL is a `CMSRouteDTO` row derived from `Version.Slug` plus `ContentNode.ParentNodeId`, written when the page is **published** (never saved). See [`docs/page-system.md`](page-system.md).
 
 ### ContentZone
 
-A named zone (`string Name`, `string Description`) that owns an ordered list of `ContentZoneItemDTO`. Each item stores `ComponentName` (a view component) and `ComponentPropertiesJson`. The `ContentZoneService` extends beyond `IContentService<T>` with zone-item management methods (`AddItemAsync`, `RemoveItemAsync`, `ReorderItemsAsync`) and assignment-based slot resolution.
+A named zone (`string Name`, `string Description`) that owns an ordered list of `ContentZoneItemDTO`. Each item stores `ComponentName` (a view component) and `ComponentPropertiesJson`. The `ContentZoneService` extends beyond `IContentStore<T>` with zone-item management methods (`AddItemAsync`, `RemoveItemAsync`, `ReorderItemsAsync`) and assignment-based slot resolution.
 
 ### Registry types: Widget, Page Type, CMS Route
 
@@ -171,12 +115,14 @@ Follow these steps to wire in a new content type that gets full versioning and a
 `WebWayCMS.Data/Data/Models/MyContentDTO.cs`
 
 ```csharp
+using WebWayCMS.Data.Models;
+
 namespace WebWayCMS.Data.Models;
 
-public record MyContentDTO : IContent
+public record MyContentDTO : IVersionedContent
 {
-    public Guid ContentId { get; set; }
-    public ContentDTO ContentMeta { get; set; } = new();
+    public Guid VersionId { get; set; }
+    public ContentVersion Version { get; set; } = new();
 
     public string Body { get; set; } = string.Empty;
 }
@@ -195,21 +141,21 @@ public sealed class MyContentDTOEntityConfiguration : IEntityTypeConfiguration<M
 {
     public void Configure(EntityTypeBuilder<MyContentDTO> entity)
     {
-        entity.ConfigureContentLink();          // shared PK/FK into the Content table
+        entity.ConfigureContentLink();          // shared PK/FK into ContentVersions
         entity.Property(e => e.Body).IsRequired();
         entity.ToTable("MyContents");
     }
 }
 ```
 
-> Shared fields (`Title`, `Slug`, `CustomFields`, versioning, …) live on the `Content` table, so
+> Shared fields (`Title`, `Slug`, `CustomFields`, versioning, …) live on the `ContentVersion`, so
 > configure only your type-specific columns here.
 
 > **Why this part cannot live in the host.** `ApplyConfigurationsFromAssembly` scans only
 > `WebWayCMS.Data`, so a configuration class in `MySite` is never discovered and the table is never
 > created. A content type that needs its own table must have its DTO and configuration in
 > `WebWayCMS.Data`. If you only need a few extra fields on an existing type, use
-> `ContentDTO.CustomFields` (JSONB) instead — no schema change, no CMS-library edit.
+> `ContentVersion.CustomFields` (JSONB) instead — no schema change, no CMS-library edit.
 
 ### 3. Create a migration
 
@@ -255,40 +201,42 @@ In `MySite/MappingProfile.cs`, add inside the constructor. Each `CreateMap` take
 that builds the destination — fields you don't set are simply omitted (there is no separate `Ignore`):
 
 ```csharp
-// MyContent — read shared fields via ContentMeta, write them into a ContentDTO.
+// MyContent — read shared fields via Version, write them into a ContentVersion.
 CreateMap<MyContentDTO, MyContentViewModel>(s => new MyContentViewModel
 {
-    Id = s.ContentMeta.Id,
-    Title = s.ContentMeta.Title,
+    NodeId = s.Version.Node.Id,
+    Title = s.Version.Title,
     Body = s.Body,
-    Slug = s.ContentMeta.Slug ?? string.Empty,
+    Slug = s.Version.Slug ?? string.Empty,
 });
 CreateMap<MyContentDTO, MyContentUpsertViewModel>(s => new MyContentUpsertViewModel
 {
-    Id = s.ContentMeta.Id,
-    Title = s.ContentMeta.Title,
+    NodeId = s.Version.Node.Id,
+    ExpectedVersionNumber = s.Version.VersionNumber,
+    Title = s.Version.Title,
     Body = s.Body ?? string.Empty,
-    Slug = s.ContentMeta.Slug ?? string.Empty,
+    Slug = s.Version.Slug ?? string.Empty,
 });
 CreateMap<MyContentUpsertViewModel, MyContentDTO>(s =>
 {
-    var id = s.Id is { } existing && existing != Guid.Empty ? existing : Guid.NewGuid();
+    var version = new ContentVersion
+    {
+        Node = new ContentNode { Id = s.NodeId ?? Guid.Empty, IsHidden = s.IsHidden },
+        Title = s.Title ?? string.Empty,
+        Slug = s.Slug ?? string.Empty,
+        PublishStartUtc = s.PublicationDate,
+        PublishEndUtc = s.PublicationEndDate
+    };
     return new MyContentDTO
     {
-        ContentId = id,
+        Version = version,
         Body = s.Body ?? string.Empty,
-        ContentMeta = new ContentDTO
-        {
-            Id = id,
-            Title = s.Title ?? string.Empty,
-            Slug = string.IsNullOrWhiteSpace(s.Slug) ? Uri.EscapeDataString(s.Title ?? string.Empty) : s.Slug,
-        }
     };
 });
 ```
 
-> Keep `ContentId` and `ContentMeta.Id` equal when constructing a DTO; the services keep them in
-> sync on create/update.
+> `ContentStore<T>.SaveDraftAsync` fills in the `Node.Id`/`VersionNumber`/`Slug` defaults on create —
+> the mapper only needs to carry the editor-supplied fields.
 
 ### 6. Create the Model class
 
@@ -306,30 +254,32 @@ namespace MySite.Models.MyContent;
 
 public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 {
-    private readonly IContentService<MyContentDTO> _service;
+    private readonly IContentStore<MyContentDTO> _store;
     private readonly IMapper _mapper;
 
+    protected override IContentStore<MyContentDTO> Store => _store;
     protected override string VersionHistoryContentType => "mycontents";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/mycontents";
-    protected override Task<List<MyContentDTO>> GetAllVersionsAsync(Guid masterId, CancellationToken ct)
-        => _service.GetAllVersionsAsync(masterId, ct);
+    protected override Task<List<MyContentDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
+        => _store.GetAllVersionsAsync(nodeId, ct);
     protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _service.DeleteAsync(id, softDelete: false, deleteHistory: false, ct: ct);
+        => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "mycontents";
     public override string DisplayName => "My Content";
     public override string IndexViewPath => "~/Views/AdminMyContent/Index.cshtml";
     public override string UpsertViewPath => "~/Views/AdminMyContent/Upsert.cshtml";
 
-    public MyContentModel(IContentService<MyContentDTO> service, IMapper mapper)
+    public MyContentModel(IContentStore<MyContentDTO> store, IMapper mapper, IChangeSetScope changeSetScope)
+        : base(changeSetScope)
     {
-        _service = service ?? throw new ArgumentNullException(nameof(service));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
     }
 
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
         return dtos.Select(d => _mapper.Map<MyContentViewModel>(d)).ToList();
     }
 
@@ -338,27 +288,29 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
         if (id == null || id == Guid.Empty)
             return new MyContentUpsertViewModel();
 
-        var dto = await _service.GetByIdAsync(id.Value, ct);
+        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
         return dto == null ? null : _mapper.Map<MyContentUpsertViewModel>(dto);
     }
 
     public override object CreateEmptyUpsertViewModel() => new MyContentUpsertViewModel();
 
-    public override async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (MyContentUpsertViewModel)model;
         var dto = _mapper.Map<MyContentDTO>(vm);
-        var ok = await _service.UpsertAsync(dto, ct);
-        return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Save failed.");
+        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
+        return result.Success
+            ? new AdminSaveResult(true, NodeId: result.NodeId)
+            : new AdminSaveResult(false, result.ErrorMessage ?? "Save failed.");
     }
 
     public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
-        => await _service.DeleteAsync(id, softDelete: false, deleteHistory: true, ct: ct);
+        => await _store.DeleteAsync(id, softDelete: false, ct);
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
-        var dtos = await _service.GetAllAsync(ct);
-        return dtos.Select(d => (object)new { id = d.ContentMeta.Id, title = d.ContentMeta.Title });
+        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
+        return dtos.Select(d => (object)new { id = d.Version.Node.Id, title = d.Version.Title });
     }
 }
 ```
@@ -374,9 +326,8 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 In `MySite/Program.cs`, before `builder.Services.AddWebWayCms(...)`:
 
 ```csharp
-// Generic content service — reuses the unified CmsDbContext
-builder.Services.AddScoped<IContentService<MyContentDTO>>(sp =>
-    new ContentService<MyContentDTO>(sp.GetRequiredService<CmsDbContext>()));
+// Generic content store — reuses the unified CmsDbContext
+AddContentStore<MyContentDTO>(services, "mycontents");
 
 // Model / handler
 builder.Services.AddScoped<MyContentModel>();
@@ -390,4 +341,4 @@ builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyCont
 
 ---
 
-*For architectural reference — `ContentDTO`/`IContent` field semantics, versioning internals, DbContext catalog, service method reference, `AdminCrudModel<T>` dual-role pattern, and mapping conventions — see [docs/architecture/01-data-tier.md](architecture/01-data-tier.md) and [docs/architecture/05-content-domain-models.md](architecture/05-content-domain-models.md).*
+*For architectural reference — `ContentNode`/`ContentVersion` field semantics, versioning internals, DbContext catalog, service method reference, `AdminCrudModel<T>` dual-role pattern, and mapping conventions — see [docs/architecture/01-data-tier.md](architecture/01-data-tier.md) and [docs/architecture/05-content-domain-models.md](architecture/05-content-domain-models.md).*

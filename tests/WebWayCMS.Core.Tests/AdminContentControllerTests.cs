@@ -6,7 +6,6 @@ using NUnit.Framework;
 
 using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Controllers.Admin.Handlers;
-using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Core.Tests;
@@ -21,7 +20,6 @@ public class AdminContentControllerTests
 {
     private MvcHarness _harness = null!;
     private IAdminHandlerRegistry _registry = null!;
-    private ICMSRouteService _routeService = null!;
     private IAdminCrudHandler _handler = null!;
     private IAdminCrudChildHandler _child = null!;
     private IAdminRegistryHandler _registryHandler = null!;
@@ -32,7 +30,6 @@ public class AdminContentControllerTests
     {
         _harness = new MvcHarness();
         _registry = Substitute.For<IAdminHandlerRegistry>();
-        _routeService = Substitute.For<ICMSRouteService>();
         _handler = Substitute.For<IAdminCrudHandler>();
         _child = Substitute.For<IAdminCrudChildHandler>();
         _registryHandler = Substitute.For<IAdminRegistryHandler>();
@@ -53,7 +50,7 @@ public class AdminContentControllerTests
         _child.CreateEmptyChildUpsertViewModel().Returns(_ => new FakeUpsert());
         _child.WriteRoles.Returns((string[]?)null);
 
-        _controller = new AdminContentController(_registry, _routeService);
+        _controller = new AdminContentController(_registry);
         _harness.Configure(_controller, new[] { "Admin" });
     }
 
@@ -61,7 +58,7 @@ public class AdminContentControllerTests
 
     [Test]
     public void Constructor_Null_Throws()
-        => Assert.That(() => new AdminContentController(null!, Substitute.For<ICMSRouteService>()), Throws.ArgumentNullException);
+        => Assert.That(() => new AdminContentController(null!), Throws.ArgumentNullException);
 
     [Test]
     public async Task Index_NotFoundAndView()
@@ -245,6 +242,34 @@ public class AdminContentControllerTests
 
         AsRoles("Admin");
         Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
+    }
+
+    // --- Preview ---
+
+    [Test]
+    public async Task Preview_HandlerMissing_ReturnsNotFound()
+    {
+        Assert.That(await _controller.Preview("missing", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public async Task Preview_SupportsPreviewFalse_ReturnsNotFound()
+    {
+        _handler.SupportsPreview.Returns(false);
+
+        Assert.That(await _controller.Preview("ct", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+    }
+
+    [Test]
+    public async Task Preview_SupportsPreviewTrue_RedirectsToPreviewPath()
+    {
+        _handler.SupportsPreview.Returns(true);
+        var nodeId = Guid.NewGuid();
+
+        var result = await _controller.Preview("ct", nodeId, default) as RedirectResult;
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Url, Is.EqualTo($"/_preview/{nodeId}"));
     }
 
     // --- Child actions ---

@@ -234,8 +234,10 @@ public class ContentBlockModelTests
     public async Task AdminHandler_IndexUpsertCreateApiAndRestore()
     {
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentBlockDTO> { Dto() });
-        var dto = Dto();
+        var dto = Dto(version: 5);
+        var historical = Dto(nodeId: dto.Version.Node.Id, version: 2);
         _store.GetCurrentDraftAsync(dto.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(dto);
+        _store.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
 
         var emptyQuery = new MvcHarness().NewHttpContext(Array.Empty<string>()).Request.Query;
 
@@ -245,7 +247,8 @@ public class ContentBlockModelTests
             Assert.That(await _model.GetUpsertViewModelAsync(dto.Version.Node.Id, emptyQuery), Is.Not.Null);
             Assert.That(_model.CreateEmptyUpsertViewModel(), Is.InstanceOf<ContentBlockUpsertViewModel>());
             Assert.That(await _model.GetApiListAsync(), Is.Not.Null);
-            Assert.That(await _model.GetRestoreVersionViewModelAsync(dto.Version.Node.Id), Is.Null);
+            var restore = (ContentBlockUpsertViewModel)(await _model.GetRestoreVersionViewModelAsync(historical.VersionId))!;
+            Assert.That(restore.ExpectedVersionNumber, Is.EqualTo(dto.Version.VersionNumber));
         });
     }
 }

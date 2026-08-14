@@ -48,30 +48,52 @@ content type).
 
 ## 2. `CMSRouteTransformer.TransformAsync` — Resolution
 
+`TransformAsync` first checks for the **preview path**, then falls back to route-table matching:
+
 1. **Normalize** — an empty/unset path is treated as root `/`; lowercase the path; strip a
    trailing `/` (preserving root `/`)
-2. **Match** — `ICMSRouteService.MatchRouteAsync(path)` walks the active routes and returns the
+2. **Preview** — if the path is `/_preview/{nodeId:guid}`, resolve the draft directly (see below);
+   a malformed node id falls through to normal matching
+3. **Match** — `ICMSRouteService.MatchRouteAsync(path)` walks the active routes and returns the
    first pattern that matches, along with the route values it extracted. No match ⇒ `return null!`
-3. **Read `DefaultsJson`** — a `Dictionary<string, string>`; a `"controller"` key is required, and
+4. **Read `DefaultsJson`** — a `Dictionary<string, string>`; a `"controller"` key is required, and
    `"action"` defaults to `"Index"`. Missing `"controller"` ⇒ `return null!`
-4. **Code-based short-circuit** — if `OwningContentType == "CodeBased"` (case-insensitive), skip
-   straight to step 7. Code-based routes are not validated against the page-type registry and get
+5. **Code-based short-circuit** — if `OwningContentType == "CodeBased"` (case-insensitive), skip
+   straight to step 8. Code-based routes are not validated against the page-type registry and get
    no page data or page config
-5. **Registry validation** — otherwise resolve `IPageControllerRegistry.GetByName(controllerName)`;
+6. **Registry validation** — otherwise resolve `IPageControllerRegistry.GetByName(controllerName)`;
    if the controller is not a registered page type, `return null!`
-6. **Load page data and config** —
-   - if `OwningContentType == "Page"` and `OwningContentMasterId` is set, load that page's latest
-     version into `HttpContext.Items["CMS:PageData"]`
-   - otherwise, if `DataTokensJson` carries a `ParentPageMasterId`, load *that* page instead (this
+7. **Load page data and config** —
+   - if `OwningContentType == "Page"` and `OwningContentNodeId` is set, load that page's current
+     (read-context aware) version into `HttpContext.Items["CMS:PageData"]`
+   - otherwise, if `DataTokensJson` carries a `ParentPageNodeId`, load *that* page instead (this
      is how widget-owned routes still render inside their host page)
    - if the controller declares a `ConfigurationType`, deserialize the loaded page's
      `ConfigurationJson` column into it and store it as `"CMS:PageConfig"`, falling back to
      `Activator.CreateInstance(ConfigurationType)` on a parse failure or when no page data is loaded
-7. **Dispatch** — store the matched route as `"CMS:RouteData"` and return
+8. **Dispatch** — store the matched route as `"CMS:RouteData"` and return
    `{ controller, action }` merged with every extracted route value
 
 When `TransformAsync` returns `null!`, routing falls through to the conventional
 `{controller}/{action}/{id?}` route, which normally results in a 404.
+
+### Preview path (`/_preview/{nodeId}`)
+
+Preview never touches `CMSRoutes` — it exists precisely so a **never-published** page can render
+its draft (a route row only exists after Publish). When the path matches `/_preview/{nodeId:guid}`:
+
+1. **Authorize** — `httpContext.User` must be authenticated and in `Admin` or `Editor`, otherwise
+   `return null!` (404, no information leak)
+2. **Load the draft** — `IContentStore<PageDTO>.GetCurrentDraftAsync(nodeId)` (draft, not
+   read-context aware)
+3. **Resolve the controller** — `IPageControllerRegistry.GetByName(page.ControllerName)`, then
+   populate `CMS:PageData` / `CMS:PageConfig` exactly as the normal path does, plus a synthetic
+   `CMS:RouteData` (`Pattern = "/_preview/{nodeId}"`)
+4. **Dispatch** — return `{ controller = page.ControllerName, action = "Index" }`
+
+`AdminContentController.Preview` sets the `wwcms_preview` cookie and redirects to
+`/_preview/{nodeId}`; the cookie is what makes `PreviewAwareReadContext` serve drafts for the content
+zones and widgets rendered *inside* the previewed page.
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
 > **before** the dynamic route, so real controller routes such as `AdminContentController`'s
@@ -82,15 +104,15 @@ When `TransformAsync` returns `null!`, routing falls through to the conventional
 
 ## 3. `ICMSRouteService` — Matching Semantics
 
-`GetActiveRoutesAsync` selects published, non-soft-deleted, **latest-version** rows, ordered by
-`Order` ascending then `Pattern.Length` ascending. `MatchRouteAsync` then iterates that list
-ordered by `Order` and returns the **first** pattern that matches — so `Order` is the primary
-tie-breaker between competing patterns.
+Routes are **plain, unversioned rows** — there is no "latest version" selection. `GetActiveRoutesAsync`
+returns every row ordered by `Order` ascending then `Pattern.Length` ascending; `MatchRouteAsync`
+then iterates that list ordered by `Order` and returns the **first** pattern that matches — so
+`Order` is the primary tie-breaker between competing patterns.
 
 `MatchRouteAsync` delegates loading the active route list to `ICMSRouteRegistry`, a **singleton**
 that caches the result for **60 seconds**. `CMSRouteService` no longer queries the database
 directly on every match request. Every mutation (`UpsertAsync`, `DeleteAsync`,
-`DeactivateByOwningContentAsync`) calls `ICMSRouteRegistry.Invalidate()` to drop the cache, so
+`DeleteByOwningContentAsync`) calls `ICMSRouteRegistry.Invalidate()` to drop the cache, so
 admin edits take effect within at most one minute. **Invalidation is per-process** — in a
 multi-instance deployment, another instance will not see a route change until its TTL expires.
 
@@ -117,13 +139,33 @@ Any constraint name the matcher does not recognise is treated as satisfied. A se
 literal with more than one parameter is not supported and degrades to a plain string comparison.
 
 **Other members:** `GetActiveRoutesAsync`, `GetByOwningContentAsync`, `GetByIdAsync`,
-`IsPatternAvailableAsync(pattern, excludeMasterId)`, `UpsertAsync`, `DeleteAsync`,
-`DeactivateByOwningContentAsync`.
+`IsPatternAvailableAsync(pattern, excludeNodeId, excludeRouteId)`, `UpsertAsync`, `DeleteAsync`,
+`DeleteByOwningContentAsync`.
 
-`UpsertAsync` is a destructive replace rather than a new version: it finds the existing latest row
-by `OwningContentMasterId` (falling back to `Pattern`), hard-deletes it and its `ContentMeta` row,
-and inserts a fresh row at `Version = 0`. Route rows therefore have no version history, which is
-why `CMSRouteModel` sets `SupportsVersionHistory => false`.
+**`UpsertAsync` keys the replace on `(OwningContentNodeId, Pattern)`, never "owner OR pattern":**
+
+```csharp
+Task<(bool Success, string? ErrorMessage, CMSRouteDTO? Route)> UpsertAsync(CMSRouteDTO route, CancellationToken ct = default);
+```
+
+1. **Collision check** — if another row already holds this pattern under a *different* owner, it
+   returns `(false, "This route pattern is already in use by another content item.", null)` rather
+   than stealing it. This is what makes two pages publishing the same slug fail loudly instead of
+   the second publish silently overwriting the first's URL.
+2. **Replace in place** — it deletes the row with `r.Id == route.Id` (when `route.Id` is set, which
+   covers a pattern *rename*) plus any row with the same `(OwningContentNodeId, Pattern)`, then
+   inserts the new row. A multi-route widget therefore replaces only its own `(owner, pattern)`
+   pairs, so sibling routes survive; and an admin edit that renames a pattern removes its own old
+   row instead of colliding on the live primary key.
+3. **Atomic backstop** — `Pattern` is the only unique index on `CMSRoutes`, so a concurrent insert
+   that loses the race to the same pattern surfaces as a `DbUpdateException` on the final
+   `SaveChangesAsync`; it is caught and mapped to the same collision result as the pre-check.
+4. **Owner-less rows** are treated as their own owner (`OwningContentNodeId == null`), used by
+   code-based and reserved routes.
+
+`IsPatternAvailableAsync` excludes rows owned by `excludeNodeId` — using explicit null handling
+(`OwningContentNodeId == null || OwningContentNodeId != excludeNodeId`), so a NULL-owner row is
+still treated as a conflict rather than silently dropped by SQL three-valued logic.
 
 `NormalizePattern` (applied to both stored patterns and incoming paths): blank ⇒ `/`; trim and
 lowercase; ensure a leading `/`; strip a trailing `/` unless the pattern is exactly `/`.
@@ -278,8 +320,9 @@ repo (`Controllers/CodeTestController.cs`).
 
 ## 9. How a Page Gets Its URL
 
-Pages no longer store a route. `PageDTO` has no `Route` or `ControllerName` column — the URL is
-derived from the page's **Slug** (on the shared `ContentDTO`) and written into `CMSRoutes` on save.
+Pages no longer store a route. `PageDTO` has no `Route` column — the URL is derived from the page's
+**Slug** plus its **parent** (persisted as `ContentNode.ParentNodeId`), and written into `CMSRoutes`
+**on publish, never on save**.
 
 `PageModel.DeriveRoutePatternFromSlug(slug, parentRoutePrefix)`:
 
@@ -287,32 +330,58 @@ derived from the page's **Slug** (on the shared `ContentDTO`) and written into `
 - no prefix and slug is `"home"` (case-insensitive) ⇒ `"/"`
 - otherwise ⇒ `"/" + slug`
 
-On save, `DeriveRoutePatternForSaveAsync` re-derives the parent prefix from the page's *existing*
-route when the upsert model does not carry one, so renaming a nested page's slug keeps it nested.
-The upsert first checks `IsPatternAvailableAsync` and fails with
-`"A page with this slug already exists at this location."` on the `Slug` field if the pattern is
-taken.
+**Parentage is carried on the node, not the route.** `PageUpsertViewModel` has a hidden
+`ParentNodeId` (resolved from `?parentRoute=` by route→owner lookup, or from the node's
+`ParentNodeId` on edit); `MappingProfile` copies it onto `ContentVersion.Node.ParentNodeId`, and
+`ContentStore` persists it on create (`CreateDraftAsync`) and edit (`ApplyNodeFields`).
 
-`SavePageUpsertAsync` then calls `IRouteRegistrationService.RegisterContentRoutesAsync` when the
-page is published, or `UnregisterContentRoutesAsync` (which sets `IsPublished = false` on the
-page's routes) when it is not. Unpublishing a page therefore removes its URL without deleting it.
+**On publish**, `DeriveRoutePatternForPublishAsync` derives the prefix from the **parent node's**
+route (`GetByOwningContentAsync(parentNodeId)`), falling back to the page's own existing route, then
+to no prefix — so a first publish of a child under `/docs` lands at `/docs/child`, not `/child`.
+
+**Slug-collision check.** `PageModel.IsSlugAvailableAsync(slug, parentNodeId, excludeNodeId)` runs on
+*both* save and publish. It checks (a) that no sibling *current draft* under the same parent already
+claims the slug — via the sibling-scoped `GetCurrentDraftChildrenAsync(parentNodeId)` query rather
+than scanning every draft — and (b) `IsPatternAvailableAsync` — catching reserved and code-based
+patterns. A collision fails the save (or publish) with
+`"A page with this slug already exists at this location."` on the `Slug` field rather than silently
+stealing a URL.
+
+`PublishPageAsync` validates the slug (via `IsSlugAvailableAsync`) and derives the route pattern
+**before** calling `PublishAsync`, then replaces the page's existing route (`UnregisterContentRoutesAsync`
+followed by `RegisterContentRoutesAsync`, so a slug rename drops the old pattern rather than
+accumulating a second one). If route registration fails after the state flip, `PublishPageAsync`
+rolls the publish back (`UnpublishAsync`) and re-upserts the snapshotted previous route(s) so a
+republish whose new pattern collides still resolves at its old URL — a page is never left Published
+with no route. `UnpublishPageAsync` calls `UnregisterContentRoutesAsync` (which hard-deletes the
+page's routes). Unpublishing a page therefore removes its URL without deleting the page. A draft slug
+change does not touch the route table until published.
+
+When the admin "Add child" link supplies a `parentRoute`, `ResolveParentNodeIdAsync` first matches a
+`CMSRoutes` row by pattern; if none exists (an unpublished parent) it falls back to walking the
+current drafts through the same path-derivation the admin tree uses, so a child can be created
+directly beneath an unpublished parent.
 
 The admin page tree is built by joining pages to their `CMSRoutes` patterns and splitting those
-patterns into segments — a page with no active route does not appear in the tree.
-`PageTreeNode` and `PageNavigationItem` expose this as `Path` (formerly `Route`).
+patterns into segments. A page with **no active route** (unpublished) derives its path by walking
+`ParentNodeId`, so unpublished children nest under their parent instead of surfacing at root.
+`PageTreeNode` exposes this as `Path` (formerly `Route`).
 
 ---
 
 ## 10. `IRouteRegistrationService` and Routable Widgets
 
-`RouteRegistrationService` is the single place that turns domain content into route rows.
+`RouteRegistrationService` is the single place that turns domain content into route rows. The
+registration methods return `(bool Success, string? ErrorMessage)` so a collision surfaced by
+`UpsertAsync` propagates up to the caller (`PageModel.PublishPageAsync` returns the error instead of a
+bare success).
 
 | Method | Purpose |
 |---|---|
-| `RegisterContentRoutesAsync(content, routePattern, controllerName, viewModelId, viewModelMasterId, isPublished, ct)` | Writes the owning content's route with `Defaults = {controller, action}` and `DataTokens = {RouteContentType}` |
-| `UnregisterContentRoutesAsync(contentMasterId, ct)` | Unpublishes all routes owned by that content |
-| `RegisterWidgetRoutesAsync(...)` | Prefixes a widget's pattern with its parent page route, merges the parent's defaults, and injects `DataTokens["ParentPageMasterId"]` |
-| `TryRegisterWidgetRoutesAsync(componentName, contentZoneItemMasterId, parentPageMasterId, isActive, ct)` | Looks the component up among the registered `IRoutableViewComponent`s and registers its routes if it is one |
+| `RegisterContentRoutesAsync(content, routePattern, controllerName, contentNodeId, ct)` | Writes the owning content's route with `Defaults = {controller, action}` and `DataTokens = {RouteContentType}` |
+| `UnregisterContentRoutesAsync(contentNodeId, ct)` | Hard-deletes all routes owned by that content |
+| `RegisterWidgetRoutesAsync(...)` | First sweeps the owner's existing routes (a widget's route set is fully recomputed, so a rename/reparent drops stale patterns), then prefixes a widget's pattern with its parent page route, merges the parent's defaults, and injects `DataTokens["ParentPageNodeId"]`; each generated route is upserted by its own `(owner, pattern)`, so a multi-route widget keeps every route |
+| `TryRegisterWidgetRoutesAsync(componentName, contentZoneItemNodeId, parentPageNodeId, isActive, ct)` | Looks the component up among the registered `IRoutableViewComponent`s and registers its routes if it is one; returns `(bool Success, string? ErrorMessage)` — the inactive/no-parent/no-widget/no-page-route early-outs are benign no-ops reported as success, and a real `UpsertAsync` collision propagates as failure |
 
 Two interfaces opt content into this:
 
@@ -320,14 +389,14 @@ Two interfaces opt content into this:
 public interface IRoutableContent
 {
     string RouteContentType { get; }
-    Task<IReadOnlyList<CMSRouteDTO>> GetRoutesAsync(Guid contentMasterId, CancellationToken ct);
+    Task<IReadOnlyList<CMSRouteDTO>> GetRoutesAsync(Guid contentNodeId, CancellationToken ct);
 }
 
 public interface IRoutableViewComponent
 {
     string ComponentName { get; }
     Task<IReadOnlyList<CMSRouteDTO>> GenerateRoutesAsync(
-        string parentRoute, Guid contentZoneItemMasterId, CancellationToken ct);
+        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct);
 }
 ```
 

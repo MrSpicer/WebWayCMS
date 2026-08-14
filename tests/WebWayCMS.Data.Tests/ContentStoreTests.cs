@@ -200,6 +200,130 @@ public class ContentStoreTests
         });
     }
 
+    [Test]
+    public async Task GetCurrentDraftBySlugAsync_HitMissAndBlank()
+    {
+        var store = NewStore();
+        var dto = NewBlock("Title", "draft-slug");
+        await store.SaveDraftAsync(dto, null);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await NewStore().GetCurrentDraftBySlugAsync("draft-slug"))!.Version.Title, Is.EqualTo("Title"));
+            Assert.That(await NewStore().GetCurrentDraftBySlugAsync("missing"), Is.Null);
+            Assert.That(await NewStore().GetCurrentDraftBySlugAsync("  "), Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task GetCurrentDraftChildrenAsync_MatchesParentAndDraftFilters_ReturnsOnlyMatchingChildren()
+    {
+        var ctx = NewContext();
+        var store = NewStore(ctx);
+        var parentA = Guid.NewGuid();
+        var parentB = Guid.NewGuid();
+
+        var childA = NewBlock("A");
+        childA.Version.Node!.ParentNodeId = parentA;
+        await store.SaveDraftAsync(childA, null);
+
+        var childB = NewBlock("B");
+        childB.Version.Node!.ParentNodeId = parentB;
+        await store.SaveDraftAsync(childB, null);
+
+        var deleted = NewBlock("A-deleted");
+        deleted.Version.Node!.ParentNodeId = parentA;
+        await store.SaveDraftAsync(deleted, null);
+        await store.DeleteAsync(deleted.Version.Node.Id, softDelete: true);
+
+        var children = await store.GetCurrentDraftChildrenAsync(parentA);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(children, Has.Count.EqualTo(1));
+            Assert.That(children[0].Version.Title, Is.EqualTo("A"));
+        });
+    }
+
+    [Test]
+    public async Task GetCurrentDraftChildrenAsync_NullParent_ReturnsRootDrafts()
+    {
+        var ctx = NewContext();
+        var store = NewStore(ctx);
+
+        var root = NewBlock("Root");
+        await store.SaveDraftAsync(root, null);
+
+        var child = NewBlock("Child");
+        child.Version.Node!.ParentNodeId = Guid.NewGuid();
+        await store.SaveDraftAsync(child, null);
+
+        var roots = await store.GetCurrentDraftChildrenAsync(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(roots, Has.Count.EqualTo(1));
+            Assert.That(roots[0].Version.Title, Is.EqualTo("Root"));
+        });
+    }
+
+    [Test]
+    public async Task GetCurrentDraftChildrenAsync_NoMatches_ReturnsEmptyList()
+    {
+        var store = NewStore();
+
+        var child = NewBlock("Child");
+        child.Version.Node!.ParentNodeId = Guid.NewGuid();
+        await store.SaveDraftAsync(child, null);
+
+        var children = await store.GetCurrentDraftChildrenAsync(Guid.NewGuid());
+
+        Assert.That(children, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetPublishedNodeIdsAsync_ReturnsOnlyPublishedNodes()
+    {
+        var publishedId = await CreatePublishedAsync("P");
+
+        var store = NewStore();
+        var draft = NewBlock("D");
+        await store.SaveDraftAsync(draft, null);
+
+        var ids = await NewStore().GetPublishedNodeIdsAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ids, Does.Contain(publishedId));
+            Assert.That(ids, Does.Not.Contain(draft.Version.Node!.Id));
+        });
+    }
+
+    [Test]
+    public async Task GetPublishedNodeIdsAsync_SoftDeletedNode_IsExcluded()
+    {
+        var nodeId = await CreatePublishedAsync("T");
+        await NewStore().DeleteAsync(nodeId, softDelete: true);
+
+        var ids = await NewStore().GetPublishedNodeIdsAsync();
+
+        Assert.That(ids, Does.Not.Contain(nodeId));
+    }
+
+    [Test]
+    public async Task CurrentDraftReads_SoftDeletedNode_AreExcluded()
+    {
+        var nodeId = await CreatePublishedAsync("T");
+        await NewStore().DeleteAsync(nodeId, softDelete: true);
+
+        var store = NewStore();
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await store.GetCurrentDraftAsync(nodeId), Is.Null);
+            Assert.That(await store.GetAllCurrentDraftsAsync(), Is.Empty);
+        });
+    }
+
     // ─── SaveDraftAsync ───────────────────────────────────────────────────────
 
     [Test]
@@ -507,6 +631,24 @@ public class ContentStoreTests
         {
             Assert.That(ok, Is.True);
             Assert.That(ctx.Set<ContentNode>().Single().IsDeleted, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_EditingSoftDeletedNode_DoesNotResurrectIt()
+    {
+        var nodeId = await CreatePublishedAsync("T");
+        await NewStore().DeleteAsync(nodeId, softDelete: true);
+
+        var dto = NewBlock("T2");
+        dto.Version.Node = new ContentNode { Id = nodeId };
+        var result = await NewStore().SaveDraftAsync(dto, null);
+
+        var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(ctx.Set<ContentNode>().Single(n => n.Id == nodeId).IsDeleted, Is.True);
         });
     }
 

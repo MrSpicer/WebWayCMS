@@ -1,6 +1,7 @@
 using System.Security.Claims;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Routing;
@@ -37,6 +38,7 @@ internal sealed class MvcHarness
     public DefaultHttpContext NewHttpContext(string[] roles, IQueryCollection? query = null)
     {
         var context = new DefaultHttpContext { RequestServices = Services };
+        context.Features.Set<IResponseCookiesFeature>(new ResponseCookiesFeature(context.Features));
         var identity = new ClaimsIdentity(
             roles.Select(r => new Claim(ClaimTypes.Role, r)),
             authenticationType: "Test");

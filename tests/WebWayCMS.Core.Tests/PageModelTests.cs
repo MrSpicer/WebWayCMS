@@ -99,6 +99,7 @@ public class PageModelTests
             Assert.That(_model.IndexViewPath, Does.Contain("Pages.cshtml"));
             Assert.That(_model.UpsertViewPath, Does.Contain("PageUpsert.cshtml"));
             Assert.That(_model.RegistryHandler, Is.Not.Null);
+            Assert.That(_model.SupportsPreview, Is.True);
         });
     }
 
@@ -187,22 +188,6 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task GetPageUpsertAsync_NullId_FoundAndNotFound()
-    {
-        var page = Page();
-        _store.GetCurrentDraftAsync(page.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(page);
-        _store.GetCurrentDraftAsync(Arg.Is<Guid>(g => g != page.Version.Node.Id), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await _model.GetPageUpsertAsync(null), Is.Not.Null);
-            Assert.That(await _model.GetPageUpsertAsync(Guid.Empty), Is.Not.Null);
-            Assert.That(await _model.GetPageUpsertAsync(page.Version.Node.Id), Is.Not.Null);
-            Assert.That(await _model.GetPageUpsertAsync(Guid.NewGuid()), Is.Null);
-        });
-    }
-
-    [Test]
     public void SavePageUpsertAsync_NullModel_Throws()
     {
         Assert.That(async () => await _model.SavePageUpsertAsync(null!), Throws.ArgumentNullException);
@@ -252,7 +237,12 @@ public class PageModelTests
 
         var historical = Page();
         _store.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
-        Assert.That(((PageUpsertViewModel)(await _model.GetRestoreVersionViewModelAsync(historical.VersionId))!).NodeId, Is.EqualTo(historical.Version.Node.Id));
+        var current = Page(nodeId: historical.Version.Node.Id);
+        current.Version.VersionNumber = 7;
+        _store.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(current);
+        var restoreVm = (PageUpsertViewModel)(await _model.GetRestoreVersionViewModelAsync(historical.VersionId))!;
+        Assert.That(restoreVm.NodeId, Is.EqualTo(historical.Version.Node.Id));
+        Assert.That(restoreVm.ExpectedVersionNumber, Is.EqualTo(7));
 
         _store.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         Assert.That(await _model.DeletePageVersionAsync(Guid.NewGuid()), Is.True);
@@ -263,6 +253,29 @@ public class PageModelTests
     {
         _store.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
         Assert.That(await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
+    }
+
+    [Test]
+    public async Task GetRestoreVersionViewModel_PopulatesParentage()
+    {
+        var historical = Page();
+        var parentNodeId = Guid.NewGuid();
+        historical.Version.Node.ParentNodeId = parentNodeId;
+
+        _store.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
+        var current = Page(nodeId: historical.Version.Node.Id);
+        current.Version.VersionNumber = 7;
+        _store.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/docs" } });
+
+        var restoreVm = (PageUpsertViewModel)(await _model.GetRestoreVersionViewModelAsync(historical.VersionId))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreVm.ParentNodeId, Is.EqualTo(parentNodeId));
+            Assert.That(restoreVm.ParentRoutePrefix, Is.EqualTo("/docs"));
+        });
     }
 
     [Test]
@@ -282,6 +295,27 @@ public class PageModelTests
             Assert.That(rootParent.ParentRoutePrefix, Is.EqualTo("/"));
             var plain = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query()))!;
             Assert.That(plain.ParentRoutePrefix, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task AdminHandler_UpsertViewModel_Edit_PopulatesParentage()
+    {
+        var nodeId = Guid.NewGuid();
+        var parentNodeId = Guid.NewGuid();
+        var page = Page(nodeId: nodeId);
+        page.Version.Node.ParentNodeId = parentNodeId;
+
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/docs" } });
+
+        var vm = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(nodeId, Query()))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.ParentNodeId, Is.EqualTo(parentNodeId));
+            Assert.That(vm.ParentRoutePrefix, Is.EqualTo("/docs"));
         });
     }
 
@@ -352,6 +386,31 @@ public class PageModelTests
     }
 
     [Test]
+    public async Task AdminHandler_SaveUpsert_DuplicateSiblingSlug_Rejected()
+    {
+        var parentNodeId = Guid.NewGuid();
+        var sibling = Page(title: "Child");
+        sibling.Version.Node.ParentNodeId = parentNodeId;
+
+        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Title = "Child",
+            Slug = "child",
+            ParentNodeId = parentNodeId,
+            ControllerName = "C"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Slug"));
+        });
+    }
+
+    [Test]
     public async Task AdminHandler_IndexCreateEmptyDeleteApiRestoreAndDeleteVersion()
     {
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
@@ -375,9 +434,13 @@ public class PageModelTests
     [Test]
     public async Task PublishPageAsync_FailureSurfaces()
     {
-        _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "err"));
+        var nodeId = Guid.NewGuid();
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(Page(nodeId: nodeId));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "err"));
 
-        var result = await _model.PublishPageAsync(Guid.NewGuid());
+        var result = await _model.PublishPageAsync(nodeId);
 
         Assert.Multiple(() =>
         {
@@ -387,18 +450,18 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task PublishPageAsync_PageMissingAfterPublish_ReturnsError()
+    public async Task PublishPageAsync_MissingDraft_ReturnsNotFoundWithoutPublishing()
     {
-        _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
 
         var result = await _model.PublishPageAsync(Guid.NewGuid());
 
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.False);
-            Assert.That(result.ErrorMessage, Is.EqualTo("Failed to read published page."));
+            Assert.That(result.ErrorMessage, Is.EqualTo("Page not found."));
         });
+        await _store.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -406,13 +469,16 @@ public class PageModelTests
     {
         var nodeId = Guid.NewGuid();
         var page = Page(title: "Test", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).UnregisterContentRoutesAsync(nodeId, Arg.Any<CancellationToken>());
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
             _model, "/test", "GenericPage", nodeId, Arg.Any<CancellationToken>());
     }
@@ -422,9 +488,11 @@ public class PageModelTests
     {
         var nodeId = Guid.NewGuid();
         var page = Page(title: "Home", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
@@ -438,10 +506,12 @@ public class PageModelTests
     {
         var nodeId = Guid.NewGuid();
         var page = Page(title: "New", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { new() { Pattern = "/blog/old-slug" } });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
@@ -455,16 +525,111 @@ public class PageModelTests
     {
         var nodeId = Guid.NewGuid();
         var page = Page(title: "New", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { new() { Pattern = "/old-slug" } });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
             _model, "/new", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_WithParent_PublishesNested()
+    {
+        var nodeId = Guid.NewGuid();
+        var parentNodeId = Guid.NewGuid();
+        var page = Page(title: "Child", nodeId: nodeId);
+        page.Version.Node.ParentNodeId = parentNodeId;
+
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { new() { Pattern = "/docs" } });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            _model, "/docs/child", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_RouteRegistrationFails_FirstPublish_NoRouteToRestore()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
+        });
+        await _store.Received(1).UnpublishAsync(nodeId, Arg.Any<CancellationToken>());
+        await _cmsRouteService.DidNotReceive().UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_RouteRegistrationFails_Republish_RestoresPreviousRoute()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        var existingRoute = RouteFor(nodeId, "/old-slug");
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { existingRoute });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _cmsRouteService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
+        });
+        await _store.Received(1).UnpublishAsync(nodeId, Arg.Any<CancellationToken>());
+        await _cmsRouteService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.Pattern == "/old-slug"), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_DuplicateSiblingSlug_FailsLoudly()
+    {
+        var nodeId = Guid.NewGuid();
+        var parentNodeId = Guid.NewGuid();
+        var page = Page(title: "Child", nodeId: nodeId);
+        page.Version.Node.ParentNodeId = parentNodeId;
+
+        var sibling = Page(title: "Sibling");
+        sibling.Version.Node.ParentNodeId = parentNodeId;
+        sibling.Version.Slug = "child";
+
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page, sibling });
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.False);
+        await _routeRegistration.DidNotReceive().RegisterContentRoutesAsync(
+            Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _store.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -486,8 +651,10 @@ public class PageModelTests
     public async Task PublishAsync_Override_SuccessAndFailure()
     {
         _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
-        _store.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(Page(title: "T"));
+        _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(Page(title: "T"));
         _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
 
@@ -657,6 +824,113 @@ public class PageModelTests
         Assert.That(a.PageNodeId, Is.Null);
     }
 
+    [Test]
+    public async Task GetPageIndexAsync_UnpublishedChild_NestsUnderParent()
+    {
+        var parentNodeId = Guid.NewGuid();
+        var parent = Page(title: "Docs", nodeId: parentNodeId);
+        var child = Page(title: "Child");
+        child.Version.Node.ParentNodeId = parentNodeId;
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { parent, child });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(parentNodeId, "/docs"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        var docs = vm.Pages.Single(p => p.Path == "/docs");
+        Assert.That(docs.Children.Single().Path, Is.EqualTo("/docs/child"));
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_UnpublishedChildUnderRoot_ResolvesUnderSlash()
+    {
+        var rootNodeId = Guid.NewGuid();
+        var root = Page(title: "Home", nodeId: rootNodeId);
+        var child = Page(title: "Child");
+        child.Version.Node.ParentNodeId = rootNodeId;
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { root, child });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(rootNodeId, "/"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        Assert.That(vm.Pages.Any(p => p.Path == "/child"), Is.True);
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_PublishedWithNewerDraft_ReportsPublished()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "T", state: ContentVersionState.Draft, nodeId: nodeId);
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid> { nodeId });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(nodeId, "/t"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+        var node = vm.Pages.Single(p => p.Path == "/t");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(node.IsPublished, Is.True);
+            Assert.That(node.HasPendingChanges, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_PublishedWithoutPendingChanges_HasNoPendingChanges()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "T", state: ContentVersionState.Published, nodeId: nodeId);
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid> { nodeId });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(nodeId, "/t"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+        var node = vm.Pages.Single(p => p.Path == "/t");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(node.IsPublished, Is.True);
+            Assert.That(node.HasPendingChanges, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_NeverPublished_ReportsNotPublished()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "T", state: ContentVersionState.Draft, nodeId: nodeId);
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var vm = await _model.GetPageIndexAsync();
+        var node = vm.Pages.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(node.IsPublished, Is.False);
+            Assert.That(node.HasPendingChanges, Is.False);
+        });
+    }
+
     // --- PageRegistryHandler GetForm ---
 
     [Test]
@@ -701,6 +975,117 @@ public class PageModelTests
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
         Assert.That(((PartialViewResult)result).ViewData!.Model, Is.TypeOf<SampleSaveConfig>());
+    }
+
+    // --- Parent-node resolution for the "Add child" admin link (#2) ---
+
+    [Test]
+    public async Task GetUpsertViewModelAsync_ParentRoute_PublishedParent_ResolvesParentNodeIdFromRoutes()
+    {
+        var parentNodeId = Guid.NewGuid();
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO> { RouteFor(parentNodeId, "/docs") });
+
+        var vm = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "/docs"))))!;
+
+        Assert.That(vm.ParentNodeId, Is.EqualTo(parentNodeId));
+    }
+
+    [Test]
+    public async Task GetUpsertViewModelAsync_ParentRoute_UnpublishedParent_ResolvesParentNodeIdByWalkingDrafts()
+    {
+        var parent = Page(title: "Docs");
+        var parentNodeId = parent.Version.Node.Id;
+
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { parent });
+
+        var vm = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "/docs"))))!;
+
+        Assert.That(vm.ParentNodeId, Is.EqualTo(parentNodeId));
+    }
+
+    [Test]
+    public async Task GetUpsertViewModelAsync_ParentRoute_NoMatchAnywhere_LeavesParentNodeIdNull()
+    {
+        var other = Page(title: "Other");
+
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { other });
+
+        var vm = (PageUpsertViewModel)(await _model.GetUpsertViewModelAsync(null, Query(("parentRoute", "/docs"))))!;
+
+        Assert.That(vm.ParentNodeId, Is.Null);
+    }
+
+    [Test]
+    public async Task GetPageIndexAsync_BuildTree_CircularParent_DoesNotInfiniteLoop()
+    {
+        var a = Page(title: "A");
+        var b = Page(title: "B");
+        a.Version.Node.ParentNodeId = b.Version.Node.Id;
+        b.Version.Node.ParentNodeId = a.Version.Node.Id;
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { a, b });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var vm = await _model.GetPageIndexAsync();
+
+        Assert.That(vm.Pages, Has.Count.EqualTo(2));
+    }
+
+    // --- Sibling-scoped slug query + encoded-slug round-trip (#10 / #7) ---
+
+    [Test]
+    public async Task IsSlugAvailableAsync_QueriesOnlyDirectSiblings_NotAllPages()
+    {
+        var parentNodeId = Guid.NewGuid();
+        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
+        _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _store.SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Title = "Child",
+            Slug = "child",
+            ParentNodeId = parentNodeId,
+            ControllerName = "C"
+        });
+
+        Assert.That(result.Success, Is.True);
+        await _store.Received(1).GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>());
+        await _store.DidNotReceive().GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SaveUpsertAsync_ReSubmittedAlreadyEncodedSlug_ViaViewModel_StillDetectsCollisionCorrectly()
+    {
+        var parentNodeId = Guid.NewGuid();
+        var sibling = Page(title: "Hello World");
+        sibling.Version.Slug = Uri.EscapeDataString(sibling.Version.Slug);
+        sibling.Version.Node.ParentNodeId = parentNodeId;
+
+        var decodedVm = _mapper.Map<PageUpsertViewModel>(sibling);
+        Assert.That(decodedVm.Slug, Is.EqualTo("hello world"));
+
+        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Title = "Hello World",
+            Slug = decodedVm.Slug,
+            ParentNodeId = parentNodeId,
+            ControllerName = "C"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Slug"));
+        });
     }
 }
 

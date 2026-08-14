@@ -86,11 +86,12 @@ public class ArticleViewComponentTests
     [Test]
     public async Task ListMode_RendersList()
     {
-        _listModel.GetArticlesForListAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ArticleListViewModel());
+        _listModel.GetArticlesForListAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(new ArticleListViewModel());
 
         var result = await _component.InvokeAsync(new ArticleContentZoneConfiguration { Mode = "list", ArticleListId = Guid.NewGuid() });
 
         Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("List"));
+        await _listModel.Received(1).GetArticlesForListAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>());
     }
 
     [Test]

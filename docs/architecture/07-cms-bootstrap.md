@@ -52,9 +52,8 @@ Runs in this order:
 | `IViewDiscoveryService` → `ViewDiscoveryService` | scoped |
 | `IWidgetRegistry` → `WidgetRegistry` | **singleton** |
 | `IPageControllerRegistry` → `PageControllerRegistry` | **singleton** |
-| `IContentService<T>` for `ArticleDTO`, `ArticleListDTO`, `ContentBlockDTO`, `WidgetRegistrationDTO`, `PageControllerRegistrationDTO`, `CMSRouteDTO` | scoped |
+| `IContentStore<T>` for `PageDTO`, `ArticleDTO`, `ArticleListDTO`, `ContentBlockDTO`, `ContentZoneDTO`, `ContentZoneItemDTO`, `WidgetRegistrationDTO`, `PageControllerRegistrationDTO`, `FormComponentRegistrationDTO` | scoped |
 | `IContentZoneService` → `ContentZoneService` | scoped |
-| `IPageService` → `PageService` | scoped |
 | `IWidgetRegistrationService` → `WidgetRegistrationService` | scoped |
 | `IPageControllerRegistrationService` → `PageControllerRegistrationService` | scoped |
 | `ICMSRouteService` → `CMSRouteService` | scoped |

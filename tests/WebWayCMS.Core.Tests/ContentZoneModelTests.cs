@@ -192,6 +192,22 @@ public class ContentZoneModelTests
     }
 
     [Test]
+    public async Task MapToViewModel_EmptyNodeId_ReturnsEmptyViewModel()
+    {
+        var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.Empty } } };
+        _service.GetOrCreateByNameAsync("Empty", Arg.Any<CancellationToken>()).Returns(zone);
+
+        var vm = await _model.GetOrCreateViewModelAsync("Empty");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.Id, Is.EqualTo(Guid.Empty));
+            Assert.That(vm.ZoneObjects, Is.Empty);
+        });
+        await _service.DidNotReceive().GetItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task GetViewModelByPageSlot_NullAssignment_NullZone_AndFound()
     {
         var pageNodeId = Guid.NewGuid();
@@ -361,6 +377,7 @@ public class ContentZoneModelTests
 
         var zone = Zone();
         _zoneStore.GetVersionAsync(zone.VersionId, Arg.Any<CancellationToken>()).Returns(zone);
+        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
         Assert.That(await _model.GetRestoreVersionViewModelAsync(zone.VersionId), Is.InstanceOf<ContentZoneUpsertViewModel>());
     }
 

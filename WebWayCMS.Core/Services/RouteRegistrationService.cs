@@ -19,12 +19,12 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         _routableWidgets = routableWidgets ?? throw new ArgumentNullException(nameof(routableWidgets));
     }
 
-    public async Task RegisterContentRoutesAsync(
+    public async Task<(bool Success, string? ErrorMessage)> RegisterContentRoutesAsync(
         IRoutableContent content, string routePattern, string controllerName,
         Guid contentNodeId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(routePattern))
-            return;
+            return (true, null);
 
         var defaults = new Dictionary<string, string>
         {
@@ -44,7 +44,8 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             OwningContentType = content.RouteContentType
         };
 
-        await _routeService.UpsertAsync(route, ct);
+        var result = await _routeService.UpsertAsync(route, ct);
+        return (result.Success, result.ErrorMessage);
     }
 
     public async Task UnregisterContentRoutesAsync(Guid contentNodeId, CancellationToken ct = default)
@@ -52,11 +53,15 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         await _routeService.DeleteByOwningContentAsync(contentNodeId, ct);
     }
 
-    public async Task RegisterWidgetRoutesAsync(
+    public async Task<(bool Success, string? ErrorMessage)> RegisterWidgetRoutesAsync(
         IRoutableViewComponent widget, Guid contentZoneItemNodeId, string parentRoute,
         string parentDefaultsJson, Guid parentPageNodeId, CancellationToken ct = default)
     {
         var widgetRoutes = await widget.GenerateRoutesAsync(parentRoute, contentZoneItemNodeId, ct);
+
+        // A widget's route set is fully recomputed on each registration, so sweep the owner's existing
+        // rows first — otherwise a rename/reparent leaves stale patterns behind.
+        await _routeService.DeleteByOwningContentAsync(contentZoneItemNodeId, ct);
 
         var parentDefaults = TryDeserialize<Dictionary<string, string>>(parentDefaultsJson)
             ?? new Dictionary<string, string>();
@@ -80,34 +85,38 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             widgetRoute.OwningContentNodeId = contentZoneItemNodeId;
             widgetRoute.OwningContentType ??= "ArticleWidget";
 
-            await _routeService.UpsertAsync(widgetRoute, ct);
+            var result = await _routeService.UpsertAsync(widgetRoute, ct);
+            if (!result.Success)
+                return (false, result.ErrorMessage);
         }
+
+        return (true, null);
     }
 
-    public async Task TryRegisterWidgetRoutesAsync(
+    public async Task<(bool Success, string? ErrorMessage)> TryRegisterWidgetRoutesAsync(
         string componentName, Guid contentZoneItemNodeId, Guid? parentPageNodeId,
         bool isActive, CancellationToken ct = default)
     {
         if (!isActive)
         {
             await _routeService.DeleteByOwningContentAsync(contentZoneItemNodeId, ct);
-            return;
+            return (true, null);
         }
 
         if (!parentPageNodeId.HasValue)
-            return;
+            return (true, null);
 
         var widget = _routableWidgets.FirstOrDefault(w =>
             string.Equals(w.ComponentName, componentName, StringComparison.OrdinalIgnoreCase));
         if (widget == null)
-            return;
+            return (true, null);
 
         var pageRoutes = await _routeService.GetByOwningContentAsync(parentPageNodeId.Value, ct);
         var pageRoute = pageRoutes.FirstOrDefault();
         if (pageRoute == null)
-            return;
+            return (true, null);
 
-        await RegisterWidgetRoutesAsync(
+        return await RegisterWidgetRoutesAsync(
             widget, contentZoneItemNodeId, pageRoute.Pattern, pageRoute.DefaultsJson,
             parentPageNodeId.Value, ct);
     }

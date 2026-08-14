@@ -157,10 +157,18 @@ internal static class CmsRouteSeeder
 
                 try
                 {
-                    routeService.UpsertAsync(route).GetAwaiter().GetResult();
-                    existingPatterns.Add(pattern);
-                    logger.Information("Seeded code-based route '{Pattern}' -> {Controller}.{Action}",
-                        pattern, controllerName, attr.Action ?? "Index");
+                    var result = routeService.UpsertAsync(route).GetAwaiter().GetResult();
+                    if (result.Success)
+                    {
+                        existingPatterns.Add(pattern);
+                        logger.Information("Seeded code-based route '{Pattern}' -> {Controller}.{Action}",
+                            pattern, controllerName, attr.Action ?? "Index");
+                    }
+                    else
+                    {
+                        logger.Warning("Failed to seed code-based route '{Pattern}': {ErrorMessage}",
+                            pattern, result.ErrorMessage);
+                    }
                 }
                 catch (Exception ex)
                 {

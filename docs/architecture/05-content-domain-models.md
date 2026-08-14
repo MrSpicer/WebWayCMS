@@ -57,7 +57,7 @@ protected abstract string GetVersionHistoryBackUrl(string? parentKey = null);
 
 `AdminCrudModel<T>` extends `VersionedModel<T>` and implements `IAdminCrudHandler`, combining two responsibilities in one class:
 
-- **Domain model** — methods like `GetPageUpsertAsync`, `SaveArticleListUpsertAsync` called directly by domain consumers (page controllers, view components)
+- **Domain model** — methods like `GetPageIndexAsync`, `SavePageUpsertAsync` called directly by domain consumers (page controllers, view components)
 - **Admin CRUD handler** — the `IAdminCrudHandler` methods delegate to the domain methods, adapting the generic `object`-typed interface to the concrete types
 
 This dual role means the DI registration exposes one scoped instance as both `PageModel` and `IAdminCrudHandler`, avoiding double instantiation.
@@ -93,7 +93,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - **DisplayName:** `"Page"`
 - **Also implements:** `IRoutableContent` (`RouteContentType => "Page"`)
 - **Handler:** Full `IAdminCrudHandler`; also exposes `IAdminRegistryHandler` via `PageRegistryHandler` (delegates to `IPageControllerRegistry` to supply page-type metadata and available views to the admin page-edit UI)
-- **Domain methods:** `GetPageIndexAsync` (builds the `PageTreeNode` hierarchy by joining pages to their `CMSRoutes` patterns), `GetPageUpsertAsync`, `SavePageUpsertAsync`, `DeletePageAsync`
+- **Domain methods:** `GetPageIndexAsync` (builds the `PageTreeNode` hierarchy by joining pages to their `CMSRoutes` patterns), `SavePageUpsertAsync`, `DeletePageAsync`
 - **URL handling:** the page's route pattern is derived from its Slug (`DeriveRoutePatternFromSlug`) and written through `IRouteRegistrationService` on save; `ICMSRouteService.IsPatternAvailableAsync` guards uniqueness and produces the `"A page with this slug already exists at this location."` error on the `Slug` field. Saving an unpublished page unregisters its route instead
 - **Version restore:** Copies historical version, sets `Id`/`Version` to the latest version's values so saving creates a new version on top
 
@@ -186,8 +186,8 @@ complete mapping logic for the pair.
 **`WebWayCMS.Data.MappingProfile`** (the file lives at `WebWayCMS.Core/Data/MappingProfile.cs`) — the CMS library's mapping profile:
 - Maps all built-in DTOs to their ViewModels and back
 - Conventions:
-  - `Id` on a DTO maps to `Id` on the ViewModel for edits; new ViewModel has `Id = null`
-  - `MasterId` is preserved on ViewModels for version tracking
+  - `NodeId` (from `Version.Node.Id`) maps to `NodeId` on the ViewModel for edits; a new ViewModel has `NodeId = null`
+  - `ExpectedVersionNumber` is stamped from the current draft's `VersionNumber` for concurrency tracking
   - `PublicationDate` is stored in UTC; normalized to UTC in mapping if not already
   - Fields not needed in the ViewModel are simply left unset in the converter lambda
 

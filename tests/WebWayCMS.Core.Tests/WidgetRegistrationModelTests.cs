@@ -398,7 +398,9 @@ public class WidgetRegistrationModelTests
 
         _store.GetVersionAsync(historicalId, Arg.Any<CancellationToken>()).Returns(Dto(
             nodeId: nodeId, componentName: "Hist", displayName: "History",
-            configTypeName: "SomeType"));
+            configTypeName: "SomeType", version: 2));
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(Dto(
+            nodeId: nodeId, componentName: "Current", displayName: "Current", version: 5));
 
         var result = await _model.GetRestoreVersionViewModelAsync(historicalId);
 
@@ -406,6 +408,7 @@ public class WidgetRegistrationModelTests
         var vm = (WidgetRegistrationUpsertViewModel)result!;
         Assert.That(vm.ComponentName, Is.EqualTo("Hist"));
         Assert.That(vm.NodeId, Is.EqualTo(nodeId));
+        Assert.That(vm.ExpectedVersionNumber, Is.EqualTo(5));
     }
 
     [Test]

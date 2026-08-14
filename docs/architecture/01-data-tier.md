@@ -306,8 +306,11 @@ predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship
 |---|---|
 | `GetVersionAsync(versionId)` | Exact version row |
 | `GetAllVersionsAsync(nodeId)` | All versions newest-first |
-| `GetCurrentDraftAsync(nodeId)` | The `IsCurrentDraft` row (invariant variant) |
-| `GetAllCurrentDraftsAsync()` | Every current-draft row (admin lists) |
+| `GetCurrentDraftAsync(nodeId)` | The `IsCurrentDraft` row (invariant variant) — **excludes `Node.IsDeleted`** (matching `AtReadContext`), so soft-deleted items never leak into admin lists |
+| `GetCurrentDraftBySlugAsync(slug)` | The `IsCurrentDraft` row by slug (invariant variant, `IsDeleted` excluded); returns null for blank slugs |
+| `GetAllCurrentDraftsAsync()` | Every current-draft row (admin lists) — **excludes `Node.IsDeleted`** |
+| `GetCurrentDraftChildrenAsync(parentNodeId)` | Current-draft rows whose `Node.ParentNodeId` matches (null ⇒ root drafts) — **excludes `Node.IsDeleted`** — the sibling-scoped query behind the page slug-collision check |
+| `GetPublishedNodeIdsAsync()` | The set of node ids that have a `Published` version at the default variant — **excludes `Node.IsDeleted`** — the "has a published version" signal used by the page nav |
 
 **Writes** (return `ContentWriteResult(bool Success, string? ErrorMessage, Guid VersionId)`):
 
@@ -337,8 +340,8 @@ routes, invalidated on every write).
 | `GetActiveRoutesAsync()` / `GetAllRoutesAsync()` | All routes ordered by `Order` then `Pattern.Length` |
 | `GetByOwningContentAsync(nodeId)` | Routes owned by a content node |
 | `GetByIdAsync(id)` | Exact row |
-| `IsPatternAvailableAsync(pattern, excludeNodeId?, excludeRouteId?)` | `true` if no route occupies that pattern (optional exclusions for edit-in-place) |
-| `UpsertAsync(route)` | **Destructive replace** — deletes the existing row for the owner/pattern and inserts a fresh row |
+| `IsPatternAvailableAsync(pattern, excludeNodeId?, excludeRouteId?)` | `true` if no route occupies that pattern (optional exclusions for edit-in-place; NULL-owner rows are handled explicitly, not dropped by SQL three-valued logic) |
+| `UpsertAsync(route)` | Keys the replace on `(OwningContentNodeId, Pattern)`; returns `(bool Success, string? ErrorMessage, CMSRouteDTO? Route)` — a foreign owner on the same pattern is a collision (failure), never a silent steal |
 | `DeleteAsync(id)` / `DeleteByOwningContentAsync(nodeId)` | Hard-delete route(s) |
 
 Three read-only services back the registries:

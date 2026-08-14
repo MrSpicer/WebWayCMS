@@ -101,12 +101,17 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
         return await _listStore.DeleteAsync(nodeId, softDelete: false, ct);
     }
 
-    public async Task<ArticleListViewModel?> GetArticlesForListAsync(Guid articleListNodeId, CancellationToken ct = default)
+    public async Task<ArticleListViewModel?> GetArticlesForListAsync(Guid articleListNodeId, bool includeDrafts = false, CancellationToken ct = default)
     {
-        var list = await _listStore.GetAsync(articleListNodeId, ct);
+        var list = includeDrafts
+            ? await _listStore.GetCurrentDraftAsync(articleListNodeId, ct)
+            : await _listStore.GetAsync(articleListNodeId, ct);
         if (list == null) return null;
 
-        var articles = await _articleStore.GetAllAsync(ct);
+        var articles = includeDrafts
+            ? await _articleStore.GetAllCurrentDraftsAsync(ct)
+            : await _articleStore.GetAllAsync(ct);
+
         return new ArticleListViewModel
         {
             ArticleListId = list.Version.Node.Id,
@@ -121,14 +126,23 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
 
     public async Task<ArticleListViewModel?> GetArticlesForListBySlugAsync(string slug, CancellationToken ct = default)
     {
-        var list = await _listStore.GetBySlugAsync(slug, ct);
+        var list = await _listStore.GetCurrentDraftBySlugAsync(slug, ct);
         if (list == null) return null;
 
-        return await GetArticlesForListAsync(list.Version.Node.Id, ct);
+        return await GetArticlesForListAsync(list.Version.Node.Id, includeDrafts: true, ct);
     }
 
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
+
+    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+    {
+        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
+        if (loaded == null) return null;
+        var vm = _mapper.Map<ArticleListUpsertViewModel>(loaded.Value.Historical);
+        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
+        return vm;
+    }
 
     public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => DeleteVersionCoreAsync(id, ct);

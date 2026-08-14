@@ -197,11 +197,30 @@ public class ArticleListModelTests
     }
 
     [Test]
+    public async Task GetArticlesForListAsync_IncludeDrafts_ReadsDrafts()
+    {
+        var list = List();
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _articleStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.Version.Node.Id) });
+
+        var result = await _model.GetArticlesForListAsync(list.Version.Node.Id, includeDrafts: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result!.Articles, Has.Count.EqualTo(1));
+        });
+        await _listStore.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _articleStore.DidNotReceive().GetAllAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task GetArticlesForListBySlugAsync_FoundAndNotFound()
     {
         var list = List();
-        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
-        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list, (ArticleListDTO?)null);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _articleStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleDTO> { Article(list.Version.Node.Id) });
 
         Assert.Multiple(async () =>
         {
@@ -224,8 +243,10 @@ public class ArticleListModelTests
     [Test]
     public async Task AdminHandlerMembers()
     {
-        var list = List();
+        var list = List(version: 4);
+        var historical = List(nodeId: list.Version.Node.Id, version: 1);
         _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
         var query = new MvcHarness().NewHttpContext(Array.Empty<string>()).Request.Query;
 
         Assert.Multiple(async () =>
@@ -235,7 +256,8 @@ public class ArticleListModelTests
             Assert.That(await _model.GetUpsertViewModelAsync(null, query), Is.Not.Null);
             Assert.That(_model.CreateEmptyUpsertViewModel(), Is.InstanceOf<ArticleListUpsertViewModel>());
             Assert.That(await _model.GetApiListAsync(), Is.Not.Null);
-            Assert.That(await _model.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
+            var restore = (ArticleListUpsertViewModel)(await _model.GetRestoreVersionViewModelAsync(historical.VersionId))!;
+            Assert.That(restore.ExpectedVersionNumber, Is.EqualTo(list.Version.VersionNumber));
         });
     }
 
@@ -312,8 +334,8 @@ public class ArticleListModelTests
     public async Task ChildHandler_GetChildIndex_ReturnsListBySlug()
     {
         var list = List();
-        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
 
         Assert.That(await _model.ChildHandler!.GetChildIndexViewModelAsync("list"), Is.Not.Null);
     }
@@ -323,11 +345,11 @@ public class ArticleListModelTests
     {
         var child = _model.ChildHandler!;
         var list = List();
-        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
 
         // parent list missing -> null
-        _listStore.GetBySlugAsync("missing", Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
+        _listStore.GetCurrentDraftBySlugAsync("missing", Arg.Any<CancellationToken>()).Returns((ArticleListDTO?)null);
         Assert.That(await child.GetChildUpsertViewModelAsync("missing", Guid.NewGuid()), Is.Null);
 
         // article model returns a vm
@@ -345,8 +367,8 @@ public class ArticleListModelTests
     public async Task ChildHandler_SetViewData_SetsSlugAndTitle()
     {
         var list = List();
-        _listStore.GetBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
-        _listStore.GetAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftBySlugAsync("list", Arg.Any<CancellationToken>()).Returns(list);
+        _listStore.GetCurrentDraftAsync(list.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(list);
         var viewData = NewViewData();
 
         await _model.ChildHandler!.SetChildUpsertViewDataAsync(viewData, "list");

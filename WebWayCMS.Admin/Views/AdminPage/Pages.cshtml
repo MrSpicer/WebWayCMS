@@ -104,6 +104,10 @@
                         if (node.IsPublished)
                         {
                             <span class="tag is-success">Yes</span>
+                            @if (node.HasPendingChanges)
+                            {
+                                <span class="tag is-warning ml-1">Pending</span>
+                            }
                         }
                         else
                         {
@@ -120,9 +124,9 @@
                             <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?pageId=@node.PageNodeId"
                                class="button is-small is-info is-light">Content Zones</a>
                             <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageNodeId" class="button is-small">Edit</a>
-                            @if (!node.IsPublished)
+                            <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info">Preview</a>
+                            @if (!node.IsPublished || node.HasPendingChanges)
                             {
-                                <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info">Preview</a>
                                 <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post" class="is-inline-block">
                                     @Html.AntiForgeryToken()
                                     <button type="submit" class="button is-small is-success">Publish</button>
