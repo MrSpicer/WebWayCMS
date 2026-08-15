@@ -38,7 +38,7 @@ public sealed class ChildContentToolset
         return child;
     }
 
-    [McpServerTool(Name = "list_children")]
+    [McpServerTool(Name = "list_children", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the child entities under a parent. parentKey is the parent's slug or Guid (e.g. an article list slug, or a content zone id).")]
     public async Task<object> ListChildren(
         [Description("The parent content type, e.g. \"articles\" or \"contentzones\".")] string contentType,
@@ -53,7 +53,7 @@ public sealed class ChildContentToolset
         return vm;
     }
 
-    [McpServerTool(Name = "get_child")]
+    [McpServerTool(Name = "get_child", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the editable view model for a single child entity by its id.")]
     public async Task<object> GetChild(
         [Description("The parent content type.")] string contentType,
@@ -69,7 +69,7 @@ public sealed class ChildContentToolset
         return vm;
     }
 
-    [McpServerTool(Name = "get_child_version")]
+    [McpServerTool(Name = "get_child_version", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the editable view model for a single historical version of a child entity, identified by that version's id.")]
     public async Task<object> GetChildVersion(
         [Description("The parent content type.")] string contentType,
@@ -85,7 +85,7 @@ public sealed class ChildContentToolset
         return vm;
     }
 
-    [McpServerTool(Name = "create_child")]
+    [McpServerTool(Name = "create_child", Destructive = false, OpenWorld = false)]
     [Description("Creates a new child entity under a parent. Supply the fields as a JSON object.")]
     public async Task<AdminSaveResult> CreateChild(
         [Description("The parent content type.")] string contentType,
@@ -99,7 +99,7 @@ public sealed class ChildContentToolset
         return await child.SaveChildUpsertAsync(parentKey, model, ct);
     }
 
-    [McpServerTool(Name = "update_child")]
+    [McpServerTool(Name = "update_child", OpenWorld = false)] // Destructive left at its true default: overwrites existing values
     [Description("Updates an existing child entity. Only supplied fields are changed.")]
     public async Task<AdminSaveResult> UpdateChild(
         [Description("The parent content type.")] string contentType,
@@ -117,7 +117,7 @@ public sealed class ChildContentToolset
         return await child.SaveChildUpsertAsync(parentKey, model, ct);
     }
 
-    [McpServerTool(Name = "delete_child")]
+    [McpServerTool(Name = "delete_child", OpenWorld = false)] // Destructive left at its true default: deletes a child entity permanently
     [Description("Deletes a child entity by id.")]
     public async Task<McpDeleteResult> DeleteChild(
         [Description("The parent content type.")] string contentType,
@@ -129,7 +129,7 @@ public sealed class ChildContentToolset
         return new McpDeleteResult(await child.DeleteChildAsync(id, ct));
     }
 
-    [McpServerTool(Name = "reorder_children")]
+    [McpServerTool(Name = "reorder_children", Destructive = false, OpenWorld = false)]
     [Description("Reorders the children under a parent to match the given list of ids. Only valid for child types that support reordering (e.g. content zone items).")]
     public async Task<McpReorderResult> ReorderChildren(
         [Description("The parent content type.")] string contentType,
@@ -144,7 +144,7 @@ public sealed class ChildContentToolset
         return new McpReorderResult(await child.ReorderAsync(parentKey, orderedIds, ct));
     }
 
-    [McpServerTool(Name = "list_child_versions")]
+    [McpServerTool(Name = "list_child_versions", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the version history for a child entity, identified by its masterId.")]
     public async Task<VersionHistoryViewModel> ListChildVersions(
         [Description("The parent content type.")] string contentType,
@@ -160,7 +160,7 @@ public sealed class ChildContentToolset
         return vm;
     }
 
-    [McpServerTool(Name = "restore_child_version")]
+    [McpServerTool(Name = "restore_child_version", Destructive = false, OpenWorld = false)]
     [Description("Restores a historical version of a child entity as its new current version.")]
     public async Task<AdminSaveResult> RestoreChildVersion(
         [Description("The parent content type.")] string contentType,
@@ -176,7 +176,7 @@ public sealed class ChildContentToolset
         return await child.SaveChildUpsertAsync(parentKey, vm, ct);
     }
 
-    [McpServerTool(Name = "delete_child_version")]
+    [McpServerTool(Name = "delete_child_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a child version
     [Description("Permanently deletes a single historical version of a child entity by its id.")]
     public async Task<McpDeleteResult> DeleteChildVersion(
         [Description("The parent content type.")] string contentType,

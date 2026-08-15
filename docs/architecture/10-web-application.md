@@ -128,7 +128,7 @@ MapTypes(builder.Services);                              // (1) Web-project DI r
 
 builder.Services.AddWebWayCms(builder.Configuration);  // (2) CMS DI
 
-builder.Host.UseCmsSerilog(builder.Configuration);       // (3) Serilog
+builder.Host.UseCmsSerilog();                            // (3) Serilog
 
 var mvc = builder.Services.AddControllersWithViews();    // (4) MVC
 if (builder.Environment.IsDevelopment())

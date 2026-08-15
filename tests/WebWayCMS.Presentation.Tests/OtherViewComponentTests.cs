@@ -172,7 +172,7 @@ public class ContentZoneViewComponentTests
     [Test]
     public async Task NullViewModel_BuildsEmptyAndRendersEmptyContent()
     {
-        _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns((ContentZoneViewModel?)null);
+        _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns((ContentZoneViewModel)null!);
 
         var result = await _component.InvokeAsync(zoneName: "X", IsGlobal: true);
 

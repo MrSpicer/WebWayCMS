@@ -24,7 +24,7 @@ public sealed class ContentToolset
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
     }
 
-    [McpServerTool(Name = "list_content_types")]
+    [McpServerTool(Name = "list_content_types", ReadOnly = true, OpenWorld = false)]
     [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, publishing, child entities, or a component registry.")]
     public IReadOnlyList<McpContentTypeInfo> ListContentTypes() =>
         _handlers
@@ -38,7 +38,7 @@ public sealed class ContentToolset
                 h.RegistryHandler != null))
             .ToList();
 
-    [McpServerTool(Name = "describe_content_type")]
+    [McpServerTool(Name = "describe_content_type", ReadOnly = true, OpenWorld = false)]
     [Description("Describes the editable fields (name, label, editor type, whether required) for a content type's create/edit form. Call this before create_content or update_content to learn which fields to send.")]
     public McpContentTypeDescription DescribeContentType(
         [Description("The content type, e.g. \"contentblocks\" or \"pages\".")] string contentType)
@@ -51,7 +51,7 @@ public sealed class ContentToolset
             McpToolHelpers.DescribeFields(vm));
     }
 
-    [McpServerTool(Name = "list_content")]
+    [McpServerTool(Name = "list_content", ReadOnly = true, OpenWorld = false)]
     [Description("Lists existing items of a content type as { id, title } entries.")]
     public async Task<IEnumerable<object>> ListContent(
         [Description("The content type to list.")] string contentType,
@@ -61,7 +61,7 @@ public sealed class ContentToolset
         return await handler.GetApiListAsync(ct);
     }
 
-    [McpServerTool(Name = "get_content")]
+    [McpServerTool(Name = "get_content", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the full editable view model for a single content item by its id.")]
     public async Task<object> GetContent(
         [Description("The content type.")] string contentType,
@@ -75,7 +75,7 @@ public sealed class ContentToolset
         return vm;
     }
 
-    [McpServerTool(Name = "create_content")]
+    [McpServerTool(Name = "create_content", Destructive = false, OpenWorld = false)]
     [Description("Creates a new content item. Supply the fields described by describe_content_type as a JSON object.")]
     public async Task<AdminSaveResult> CreateContent(
         [Description("The content type to create.")] string contentType,
@@ -87,7 +87,7 @@ public sealed class ContentToolset
         return await handler.SaveUpsertAsync(model, ct);
     }
 
-    [McpServerTool(Name = "update_content")]
+    [McpServerTool(Name = "update_content", OpenWorld = false)] // Destructive left at its true default: overwrites existing values
     [Description("Updates an existing content item. Only the supplied fields are changed; existing values are preserved otherwise.")]
     public async Task<AdminSaveResult> UpdateContent(
         [Description("The content type.")] string contentType,
@@ -103,7 +103,7 @@ public sealed class ContentToolset
         return await handler.SaveUpsertAsync(model, ct);
     }
 
-    [McpServerTool(Name = "delete_content")]
+    [McpServerTool(Name = "delete_content", OpenWorld = false)] // Destructive left at its true default: deletes an item permanently
     [Description("Deletes a content item by id.")]
     public async Task<McpDeleteResult> DeleteContent(
         [Description("The content type.")] string contentType,
@@ -114,7 +114,7 @@ public sealed class ContentToolset
         return new McpDeleteResult(await handler.DeleteAsync(id, ct));
     }
 
-    [McpServerTool(Name = "publish_content")]
+    [McpServerTool(Name = "publish_content", Idempotent = true, OpenWorld = false)] // Destructive left at its true default: swaps what the live site serves
     [Description("Publishes the current draft of a content item, making it the live published version. The MCP endpoint runs with effective admin authority, so this acts as an authorized publisher.")]
     public async Task<AdminSaveResult> PublishContent(
         [Description("The content type.")] string contentType,
@@ -127,7 +127,7 @@ public sealed class ContentToolset
         return await handler.PublishAsync(nodeId, ct);
     }
 
-    [McpServerTool(Name = "unpublish_content")]
+    [McpServerTool(Name = "unpublish_content", OpenWorld = false)] // Destructive left at its true default: removes content from the live site
     [Description("Unpublishes the current published version of a content item. If a separate draft exists it is left untouched and the published version is archived.")]
     public async Task<AdminSaveResult> UnpublishContent(
         [Description("The content type.")] string contentType,
@@ -140,7 +140,7 @@ public sealed class ContentToolset
         return await handler.UnpublishAsync(nodeId, ct);
     }
 
-    [McpServerTool(Name = "get_content_state")]
+    [McpServerTool(Name = "get_content_state", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the current draft/published state of a content item as { isPublished, hasDraft, currentVersionNumber }.")]
     public async Task<object> GetContentState(
         [Description("The content type.")] string contentType,
@@ -159,7 +159,7 @@ public sealed class ContentToolset
         };
     }
 
-    [McpServerTool(Name = "list_registry")]
+    [McpServerTool(Name = "list_registry", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the registry entries for a content type that has one (e.g. available page controllers for \"pages\", or view components for \"contentzones\").")]
     public object ListRegistry(
         [Description("The content type whose registry to list.")] string contentType)
@@ -170,7 +170,7 @@ public sealed class ContentToolset
         return McpToolHelpers.Unwrap(handler.RegistryHandler.GetAll())!;
     }
 
-    [McpServerTool(Name = "get_registry_properties")]
+    [McpServerTool(Name = "get_registry_properties", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the configurable properties for a single registry entry (e.g. a page controller's configuration fields).")]
     public object GetRegistryProperties(
         [Description("The content type whose registry to query.")] string contentType,

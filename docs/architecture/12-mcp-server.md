@@ -72,13 +72,27 @@ and prefer not to enable MCP on an internet-facing host at all.
 - registers `ContentToolset`, `VersionToolset`, `ChildContentToolset` as **scoped**, so each tool
   call resolves fresh scoped admin handlers
 - builds `McpServerTool`s by reflecting over each toolset's `[McpServerTool]` methods and registers
-  them via `AddMcpServer().WithHttpTransport().WithTools(tools)`
+  them via `AddMcpServer().WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateless).WithTools(tools)`
 
-Two SDK options are set deliberately:
+Three SDK options are set deliberately:
+- `SessionMode = Stateless` — pinned to match the SDK 2.x default (1.4 defaulted to stateful; 2.0
+  flipped it), so a future default-shift can't move it silently. Stateless is the right posture here:
+  the toolsets never make server-to-client requests (no sampling/elicitation/roots), and each tool
+  call resolving from the per-HTTP-request scope keeps `DbContext` lifetimes short.
 - `TransformSchemaNode` declares the free-form `JsonElement` "fields" parameters as `object` in the
   tool schema, so clients send a real JSON object rather than a JSON string
 - `ReferenceHandler.IgnoreCycles`, because tool results are EF-backed DTO graphs that contain cycles
   (a content zone's items reference the zone back)
+
+Because `SessionMode` is `Stateless`, the endpoint is **Streamable-HTTP only**: there is no
+`Mcp-Session-Id`, and the legacy `/sse` and `/message` routes are not mapped (SDK 2.x defaults
+`EnableLegacySse` to `false`). A client must be configured `"type": "http"` (see §6), not
+`"type": "sse"`, or it will 404.
+
+The tools carry accurate annotation hints for MCP clients: the 13 pure-read tools are `ReadOnly`, the
+recoverable writes (`create_*`/`reorder_children`/`restore_*`) are marked non-destructive, and the
+overwriting or irreversible `update_*`/`delete_*`/`publish_content`/`unpublish_content` tools keep the
+`Destructive` default (with `publish_content` additionally `Idempotent`).
 
 **Pipeline** — `MapWebWayCmsMcp(app)` no-ops when disabled; otherwise `app.MapMcp(options.Path)`
 with the API-key endpoint filter attached.
@@ -115,7 +129,11 @@ DTO-level restore), `delete_version`.
 `delete_child_version`.
 
 The `publish_*`/`unpublish_*`/`restore_*` tools run with effective admin authority — the bearer token
-is the security boundary — so an agent can publish. Their tool descriptions state this plainly.
+is the security boundary — so an agent can publish. Their tool descriptions state this plainly. The
+tool annotations reflect the same line: the read tools (`list_*`/`get_*`/`describe_content_type`/
+`get_content_state`) are flagged `ReadOnly`; `create_*`/`reorder_children`/`restore_*` are flagged
+non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_content` keep the
+`Destructive` default, with `publish_content` additionally `Idempotent`.
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
 are exactly the admin URL segments: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`,

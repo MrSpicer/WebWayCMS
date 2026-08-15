@@ -7,6 +7,7 @@ using NUnit.Framework;
 
 using WebWayCMS;
 using WebWayCMS.Data.DbContexts;
+using WebWayCMS.Logging;
 
 namespace WebWayCMS.Host.Tests;
 
@@ -93,6 +94,30 @@ public class WebWayCmsApplicationBuilderExtensionsTests
         using var app = BuildRenderingApp();
 
         Assert.That(() => app.UseWebWayCmsRendering(throwOnError: false), Throws.Nothing);
+    }
+
+    [Test]
+    public void UseWebWayCms_WithSerilogConfigured_WiresRequestLoggingMiddleware()
+    {
+        var previous = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER");
+        Environment.SetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER", "true");
+        try
+        {
+            var builder = WebApplication.CreateBuilder();
+
+            var db = Guid.NewGuid().ToString();
+            builder.Services.AddDbContext<CmsDbContext>(o => o.UseInMemoryDatabase(db));
+            builder.Services.AddWebWayCms();
+            builder.Host.UseCmsSerilog();
+
+            using var app = builder.Build();
+
+            Assert.That(() => app.UseWebWayCms(throwOnError: false), Throws.Nothing);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER", previous);
+        }
     }
 
     [Test]

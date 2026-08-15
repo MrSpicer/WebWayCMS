@@ -9,6 +9,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
 
 namespace WebWayCMS.Mcp;
@@ -58,7 +59,14 @@ public static class McpServiceCollectionExtensions
             .ToList();
 
         services.AddMcpServer()
-            .WithHttpTransport()
+            .WithHttpTransport(o =>
+            {
+                // Matches the SDK 2.x default, pinned so a future default-shift can't move it silently
+                // (1.4 defaulted to stateful; 2.0 flipped it). Stateless is the right posture here: the
+                // toolsets never make server-to-client requests (no sampling/elicitation/roots), and each
+                // tool call resolving from the per-HTTP-request scope keeps DbContext lifetimes short.
+                o.SessionMode = HttpServerSessionMode.Stateless;
+            })
             .WithTools(tools);
 
         return services;

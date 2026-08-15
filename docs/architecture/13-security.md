@@ -130,8 +130,8 @@ Written on every response by the same middleware, unconditionally:
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` |
 
-`UseHsts()` and `UseHttpsRedirection()` run immediately before it, so `Strict-Transport-Security` is
-present too.
+`UseHsts()` and `UseHttpsRedirection()` run before it — with only `UseSerilogRequestLogging()` in
+between — so `Strict-Transport-Security` is present too.
 
 ---
 

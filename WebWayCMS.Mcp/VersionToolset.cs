@@ -30,7 +30,7 @@ public sealed class VersionToolset
         return handler;
     }
 
-    [McpServerTool(Name = "list_versions")]
+    [McpServerTool(Name = "list_versions", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the version history for a content item, identified by its nodeId (shared across all versions).")]
     public async Task<VersionHistoryViewModel> ListVersions(
         [Description("The content type.")] string contentType,
@@ -44,7 +44,7 @@ public sealed class VersionToolset
         return vm;
     }
 
-    [McpServerTool(Name = "get_version")]
+    [McpServerTool(Name = "get_version", ReadOnly = true, OpenWorld = false)]
     [Description("Gets the editable view model for a single historical version, identified by that version's id.")]
     public async Task<object> GetVersion(
         [Description("The content type.")] string contentType,
@@ -58,7 +58,7 @@ public sealed class VersionToolset
         return vm;
     }
 
-    [McpServerTool(Name = "restore_version")]
+    [McpServerTool(Name = "restore_version", Destructive = false, OpenWorld = false)]
     [Description("Restores a historical version as a new draft of the item in a single step. The MCP endpoint runs with effective admin authority, so this acts as the current user.")]
     public async Task<AdminSaveResult> RestoreVersion(
         [Description("The content type.")] string contentType,
@@ -69,7 +69,7 @@ public sealed class VersionToolset
         return await handler.RestoreVersionAsync(versionId, ct);
     }
 
-    [McpServerTool(Name = "delete_version")]
+    [McpServerTool(Name = "delete_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a version
     [Description("Permanently deletes a single historical version by its id.")]
     public async Task<McpDeleteResult> DeleteVersion(
         [Description("The content type.")] string contentType,

@@ -177,7 +177,7 @@ scaffolding migrations.
 
 ## 7. Serilog Configuration
 
-`builder.Host.UseCmsSerilog(configuration)` configures Serilog via `SerilogExtensions.UseCmsSerilog`:
+`builder.Host.UseCmsSerilog()` configures Serilog via `SerilogExtensions.UseCmsSerilog`:
 
 ```csharp
 loggerConfig
@@ -187,6 +187,7 @@ loggerConfig
 
 // Defaults (overridable via config)
 loggerConfig.MinimumLevel.Override("Microsoft", LogEventLevel.Information);
+loggerConfig.MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning);
 loggerConfig.WriteTo.Console();
 
 // File sink only outside containers
@@ -197,8 +198,18 @@ if (!runningInContainer)
 Container detection: `DOTNET_RUNNING_IN_CONTAINER == "true"` (set automatically by the .NET Docker
 base image). In containers, stdout logging is preferred and file sinks are skipped.
 
-Configuration overrides take precedence — add `Serilog:` keys to `appsettings.json` to change
-minimum levels, add sinks, etc.
+The CMS reads configuration **first** (`ReadFrom.Configuration`), then applies its own defaults on
+top: `MinimumLevel.Override("Microsoft", Information)` and `WriteTo.Console()`. So config-supplied
+sinks are **additive** (a host that also configures a console sink gets two), and the Microsoft-level
+override wins over config rather than losing to it. Use `Serilog:` keys in `appsettings.json` to
+change the minimum level or add sinks.
+
+Request logging is separate from the logger configuration: `ConfigureSharedMiddleware` calls
+`UseSerilogRequestLogging()` only when a `DiagnosticContext` is present in DI — which is registered
+by `UseCmsSerilog()` (or any `AddSerilog` setup). A host that stays on the default MS logging
+providers therefore gets no summary line, and no startup crash. The `Microsoft.AspNetCore` →
+`Warning` override above silences ASP.NET Core's own "Request starting"/"Request finished" pair so
+that a Serilog-configured host emits exactly one summary line per request (see §8).
 
 ---
 
@@ -210,6 +221,8 @@ Both pipelines share `ConfigureSharedMiddleware`:
 UseForwardedHeaders()          — must be first; rewrites Request.Scheme/IP from proxy headers
 UseHsts()                      — adds Strict-Transport-Security header
 UseHttpsRedirection()          — redirect HTTP → HTTPS
+UseSerilogRequestLogging()     — (conditional) one summary line per request, only when the host has
+                                  configured Serilog (UseCmsSerilog()/AddSerilog); otherwise skipped
                                — custom security headers middleware:
                                    X-Content-Type-Options: nosniff
                                    X-Frame-Options: DENY
@@ -217,11 +230,18 @@ UseHttpsRedirection()          — redirect HTTP → HTTPS
                                    Permissions-Policy: geolocation=(), microphone=(), camera=()
                                    Content-Security-Policy (see below)
 UseStaticFiles()               — serve wwwroot and _content assets
+UseAuthentication()            — populate HttpContext.User BEFORE UseRouting: the route transformer
+                                 resolves the draft-vs-published read context from the user's role
+                                 + preview cookie during endpoint matching (inside UseRouting)
 UseRouting()                   — match routes
 UseRateLimiter()               — per-IP throttling on the Identity auth endpoints
-UseAuthentication()
 UseAuthorization()
 ```
+
+The documented host template (`docs/getting-started.md`) installs `UseDeveloperExceptionPage` /
+`UseExceptionHandler` **before** `app.UseWebWayCms()`, so unhandled exceptions are swallowed above the
+request-logging middleware — the summary line reports a bare `500`, and the stack trace comes from
+ASP.NET Core's own error logging, not from Serilog's request log.
 
 The CSP header name and value are computed **once at startup** from `IOptions<CspOptions>` via
 `CspPolicyBuilder.HeaderName` / `CspPolicyBuilder.Build`, then written on every response. An empty
@@ -256,7 +276,7 @@ MapTypes(builder.Services);
 
 builder.Services.AddWebWayCms(builder.Configuration);  // CMS DI (admin + rendering)
 
-builder.Host.UseCmsSerilog(builder.Configuration);     // Serilog
+builder.Host.UseCmsSerilog();                          // Serilog
 
 var mvc = builder.Services.AddControllersWithViews();
 if (builder.Environment.IsDevelopment())

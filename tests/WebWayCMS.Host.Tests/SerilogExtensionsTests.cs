@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 using NUnit.Framework;
@@ -10,14 +9,11 @@ namespace WebWayCMS.Host.Tests;
 [TestFixture]
 public class SerilogExtensionsTests
 {
-    private static IConfiguration EmptyConfig() =>
-        new ConfigurationBuilder().AddInMemoryCollection().Build();
-
     private static void BuildHostWithSerilog()
     {
         // Building the host executes the UseSerilog configuration callback.
         using var host = new HostBuilder()
-            .UseCmsSerilog(EmptyConfig())
+            .UseCmsSerilog()
             .Build();
     }
 
@@ -58,6 +54,6 @@ public class SerilogExtensionsTests
     {
         var builder = new HostBuilder();
 
-        Assert.That(builder.UseCmsSerilog(EmptyConfig()), Is.SameAs(builder));
+        Assert.That(builder.UseCmsSerilog(), Is.SameAs(builder));
     }
 }

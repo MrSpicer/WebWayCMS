@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 using Serilog;
@@ -8,7 +7,7 @@ namespace WebWayCMS.Logging;
 
 public static class SerilogExtensions
 {
-    public static IHostBuilder UseCmsSerilog(this IHostBuilder hostBuilder, IConfiguration configuration)
+    public static IHostBuilder UseCmsSerilog(this IHostBuilder hostBuilder)
     {
         var runningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 
@@ -22,6 +21,10 @@ public static class SerilogExtensions
 
             // Provide reasonable defaults if not specified
             loggerConfig.MinimumLevel.Override("Microsoft", LogEventLevel.Information);
+
+            // The request-logging middleware emits one summary line per request; silence ASP.NET Core's
+            // own "Request starting"/"Request finished" pair so a single request isn't logged three times.
+            loggerConfig.MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning);
 
             // Always log to console
             loggerConfig.WriteTo.Console();
