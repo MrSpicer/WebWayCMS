@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Data.Slugs;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Shared;
@@ -20,6 +21,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly ICMSRouteService _routeService;
     private readonly IPageControllerRegistry _controllerRegistry;
+    private readonly IContentZoneService _contentZoneService;
 
     protected override IContentStore<PageDTO> Store => _store;
 
@@ -44,6 +46,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         IViewDiscoveryService viewDiscovery,
         IRouteRegistrationService routeRegistration,
         ICMSRouteService routeService,
+        IContentZoneService contentZoneService,
         IChangeSetScope changeSetScope)
         : base(changeSetScope)
     {
@@ -52,6 +55,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _controllerRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _contentZoneService = contentZoneService ?? throw new ArgumentNullException(nameof(contentZoneService));
         _registryHandler = new PageRegistryHandler(
             registry,
             viewDiscovery ?? throw new ArgumentNullException(nameof(viewDiscovery)));
@@ -86,7 +90,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         var entity = await _store.GetCurrentDraftAsync(nodeId, ct);
         if (entity != null)
+        {
             await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
+            await _contentZoneService.DeletePageZonesAsync(nodeId, ct);
+        }
         return await _store.DeleteAsync(nodeId, softDelete: false, ct);
     }
 
@@ -182,11 +189,14 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var vm = (PageUpsertViewModel)model;
 
         var excludeNodeId = vm.NodeId.HasValue && vm.NodeId != Guid.Empty ? vm.NodeId : null;
-        var effectiveSlug = string.IsNullOrWhiteSpace(vm.Slug) ? vm.Title : vm.Slug;
+        var effectiveSlug = SlugNormalizer.Normalize(string.IsNullOrWhiteSpace(vm.Slug) ? vm.Title : vm.Slug);
 
         var slugAvailable = await IsSlugAvailableAsync(effectiveSlug, vm.ParentNodeId, excludeNodeId, ct);
         if (!slugAvailable)
             return new AdminSaveResult(false, "A page with this slug already exists at this location.", "Slug");
+
+        if (_controllerRegistry.GetByName(vm.ControllerName) == null)
+            return new AdminSaveResult(false, $"Unknown controller: {vm.ControllerName}", "ControllerName");
 
         var validationErrors = _controllerRegistry.ValidateConfiguration(vm.ControllerName, vm.ConfigurationJson);
         if (validationErrors.Count > 0)
@@ -429,12 +439,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (string.IsNullOrWhiteSpace(slug))
             return false;
 
-        var normalizedSlug = Uri.EscapeDataString(slug);
+        var normalizedSlug = SlugNormalizer.Normalize(slug);
 
         var siblings = await _store.GetCurrentDraftChildrenAsync(parentNodeId, ct) ?? [];
         if (siblings.Any(p =>
                 (excludeNodeId == null || p.Version.Node.Id != excludeNodeId.Value)
-             && p.Version.Slug == normalizedSlug))
+             && SlugNormalizer.Normalize(System.Net.WebUtility.UrlDecode(p.Version.Slug)) == normalizedSlug))
             return false;
 
         var prefix = await GetParentRoutePrefixAsync(parentNodeId, ct);

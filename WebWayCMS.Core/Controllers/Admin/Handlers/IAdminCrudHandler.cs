@@ -72,6 +72,9 @@ public interface IAdminCrudHandler
     /// <summary>Whether this handler exposes additional named API lists (e.g. "articlelists").</summary>
     bool HasSecondaryApiList { get; }
 
+    /// <summary>The names of the additional API lists exposed by <see cref="GetSecondaryApiListAsync"/>.</summary>
+    IReadOnlyList<string> SecondaryApiListKeys => [];
+
     /// <summary>Returns a secondary named list, keyed by an arbitrary string.</summary>
     Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default);
 

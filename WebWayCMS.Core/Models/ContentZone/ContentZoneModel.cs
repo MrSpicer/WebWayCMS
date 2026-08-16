@@ -10,6 +10,7 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Security;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Models.ContentZone;
@@ -145,7 +146,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
     {
-        return await _service.DeleteZoneAsync(nodeId, ct);
+        await _service.DeleteZoneTreeAsync(nodeId, ct);
+        return true;
     }
 
     public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default)
@@ -425,7 +427,21 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         var zone = await _model.GetByIdAsync(zoneNodeId, ct);
         if (zone == null) return null;
         var items = await _model.GetItemsAsync(zoneNodeId, ct);
-        return new ContentZoneItemsIndexViewModel { Zone = zone, Items = items };
+        return new ContentZoneItemsIndexViewModel
+        {
+            ZoneId = zone.Version.Node.Id,
+            ZoneName = zone.Name,
+            ZoneDescription = zone.Description,
+            Items = items.Select(i => new ContentZoneItemViewModel
+            {
+                Id = i.Version.Node.Id,
+                ZoneId = i.ContentZoneNodeId,
+                ComponentName = i.ComponentName,
+                ComponentPropertiesJson = i.ComponentPropertiesJson,
+                Ordinal = i.Ordinal,
+                IsActive = i.IsActive
+            }).ToList()
+        };
     }
 
     public async Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default)
@@ -457,6 +473,11 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
     public async Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
     {
         var vm = (ContentZoneItemUpsertViewModel)model;
+
+        var validation = ModelValidator.Validate(vm);
+        if (validation != null)
+            return validation;
+
         if (vm.NodeId == null || vm.NodeId == Guid.Empty)
         {
             if (!Guid.TryParse(parentKey, out var zoneNodeId))
@@ -508,10 +529,14 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         return await _model.RemoveItemAsync(id, ct);
     }
 
-    public bool SupportsReorder => false;
+    public bool SupportsReorder => true;
 
-    public Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
-        => Task.FromResult(false);
+    public async Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(parentKey, out var zoneNodeId))
+            return false;
+        return await _model.ReorderItemsAsync(zoneNodeId, orderedIds, ct);
+    }
 
     public bool SupportsVersionHistory => true;
 

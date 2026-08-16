@@ -124,7 +124,10 @@
   point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`) and at the article child-entity save
   path (`ArticleModel.SaveUpsertAsync`), covering both the admin UI and the MCP tools, on every `string`
   property marked `[FormProperty(EditorType = EditorType.RichText)]`.
-  Stored content is therefore safe to render with `@Html.Raw`.
+  Stored content is therefore safe to render with `@Html.Raw`. **Required-field validation**
+  (`ModelValidator`, also `WebWayCMS.Core/Security/`) joins sanitization at
+  `AdminCrudModel.SaveUpsertAsync` (plus the CMS-route, article-child, and zone-item save paths), so a
+  field `describe_content_type` advertises as `required` is actually enforced on MCP writes.
 - **Form attribute encoding:** all HTML input attributes are built by `FormAttributeBuilder`
   (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value exactly once via
   `HtmlEncoder.Default` across 16 view components. Views emit the result with `@Html.Raw`, so

@@ -20,19 +20,22 @@ public sealed class ContentZoneService : IContentZoneService
     private readonly IContentStore<ContentZoneItemDTO> _itemStore;
     private readonly IContentReadContext _readContext;
     private readonly IChangeSetScope _changeSetScope;
+    private readonly ICMSRouteService _routeService;
 
     public ContentZoneService(
         CmsDbContext context,
         IContentStore<ContentZoneDTO> zoneStore,
         IContentStore<ContentZoneItemDTO> itemStore,
         IContentReadContext readContext,
-        IChangeSetScope changeSetScope)
+        IChangeSetScope changeSetScope,
+        ICMSRouteService routeService)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _zoneStore = zoneStore ?? throw new ArgumentNullException(nameof(zoneStore));
         _itemStore = itemStore ?? throw new ArgumentNullException(nameof(itemStore));
         _readContext = readContext ?? throw new ArgumentNullException(nameof(readContext));
         _changeSetScope = changeSetScope ?? throw new ArgumentNullException(nameof(changeSetScope));
+        _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
     }
 
     // ─── item resolution ──────────────────────────────────────────────────────
@@ -300,19 +303,28 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default)
     {
+        // Resolve and validate every id up front so a bad id never causes a partial reorder. A reorder
+        // that writes some ordinals and then reports failure is worse than a rejected one.
+        var resolved = new List<ContentZoneItemDTO>(itemNodeIdsInOrder.Count);
+        foreach (var itemNodeId in itemNodeIdsInOrder)
+        {
+            var current = await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
+            if (current == null || current.ContentZoneNodeId != zoneNodeId)
+                return false;
+
+            resolved.Add(current);
+        }
+
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
 
-        for (int i = 0; i < itemNodeIdsInOrder.Count; i++)
+        for (int i = 0; i < resolved.Count; i++)
         {
-            var itemNodeId = itemNodeIdsInOrder[i];
-            var current = await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
-            if (current == null)
-                continue;
-
-            var updated = current with { Ordinal = i + 1 };
+            var updated = resolved[i] with { Ordinal = i + 1 };
             var save = await _itemStore.SaveDraftAsync(updated, null, ct);
-            if (save.Success)
-                await _itemStore.PublishAsync(itemNodeId, ct);
+            if (!save.Success)
+                return false;
+
+            await _itemStore.PublishAsync(itemNodeIdsInOrder[i], ct);
         }
 
         return true;
@@ -392,9 +404,71 @@ public sealed class ContentZoneService : IContentZoneService
             .Distinct()
             .ToListAsync(ct);
         foreach (var itemNodeId in items)
+        {
+            // A routable widget item owns CMSRouteDTO rows keyed to its node id; sweep them before the
+            // item is hard-deleted so the route table never dangles at a deleted node.
+            await _routeService.DeleteByOwningContentAsync(itemNodeId, ct);
             await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
+        }
 
         return await _zoneStore.DeleteAsync(zoneNodeId, softDelete: false, ct);
+    }
+
+    public async Task DeletePageZonesAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var assignments = (await GetAllAssignmentsForPageAsync(pageNodeId, ct)).ToList();
+        if (assignments.Count == 0)
+            return;
+
+        var zoneNodeIds = assignments.Select(a => a.ContentZoneNodeId).Distinct().ToList();
+
+        // Remove this page's own assignment rows up front (tracked), so a shared zone's node can
+        // survive while this page's row never dangles at a deleted page.
+        var tracked = await _context.Set<ContentZoneAssignmentDTO>()
+            .Where(a => a.ParentPageNodeId == pageNodeId)
+            .ToListAsync(ct);
+        _context.Set<ContentZoneAssignmentDTO>().RemoveRange(tracked);
+        await _context.SaveChangesAsync(ct);
+
+        foreach (var zoneNodeId in zoneNodeIds)
+        {
+            // A zone node is deleted exactly when nothing references it any more. Re-query after the
+            // page's own rows are gone so a zone assigned to two of this page's slots still cleans up.
+            var remaining = await _context.Set<ContentZoneAssignmentDTO>()
+                .CountAsync(a => a.ContentZoneNodeId == zoneNodeId, ct);
+            if (remaining == 0)
+                await DeleteZoneTreeAsync(zoneNodeId, ct);
+        }
+    }
+
+    public Task DeleteZoneTreeAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => DeleteZoneTreeAsync(zoneNodeId, new HashSet<Guid>(), ct);
+
+    private async Task DeleteZoneTreeAsync(Guid zoneNodeId, HashSet<Guid> visited, CancellationToken ct)
+    {
+        if (!visited.Add(zoneNodeId))
+            return;
+
+        // Collect child zones before deleting the parent: DeleteZoneAsync removes their assignment
+        // rows (ParentZoneNodeId == zoneNodeId) but leaves the child zone nodes themselves, so they
+        // must be walked and deleted too.
+        var childZoneIds = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .Where(a => a.ParentZoneNodeId == zoneNodeId)
+            .Select(a => a.ContentZoneNodeId)
+            .ToListAsync(ct);
+
+        await DeleteZoneAsync(zoneNodeId, ct);
+
+        foreach (var childId in childZoneIds)
+        {
+            // DeleteZoneAsync has flushed; a child shared with another page or parent still has its
+            // own assignment rows and must survive. Recurse only when nothing references it any more.
+            var remaining = await _context.Set<ContentZoneAssignmentDTO>()
+                .CountAsync(a => a.ContentZoneNodeId == childId, ct);
+            if (remaining == 0)
+                await DeleteZoneTreeAsync(childId, visited, ct);
+        }
     }
 
     private async Task<ContentZoneDTO?> ResolveZoneAsync(Guid zoneNodeId, CancellationToken ct)

@@ -2,7 +2,7 @@
 
 **Namespaces:**
 - `WebWayCMS` — `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`, the security-header middleware in `CmsMiddlewarePipeline`
-- `WebWayCMS.Security` — `RichTextSanitizer`
+- `WebWayCMS.Security` — `RichTextSanitizer`, `ModelValidator`
 - `WebWayCMS.Mcp` — `McpApiKeyEndpointFilter` (covered in [Area 12](12-mcp-server.md))
 
 **Depends on:** `Ganss.Xss` (`HtmlSanitizer`), ASP.NET Core rate limiting, ASP.NET Identity
@@ -30,13 +30,19 @@ rewrites, in place, every property that is:
 Reflection results are cached per type behind a lock. `SanitizeHtml(string)` is also exposed for
 one-off fragments.
 
-**The choke point.** `AdminCrudModel<T>.SaveUpsertAsync` is non-virtual and does exactly two things:
+**The choke point.** `AdminCrudModel<T>.SaveUpsertAsync` is non-virtual and does exactly this:
 
 ```csharp
-public Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
+public async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
 {
     RichTextSanitizer.Sanitize(model);
-    return SaveUpsertCoreAsync(model, ct);
+
+    var validation = ModelValidator.Validate(model);
+    if (validation != null)
+        return validation;
+
+    using var _ = _changeSetScope.Begin(ChangeSetKind.Save, null, null);
+    return await SaveUpsertCoreAsync(model, ct);
 }
 ```
 
@@ -44,9 +50,24 @@ Subclasses implement the abstract `SaveUpsertCoreAsync` and cannot bypass saniti
 both `AdminContentController` and the MCP toolsets call `SaveUpsertAsync`, **every write path is
 covered by construction** — including content types added later.
 
+## 2. Required-Field Validation (same choke point)
+
+`ModelValidator` (`WebWayCMS.Core/Security/ModelValidator.cs`) runs in the same save choke point,
+**after** sanitization and **before** the change-set scope opens, so content stripped to empty by the
+sanitizer fails `[Required]` and a rejected save never creates a change-set row. It enforces exactly
+the fields `describe_content_type` advertises as `required`: DataAnnotations via
+`Validator.TryValidateObject(validateAllProperties: true)`, plus `FormPropertyAttribute.IsRequired`
+(for view models such as `ContentZoneItemUpsertViewModel` that carry no DataAnnotations). The result's
+`ErrorField` is the PascalCase property name, matching the `ModelState` keys the admin controller binds
+with.
+
+The admin UI validates first via MVC binding, so this model-side check is a no-op there (the controller
+short-circuits before the save); it is what makes MCP writes — which call `SaveUpsertAsync` directly —
+honour the same contract rather than silently storing an empty row.
+
 ---
 
-## 2. Form Attribute Encoding
+## 3. Form Attribute Encoding
 
 All HTML input attributes (placeholder, pattern, value, data-*, aria-*) are built centrally by
 `FormAttributeBuilder` (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value
@@ -55,7 +76,7 @@ emit the result with `@Html.Raw(...)`, so values are encoded at a single unit-te
 rather than per-view string concatenation — eliminating double-encoding risks and attribute-injection
 vectors.
 
-## 3. Content-Security-Policy
+## 4. Content-Security-Policy
 
 The CSP header is emitted by the shared middleware in `CmsMiddlewarePipeline.ConfigureSharedMiddleware` and
 is host-configurable through the `"Csp"` section.
@@ -119,7 +140,7 @@ unit-tested to the 100% gate; the header write itself lives in the pipeline.
 
 ---
 
-## 4. Fixed Security Headers
+## 5. Fixed Security Headers
 
 Written on every response by the same middleware, unconditionally:
 
@@ -135,7 +156,7 @@ between — so `Strict-Transport-Security` is present too.
 
 ---
 
-## 5. Auth Endpoint Rate Limiting
+## 6. Auth Endpoint Rate Limiting
 
 `AuthRateLimiting` throttles the Identity endpoints that accept credentials or trigger emails, per
 client IP: **5 requests per 1-minute fixed window**, returning HTTP **429** over the limit. Every
@@ -146,7 +167,7 @@ correct behind a proxy — are in [Area 8](08-identity-auth.md#6-auth-endpoint-r
 
 ---
 
-## 6. CKEditor License Key
+## 7. CKEditor License Key
 
 The admin editor loads CKEditor 5 from `https://cdn.ckeditor.com/ckeditor5/46.1.1/`, and only on
 views that define the `CKEditor` Razor section.
@@ -167,7 +188,7 @@ regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
 
 ---
 
-## 7. Checklist for a Production Host
+## 8. Checklist for a Production Host
 
 - [ ] `ConnectionStrings:DefaultConnection` in user-secrets or environment, not `appsettings.json`
 - [ ] `AdminUser:Password` in user-secrets or environment; rotate after first boot

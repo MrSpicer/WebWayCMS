@@ -101,13 +101,12 @@ public class McpToolHelpersTests
     }
 
     [Test]
-    public void Merge_WhenFieldsNotObject_ReturnsBaseValues()
+    public void Merge_WhenFieldsNotObject_Throws()
     {
         var baseModel = new FakeUpsertViewModel { Title = "orig" };
 
-        var merged = (FakeUpsertViewModel)McpToolHelpers.Merge(baseModel, Json("123"));
-
-        Assert.That(merged.Title, Is.EqualTo("orig"));
+        Assert.That(() => McpToolHelpers.Merge(baseModel, Json("123")),
+            Throws.TypeOf<McpException>().With.Message.EqualTo("fields must be a JSON object"));
     }
 
     [Test]
@@ -125,23 +124,21 @@ public class McpToolHelpersTests
     }
 
     [Test]
-    public void Merge_WhenFieldsAreBlankString_ReturnsBaseValues()
+    public void Merge_WhenFieldsAreBlankString_Throws()
     {
         var baseModel = new FakeUpsertViewModel { Title = "orig" };
 
-        var merged = (FakeUpsertViewModel)McpToolHelpers.Merge(baseModel, JsonString("   "));
-
-        Assert.That(merged.Title, Is.EqualTo("orig"));
+        Assert.That(() => McpToolHelpers.Merge(baseModel, JsonString("   ")),
+            Throws.TypeOf<McpException>());
     }
 
     [Test]
-    public void Merge_WhenFieldsAreInvalidJsonString_ReturnsBaseValues()
+    public void Merge_WhenFieldsAreInvalidJsonString_Throws()
     {
         var baseModel = new FakeUpsertViewModel { Title = "orig" };
 
-        var merged = (FakeUpsertViewModel)McpToolHelpers.Merge(baseModel, JsonString("{not json"));
-
-        Assert.That(merged.Title, Is.EqualTo("orig"));
+        Assert.That(() => McpToolHelpers.Merge(baseModel, JsonString("{not json")),
+            Throws.TypeOf<McpException>());
     }
 
     [Test]
@@ -155,13 +152,12 @@ public class McpToolHelpersTests
     }
 
     [Test]
-    public void Merge_WhenFieldsAreStringEncodedNonObject_ReturnsBaseValues()
+    public void Merge_WhenFieldsAreStringEncodedNonObject_Throws()
     {
         var baseModel = new FakeUpsertViewModel { Title = "orig" };
 
-        var merged = (FakeUpsertViewModel)McpToolHelpers.Merge(baseModel, JsonString("[1,2]"));
-
-        Assert.That(merged.Title, Is.EqualTo("orig"));
+        Assert.That(() => McpToolHelpers.Merge(baseModel, JsonString("[1,2]")),
+            Throws.TypeOf<McpException>());
     }
 
     [Test]

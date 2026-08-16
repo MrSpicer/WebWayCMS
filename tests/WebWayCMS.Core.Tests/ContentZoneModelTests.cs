@@ -249,7 +249,6 @@ public class ContentZoneModelTests
         _service.ReorderItemsAsync(zone.Version.Node.Id, Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
         _itemStore.GetAllVersionsAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
         _service.GetItemsAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
-        _service.DeleteZoneAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(true);
 
         Assert.Multiple(async () =>
         {
@@ -403,7 +402,7 @@ public class ContentZoneModelTests
             Assert.That(child.WriteRoles, Is.Null);
             Assert.That(child.ChildIndexViewPath, Does.Contain("ContentZoneItems.cshtml"));
             Assert.That(child.ChildUpsertViewPath, Does.Contain("ContentZoneItemUpsert.cshtml"));
-            Assert.That(child.SupportsReorder, Is.False);
+            Assert.That(child.SupportsReorder, Is.True);
             Assert.That(child.SupportsVersionHistory, Is.True);
             Assert.That(child.CreateEmptyChildUpsertViewModel(), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
         });
@@ -424,7 +423,27 @@ public class ContentZoneModelTests
 
             var vm = await child.GetChildIndexViewModelAsync(zone.Version.Node.Id.ToString());
             Assert.That(vm, Is.InstanceOf<ContentZoneItemsIndexViewModel>());
+            var index = (ContentZoneItemsIndexViewModel)vm!;
+            Assert.That(index.ZoneId, Is.EqualTo(zone.Version.Node.Id));
+            Assert.That(index.ZoneName, Is.EqualTo("Zone"));
+            Assert.That(index.Items.Single().Id, Is.EqualTo(item.Version.Node.Id));
         });
+    }
+
+    [Test]
+    public async Task ChildHandler_Reorder_DelegatesToService()
+    {
+        var child = _model.ChildHandler!;
+        var zoneId = Guid.NewGuid();
+        var ids = new List<Guid> { Guid.NewGuid() };
+        _service.ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>()).Returns(true);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await child.ReorderAsync("not-a-guid", ids), Is.False);
+            Assert.That(await child.ReorderAsync(zoneId.ToString(), ids), Is.True);
+        });
+        await _service.Received(1).ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -474,13 +493,30 @@ public class ContentZoneModelTests
         Assert.Multiple(async () =>
         {
             // no id and invalid parent key -> error
-            Assert.That((await child.SaveChildUpsertAsync("not-a-guid", new ContentZoneItemUpsertViewModel { NodeId = null })).Success, Is.False);
+            Assert.That((await child.SaveChildUpsertAsync("not-a-guid", new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "C" })).Success, Is.False);
             // id but item missing -> error
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid() })).Success, Is.False);
+            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid(), ComponentName = "C" })).Success, Is.False);
             // update success then failure
             Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.True);
             Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.False);
         });
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_MissingComponentName_ReturnsValidationError()
+    {
+        var child = _model.ChildHandler!;
+
+        var result = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid() });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ComponentName"));
+            Assert.That(result.ErrorMessage, Is.EqualTo("Component Name is required."));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

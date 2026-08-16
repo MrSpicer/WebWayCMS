@@ -315,8 +315,25 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
     public async Task<bool> DeleteVersionAsync(Guid versionId, CancellationToken ct = default)
     {
-        var entity = await _set.FirstOrDefaultAsync(e => e.VersionId == versionId, ct);
+        var entity = await _set
+            .Include(e => e.Version)
+            .FirstOrDefaultAsync(e => e.VersionId == versionId, ct);
         if (entity == null)
+            return false;
+
+        // Match the admin UI, which hides Delete on the latest version: never delete the
+        // highest-numbered version (that also covers a node's single version for free). Scope the max
+        // to the same variant the deleted version belongs to — a non-empty culture/segment otherwise
+        // collapses the aggregate to 0 and makes every version permanently undeletable.
+        var culture = entity.Version.Culture;
+        var segment = entity.Version.Segment;
+        var maxVersion = await _set
+            .Where(e => e.Version.NodeId == entity.Version.NodeId
+                     && e.Version.Culture == culture
+                     && e.Version.Segment == segment)
+            .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
+
+        if (entity.Version.VersionNumber >= maxVersion)
             return false;
 
         _set.Remove(entity);
@@ -468,13 +485,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     }
 
     private static string NormalizeSlug(string? title, string slug)
-    {
-        if (!string.IsNullOrWhiteSpace(slug))
-            return Uri.EscapeDataString(slug);
-        if (!string.IsNullOrWhiteSpace(title))
-            return Uri.EscapeDataString(title);
-        return string.Empty;
-    }
+        => Slugs.SlugNormalizer.Normalize(string.IsNullOrWhiteSpace(slug) ? title : slug);
 
     protected virtual Task<int> SaveChangesAsync(CancellationToken ct)
         => _context.SaveChangesAsync(ct);

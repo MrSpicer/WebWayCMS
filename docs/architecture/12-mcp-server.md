@@ -16,8 +16,11 @@ and the registries — to AI agents over the Model Context Protocol.
 The design point is that **there is no per-type tool code**. The toolsets resolve
 `IAdminHandlerRegistry` and drive exactly the same `IAdminCrudHandler` methods the admin UI drives.
 Every content type registered today, and every one added later, is covered automatically — including
-the rich-text sanitization that `AdminCrudModel<T>.SaveUpsertAsync` performs, since MCP writes go
-through the same save choke point.
+the rich-text sanitization and the required-field validation that `AdminCrudModel<T>.SaveUpsertAsync`
+performs, since MCP writes go through the same save choke point. A field `describe_content_type`
+advertises as `required` is actually enforced on the MCP write path (see [Area 13](13-security.md)),
+so `create_content("contentblocks", fields={})` fails with an `errorField`/`errorMessage` instead of
+silently storing an empty row.
 
 ---
 
@@ -89,7 +92,13 @@ Because `SessionMode` is `Stateless`, the endpoint is **Streamable-HTTP only**: 
 `EnableLegacySse` to `false`). A client must be configured `"type": "http"` (see §6), not
 `"type": "sse"`, or it will 404.
 
-The tools carry accurate annotation hints for MCP clients: the 13 pure-read tools are `ReadOnly`, the
+One consequence worth knowing when debugging: a client that connected to an *older, stateful* server
+may still be holding an `Mcp-Session-Id`. Against the stateless endpoint that session id is rejected
+(`400: Mcp-Session-Id header is not supported in stateless mode`). The fix is to reconnect — after
+`/mcp` reconnects without the stale header, a real client works normally. This is stale client state,
+not a server bug.
+
+The tools carry accurate annotation hints for MCP clients: the 14 pure-read tools are `ReadOnly`, the
 recoverable writes (`create_*`/`reorder_children`/`restore_*`) are marked non-destructive, and the
 overwriting or irreversible `update_*`/`delete_*`/`publish_content`/`unpublish_content` tools keep the
 `Destructive` default (with `publish_content` additionally `Idempotent`).
@@ -108,9 +117,10 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 
 | Tool | Purpose |
 |---|---|
-| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s |
+| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s (including each type's `secondaryApiListKeys`) |
 | `describe_content_type` | Field/metadata description for one type |
 | `list_content` | List items of a type |
+| `list_secondary_content` | List a type's additional named list, keyed by one of its `secondaryApiListKeys` |
 | `get_content` | Fetch a single item |
 | `create_content` | Create an item |
 | `update_content` | Update an item |
@@ -137,7 +147,14 @@ non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_c
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
 are exactly the admin URL segments: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`,
-`pagetypes`, `cmsroutes`.
+`pagetypes`, `formcomponents`, `cmsroutes`.
+
+The `articles` type is asymmetric by design: `list_content("articles")` returns the individual
+*articles* (the entity picker in `form-components.js` maps `'Article'` to that list), while the
+article *lists* an agent creates live behind the secondary list
+`list_secondary_content("articles", "articlelists")`. `list_content_types` advertises this via
+`secondaryApiListKeys`, so an agent that just ran `create_content("articles")` knows to read the
+lists back from the secondary list, not from `list_content`.
 
 ---
 

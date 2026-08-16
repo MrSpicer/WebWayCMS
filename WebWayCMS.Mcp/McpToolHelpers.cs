@@ -64,16 +64,16 @@ internal static class McpToolHelpers
     /// </summary>
     public static object Merge(object baseModel, JsonElement fields)
     {
+        // Most clients send a JSON object, but some encode the object as a JSON string (when the
+        // schema leaves the parameter untyped); accept both so a valid write never silently no-ops.
+        // Anything else is unusable and must fail loudly rather than store an unchanged model.
+        if (AsObject(fields) is not { } overlay)
+            throw new McpException("fields must be a JSON object");
+
         var node = JsonSerializer.SerializeToNode(baseModel, baseModel.GetType(), JsonOptions)!.AsObject();
 
-        // Overlay the caller-supplied fields. Most clients send a JSON object, but some encode the
-        // object as a JSON string (when the schema leaves the parameter untyped); accept both so a
-        // write never silently no-ops. Anything that isn't an object leaves the base model unchanged.
-        if (AsObject(fields) is { } overlay)
-        {
-            foreach (var prop in overlay)
-                node[prop.Key] = prop.Value?.DeepClone();
-        }
+        foreach (var prop in overlay)
+            node[prop.Key] = prop.Value?.DeepClone();
 
         return JsonSerializer.Deserialize(node, baseModel.GetType(), JsonOptions)!;
     }

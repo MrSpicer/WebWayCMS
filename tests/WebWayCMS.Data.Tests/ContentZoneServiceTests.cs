@@ -22,14 +22,16 @@ public class ContentZoneServiceTests
         CmsDbContext? ctx = null,
         IContentStore<ContentZoneDTO>? zoneStore = null,
         IContentStore<ContentZoneItemDTO>? itemStore = null,
-        IContentReadContext? readContext = null)
+        IContentReadContext? readContext = null,
+        ICMSRouteService? routeService = null)
     {
         var context = ctx ?? NewContext();
         var rc = readContext ?? new TestReadContext(ContentReadMode.Published);
         var scope = new ChangeSetScope(context, new DefaultContentUserContext());
         zoneStore ??= new ContentStore<ContentZoneDTO>(context, rc, scope, new DefaultContentUserContext(), "contentzones");
         itemStore ??= new ContentStore<ContentZoneItemDTO>(context, rc, scope, new DefaultContentUserContext(), "contentzoneitems");
-        return new ContentZoneService(context, zoneStore, itemStore, rc, scope);
+        routeService ??= Substitute.For<ICMSRouteService>();
+        return new ContentZoneService(context, zoneStore, itemStore, rc, scope, routeService);
     }
 
     private static ContentZoneDTO Zone(Guid? nodeId = null, int version = 0, string name = "Zone",
@@ -109,14 +111,16 @@ public class ContentZoneServiceTests
         var scope = new ChangeSetScope(ctx, new DefaultContentUserContext());
         var zoneStore = new ContentStore<ContentZoneDTO>(ctx, readContext, scope, new DefaultContentUserContext(), "contentzones");
         var itemStore = new ContentStore<ContentZoneItemDTO>(ctx, readContext, scope, new DefaultContentUserContext(), "contentzoneitems");
+        var routeService = Substitute.For<ICMSRouteService>();
 
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneService(null!, zoneStore, itemStore, readContext, scope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneService(ctx, null!, itemStore, readContext, scope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneService(ctx, zoneStore, null!, readContext, scope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, null!, scope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, readContext, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(null!, zoneStore, itemStore, readContext, scope, routeService), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, null!, itemStore, readContext, scope, routeService), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, null!, readContext, scope, routeService), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, null!, scope, routeService), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, readContext, null!, routeService), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneService(ctx, zoneStore, itemStore, readContext, scope, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -749,7 +753,7 @@ public class ContentZoneServiceTests
     }
 
     [Test]
-    public async Task ReorderItemsAsync_AssignsSequentialOrdinals_IgnoringUnknownIds()
+    public async Task ReorderItemsAsync_AssignsSequentialOrdinals()
     {
         var zoneNodeId = Guid.NewGuid();
         var aNodeId = Guid.NewGuid();
@@ -758,7 +762,7 @@ public class ContentZoneServiceTests
             Item(zoneNodeId, aNodeId, ordinal: 1),
             Item(zoneNodeId, bNodeId, ordinal: 2));
 
-        var ok = await NewService().ReorderItemsAsync(zoneNodeId, new List<Guid> { bNodeId, aNodeId, Guid.NewGuid() });
+        var ok = await NewService().ReorderItemsAsync(zoneNodeId, new List<Guid> { bNodeId, aNodeId });
 
         var ctx = NewContext();
         var store = TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
@@ -769,6 +773,45 @@ public class ContentZoneServiceTests
             Assert.That(ok, Is.True);
             Assert.That(b!.Ordinal, Is.EqualTo(1));
             Assert.That(a!.Ordinal, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_UnknownId_ReturnsFalseWithoutWriting()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var aNodeId = Guid.NewGuid();
+        await SeedItemsAsync(Item(zoneNodeId, aNodeId, ordinal: 1));
+
+        var ok = await NewService().ReorderItemsAsync(zoneNodeId, new List<Guid> { aNodeId, Guid.NewGuid() });
+
+        var ctx = NewContext();
+        var store = TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
+        var a = await store.GetAsync(aNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.False);
+            Assert.That(a!.Ordinal, Is.EqualTo(1), "nothing was written");
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_ForeignZoneId_ReturnsFalseWithoutWriting()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var otherZoneNodeId = Guid.NewGuid();
+        var foreignNodeId = Guid.NewGuid();
+        await SeedItemsAsync(Item(otherZoneNodeId, foreignNodeId, ordinal: 1));
+
+        var ok = await NewService().ReorderItemsAsync(zoneNodeId, new List<Guid> { foreignNodeId });
+
+        var ctx = NewContext();
+        var store = TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
+        var foreign = await store.GetAsync(foreignNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.False);
+            Assert.That(foreign!.Ordinal, Is.EqualTo(1), "nothing was written");
         });
     }
 
@@ -788,7 +831,7 @@ public class ContentZoneServiceTests
 
         var ok = await service.ReorderItemsAsync(zoneNodeId, new List<Guid> { itemNodeId });
 
-        Assert.That(ok, Is.True);
+        Assert.That(ok, Is.False);
         await itemStore.DidNotReceive().PublishAsync(itemNodeId, Arg.Any<CancellationToken>());
     }
 
@@ -811,6 +854,148 @@ public class ContentZoneServiceTests
             Assert.That(ok, Is.True);
             Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
             Assert.That(verify.Set<ContentZoneItemDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DeleteZoneAsync_RoutableItem_SweepsWidgetRoute()
+    {
+        var ctx = NewContext();
+        var routeService = Substitute.For<ICMSRouteService>();
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Main"));
+        await SeedItemsAsync(Item(zoneNodeId, itemNodeId, 0));
+
+        var ok = await NewService(ctx: ctx, routeService: routeService).DeleteZoneAsync(zoneNodeId);
+
+        Assert.That(ok, Is.True);
+        await routeService.Received(1).DeleteByOwningContentAsync(itemNodeId, Arg.Any<CancellationToken>());
+    }
+
+    // ─── page deletion cleanup ────────────────────────────────────────────────
+
+    [Test]
+    public async Task DeletePageZonesAsync_NoAssignments_IsNoOp()
+    {
+        await NewService().DeletePageZonesAsync(Guid.NewGuid());
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DeletePageZonesAsync_DeletesPageZonesAndNestedChildren()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var mainZoneId = Guid.NewGuid();
+        var childZoneId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(mainZoneId, 0, "Main"), Zone(childZoneId, 0, "Sub"));
+        await SeedItemsAsync(Item(mainZoneId, Guid.NewGuid()), Item(childZoneId, Guid.NewGuid()));
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = mainZoneId, ParentPageNodeId = pageNodeId },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = childZoneId, ParentZoneNodeId = mainZoneId });
+
+        await NewService().DeletePageZonesAsync(pageNodeId);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneItemDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DeletePageZonesAsync_SharedZone_KeepsZoneButRemovesPageAssignment()
+    {
+        var pageNodeId1 = Guid.NewGuid();
+        var pageNodeId2 = Guid.NewGuid();
+        var sharedZoneId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(sharedZoneId, 0, "Shared"));
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = sharedZoneId, ParentPageNodeId = pageNodeId1 },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = sharedZoneId, ParentPageNodeId = pageNodeId2 });
+
+        await NewService().DeletePageZonesAsync(pageNodeId1);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.True);
+            var remaining = verify.Set<ContentZoneAssignmentDTO>().Single();
+            Assert.That(remaining.ParentPageNodeId, Is.EqualTo(pageNodeId2));
+        });
+    }
+
+    [Test]
+    public async Task DeletePageZonesAsync_ChildZoneSharedWithAnotherPage_Survives()
+    {
+        var pageNodeId1 = Guid.NewGuid();
+        var pageNodeId2 = Guid.NewGuid();
+        var parentZoneId = Guid.NewGuid();
+        var childZoneId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(parentZoneId, 0, "Parent"), Zone(childZoneId, 0, "Child"));
+        await SeedItemsAsync(Item(parentZoneId, Guid.NewGuid()), Item(childZoneId, Guid.NewGuid()));
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = parentZoneId, ParentPageNodeId = pageNodeId1 },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = childZoneId, ParentZoneNodeId = parentZoneId },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Extra", ContentZoneNodeId = childZoneId, ParentPageNodeId = pageNodeId2 });
+
+        await NewService().DeletePageZonesAsync(pageNodeId1);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(z => z.Version.NodeId == parentZoneId), Is.False);
+            Assert.That(verify.Set<ContentZoneDTO>().Any(z => z.Version.NodeId == childZoneId), Is.True);
+            Assert.That(verify.Set<ContentZoneItemDTO>().Any(i => i.ContentZoneNodeId == childZoneId), Is.True);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(a => a.ContentZoneNodeId == childZoneId && a.ParentPageNodeId == pageNodeId2), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task DeletePageZonesAsync_PageAssigningOneZoneToTwoSlots_DeletesZone()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Shared"));
+        await SeedItemsAsync(Item(zoneNodeId, Guid.NewGuid()));
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "A", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "B", ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+
+        await NewService().DeletePageZonesAsync(pageNodeId);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneItemDTO>().Any(), Is.False);
+            Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DeleteZoneTreeAsync_SelfCycle_Terminates()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, "Loop"));
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Loop", ContentZoneNodeId = zoneNodeId, ParentZoneNodeId = zoneNodeId });
+
+        await NewService().DeleteZoneTreeAsync(zoneNodeId);
+
+        await using var verify = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(verify.Set<ContentZoneDTO>().Any(), Is.False);
             Assert.That(verify.Set<ContentZoneAssignmentDTO>().Any(), Is.False);
         });
     }

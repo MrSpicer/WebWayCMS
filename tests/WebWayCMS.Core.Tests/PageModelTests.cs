@@ -24,6 +24,7 @@ public class PageModelTests
     private IViewDiscoveryService _viewDiscovery = null!;
     private IRouteRegistrationService _routeRegistration = null!;
     private ICMSRouteService _cmsRouteService = null!;
+    private IContentZoneService _contentZoneService = null!;
     private IChangeSetScope _changeSetScope = null!;
     private PageModel _model = null!;
 
@@ -33,11 +34,13 @@ public class PageModelTests
         _store = Substitute.For<IContentStore<PageDTO>>();
         _mapper = TestSupport.CreateMapper();
         _registry = Substitute.For<IPageControllerRegistry>();
+        _registry.GetByName(Arg.Any<string>()).Returns(new PageControllerInfo());
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _cmsRouteService = Substitute.For<ICMSRouteService>();
+        _contentZoneService = Substitute.For<IContentZoneService>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
-        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _changeSetScope);
+        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope);
     }
 
     private static PageDTO Page(string title = "T", ContentVersionState state = ContentVersionState.Published,
@@ -79,13 +82,14 @@ public class PageModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -216,6 +220,7 @@ public class PageModelTests
 
         Assert.That(await _model.DeletePageAsync(page.Version.Node.Id), Is.True);
         await _routeRegistration.Received(1).UnregisterContentRoutesAsync(page.Version.Node.Id, Arg.Any<CancellationToken>());
+        await _contentZoneService.Received(1).DeletePageZonesAsync(page.Version.Node.Id, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -226,6 +231,7 @@ public class PageModelTests
 
         Assert.That(await _model.DeletePageAsync(Guid.NewGuid()), Is.True);
         await _routeRegistration.DidNotReceive().UnregisterContentRoutesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _contentZoneService.DidNotReceive().DeletePageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -348,7 +354,7 @@ public class PageModelTests
         {
             Assert.That(result.Success, Is.True);
         });
-        await _cmsRouteService.Received(1).IsPatternAvailableAsync("/About", null, null, Arg.Any<CancellationToken>());
+        await _cmsRouteService.Received(1).IsPatternAvailableAsync("/about", null, null, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -386,6 +392,28 @@ public class PageModelTests
     }
 
     [Test]
+    public async Task AdminHandler_SaveUpsert_UnknownController_ReturnsControllerNameError()
+    {
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _registry.GetByName("Missing").Returns((PageControllerInfo?)null);
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Title = "T",
+            Slug = "x",
+            ControllerName = "Missing"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ControllerName"));
+            Assert.That(result.ErrorMessage, Does.Contain("Unknown controller: Missing"));
+        });
+        _registry.DidNotReceive().ValidateConfiguration(Arg.Any<string>(), Arg.Any<object>());
+    }
+
+    [Test]
     public async Task AdminHandler_SaveUpsert_DuplicateSiblingSlug_Rejected()
     {
         var parentNodeId = Guid.NewGuid();
@@ -400,6 +428,28 @@ public class PageModelTests
             Title = "Child",
             Slug = "child",
             ParentNodeId = parentNodeId,
+            ControllerName = "C"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Slug"));
+        });
+    }
+
+    [Test]
+    public async Task AdminHandler_SaveUpsert_SameTitleWithoutExplicitSlug_SecondIsRejected()
+    {
+        var sibling = Page(title: "Dup Title Page");
+        sibling.Version.Slug = "dup-title-page";
+
+        _store.GetCurrentDraftChildrenAsync(null, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            Title = "Dup Title Page",
+            Slug = null,
             ControllerName = "C"
         });
 

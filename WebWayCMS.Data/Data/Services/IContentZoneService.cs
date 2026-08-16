@@ -40,4 +40,11 @@ public interface IContentZoneService
 
     // zone deletion (items + assignments + zone)
     Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
+
+    // zone deletion plus orphaned nested child zones (a zone node is deleted exactly when nothing
+    // references it any more)
+    Task DeleteZoneTreeAsync(Guid zoneNodeId, CancellationToken ct = default);
+
+    // page deletion cleanup (removes the page's assigned zones and their nested child zones)
+    Task DeletePageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
 }

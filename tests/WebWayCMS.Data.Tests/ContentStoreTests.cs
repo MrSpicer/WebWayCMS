@@ -344,9 +344,45 @@ public class ContentStoreTests
             Assert.That(dto.Version.Node!.Id, Is.Not.EqualTo(Guid.Empty));
             Assert.That(dto.Version.VersionNumber, Is.EqualTo(0));
             Assert.That(dto.Version.State, Is.EqualTo(ContentVersionState.Draft));
-            Assert.That(dto.Version.Slug, Is.EqualTo(Uri.EscapeDataString("Hello World")));
+            Assert.That(dto.Version.Slug, Is.EqualTo("hello-world"));
             Assert.That(dto.Version.Node.ContentTypeKey, Is.EqualTo("contentblocks"));
         });
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_Create_SlugifiesTitleWithPunctuation()
+    {
+        var dto = NewBlock("Spaced Slug Page!!");
+        await NewStore().SaveDraftAsync(dto, null);
+
+        Assert.That(dto.Version.Slug, Is.EqualTo("spaced-slug-page"));
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_Create_CollapsesConsecutiveWhitespace()
+    {
+        var dto = NewBlock("  Two   Spaces  ");
+        await NewStore().SaveDraftAsync(dto, null);
+
+        Assert.That(dto.Version.Slug, Is.EqualTo("two-spaces"));
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_Create_BlankTitleAndSlug_ProducesEmptySlug()
+    {
+        var dto = NewBlock("", "");
+        await NewStore().SaveDraftAsync(dto, null);
+
+        Assert.That(dto.Version.Slug, Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_Create_NonLatinTitle_FallsBackToEncodedSlug()
+    {
+        var dto = NewBlock("日本語ページ");
+        await NewStore().SaveDraftAsync(dto, null);
+
+        Assert.That(dto.Version.Slug, Is.EqualTo(Uri.EscapeDataString("日本語ページ")));
     }
 
     [Test]
@@ -686,5 +722,82 @@ public class ContentStoreTests
         });
 
         Assert.That((await store.GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_SingleVersion_Refused()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+
+        var ok = await store.DeleteVersionAsync(current.VersionId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(ok, Is.False);
+            Assert.That(await store.GetAllVersionsAsync(nodeId), Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_MaxVersion_Refused()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+        await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+
+        var versions = await store.GetAllVersionsAsync(nodeId);
+        var maxVersionId = versions.Single(v => v.Version.VersionNumber == 1).VersionId;
+
+        var ok = await store.DeleteVersionAsync(maxVersionId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(ok, Is.False);
+            Assert.That(await store.GetAllVersionsAsync(nodeId), Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_NonEmptyCulture_NonMaxVersionDeletable()
+    {
+        var nodeId = Guid.NewGuid();
+        var v0Id = Guid.NewGuid();
+        var v1Id = Guid.NewGuid();
+
+        var ctx = NewContext();
+        var node = new ContentNode { Id = nodeId, ContentTypeKey = "contentblocks" };
+        var v0 = new ContentVersion
+        {
+            Id = v0Id,
+            NodeId = nodeId,
+            Node = node,
+            VersionNumber = 0,
+            Culture = "fr",
+            Segment = string.Empty,
+            State = ContentVersionState.Archived
+        };
+        var v1 = new ContentVersion
+        {
+            Id = v1Id,
+            NodeId = nodeId,
+            Node = node,
+            VersionNumber = 1,
+            Culture = "fr",
+            Segment = string.Empty,
+            State = ContentVersionState.Published,
+            IsCurrentDraft = true
+        };
+        ctx.Set<ContentBlockDTO>().AddRange(
+            new ContentBlockDTO { VersionId = v0Id, Version = v0, Content = "c0" },
+            new ContentBlockDTO { VersionId = v1Id, Version = v1, Content = "c1" });
+        await ctx.SaveChangesAsync();
+
+        var ok = await NewStore().DeleteVersionAsync(v0Id);
+
+        Assert.That(ok, Is.True);
+        Assert.That((await NewStore().GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(1));
     }
 }

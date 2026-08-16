@@ -321,11 +321,33 @@ predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship
 | `UnpublishAsync(nodeId)` | Published current → `Draft`; or, with a separate draft, archives the published row and leaves the draft. |
 | `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
 | `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node. |
-| `DeleteVersionAsync(versionId)` | Removes a single version row + its type row. |
+| `DeleteVersionAsync(versionId)` | Removes a single version row + its type row — **but refuses to delete the highest-numbered version** for the node, matching the admin UI which hides Delete on the latest version. A node's single version is its max, so it can never be removed this way. |
 
 **Concurrency:** the unique index `UX_ContentVersion_Number` is the backstop; `ContentStore<T>` catches
 `DbUpdateException` and maps it to the same stale-version message, so a true race degrades to the
 friendly error rather than corruption.
+
+**Slug generation:** `SlugNormalizer.Normalize` (in `WebWayCMS.Data/Slugs/`) is the single source of truth
+for slug shape, called from both `ContentStore<T>.NormalizeSlug` (the write path) and `PageModel`'s
+slug-collision checks (the comparison path), so the two always agree on what a slug looks like. It
+**slugifies** rather than URL-encodes — lowercase, whitespace/punctuation collapsed to single hyphens,
+nothing outside `[a-z0-9-]` — whether the slug is supplied explicitly or derived from the title.
+Accented Latin is folded to ASCII via `NormalizationForm.FormD` (`Café Ünïcode` → `cafe-unicode`);
+characters with no decomposition (`ø`, `ł`, `ß`) fall through to a hyphen. When slugification yields
+nothing but the source was not blank (a purely non-Latin or punctuation-only title), it falls back to
+`Uri.EscapeDataString(source)`, so a `日本語ページ` page keeps a routable percent-encoded slug instead of an
+unpublishable empty one. `Normalize` is idempotent — normalizing an already-clean slug returns it
+unchanged — which is the property that lets the same call sit safely on both the write and comparison
+paths.
+
+Because the output is already URL-safe, the encode-on-write / `WebUtility.UrlDecode`-on-read round-trip
+is a no-op for newly written slugs. The route pattern is derived on publish by `UrlDecode`ing the stored
+slug (so a non-Latin slug stored percent-encoded resolves to a raw route that matches ASP.NET's decoded
+incoming path — `日本語ページ` serves at `/日本語ページ`, which is what the server sees for either the raw or
+percent-encoded request). **One consequence:** a legacy page whose slug predates the slugify change keeps
+its existing decoded route on a bare republish, but migrates to the slugified URL the moment its draft is
+re-saved (e.g. `/My%20Page` → `/my-page`), because the slug is normalized at write time; with slugify in
+place there is no longer any way to keep a legacy spaced URL once it is edited.
 
 ---
 
@@ -370,8 +392,10 @@ editor's immediately-visible behaviour while still producing version history.
 | `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators |
 | `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks assignments to the owning page node |
 | `GetItemByNodeIdAsync` / `AddItemAsync` / `UpdateItemAsync` / `RemoveItemAsync` | Item CRUD (node-keyed) |
-| `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation) |
-| `DeleteZoneAsync(zoneNodeId)` | Removes assignments + items + the zone |
+| `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Validates up front that every id resolves and belongs to `zoneNodeId`, then writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation). A missing/foreign id or a failed save returns `false` with no partial reorder. |
+| `DeleteZoneAsync(zoneNodeId)` | Removes assignments + items + the zone, first sweeping each item's widget routes (`CMSRouteDTO` rows keyed to the item node) so a deleted routable widget never leaves a dangling route. |
+| `DeleteZoneTreeAsync(zoneNodeId)` | `DeleteZoneAsync` plus a guarded recursion into child zones assigned via `ParentZoneNodeId`: after the parent is deleted, each child is re-queried and deleted only when nothing references it any more (a `visited` set prevents cycles). |
+| `DeletePageZonesAsync(pageNodeId)` | Removes the page's own assignment rows, then for each distinct zone node re-queries the remaining assignment count and calls `DeleteZoneTreeAsync` when it is `0`. A zone node is deleted exactly when nothing references it any more — whether it is shared with another page or parent, or assigned to two of the same page's slots. This is what stops page deletion from orphaning `ContentZoneAssignments` rows or zone nodes. |
 
 ---
 

@@ -297,6 +297,7 @@ public class ArticleListModelTests
 
         Assert.Multiple(async () =>
         {
+            Assert.That(_model.SecondaryApiListKeys, Is.EqualTo(new[] { "articlelists" }));
             Assert.That(await _model.GetSecondaryApiListAsync("articlelists"), Is.Not.Empty);
             Assert.That(await _model.GetSecondaryApiListAsync("other"), Is.Empty);
         });
@@ -384,14 +385,51 @@ public class ArticleListModelTests
         _articleModel.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         _articleModel.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
 
+        var valid = () => new ArticleUpsertViewModel { Title = "T", Body = "b", AuthorName = "a" };
+
         Assert.Multiple(async () =>
         {
-            Assert.That((await child.SaveChildUpsertAsync("list", new ArticleUpsertViewModel())).Success, Is.True);
-            Assert.That((await child.SaveChildUpsertAsync("list", new ArticleUpsertViewModel())).Success, Is.False);
+            Assert.That((await child.SaveChildUpsertAsync("list", valid())).Success, Is.True);
+            Assert.That((await child.SaveChildUpsertAsync("list", valid())).Success, Is.False);
             Assert.That(await child.DeleteChildAsync(Guid.NewGuid()), Is.True);
             Assert.That(await child.ReorderAsync("list", new List<Guid>()), Is.False);
             Assert.That(await child.DeleteChildVersionAsync(Guid.NewGuid()), Is.True);
         });
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_InvalidModel_ReturnsValidationErrorWithoutSaving()
+    {
+        var child = _model.ChildHandler!;
+
+        var result = await child.SaveChildUpsertAsync("list", new ArticleUpsertViewModel { Title = "T", Body = "b" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("AuthorName"));
+        });
+        await _articleModel.DidNotReceive().SaveUpsertAsync(Arg.Any<ArticleUpsertViewModel>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_ScriptOnlyBody_RejectedAsEmpty()
+    {
+        var child = _model.ChildHandler!;
+
+        var result = await child.SaveChildUpsertAsync("list", new ArticleUpsertViewModel
+        {
+            Title = "T",
+            Body = "<script>alert(1)</script>",
+            AuthorName = "a"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Body"));
+        });
+        await _articleModel.DidNotReceive().SaveUpsertAsync(Arg.Any<ArticleUpsertViewModel>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

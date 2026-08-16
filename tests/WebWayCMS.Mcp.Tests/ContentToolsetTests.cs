@@ -57,6 +57,7 @@ public class ContentToolsetTests
         _handler.RegistryHandler.Returns(Substitute.For<IAdminRegistryHandler>());
         _handler.SupportsVersionHistory.Returns(true);
         _handler.SupportsPublishing.Returns(true);
+        _handler.SecondaryApiListKeys.Returns(new[] { "articlelists" });
 
         var info = _tools.ListContentTypes().Single();
 
@@ -69,6 +70,7 @@ public class ContentToolsetTests
             Assert.That(info.HasChildren, Is.True);
             Assert.That(info.ChildType, Is.EqualTo("articles"));
             Assert.That(info.HasRegistry, Is.True);
+            Assert.That(info.SecondaryApiListKeys, Is.EqualTo(new[] { "articlelists" }));
         });
     }
 
@@ -116,6 +118,34 @@ public class ContentToolsetTests
         _handler.GetApiListAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         Assert.That(await _tools.ListContent("contentblocks"), Is.EqualTo(items));
+    }
+
+    [Test]
+    public async Task ListSecondaryContent_WhenValidKey_ReturnsSecondaryList()
+    {
+        _handler.SecondaryApiListKeys.Returns(new[] { "articlelists" });
+        var items = new object[] { new { id = Guid.NewGuid(), title = "l" } };
+        _handler.GetSecondaryApiListAsync("articlelists", Arg.Any<CancellationToken>()).Returns(items);
+
+        Assert.That(await _tools.ListSecondaryContent("contentblocks", "articlelists"), Is.EqualTo(items));
+    }
+
+    [Test]
+    public void ListSecondaryContent_WhenUnknownKey_Throws()
+    {
+        _handler.SecondaryApiListKeys.Returns(new[] { "articlelists" });
+
+        Assert.That(async () => await _tools.ListSecondaryContent("contentblocks", "other"),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public void ListSecondaryContent_WhenTypeHasNoSecondaryLists_ThrowsWithClearMessage()
+    {
+        _handler.SecondaryApiListKeys.Returns(Array.Empty<string>());
+
+        Assert.That(async () => await _tools.ListSecondaryContent("contentblocks", "anything"),
+            Throws.TypeOf<McpException>().With.Message.Contains("exposes no secondary lists"));
     }
 
     [Test]

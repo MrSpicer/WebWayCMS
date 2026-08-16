@@ -8,7 +8,8 @@ public sealed record McpContentTypeInfo(
     bool SupportsPublishing,
     bool HasChildren,
     string? ChildType,
-    bool HasRegistry);
+    bool HasRegistry,
+    IReadOnlyList<string> SecondaryApiListKeys);
 
 /// <summary>Describes a single editable field of a content type's upsert form.</summary>
 public sealed record McpFieldInfo(

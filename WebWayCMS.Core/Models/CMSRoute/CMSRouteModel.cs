@@ -4,6 +4,7 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
+using WebWayCMS.Security;
 
 namespace WebWayCMS.Models.CMSRoute;
 
@@ -85,6 +86,11 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
     public async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
     {
         var vm = (CMSRouteUpsertViewModel)model;
+
+        var validation = ModelValidator.Validate(vm);
+        if (validation != null)
+            return validation;
+
         var result = await SaveRouteUpsertAsync(vm, ct);
         return result.Success
             ? new AdminSaveResult(true)

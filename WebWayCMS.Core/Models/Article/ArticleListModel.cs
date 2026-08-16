@@ -6,6 +6,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Security;
 
 namespace WebWayCMS.Models.Article;
 
@@ -28,6 +29,7 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     public override string IndexViewPath => "~/Views/AdminArticle/Index.cshtml";
     public override string UpsertViewPath => "~/Views/AdminArticle/ArticleListUpsert.cshtml";
     public override bool HasSecondaryApiList => true;
+    public override IReadOnlyList<string> SecondaryApiListKeys => ["articlelists"];
     public override IAdminCrudChildHandler? ChildHandler => _childHandler;
 
     public ArticleListModel(
@@ -231,6 +233,13 @@ internal sealed class ArticleChildHandler : IAdminCrudChildHandler
     public async Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
     {
         var vm = (ArticleUpsertViewModel)model;
+
+        RichTextSanitizer.Sanitize(vm);
+
+        var validation = ModelValidator.Validate(vm);
+        if (validation != null)
+            return validation;
+
         var result = await _articleModel.SaveUpsertAsync(vm, ct);
         return result.Success
             ? new AdminSaveResult(true)

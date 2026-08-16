@@ -20,11 +20,7 @@ public static class SerilogExtensions
                 .Enrich.FromLogContext();
 
             // Provide reasonable defaults if not specified
-            loggerConfig.MinimumLevel.Override("Microsoft", LogEventLevel.Information);
-
-            // The request-logging middleware emits one summary line per request; silence ASP.NET Core's
-            // own "Request starting"/"Request finished" pair so a single request isn't logged three times.
-            loggerConfig.MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning);
+            ApplyMinimumLevelOverrides(loggerConfig, context.HostingEnvironment.IsDevelopment());
 
             // Always log to console
             loggerConfig.WriteTo.Console();
@@ -37,5 +33,25 @@ public static class SerilogExtensions
         });
 
         return hostBuilder;
+    }
+
+    /// <summary>
+    /// Applies the CMS's default minimum-level overrides. Outside Development, EF Core's per-query
+    /// SQL statements are silenced (they dominate the one-line-per-request summary); local debugging
+    /// keeps them.
+    /// </summary>
+    internal static void ApplyMinimumLevelOverrides(LoggerConfiguration loggerConfig, bool isDevelopment)
+    {
+        loggerConfig.MinimumLevel.Override("Microsoft", LogEventLevel.Information);
+
+        // The request-logging middleware emits one summary line per request; silence ASP.NET Core's
+        // own "Request starting"/"Request finished" pair so a single request isn't logged three times.
+        loggerConfig.MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning);
+
+        if (!isDevelopment)
+        {
+            loggerConfig.MinimumLevel.Override(
+                "Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning);
+        }
     }
 }

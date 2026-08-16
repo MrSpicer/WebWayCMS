@@ -287,6 +287,21 @@ public class CMSRouteModelTests
     }
 
     [Test]
+    public async Task SaveUpsertAsync_BlankPattern_ReturnsValidationErrorWithoutSaving()
+    {
+        var vm = new CMSRouteUpsertViewModel { Pattern = "" };
+
+        var result = await _model.SaveUpsertAsync(vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Pattern"));
+        });
+        await _routeService.DidNotReceive().IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task DeleteRouteAsync_DelegatesToService()
     {
         var id = Guid.NewGuid();

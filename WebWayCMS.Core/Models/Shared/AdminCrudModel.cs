@@ -47,6 +47,11 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public async Task<AdminSaveResult> SaveUpsertAsync(object model, CancellationToken ct = default)
     {
         RichTextSanitizer.Sanitize(model);
+
+        var validation = ModelValidator.Validate(model);
+        if (validation != null)
+            return validation;
+
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, null, null);
         return await SaveUpsertCoreAsync(model, ct);
     }
@@ -58,6 +63,8 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public abstract Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 
     public virtual bool HasSecondaryApiList => false;
+
+    public virtual IReadOnlyList<string> SecondaryApiListKeys => [];
 
     public virtual Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default)
         => Task.FromResult(Enumerable.Empty<object>());

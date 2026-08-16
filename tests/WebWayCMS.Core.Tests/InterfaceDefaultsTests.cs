@@ -9,6 +9,7 @@ using NUnit.Framework;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.Shared;
 
 namespace WebWayCMS.Core.Tests;
@@ -79,6 +80,8 @@ internal sealed class MinimalCrudModel : AdminCrudModel<ContentBlockDTO>
 
     protected override IContentStore<ContentBlockDTO> Store => _store;
 
+    public bool SaveUpsertCoreCalled { get; private set; }
+
     protected override string VersionHistoryContentType => "minimal-crud";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/minimal-crud";
     protected override Task<List<ContentBlockDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => Task.FromResult(new List<ContentBlockDTO>());
@@ -92,7 +95,13 @@ internal sealed class MinimalCrudModel : AdminCrudModel<ContentBlockDTO>
     public override Task<object> GetIndexViewModelAsync(CancellationToken ct = default) => Task.FromResult<object>("index");
     public override Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default) => Task.FromResult<object?>(null);
     public override object CreateEmptyUpsertViewModel() => new object();
-    protected override Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default) => Task.FromResult(new AdminSaveResult(true));
+
+    protected override Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
+    {
+        SaveUpsertCoreCalled = true;
+        return Task.FromResult(new AdminSaveResult(true));
+    }
+
     public override Task<bool> DeleteAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
     public override Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default) => Task.FromResult(Enumerable.Empty<object>());
 }
@@ -111,6 +120,7 @@ public class InterfaceDefaultsTests
             Assert.That(await handler.GetIndexViewModelAsync(query), Is.EqualTo("index"));
             Assert.That(handler.SupportsVersionHistory, Is.False);
             Assert.That(handler.SupportsPreview, Is.False);
+            Assert.That(handler.SecondaryApiListKeys, Is.Empty);
             Assert.That(await handler.GetVersionHistoryViewModelAsync(Guid.NewGuid()), Is.Null);
             Assert.That(await handler.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
             Assert.That(await handler.DeleteVersionAsync(Guid.NewGuid()), Is.False);
@@ -168,7 +178,25 @@ public class InterfaceDefaultsTests
         Assert.Multiple(async () =>
         {
             Assert.That(model.SupportsPreview, Is.False);
+            Assert.That(model.SecondaryApiListKeys, Is.Empty);
             Assert.That(await model.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task AdminCrudModel_SaveUpsert_InvalidModel_ShortCircuitsBeforeCore()
+    {
+        var store = Substitute.For<IContentStore<ContentBlockDTO>>();
+        var changeSetScope = Substitute.For<IChangeSetScope>();
+        var model = new MinimalCrudModel(store, changeSetScope);
+
+        var result = await model.SaveUpsertAsync(new ContentBlockUpsertViewModel { Title = "T", Content = "" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("Content"));
+            Assert.That(model.SaveUpsertCoreCalled, Is.False);
         });
     }
 }

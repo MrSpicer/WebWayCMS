@@ -35,7 +35,8 @@ public sealed class ContentToolset
                 h.SupportsPublishing,
                 h.ChildHandler != null,
                 h.ChildHandler?.ChildType,
-                h.RegistryHandler != null))
+                h.RegistryHandler != null,
+                h.SecondaryApiListKeys))
             .ToList();
 
     [McpServerTool(Name = "describe_content_type", ReadOnly = true, OpenWorld = false)]
@@ -52,13 +53,31 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "list_content", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists existing items of a content type as { id, title } entries.")]
+    [Description("Lists existing items of a content type as { id, title } entries. For \"articles\" this returns the individual articles; the article *lists* they belong to are a separate secondary list (see list_secondary_content with key \"articlelists\").")]
     public async Task<IEnumerable<object>> ListContent(
         [Description("The content type to list.")] string contentType,
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
         return await handler.GetApiListAsync(ct);
+    }
+
+    [McpServerTool(Name = "list_secondary_content", ReadOnly = true, OpenWorld = false)]
+    [Description("Lists a content type's additional named list as { id, title } entries. Use list_content_types to discover which keys a content type exposes (e.g. \"articles\" exposes \"articlelists\", while its primary list_content returns the articles themselves).")]
+    public async Task<IEnumerable<object>> ListSecondaryContent(
+        [Description("The content type that owns the secondary list.")] string contentType,
+        [Description("The secondary list key, e.g. \"articlelists\".")] string key,
+        CancellationToken ct = default)
+    {
+        var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        if (!handler.SecondaryApiListKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+        {
+            var message = handler.SecondaryApiListKeys.Count == 0
+                ? $"Content type '{contentType}' exposes no secondary lists."
+                : $"Content type '{contentType}' has no secondary list '{key}'. Valid keys: {string.Join(", ", handler.SecondaryApiListKeys)}.";
+            throw new McpException(message);
+        }
+        return await handler.GetSecondaryApiListAsync(key, ct);
     }
 
     [McpServerTool(Name = "get_content", ReadOnly = true, OpenWorld = false)]
