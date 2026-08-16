@@ -10,6 +10,9 @@
     <!-- Server-side HTML sanitization for rich-text (CKEditor) content -->
     <PackageVersion Include="HtmlSanitizer" Version="9.2.995" />
 
+    <!-- QR code generation for the 2FA authenticator enrolment page (pure managed, MIT) -->
+    <PackageVersion Include="QRCoder" Version="1.6.0" />
+
     <!-- MCP server (official C# SDK, maintained with Microsoft) -->
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
 
@@ -25,6 +28,12 @@
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="10.0.11" />
+
+    <!-- External-login OAuth providers (official Microsoft packages version-matched to the 10.0.11 stack) -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" Version="10.0.11" />
+    <!-- aspnet-contrib community GitHub provider (version-tracks the ASP.NET Core major version) -->
+    <PackageVersion Include="AspNet.Security.OAuth.GitHub" Version="10.0.0" />
 
     <!-- Test stack -->
     <PackageVersion Include="NUnit" Version="4.6.1" />

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +18,7 @@ using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Identity;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.ContentBlock;
@@ -104,7 +106,7 @@ public class ServiceCollectionExtensionsTests
                 .Get(IdentityConstants.ApplicationScheme);
             Assert.That(appCookie.Cookie.HttpOnly, Is.True);
             Assert.That(appCookie.Cookie.SecurePolicy, Is.EqualTo(CookieSecurePolicy.Always));
-            Assert.That(appCookie.Cookie.SameSite, Is.EqualTo(SameSiteMode.Strict));
+            Assert.That(appCookie.Cookie.SameSite, Is.EqualTo(SameSiteMode.Lax));
         });
     }
 
@@ -164,6 +166,55 @@ public class ServiceCollectionExtensionsTests
         var context = scope.ServiceProvider.GetRequiredService<IContentReadContext>();
 
         Assert.That(context, Is.InstanceOf<PreviewAwareReadContext>());
+    }
+
+    [Test]
+    public void Provider_NoSmtp_ResolvesLoggingEmailSender()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        Assert.That(app.Services.GetRequiredService<IEmailSender>(), Is.InstanceOf<LoggingEmailSender>());
+    }
+
+    [Test]
+    public void Provider_WithSmtp_ResolvesSmtpEmailSender()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Smtp:Host"] = "smtp.example.com",
+            ["Smtp:FromAddress"] = "noreply@example.com",
+        });
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        Assert.That(app.Services.GetRequiredService<IEmailSender>(), Is.InstanceOf<SmtpEmailSender>());
+    }
+
+    [Test]
+    public void Provider_HostEmailSender_Wins()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Smtp:Host"] = "smtp.example.com",
+            ["Smtp:FromAddress"] = "noreply@example.com",
+        });
+        builder.Services.AddSingleton<IEmailSender, HostEmailSender>();
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        Assert.That(app.Services.GetRequiredService<IEmailSender>(), Is.InstanceOf<HostEmailSender>());
+    }
+
+    private sealed class HostEmailSender : IEmailSender
+    {
+        public Task SendEmailAsync(string email, string subject, string htmlMessage) => Task.CompletedTask;
     }
 }
 

@@ -159,15 +159,34 @@ between — so `Strict-Transport-Security` is present too.
 ## 6. Auth Endpoint Rate Limiting
 
 `AuthRateLimiting` throttles the Identity endpoints that accept credentials or trigger emails, per
-client IP: **5 requests per 1-minute fixed window**, returning HTTP **429** over the limit. Every
-other path is explicitly unlimited.
+client IP **and per endpoint family**: **5 requests per 1-minute fixed window** per
+`"{ip}|{matchedPrefix}"` partition, returning HTTP **429** over the limit. Partitioning by matched
+prefix keeps an external-login round trip (four requests across four prefixes) from exhausting the
+budget of a password login behind the same NAT egress IP. Every other path is explicitly unlimited.
 
-Full details — limited paths, partitioning, and the `UseForwardedHeaders` interaction that makes it
-correct behind a proxy — are in [Area 8](08-identity-auth.md#6-auth-endpoint-rate-limiting).
+Full details — limited paths (including `/Identity/Account/ResetPassword` and the anonymous
+`/Identity/Account/PasskeyRequestOptions`), partitioning, and the `UseForwardedHeaders` interaction that
+makes it correct behind a proxy — are in [Area 8](08-identity-auth.md#6-auth-endpoint-rate-limiting).
 
 ---
 
-## 7. CKEditor License Key
+## 7. Authentication Cookie `SameSite`
+
+The Identity application cookie is `HttpOnly`, `Secure=Always`, and `SameSite=Lax` (configured in
+`CmsIdentityRegistration.ConfigureAuthorization`).
+
+- **Why `Lax`, not `Strict`:** Chromium computes `SameSite` across the entire redirect chain. An OAuth
+  sign-in begins at the provider, so the final navigation back to the app is treated cross-site;
+  `Strict` would withhold the cookie and land the user apparently signed out until a manual refresh.
+  `Lax` allows the cookie on top-level cross-site *navigations* (GET) so the OAuth return is signed in.
+- **Why `Lax` is still safe here:** `Lax` still withholds the cookie on cross-site **POSTs**. That is
+  what keeps the passkey minimal-API endpoints (`PasskeyAssertion`, etc.) safe from cross-site
+  request forgery without antiforgery middleware — an attacker's cross-site `<form>` POST cannot carry
+  the authenticated session cookie.
+
+---
+
+## 8. CKEditor License Key
 
 The admin editor loads CKEditor 5 from `https://cdn.ckeditor.com/ckeditor5/46.1.1/`, and only on
 views that define the `CKEditor` Razor section.
@@ -188,15 +207,41 @@ regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
 
 ---
 
-## 8. Checklist for a Production Host
+## 9. Checklist for a Production Host
 
 - [ ] `ConnectionStrings:DefaultConnection` in user-secrets or environment, not `appsettings.json`
 - [ ] `AdminUser:Password` in user-secrets or environment; rotate after first boot
 - [ ] `Mcp:Enabled` left `false` unless you genuinely need it; if enabled, treat `Mcp:ApiKey` as a
       root credential and restrict network access to the endpoint
+- [ ] Configure `Smtp:*` (host, credentials, from address) so account confirmation and password-reset
+      emails are actually delivered; supply `Smtp:Password` via user-secrets/environment. Leaving
+      `Smtp:Host` unset means confirmation links are only written to the log — useful in development,
+      not in production.
+- [ ] If enabling external login, supply `Authentication:{Google,Microsoft,GitHub}:ClientId`/`:ClientSecret`
+      via user-secrets/environment; leave a provider's keys unset to keep it disabled
+- [ ] For each enabled provider, register the production callback URL on the OAuth app itself —
+      `https://yourhost.example/signin-google` / `/signin-microsoft` / `/signin-github`. The provider
+      matches `redirect_uri` as an exact string and rejects the request before the browser returns, so
+      a missing entry fails with nothing in the CMS logs. See
+      [Area 8](08-identity-auth.md#redirect-uris-to-register-with-each-provider); each origin the app
+      is reachable on (dev, integration host, production) needs its own entry, and
+      `X-Forwarded-Proto` must reach the app or the generated `redirect_uri` will be `http://`.
+- [ ] If enabling passkeys, set `Passkeys:ServerDomain` to the production host name (the app otherwise
+      infers it from the request `Host` header, which is not trustworthy behind a proxy)
 - [ ] Review `Csp:Directives` for any CDN or analytics host your branding adds; validate with
       `Csp:ReportOnly` first, then enforce
-- [ ] Serve over HTTPS — the auth cookie is `Secure=Always` and will not be sent otherwise
+- [ ] Serve over HTTPS — the auth cookie is `Secure=Always` and will not be sent otherwise, and
+      WebAuthn passkey operations only work over a secure context
 - [ ] If terminating TLS at a proxy, confirm `X-Forwarded-For` / `X-Forwarded-Proto` reach the app,
       or rate limiting will partition every request onto the proxy's IP
 - [ ] Consider running the public host in rendering-only mode — see [Area 11](11-deployment-modes.md)
+
+### Passkey trust posture
+
+Passkey sign-in verifies the authenticator's assertion against the stored credential (a signed
+challenge), so it does not trust the client. However, **attestation statements are not validated** by
+default (Identity's `IdentityPasskeyOptions.VerifyAttestationStatement` is null). This means the app
+does not cryptographically prove *which* authenticator produced the credential — the same trust
+posture as the OAuth providers in [Area 8](08-identity-auth.md#8-external-login-google--microsoft--github),
+and acceptable for this app's threat model, but worth noting explicitly as a documented Identity
+limitation rather than an oversight.

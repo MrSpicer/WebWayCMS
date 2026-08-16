@@ -139,10 +139,14 @@
   and directives it does not mention keep the CMS default (set a directive to empty to drop it). The
   default `script-src` allows no `'unsafe-inline'`, so keep admin scripts in files, not inline
   `<script>` blocks. The policy string is built by the unit-tested `CspPolicyBuilder`.
-- **Auth rate limiting:** the Identity login/register/password-reset endpoints are throttled per client
-  IP (`AuthRateLimiting`, wired via `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.
+- **Auth rate limiting:** the Identity login/register/password-reset/external-login/passkey endpoints are
+  throttled per client IP **and per endpoint family** (`AuthRateLimiting`, wired via
+  `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.
 - **Identity hardening:** explicit account lockout (5 attempts / 15 min) and auth-cookie flags
-  (`HttpOnly`, `Secure=Always`, `SameSite=Strict`) are set in `ConfigureAuthorization`.
+  (`HttpOnly`, `Secure=Always`, `SameSite=Lax`) are set in `ConfigureAuthorization`. `Lax` (not
+  `Strict`) is required so OAuth sign-in redirect chains are not treated cross-site; it still withholds
+  the cookie on cross-site POSTs, which is what keeps the passkey minimal-API endpoints safe without
+  antiforgery middleware.
 
 ## Code Conventions
 

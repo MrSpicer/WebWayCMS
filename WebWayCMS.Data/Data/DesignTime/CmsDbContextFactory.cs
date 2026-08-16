@@ -15,7 +15,11 @@ public sealed class CmsDbContextFactory : IDesignTimeDbContextFactory<CmsDbConte
     public CmsDbContext CreateDbContext(string[] args)
     {
         var appServices = new ServiceCollection()
-            .Configure<IdentityOptions>(o => o.Stores.MaxLengthForKeys = 128)
+            .Configure<IdentityOptions>(o =>
+            {
+                o.Stores.MaxLengthForKeys = 128;
+                o.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
+            })
             .BuildServiceProvider();
 
         var options = new DbContextOptionsBuilder<CmsDbContext>()

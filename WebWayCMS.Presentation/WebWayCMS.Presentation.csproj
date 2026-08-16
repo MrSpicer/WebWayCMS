@@ -9,6 +9,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.UI" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" />
+    <PackageReference Include="QRCoder" />
     <ProjectReference Include="..\WebWayCMS.Core\WebWayCMS.Core.csproj" />
     <ProjectReference Include="..\WebWayCMS.ContentZones\WebWayCMS.ContentZones.csproj" />
     <ProjectReference Include="..\WebWayCMS.Identity\WebWayCMS.Identity.csproj" />

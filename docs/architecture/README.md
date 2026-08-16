@@ -9,7 +9,7 @@ The libraries are distributed as NuGet packages: a host references the single um
 | Library | Contents |
 |---|---|
 | `WebWayCMS.Data` | DTOs, `CmsDbContext`, entity configurations, Services, Migrations |
-| `WebWayCMS.Identity` | UserService, DevEmailSender |
+| `WebWayCMS.Identity` | UserService, SmtpEmailSender, LoggingEmailSender, SmtpOptions, external-auth options |
 | `WebWayCMS.Forms` | Attributes (`[FormProperty]`, `[PageController]`, `[ContentZoneComponent]`, `[CmsRoute]`), FormPropertyBuilder, FormFieldsTagHelper |
 | `WebWayCMS.Routing` | CMSRouteTransformer, NotReservedConstraint, PageControllerRegistry |
 | `WebWayCMS.ContentZones` | WidgetRegistry |
@@ -62,7 +62,7 @@ Project references between them (nothing else — dependencies only flow downwar
 │ Users    │ │  Admin)       │ │ CMSRoute         │ │ ContentZone  │
 │ Roles    │ │ AdminContent  │ │ Transformer      │ │ ViewComponent│
 │ UserSvc  │ │ Controller    │ │ CMSRouteService  │ │ WidgetRegis- │
-│ DevEmail │ │ IAdminCrud    │ │ PageController   │ │ try (DB)     │
+│ Email    │ │ IAdminCrud    │ │ PageController   │ │ try (DB)     │
 │          │ │ Handler       │ │ Base<TConfig>    │ │ [ContentZone │
 │          │ │ AdminHandler  │ │ [PageController] │ │ Component]   │
 │          │ │ Registry      │ │ [CmsRoute]       │ │              │
@@ -184,3 +184,4 @@ them when you need them, in any order.
 - [docs/page-system.md](../page-system.md) — Creating a custom page type (step-by-step)
 - [docs/widget-system.md](../widget-system.md) — Creating a custom widget (step-by-step)
 - [docs/content-system.md](../content-system.md) — Creating a custom content type (step-by-step)
+- [docs/form-control-system.md](../form-control-system.md) — Adding a new form control (step-by-step)

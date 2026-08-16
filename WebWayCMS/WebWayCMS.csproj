@@ -8,6 +8,9 @@
     <InternalsVisibleTo Include="WebWayCMS.Host.Tests" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" />
+    <PackageReference Include="AspNet.Security.OAuth.GitHub" />
     <ProjectReference Include="..\WebWayCMS.Data\WebWayCMS.Data.csproj" />
     <ProjectReference Include="..\WebWayCMS.Identity\WebWayCMS.Identity.csproj" />
     <ProjectReference Include="..\WebWayCMS.Forms\WebWayCMS.Forms.csproj" />

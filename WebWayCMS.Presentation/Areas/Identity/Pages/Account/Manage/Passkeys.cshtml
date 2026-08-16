@@ -1,0 +1,72 @@
+@page
+@model PasskeysModel
+@{
+    ViewData["Title"] = "Passkeys";
+    ViewData["ActivePage"] = ManageNavPages.Passkeys;
+}
+
+<section class="section">
+    <div class="container">
+        <partial name="_StatusMessage" for="StatusMessage" />
+        @if (Model.ErrorMessage != null)
+        {
+            <div class="notification is-danger">@Model.ErrorMessage</div>
+        }
+        <h3 class="title is-4">@ViewData["Title"]</h3>
+        <p>Passkeys let you sign in without a password using your device (Windows Hello, Touch ID, or a security key).</p>
+
+        <div class="field">
+            <button id="passkey-add-button" class="button is-primary">Add a passkey</button>
+            <p id="passkey-status" class="help is-danger"></p>
+        </div>
+
+        @if (Model.Passkeys != null && Model.Passkeys.Count > 0)
+        {
+            <table class="table is-fullwidth">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Created</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var passkey in Model.Passkeys)
+                    {
+                        var credentialId = Convert.ToBase64String(passkey.CredentialId);
+                        <tr>
+                            <td>
+                                <form asp-page-handler="Rename" method="post">
+                                    <input type="hidden" name="credentialId" value="@credentialId" />
+                                    <div class="field has-addons">
+                                        <div class="control">
+                                            <input class="input" name="name" value="@passkey.Name" aria-label="Passkey name" />
+                                        </div>
+                                        <div class="control">
+                                            <button type="submit" class="button is-primary">Rename</button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </td>
+                            <td>@passkey.CreatedAt.ToLocalTime().ToString("g")</td>
+                            <td>
+                                <form asp-page-handler="Remove" method="post">
+                                    <input type="hidden" name="credentialId" value="@credentialId" />
+                                    <button type="submit" class="button is-danger is-light">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p>You have no passkeys yet.</p>
+        }
+    </div>
+</section>
+
+@section Scripts {
+    <script src="~/_content/WebWayCMS.Presentation/js/passkeys.js" asp-append-version="true"></script>
+}

@@ -2,23 +2,23 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 
 using NUnit.Framework;
 
-using WebWayCMS.Services;
+using WebWayCMS.Identity;
 
 namespace WebWayCMS.Identity.Tests;
 
 [TestFixture]
-public class DevEmailSenderTests
+public class LoggingEmailSenderTests
 {
     [Test]
     public void Implements_IEmailSender()
     {
-        Assert.That(new DevEmailSender(), Is.InstanceOf<IEmailSender>());
+        Assert.That(new LoggingEmailSender(), Is.InstanceOf<IEmailSender>());
     }
 
     [Test]
     public async Task SendEmailAsync_LogsAndCompletes()
     {
-        var sender = new DevEmailSender();
+        var sender = new LoggingEmailSender();
 
         await sender.SendEmailAsync("user@example.com", "Subject", "<p>Hello</p>");
 
@@ -29,7 +29,7 @@ public class DevEmailSenderTests
     [Test]
     public void SendEmailAsync_ReturnsCompletedTask()
     {
-        var sender = new DevEmailSender();
+        var sender = new LoggingEmailSender();
 
         var task = sender.SendEmailAsync("user@example.com", "Subject", "body");
 

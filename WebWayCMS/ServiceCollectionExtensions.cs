@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
         CmsDatabaseRegistration.ConfigureDatabaseServices(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
         CmsRenderingRegistration.AddRenderingCoreTypes(services);
-        CmsIdentityRegistration.ConfigureAuthorization(services);
+        CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
         return services;
@@ -27,11 +27,19 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Back-compatibility/test shim. Registers the rendering core types, Identity, forwarded headers,
+    /// rate limiting, and the admin type map against an empty <see cref="IConfiguration"/> — it skips
+    /// database and CSP registration and can never enable external-login providers, SMTP email, or
+    /// <c>IdentityPasskeyOptions</c> (those are configuration-driven). Hosts should call
+    /// <see cref="AddWebWayCms(IServiceCollection, IConfiguration)"/> (or the rendering/admin variants)
+    /// instead.
+    /// </summary>
     public static IServiceCollection AddWebWayCms(this IServiceCollection services)
     {
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
         CmsRenderingRegistration.AddRenderingCoreTypes(services);
-        CmsIdentityRegistration.ConfigureAuthorization(services);
+        CmsIdentityRegistration.ConfigureAuthorization(services, new ConfigurationBuilder().Build());
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         CmsAdminRegistration.MapAdminTypes(services);
         return services;

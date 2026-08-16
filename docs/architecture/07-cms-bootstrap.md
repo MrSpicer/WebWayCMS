@@ -46,7 +46,6 @@ Runs in this order:
 
 | Registration | Lifetime |
 |---|---|
-| `IEmailSender` → `DevEmailSender` (`DEBUG` only) | singleton |
 | `IHttpContextAccessor` | — |
 | `UserService` | singleton |
 | `IViewDiscoveryService` → `ViewDiscoveryService` | scoped |

@@ -35,9 +35,6 @@ internal static class CmsRenderingRegistration
 {
     internal static void AddRenderingCoreTypes(IServiceCollection services)
     {
-#if DEBUG
-        services.AddSingleton<Microsoft.AspNetCore.Identity.UI.Services.IEmailSender, DevEmailSender>();
-#endif
         services.AddHttpContextAccessor();
         services.AddSingleton<UserService>();
 
