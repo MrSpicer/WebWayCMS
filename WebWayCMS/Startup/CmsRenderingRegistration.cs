@@ -33,7 +33,10 @@ namespace WebWayCMS.Startup;
 [ExcludeFromCodeCoverage]
 internal static class CmsRenderingRegistration
 {
-    internal static void AddRenderingCoreTypes(IServiceCollection services)
+    internal static void AddRenderingCoreTypes(
+        IServiceCollection services,
+        IReadOnlyList<Profile>? hostProfiles = null,
+        IReadOnlyList<System.Reflection.Assembly>? hostAssemblies = null)
     {
         services.AddHttpContextAccessor();
         services.AddSingleton<UserService>();
@@ -46,8 +49,8 @@ internal static class CmsRenderingRegistration
 
         AddContentServices(services);
         AddRoutingServices(services);
-        AddDomainModels(services);
-        AddMvcApplicationParts(services);
+        AddDomainModels(services, hostProfiles);
+        AddMvcApplicationParts(services, hostAssemblies);
     }
 
     private static void AddContentServices(IServiceCollection services)
@@ -72,7 +75,7 @@ internal static class CmsRenderingRegistration
         services.AddScoped<IFormComponentRegistrationService, FormComponentRegistrationService>();
     }
 
-    private static void AddContentStore<T>(IServiceCollection services, string contentTypeKey)
+    internal static void AddContentStore<T>(IServiceCollection services, string contentTypeKey)
         where T : class, IVersionedContent
     {
         services.AddScoped<IContentStore<T>>(sp => new ContentStore<T>(
@@ -93,7 +96,7 @@ internal static class CmsRenderingRegistration
         services.AddScoped<CMSRouteTransformer>();
     }
 
-    private static void AddDomainModels(IServiceCollection services)
+    private static void AddDomainModels(IServiceCollection services, IReadOnlyList<Profile>? hostProfiles = null)
     {
         services.AddScoped<ContentBlockModel>();
         services.AddScoped<IContentBlockModel>(sp => sp.GetRequiredService<ContentBlockModel>());
@@ -117,29 +120,44 @@ internal static class CmsRenderingRegistration
 
         services.AddScoped<IArticleModel, ArticleModel>();
 
-        var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
+        var mapperConfig = new MapperConfiguration(cfg =>
+        {
+            cfg.AddProfile(new MappingProfile());
+            if (hostProfiles != null)
+            {
+                foreach (var profile in hostProfiles)
+                    cfg.AddProfile(profile);
+            }
+        });
         services.AddSingleton<IMapper>(mapperConfig.CreateMapper());
     }
 
-    private static void AddMvcApplicationParts(IServiceCollection services)
+    private static void AddMvcApplicationParts(IServiceCollection services, IReadOnlyList<System.Reflection.Assembly>? hostAssemblies = null)
     {
         services.Configure<MvcOptions>(_ => { });
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>
         {
-            var coreAsm = typeof(GenericPageController).Assembly;
-            if (!apm.ApplicationParts.Any(p => p.Name == coreAsm.GetName().Name))
-                apm.ApplicationParts.Add(new AssemblyPart(coreAsm));
+            AddAssemblyPart(apm, typeof(GenericPageController).Assembly, includeCompiledRazor: false);
 
-            var formsAsm = typeof(FormFieldsTagHelper).Assembly;
-            if (!apm.ApplicationParts.Any(p => p.Name == formsAsm.GetName().Name))
-                apm.ApplicationParts.Add(new AssemblyPart(formsAsm));
+            AddAssemblyPart(apm, typeof(FormFieldsTagHelper).Assembly, includeCompiledRazor: false);
 
-            var presentationAsm = typeof(ContentZoneViewComponent).Assembly;
-            if (!apm.ApplicationParts.Any(p => p.Name == presentationAsm.GetName().Name))
+            AddAssemblyPart(apm, typeof(ContentZoneViewComponent).Assembly, includeCompiledRazor: true);
+
+            if (hostAssemblies != null)
             {
-                apm.ApplicationParts.Add(new AssemblyPart(presentationAsm));
-                apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(presentationAsm));
+                foreach (var assembly in hostAssemblies)
+                    AddAssemblyPart(apm, assembly, includeCompiledRazor: true);
             }
         });
+    }
+
+    private static void AddAssemblyPart(ApplicationPartManager apm, System.Reflection.Assembly assembly, bool includeCompiledRazor)
+    {
+        if (!apm.ApplicationParts.Any(p => p.Name == assembly.GetName().Name))
+        {
+            apm.ApplicationParts.Add(new AssemblyPart(assembly));
+            if (includeCompiledRazor)
+                apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(assembly));
+        }
     }
 }

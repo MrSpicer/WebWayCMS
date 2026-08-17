@@ -26,6 +26,26 @@
   still ships `WebWayCMS.Admin`, and the startup seeders scan its assembly in both modes.
 - See [docs/architecture/11-deployment-modes.md](docs/architecture/11-deployment-modes.md).
 
+## Host Extensibility (EF tables + migrations from a package host)
+
+- A package host can define a content type with its own EF table entirely in its own project — no CMS
+  source changes. The entry point is a builder callback on the `Add*` overloads:
+  `AddWebWayCms(config, cms => …)` / `AddWebWayCmsAdmin` / `AddWebWayCmsRendering`.
+- `IWebWayCmsBuilder` methods: `AddApplicationAssembly(asm)` (EF model scan + the four seeders + MVC
+  parts), `AddModelConfiguration`/`ConfigureModel`, `AddContentType<T>(key)` (registers
+  `IContentStore<T>`), `AddMappingProfile(Profile)`, `AddMigrationsContext<TContext>(historyTable)`.
+- Host model contribution flows through `ICmsModelExtension` singletons (shipped:
+  `AssemblyModelExtension`, `DelegateModelExtension`), applied by `CmsDbContext.OnModelCreating` in
+  registration order. `CmsModelCacheKeyFactory` keeps distinct extension sets from sharing a stale model.
+- Host migrations use `CmsExtensionDbContext<TSelf>` (a migrations-only subclass that marks every
+  CMS/Identity table `ExcludeFromMigrations`); the host's `IEntityTypeConfiguration<T>` feeds both the
+  runtime model and the migrations model. The host context gets its own history table and is migrated
+  **after** `CmsDbContext` (so its FK to `ContentVersions` resolves). CMS migrations stay CMS-only
+  (`CmsDbContextFactory` passes an empty extension list; `RebuildEFMigrations.sh` is unaffected).
+- A host `AdminCrudModel<T>` registered as `IAdminCrudHandler` is served by `AdminContentController`
+  and MCP-visible for free. Two handlers sharing a `ContentType` key throw at first registry resolution.
+- See [docs/architecture/14-host-extensibility.md](docs/architecture/14-host-extensibility.md).
+
 ## Content Versioning (Node/Version model)
 
 - Content identity and version are **split**. A logical item is one `ContentNode`

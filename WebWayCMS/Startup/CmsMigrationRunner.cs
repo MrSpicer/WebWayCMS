@@ -31,7 +31,17 @@ internal static class CmsMigrationRunner
             {
                 using var scope = app.Services.CreateScope();
                 var services = scope.ServiceProvider;
-                Migrate<CmsDbContext>(services, logger);
+                Migrate(typeof(CmsDbContext), services, logger);
+
+                // Host migrations run second, in registration order, so a host table's FK to the
+                // CMS-owned ContentVersions table (already created above) is resolvable.
+                var catalog = services.GetService<CmsMigrationsContextCatalog>();
+                if (catalog != null)
+                {
+                    foreach (var contextType in catalog.Contexts)
+                        Migrate(contextType, services, logger);
+                }
+
                 return app;
             }
             catch (Exception ex) when (IsTransientDbStartupException(ex) && attempt < maxAttempts)
@@ -52,22 +62,22 @@ internal static class CmsMigrationRunner
         return app;
     }
 
-    private static void Migrate<TContext>(IServiceProvider services, ILogger logger) where TContext : DbContext
+    private static void Migrate(Type contextType, IServiceProvider services, ILogger logger)
     {
-        var context = services.GetService<TContext>();
+        var context = services.GetService(contextType) as DbContext;
         if (context == null)
         {
-            logger.Warning("DbContext {Context} not registered; skipping migrations.", typeof(TContext).Name);
+            logger.Warning("DbContext {Context} not registered; skipping migrations.", contextType.Name);
             return;
         }
         var pending = context.Database.GetPendingMigrations().ToList();
         if (pending.Count == 0)
         {
-            logger.Debug("No pending migrations for {Context}", typeof(TContext).Name);
+            logger.Debug("No pending migrations for {Context}", contextType.Name);
         }
         else
         {
-            logger.Information("Applying {Count} migrations for {Context}: {Migrations}", pending.Count, typeof(TContext).Name, string.Join(", ", pending));
+            logger.Information("Applying {Count} migrations for {Context}: {Migrations}", pending.Count, contextType.Name, string.Join(", ", pending));
         }
         context.Database.Migrate();
     }

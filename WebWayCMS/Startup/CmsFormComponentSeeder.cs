@@ -45,12 +45,10 @@ internal static class CmsFormComponentSeeder
                 existingByComponentName[f.ComponentName] = f;
             }
 
-            var assemblies = new[]
-            {
+            var assemblies = CmsStartupHelpers.SeedAssemblies(
+                services,
                 typeof(ContentZoneViewComponent).Assembly,
-                typeof(FormComponentRegistrationModel).Assembly,
-                Assembly.GetEntryAssembly()!
-            }.Where(a => a != null).Distinct();
+                typeof(FormComponentRegistrationModel).Assembly);
 
             foreach (var assembly in assemblies)
             {

@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -16,6 +18,7 @@ using NUnit.Framework;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Identity;
@@ -68,6 +71,113 @@ public class ServiceCollectionExtensionsTests
         builder.Services.AddWebWayCms(builder.Configuration);
 
         Assert.That(builder.Services.Any(d => d.ServiceType == typeof(WebWayCMS.Data.DbContexts.CmsDbContext)), Is.True);
+    }
+
+    [Test]
+    public void AddWebWayCmsAdmin_TwoArg_RegistersAdminHandlerRegistry()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+
+        builder.Services.AddWebWayCmsAdmin(builder.Configuration);
+
+        Assert.That(builder.Services.Any(d => d.ServiceType == typeof(IAdminHandlerRegistry)), Is.True);
+    }
+
+    [Test]
+    public void AddWebWayCms_WithBuilderCallback_WiresHostExtensions()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        var assembly = typeof(HostDto).Assembly;
+        var profile = new HostProfile();
+
+        builder.Services.AddWebWayCms(builder.Configuration, cms =>
+        {
+            cms.AddApplicationAssembly(assembly);
+            cms.AddContentType<HostDto>("hostdtos");
+            cms.AddMappingProfile(profile);
+            cms.AddMigrationsContext<HostMigrationsContext>("__EFMigrationsHistory_Host");
+        });
+
+        using var app = builder.Build();
+        using var scope = app.Services.CreateScope();
+
+        var mapper = app.Services.GetRequiredService<IMapper>();
+        var assemblyCatalog = app.Services.GetRequiredService<CmsAssemblyCatalog>();
+        var migrationsCatalog = app.Services.GetRequiredService<CmsMigrationsContextCatalog>();
+        var cmsDbContext = scope.ServiceProvider.GetRequiredService<CmsDbContext>();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scope.ServiceProvider.GetService<IContentStore<HostDto>>(), Is.Not.Null);
+            Assert.That(mapper.Map<HostDto, HostViewModel>(new HostDto { Value = 42 }).Value, Is.EqualTo(42));
+            Assert.That(assemblyCatalog.Assemblies, Does.Contain(assembly));
+            Assert.That(migrationsCatalog.Contexts, Does.Contain(typeof(HostMigrationsContext)));
+            // Proves DI actually injects IEnumerable<ICmsModelExtension> into CmsDbContext (the
+            // host's entity configuration reached the model through the container, not by hand).
+            Assert.That(cmsDbContext.Model.FindEntityType(typeof(HostDto)), Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void AddWebWayCmsRendering_WithBuilderCallback_RegistersHostContentStoreWithoutAdmin()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+
+        builder.Services.AddWebWayCmsRendering(builder.Configuration, cms =>
+        {
+            cms.AddContentType<HostDto>("hostdtos");
+        });
+
+        using var app = builder.Build();
+        using var scope = app.Services.CreateScope();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scope.ServiceProvider.GetService<IContentStore<HostDto>>(), Is.Not.Null);
+            Assert.That(app.Services.GetService<IAdminHandlerRegistry>(), Is.Null);
+        });
+    }
+
+    private sealed class HostDto : IVersionedContent
+    {
+        public Guid VersionId { get; set; }
+        public ContentVersion Version { get; set; } = new();
+        public int Value { get; set; }
+    }
+
+    private sealed class HostDtoEntityConfiguration : IEntityTypeConfiguration<HostDto>
+    {
+        public void Configure(EntityTypeBuilder<HostDto> entity)
+        {
+            entity.ConfigureContentLink();
+            entity.ToTable("HostDtos");
+        }
+    }
+
+    private sealed class HostViewModel
+    {
+        public int Value { get; set; }
+    }
+
+    private sealed class HostProfile : Profile
+    {
+        public HostProfile()
+        {
+            CreateMap<HostDto, HostViewModel>(s => new HostViewModel { Value = s.Value });
+        }
+    }
+
+    private sealed class HostMigrationsContext : CmsExtensionDbContext<HostMigrationsContext>
+    {
+        public HostMigrationsContext(
+            DbContextOptions<HostMigrationsContext> options,
+            IEnumerable<ICmsModelExtension> modelExtensions)
+            : base(options, modelExtensions)
+        {
+        }
     }
 
     [Test]

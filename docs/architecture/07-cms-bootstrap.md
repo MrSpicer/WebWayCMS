@@ -21,6 +21,11 @@ The CMS exposes two bootstrap pairs plus back-compat aliases. A host calls one `
 | `AddWebWayCmsAdmin(services, config)` | `UseWebWayCmsAdmin(app)` | Full stack: rendering + admin UI + MCP |
 | `AddWebWayCms(services, config)` | `UseWebWayCms(app)` | Aliases that delegate to the admin pair |
 
+Each `Add*` also has a third overload taking `Action<IWebWayCmsBuilder>? configure`, which is the
+host-extensibility seam: the callback runs first and can contribute EF model extensions, host
+assemblies, mapping profiles, content stores, and migrations-only contexts. See
+[14-host-extensibility](14-host-extensibility.md).
+
 There is also a parameterless `AddWebWayCms(services)` overload used by tests: it registers the core
 types, authorization, rate limiting, and the admin types, but **skips the database, `CspOptions`
 binding, and MCP** — it is not a host entry point.
@@ -36,6 +41,8 @@ Runs in this order:
 **Database** (`ConfigureDatabaseServices`):
 - Reads `ConnectionStrings:DefaultConnection`; throws `InvalidOperationException` if absent
 - `AddDbContext<CmsDbContext>` over Npgsql, with `MigrationsHistoryTable("__EFMigrationsHistory")`
+  and a `ReplaceService<IModelCacheKeyFactory, CmsModelCacheKeyFactory>()` — so two `CmsDbContext`
+  instances carrying different `ICmsModelExtension` sets don't share a stale cached model
 - `AddDatabaseDeveloperPageExceptionFilter()` in `DEBUG` builds only
 
 **Forwarded headers** (`ConfigureForwardedHeaders`):
@@ -94,10 +101,15 @@ It calls `AddWebWayCmsRendering` first, then:
 **`MapAdminTypes`:**
 - Route constraint `"notreserved"` → `NotReservedConstraint`
 - `IAdminHandlerRegistry` → `AdminHandlerRegistry` (scoped)
-- Seven `IAdminCrudHandler` forwards, each resolving the already-registered scoped model:
+- Eight `IAdminCrudHandler` forwards, each resolving the already-registered scoped model:
   `ContentBlockModel`, `PageModel`, `ArticleListModel`, `ContentZoneModel`,
-  `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel`
+  `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel`,
+  `FormComponentRegistrationModel`
 - `AssemblyPart(WebWayCMS.Admin)` + `CompiledRazorAssemblyPart(WebWayCMS.Admin)`
+
+> `AdminHandlerRegistry` builds its map with `handlers.ToDictionary(h => h.ContentType,
+> StringComparer.OrdinalIgnoreCase)`, so two handlers registering the same `ContentType` key throw at
+> first resolution. A host content type must pick a key that does not collide with the built-ins.
 
 **MCP:**
 - `services.AddWebWayCmsMcp(configuration)` — binds `McpOptions` and registers the toolsets.
@@ -138,12 +150,14 @@ continue by default.
 
 ## 5. Migration Retry Logic
 
-`ApplyCmsPendingMigrations` applies pending migrations for the unified context. It retries up to 10
-times with exponential backoff (starting at 3s, capping at 30s) when a `SocketException` is detected
-in the exception chain — the signal that the database container is not yet available.
+`ApplyCmsPendingMigrations` applies pending migrations for the unified context first, then each host
+migrations context (in the order registered via `AddMigrationsContext`) — CMS-first ordering is what
+makes a host table's FK to `ContentVersions` resolvable. It retries up to 10 times with exponential
+backoff (starting at 3s, capping at 30s) when a `SocketException` is detected in the exception chain —
+the signal that the database container is not yet available.
 
-Migrations are applied in a single pass; the unified context owns all tables and does not require
-ordering.
+Each context has its own history table (`__EFMigrationsHistory` for `CmsDbContext`, a host-chosen name
+per host context), so the host's migrations never touch the CMS history table.
 
 ---
 
@@ -166,11 +180,14 @@ scaffolding migrations.
 
 ### Assemblies each seeder scans
 
+Each seeder scans its CMS core assemblies, then the host's entry assembly, then any assemblies
+registered via `cms.AddApplicationAssembly` (`CmsAssemblyCatalog`), distinct and null-free:
+
 | Seeder | Assemblies |
 |---|---|
-| Widget registrations | `WebWayCMS.Presentation`, entry assembly |
-| Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly |
-| Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly |
+| Widget registrations | `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
+| Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly, `CmsAssemblyCatalog` |
+| Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
 
 ---
 

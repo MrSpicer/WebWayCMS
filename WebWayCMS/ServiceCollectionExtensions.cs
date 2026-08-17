@@ -9,10 +9,21 @@ namespace WebWayCMS;
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddWebWayCmsRendering(this IServiceCollection services, IConfiguration configuration)
+        => AddWebWayCmsRendering(services, configuration, null);
+
+    public static IServiceCollection AddWebWayCmsRendering(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<IWebWayCmsBuilder>? configure)
     {
+        var builder = new WebWayCmsBuilder(services, configuration);
+
         CmsDatabaseRegistration.ConfigureDatabaseServices(services, configuration);
+        configure?.Invoke(builder);
+        builder.RegisterCatalogs();
+
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
-        CmsRenderingRegistration.AddRenderingCoreTypes(services);
+        CmsRenderingRegistration.AddRenderingCoreTypes(services, builder.Profiles, builder.Assemblies);
         CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
@@ -20,8 +31,14 @@ public static class ServiceCollectionExtensions
     }
 
     public static IServiceCollection AddWebWayCmsAdmin(this IServiceCollection services, IConfiguration configuration)
+        => AddWebWayCmsAdmin(services, configuration, null);
+
+    public static IServiceCollection AddWebWayCmsAdmin(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<IWebWayCmsBuilder>? configure)
     {
-        AddWebWayCmsRendering(services, configuration);
+        AddWebWayCmsRendering(services, configuration, configure);
         CmsAdminRegistration.MapAdminTypes(services);
         services.AddWebWayCmsMcp(configuration);
         return services;
@@ -46,7 +63,13 @@ public static class ServiceCollectionExtensions
     }
 
     public static IServiceCollection AddWebWayCms(this IServiceCollection services, IConfiguration configuration)
+        => AddWebWayCms(services, configuration, null);
+
+    public static IServiceCollection AddWebWayCms(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<IWebWayCmsBuilder>? configure)
     {
-        return AddWebWayCmsAdmin(services, configuration);
+        return AddWebWayCmsAdmin(services, configuration, configure);
     }
 }

@@ -423,8 +423,11 @@ editor's immediately-visible behaviour while still producing version history.
        }
    }
    ```
-   `CmsDbContext` calls `ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`, so it scans
-   **only `WebWayCMS.Data`** — a content type with its own table must live in this assembly.
+   `CmsDbContext` calls `ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())` and then
+   applies any injected `ICmsModelExtension` instances in registration order. A package host can
+   therefore add its own table by contributing its `IEntityTypeConfiguration<T>` assembly via
+   `AddWebWayCms(config, cms => cms.AddApplicationAssembly(assembly))` — no CMS source edit. See
+   [14-host-extensibility](14-host-extensibility.md).
 
 3. **Add a migration** (or run `./scripts/RebuildEFMigrations.sh` to regenerate).
 

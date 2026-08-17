@@ -28,6 +28,8 @@ public sealed class CmsDbContextFactory : IDesignTimeDbContextFactory<CmsDbConte
                 b => b.MigrationsHistoryTable("__EFMigrationsHistory"))
             .UseApplicationServiceProvider(appServices)
             .Options;
-        return new CmsDbContext(options);
+        // CMS-owned migrations must stay CMS-only (no host model extensions) — this keeps
+        // RebuildEFMigrations.sh valid and prevents host entities leaking into CMS migrations.
+        return new CmsDbContext(options, Array.Empty<ICmsModelExtension>());
     }
 }

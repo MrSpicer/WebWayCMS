@@ -60,7 +60,7 @@ Full catalog in [07-cms-bootstrap](07-cms-bootstrap.md#2-addwebwaycmsrendering--
 **`AddWebWayCmsAdmin` adds:**
 - the `"notreserved"` route constraint
 - `IAdminHandlerRegistry` → `AdminHandlerRegistry`
-- seven `IAdminCrudHandler` registrations forwarding the already-registered scoped models
+- eight `IAdminCrudHandler` registrations forwarding the already-registered scoped models
 - the `WebWayCMS.Admin` assembly as an `AssemblyPart` **and** a `CompiledRazorAssemblyPart`
 - `AddWebWayCmsMcp(configuration)`
 

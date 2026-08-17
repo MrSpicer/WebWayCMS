@@ -62,7 +62,7 @@ When adding a new standalone content type, extend `AdminCrudModel<TDto>`.
 
 ## Built-in Content Types
 
-Seven top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
+Eight top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
 admin URL segment (`/wadmin/{ContentType}`) and the key MCP tools use.
 
 | Content Type | ContentType | DTO | Model |
@@ -76,6 +76,7 @@ admin URL segment (`/wadmin/{ContentType}`) and the key MCP tools use.
 | Widget Registration | `widgets` | `WidgetRegistrationDTO` | `WidgetRegistrationModel` |
 | Page Type Registration | `pagetypes` | `PageControllerRegistrationDTO` | `PageControllerRegistrationModel` |
 | CMS Route | `cmsroutes` | `CMSRouteDTO` | `CMSRouteModel` |
+| Form Component Registration | `formcomponents` | `FormComponentRegistrationDTO` | `FormComponentRegistrationModel` |
 
 ### ContentBlock
 
@@ -105,19 +106,21 @@ These three are infrastructure exposed as ordinary content types so admins can m
 
 ## Adding a New Content Type
 
-The model class, ViewModels, mappings, and views for a new content type all live in the **Web
-project** (`MySite`). The DTO and its EF configuration are the exception — see the note in step 2.
+The DTO, its EF configuration, the migrations-only `DbContext`, the model class, ViewModels,
+mappings, and views for a new content type all live in the **host project** (`MySite`). No CMS
+source change is required: the host contributes its own table and migration through the
+`AddWebWayCms(config, cms => …)` builder callback (see [14-host-extensibility](architecture/14-host-extensibility.md)).
 
 Follow these steps to wire in a new content type that gets full versioning and admin CRUD for free.
 
 ### 1. Create the DTO
 
-`WebWayCMS.Data/Data/Models/MyContentDTO.cs`
+`MySite/Data/MyContentDTO.cs`
 
 ```csharp
 using WebWayCMS.Data.Models;
 
-namespace WebWayCMS.Data.Models;
+namespace MySite.Data;
 
 public record MyContentDTO : IVersionedContent
 {
@@ -130,13 +133,18 @@ public record MyContentDTO : IVersionedContent
 
 ### 2. Add an entity configuration
 
-`CmsDbContext` declares no `DbSet`s. Instead it calls
-`ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly())`, so you add a configuration
-class and nothing else:
+The configuration uses the public `ConfigureContentLink()` helper, so the host's DTO gets the same
+shared PK/FK into `ContentVersions` (with cascade delete) as the built-in types:
 
-`WebWayCMS.Data/Data/EntityConfiguration/MyContentDTOEntityConfiguration.cs`
+`MySite/Data/MyContentDTOEntityConfiguration.cs`
 
 ```csharp
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using WebWayCMS.Data.DbContexts;
+
+namespace MySite.Data;
+
 public sealed class MyContentDTOEntityConfiguration : IEntityTypeConfiguration<MyContentDTO>
 {
     public void Configure(EntityTypeBuilder<MyContentDTO> entity)
@@ -151,21 +159,41 @@ public sealed class MyContentDTOEntityConfiguration : IEntityTypeConfiguration<M
 > Shared fields (`Title`, `Slug`, `CustomFields`, versioning, …) live on the `ContentVersion`, so
 > configure only your type-specific columns here.
 
-> **Why this part cannot live in the host.** `ApplyConfigurationsFromAssembly` scans only
-> `WebWayCMS.Data`, so a configuration class in `MySite` is never discovered and the table is never
-> created. A content type that needs its own table must have its DTO and configuration in
-> `WebWayCMS.Data`. If you only need a few extra fields on an existing type, use
-> `ContentVersion.CustomFields` (JSONB) instead — no schema change, no CMS-library edit.
+### 3. Add a migrations-only DbContext
 
-### 3. Create a migration
+The host owns its migrations via a context that subclasses `CmsExtensionDbContext<TSelf>`. It
+inherits `CmsDbContext.OnModelCreating` (so the host's entity configuration feeds both the runtime
+model and this migrations model) and then marks every CMS-owned and Identity table as excluded from
+migrations — this context only ever emits the host's own tables:
 
-```bash
-dotnet ef migrations add AddMyContent \
-  --project WebWayCMS.Data --startup-project WebWayCMS.Data \
-  --context CmsDbContext --output-dir Migrations
+`MySite/Data/MySiteMigrationsDbContext.cs`
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using WebWayCMS.Data.DbContexts;
+
+namespace MySite.Data;
+
+public sealed class MySiteMigrationsDbContext : CmsExtensionDbContext<MySiteMigrationsDbContext>
+{
+    public MySiteMigrationsDbContext(
+        DbContextOptions<MySiteMigrationsDbContext> options,
+        IEnumerable<ICmsModelExtension> modelExtensions)
+        : base(options, modelExtensions) { }
+}
 ```
 
-### 4. Create ViewModels
+### 4. Create a migration
+
+```bash
+dotnet ef migrations add AddMyContent --context MySiteMigrationsDbContext
+```
+
+The generated migration creates only `MyContents` (and its FK to `ContentVersions`); the CMS-owned
+tables are excluded. `MySiteMigrationsDbContext` gets its own history table
+(`__EFMigrationsHistory_MySite` — see step 9), leaving the CMS's `__EFMigrationsHistory` untouched.
+
+### 5. Create ViewModels
 
 `MySite/Models/MyContent/MyContentViewModel.cs`
 
@@ -195,10 +223,11 @@ public class MyContentUpsertViewModel : BaseContentViewModel
 }
 ```
 
-### 5. Add mappings
+### 6. Add mappings
 
-In `MySite/MappingProfile.cs`, add inside the constructor. Each `CreateMap` takes a converter lambda
-that builds the destination — fields you don't set are simply omitted (there is no separate `Ignore`):
+In `MySite/MappingProfile.cs` (a class deriving `WebWayCMS.Mapping.Profile`), add inside the
+constructor. Each `CreateMap` takes a converter lambda that builds the destination — fields you
+don't set are simply omitted (there is no separate `Ignore`):
 
 ```csharp
 // MyContent — read shared fields via Version, write them into a ContentVersion.
@@ -238,7 +267,7 @@ CreateMap<MyContentUpsertViewModel, MyContentDTO>(s =>
 > `ContentStore<T>.SaveDraftAsync` fills in the `Node.Id`/`VersionNumber`/`Slug` defaults on create —
 > the mapper only needs to carry the editor-supplied fields.
 
-### 6. Create the Model class
+### 7. Create the Model class
 
 `MySite/Models/MyContent/MyContentModel.cs`
 
@@ -315,19 +344,24 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
 }
 ```
 
-### 7. Create Razor views
+### 8. Create Razor views
 
 `MySite/Views/AdminMyContent/Index.cshtml` — list all items using the standard admin table partial.
 
 `MySite/Views/AdminMyContent/Upsert.cshtml` — the create/edit form. Use `@Html.EditorForModel()` or bind individual fields; the `[FormProperty]` attributes on the ViewModel drive dynamic form generation.
 
-### 8. Register services
+### 9. Register services
 
-In `MySite/Program.cs`, before `builder.Services.AddWebWayCms(...)`:
+In `MySite/Program.cs`, wire everything through the builder callback:
 
 ```csharp
-// Generic content store — reuses the unified CmsDbContext
-AddContentStore<MyContentDTO>(services, "mycontents");
+builder.Services.AddWebWayCms(builder.Configuration, cms =>
+{
+    cms.AddApplicationAssembly(typeof(MyContentDTO).Assembly);   // EF configs + seeders + MVC parts
+    cms.AddMappingProfile(new MySiteMappingProfile());           // host mappings reach IMapper
+    cms.AddContentType<MyContentDTO>("mycontents");              // registers IContentStore<MyContentDTO>
+    cms.AddMigrationsContext<MySiteMigrationsDbContext>("__EFMigrationsHistory_MySite");
+});
 
 // Model / handler
 builder.Services.AddScoped<MyContentModel>();

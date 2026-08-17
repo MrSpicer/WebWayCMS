@@ -41,11 +41,7 @@ internal static class CmsWidgetRegistrationSeeder
                 existing.Select(w => w.ComponentName),
                 StringComparer.OrdinalIgnoreCase);
 
-            var assemblies = new[]
-            {
-                typeof(ContentZoneViewComponent).Assembly,
-                Assembly.GetEntryAssembly()!
-            }.Where(a => a != null).Distinct();
+            var assemblies = CmsStartupHelpers.SeedAssemblies(services, typeof(ContentZoneViewComponent).Assembly);
 
             foreach (var assembly in assemblies)
             {

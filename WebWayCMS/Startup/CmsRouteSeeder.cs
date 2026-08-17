@@ -41,13 +41,11 @@ internal static class CmsRouteSeeder
                 existingRoutes.Select(r => r.Pattern),
                 StringComparer.OrdinalIgnoreCase);
 
-            var assemblies = new[]
-            {
+            var assemblies = CmsStartupHelpers.SeedAssemblies(
+                services,
                 typeof(GenericPageController).Assembly,
                 typeof(AdminContentController).Assembly,
-                typeof(ContentZoneViewComponent).Assembly,
-                Assembly.GetEntryAssembly()!
-            }.Where(a => a != null).Distinct();
+                typeof(ContentZoneViewComponent).Assembly);
 
             foreach (var assembly in assemblies)
             {

@@ -44,12 +44,10 @@ internal static class CmsPageControllerSeeder
                 existingByName[p.ControllerName] = p;
             }
 
-            var assemblies = new[]
-            {
+            var assemblies = CmsStartupHelpers.SeedAssemblies(
+                services,
                 typeof(GenericPageController).Assembly,
-                typeof(AdminContentController).Assembly,
-                Assembly.GetEntryAssembly()!
-            }.Where(a => a != null).Distinct();
+                typeof(AdminContentController).Assembly);
 
             foreach (var assembly in assemblies)
             {

@@ -153,6 +153,9 @@ The CMS boots either full-stack or rendering-only. `AddWebWayCmsAdmin`/`UseWebWa
 ### [Area 13: Security](13-security.md)
 Cross-cutting defences: a configurable Content-Security-Policy plus fixed security headers, server-side rich-text sanitization at the single save choke point, per-IP rate limiting on the Identity auth endpoints, Identity lockout and cookie hardening, and how the CKEditor license key reaches the browser without an inline script.
 
+### [Area 14: Host Extensibility](14-host-extensibility.md)
+A package host can add its own EF-backed content type without touching CMS source. `AddWebWayCms(config, cms => …)` contributes `IEntityTypeConfiguration<T>` into `CmsDbContext`'s model and registers host mapping profiles, content stores, and a migrations-only `CmsExtensionDbContext<TSelf>` that owns the host's table while excluding every CMS/Identity table. Host migrations run after the CMS's, keyed by a separate history table.
+
 ---
 
 ## Dependency Direction Guide
@@ -174,8 +177,8 @@ Reading order for newcomers:
 
 Dependencies only flow downward in this list. A layer only references layers beneath it.
 
-Areas 11–13 (Deployment Modes, MCP Server, Security) are cross-cutting rather than layered — read
-them when you need them, in any order.
+Areas 11–14 (Deployment Modes, MCP Server, Security, Host Extensibility) are cross-cutting rather
+than layered — read them when you need them, in any order.
 
 ---
 
