@@ -33,6 +33,12 @@ public sealed class FormViewPicker : FormFieldViewComponentBase
                 options = views.ToDictionary(v => v, v => v);
         }
 
+        // Keep a stored value selectable even when it is not among the discovered views, so a view
+        // whose file was renamed or lives outside the scanned locations does not silently vanish on
+        // the next save (and, on an edit load, the server-rendered select actually selects it).
+        if (!string.IsNullOrWhiteSpace(field.StringValue) && !options.ContainsKey(field.StringValue))
+            options[field.StringValue] = field.StringValue;
+
         var viewModel = new DropdownViewModel
         {
             Field = field,

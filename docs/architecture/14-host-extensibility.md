@@ -102,11 +102,25 @@ Because the MCP toolsets dispatch through the same registry, the host type is MC
 `ContentNode.ContentTypeKey` is a free-form string; the host picks a key that does not collide with the
 built-ins (two handlers sharing a `ContentType` key throw at first registry resolution).
 
+### Routable widgets
+
+A host can also contribute **routable widgets**: `[ContentZoneComponent]` ViewComponents that
+implement `IRoutableViewComponent` (see [widget-system.md](../widget-system.md)). The widget seeder
+discovers them from the host assembly automatically; routing additionally needs a `Program.cs`
+registration per widget:
+
+```csharp
+builder.Services.AddScoped<MyRoutableViewComponent>();
+builder.Services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<MyRoutableViewComponent>());
+```
+
 ## 7. Known Limits (Out of Scope)
 
 - The admin navbar is hardcoded (`WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml`), so a host type
   has no menu entry — it is reachable by URL and over MCP only.
-- The `EntityPicker` endpoint map is hardcoded JS (`WebWayCMS.Admin/wwwroot/js/form-components.js`), so
-  a host type can't be an `EntityPicker` target.
 - No rollback/uninstall semantics for host migrations, and non-Npgsql providers are unsupported
   (`ContentVersionEntityConfiguration` uses raw Postgres partial-index filters).
+
+> The `EntityPicker` endpoint map used to be a hardcoded-JS limit that prevented a host type from
+> being an `EntityPicker` target. `form-components.js` now falls back to the generic
+> `GET /wadmin/{contentType}/api/list` endpoint, so host content types work with no JS edit.

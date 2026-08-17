@@ -224,6 +224,51 @@ public class MyWidgetViewComponent : ViewComponent
 
 If `ConfigurationType` is `null`, the widget receives no configuration parameter.
 
+### Entity-picker endpoint resolution
+
+The admin `EntityPicker` form component loads its options client-side from
+`WebWayCMS.Admin/wwwroot/js/form-components.js`. A small hardcoded map covers the built-in content
+types; for any other `EntityType` it now falls back to the generic admin list endpoint
+`GET /wadmin/{contentType}/api/list` (served by `AdminContentController` → the handler's
+`GetApiListAsync`). A host content type can therefore be an `EntityPicker` target by setting
+`EntityType = "<contentTypeKey>"` — no JS edit required.
+
+---
+
+## 10. Known Gaps (configuration contract)
+
+Building a full end-to-end widget test surfaced these gaps. None are silently papered over here.
+
+1. **Widget config is never sanitized or validated on save.** `ContentZoneApiController.SaveItem`
+   writes `ComponentPropertiesJson` straight through `IContentZoneService.AddItemAsync` /
+   `UpdateItemAsync`. It never calls `RichTextSanitizer` (unlike `AdminCrudModel.SaveUpsertAsync`)
+   and never calls `IWidgetRegistry.ValidateConfiguration` — which is dead code, nothing in the
+   product calls it. So `IsRequired` / `Min` / `Max` / `MaxLength` / `Pattern` on a widget config are
+   declared and never enforced, and a `RichText` config property is stored raw.
+2. **`_widget` in a widget route's `DefaultsJson` never reaches `RouteData`.** `CMSRouteTransformer`
+   forwards only `controller` and `action` from defaults, plus the captured route values. The `_widget`
+   default that `ArticleViewComponent.GenerateRoutesAsync` sets is dead metadata. Widgets therefore
+   discriminate on their captured parameter names (`slug` vs `topic`), not on `_widget`.
+3. **`NormalizePattern` lowercases whole widget patterns**, so an uppercase-bearing inline regex
+   constraint in a widget route silently stops matching.
+4. **`RouteRegistrationService` defaults `OwningContentType ??= "ArticleWidget"`** — an
+   Article-specific fallback applied to every widget route. Routable widgets should set
+   `OwningContentType` explicitly.
+5. **`CMSRouteDTO.ConstraintsJson` is write-only.** `CMSRouteService.TryMatchPattern` parses
+   constraints out of the *pattern text* (`ParseParameter` → `ApplyConstraint`, supporting `int`,
+   `guid`, `bool` and `regex(...)`); nothing in the product ever reads `ConstraintsJson`. It is
+   written by `MappingProfile`, `CmsRouteSeeder` and `ArticleViewComponent.GenerateRoutesAsync`, and
+   consumed by nobody — so a constraint declared there is silently unenforced. Routable widgets must
+   put constraints **inline**: `Pattern = "{slug:regex(^[a-z0-9-]+$)}"`, not
+   `ConstraintsJson = {"slug":"regex(...)"}`.
+6. **A widget config property that is a non-nullable value type can drop the whole configuration.**
+   The admin form serializer (`form-components.js` → `serializeDataProps`) writes `null` for an empty
+   number field, and `System.Text.Json` rejects `null` for a non-nullable `int`. The resulting
+   `JsonException` is swallowed by `ContentZoneModel.DeserializePropertiesToConfigType`, which
+   returns an empty object — so *every* saved value is lost, not just the empty one. Declare numeric
+   config properties as nullable (`int?`) and apply the fallback in the widget. `bool` is safe
+   (a checkbox always serializes a value).
+
 ---
 
 *See also:* [docs/widget-system.md](../widget-system.md) for the step-by-step guide to creating a custom widget.

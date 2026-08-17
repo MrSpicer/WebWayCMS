@@ -187,9 +187,15 @@ Two consequences worth knowing:
 | `Color` | `<input type="color">` | — |
 | `Url` | `<input type="url">` with validation | — |
 | `Email` | `<input type="email">` with validation | — |
-| `ViewPicker` | `<select>` populated from `IViewDiscoveryService`; requires `ViewComponentName` | — |
+| `ViewPicker` | `<select>` populated from `IViewDiscoveryService`; requires `ViewComponentName`; retains an unknown stored value as an option | — |
 | `PageControllerPicker` | `<select>` populated client-side from the page-type registry | — |
 | `Hidden` | `<input type="hidden">`, not displayed but included in the form post | — |
+
+The page form's **View Name** field is a `ViewPicker` that overrides its options client-side:
+`page-upsert.js` calls `GET /wadmin/pages/registry/{name}/properties` and rebuilds the `<select>`
+from the `availableViews` the page-type registry returns (the selected page type's
+`Views/{ControllerName}/*.cshtml`). `FormViewPicker` also retains a stored value that is not among
+the discovered views as an option, so an edit load keeps the selection instead of silently dropping it.
 
 ---
 

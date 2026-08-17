@@ -72,7 +72,7 @@ The pipeline is: **attributes on a class → `FormPropertyBuilder` → `List<For
 | `Color` | `<input type="color">` | Browser color picker |
 | `Url` | `<input type="url">` | URL validation |
 | `Email` | `<input type="email">` | Email validation |
-| `ViewPicker` | `<select>` | Populated with available views via `IViewDiscoveryService`; `ViewComponentName` required |
+| `ViewPicker` | `<select>` | Populated with available views via `IViewDiscoveryService`; `ViewComponentName` required. A stored value not among the discovered views is retained as an option (so it stays selectable on edit). The page form's View Name field overrides its options client-side from the registry endpoint |
 | `PageControllerPicker` | `<select data-page-controller-picker>` | Empty select populated client-side from the page controller registry (`/wadmin/pages/registry`); used by the page editor |
 | `Hidden` | `<input type="hidden">` | Not displayed; included in form POST |
 

@@ -469,7 +469,8 @@ public class FormViewPickerTests
 
     private static FormFieldContext CreateViewPickerContext(
         string viewComponentName = "TestComponent",
-        FormFieldMode mode = FormFieldMode.Write) => new()
+        FormFieldMode mode = FormFieldMode.Write,
+        object? value = null) => new()
         {
             Property = new FormPropertyInfo
             {
@@ -477,7 +478,7 @@ public class FormViewPickerTests
                 Label = "Test Prop",
                 ViewComponentName = viewComponentName
             },
-            Value = "test",
+            Value = value,
             Mode = mode,
             InputName = "TestProp",
             ElementId = "TestProp",
@@ -559,6 +560,61 @@ public class FormViewPickerTests
         var result = _component.Invoke(CreateViewPickerContext(), "CustomViewPickerView");
 
         Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomViewPickerView"));
+    }
+
+    [Test]
+    public void Invoke_WriteMode_ValueNullOrWhitespace_NotAdded()
+    {
+        _viewDiscoveryService.GetAvailableViews("TestComponent")
+            .Returns(new List<string> { "Default" });
+
+        var nullResult = _component.Invoke(CreateViewPickerContext(value: null));
+        var nullModel = (DropdownViewModel)ViewComponentHarness.Model(nullResult)!;
+
+        var whitespaceResult = _component.Invoke(CreateViewPickerContext(value: "   "));
+        var whitespaceModel = (DropdownViewModel)ViewComponentHarness.Model(whitespaceResult)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(nullModel.Options, Has.Count.EqualTo(1));
+            Assert.That(nullModel.Options["Default"], Is.EqualTo("Default"));
+            Assert.That(whitespaceModel.Options, Has.Count.EqualTo(1));
+            Assert.That(whitespaceModel.Options["Default"], Is.EqualTo("Default"));
+        });
+    }
+
+    [Test]
+    public void Invoke_WriteMode_ValueAlreadyDiscovered_NotDuplicated()
+    {
+        _viewDiscoveryService.GetAvailableViews("TestComponent")
+            .Returns(new List<string> { "Default", "Alternate" });
+
+        var result = _component.Invoke(CreateViewPickerContext(value: "Alternate"));
+
+        var model = (DropdownViewModel)ViewComponentHarness.Model(result)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(model.Options, Has.Count.EqualTo(2));
+            Assert.That(model.Options["Alternate"], Is.EqualTo("Alternate"));
+        });
+    }
+
+    [Test]
+    public void Invoke_WriteMode_ValueAbsent_Added()
+    {
+        _viewDiscoveryService.GetAvailableViews("TestComponent")
+            .Returns(new List<string> { "Default", "Alternate" });
+
+        var result = _component.Invoke(CreateViewPickerContext(value: "Renamed"));
+
+        var model = (DropdownViewModel)ViewComponentHarness.Model(result)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(model.Options, Has.Count.EqualTo(3));
+            Assert.That(model.Options["Default"], Is.EqualTo("Default"));
+            Assert.That(model.Options["Alternate"], Is.EqualTo("Alternate"));
+            Assert.That(model.Options["Renamed"], Is.EqualTo("Renamed"));
+        });
     }
 }
 

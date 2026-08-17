@@ -205,8 +205,14 @@ public abstract class PageControllerBase<TConfig> : Controller where TConfig : c
 - `Index()` — the action the transformer dispatches to unless the route's `DefaultsJson` names a
   different one
 
-`CurrentPage.ViewName`, when set, is the page's view override — `GenericAdminPageController` uses
-it to render `Dashboard.cshtml` for the seeded `/wadmin` page.
+`CurrentPage.ViewName`, when set, is the page's view override. **Applying it is the controller's
+responsibility** — the CMS stores `ViewName` on `PageDTO` but never selects a view itself. Each page
+controller reads `CurrentPage.ViewName` in `Index()` and passes it to `View(...)` (falling back to
+`Index` when it is null/empty); `GenericAdminPageController` uses this to render `Dashboard.cshtml`
+for the seeded `/wadmin` page. The admin **View Name** dropdown on the page form is a `ViewPicker`
+field whose options are populated client-side by `page-upsert.js` from
+`GET /wadmin/pages/registry/{name}/properties` — `PageRegistryHandler.GetProperties` returns
+`IViewDiscoveryService.GetControllerViews(name)`, i.e. `Views/{ControllerName}/*.cshtml`.
 
 ---
 

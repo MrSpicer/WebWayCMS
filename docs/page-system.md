@@ -136,6 +136,29 @@ public class MyPageController : PageControllerBase<MyPageConfiguration>
 
 The view name must be `Index.cshtml` and the folder name must match the controller name without the `Controller` suffix (i.e. `MyPage` for `MyPageController`).
 
+### Multiple views per page type
+
+A page type may ship several views, not just `Index`. Place each additional view in the same folder —
+`Views/{ControllerName}/TwoColumn.cshtml`, `Views/{ControllerName}/Landing.cshtml`, and so on — and the
+admin **View Name** dropdown on the page form lists them (populated client-side from the registry
+endpoint `GET /wadmin/pages/registry/{name}/properties`, which discovers `Views/{ControllerName}/*.cshtml`
+via `IViewDiscoveryService.GetControllerViews`).
+
+**The controller is responsible for applying the override** — the CMS stores `ViewName` on `PageDTO`
+but does not switch views itself:
+
+```csharp
+public override Task<IActionResult> Index()
+{
+    var viewName = CurrentPage?.ViewName;
+    var effective = string.IsNullOrWhiteSpace(viewName) ? "Index" : viewName;
+    return Task.FromResult<IActionResult>(View(effective, PageConfig));
+}
+```
+
+An empty `ViewName` falls back to the default `Index` view. The built-in `GenericPageController`
+additionally special-cases `"Default"`, but that is its own choice, not a framework requirement.
+
 ### Step 4 — No registration required
 
 At startup the CMS scans `Assembly.GetEntryAssembly()` (the Web project) along with its own

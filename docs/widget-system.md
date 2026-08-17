@@ -8,6 +8,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 - [Core Components](#core-components)
 - [Placing a Zone in a View](#placing-a-zone-in-a-view)
 - [How to Add a New Widget](#how-to-add-a-new-widget)
+- [Routable Widgets](#routable-widgets)
 
 ---
 
@@ -165,6 +166,90 @@ Two consequences worth knowing:
   delete its row and restart to re-seed. `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` suppresses seeding.
 - **Widgets can be turned off without a deploy.** Clearing `IsActive` on the registration row
   removes the widget from the picker while leaving existing placements intact.
+
+---
+
+## Routable Widgets
+
+A widget can own **routes**: it implements `IRoutableViewComponent` and declares the route patterns
+(`CMSRouteDTO`) it wants registered. When a request matches one of those patterns, the CMS dispatches
+to the parent page's controller, which renders the page's `Main` zone — so the routing widget renders
+in the same zone as everything else and discriminates on the route values it captured (e.g. `slug`
+vs `topic`).
+
+### The interface
+
+`WebWayCMS.Interfaces.IRoutableViewComponent`:
+
+```csharp
+public interface IRoutableViewComponent
+{
+    string ComponentName { get; }
+
+    Task<IReadOnlyList<CMSRouteDTO>> GenerateRoutesAsync(
+        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct);
+}
+```
+
+- `ComponentName` — the widget's ViewComponent name (without the `ViewComponent` suffix).
+- `GenerateRoutesAsync` — returns the route(s) the widget wants, given the parent page's route
+  pattern and the content-zone item node id. Set `OwningContentNodeId` to the item node id and give
+  each route an explicit `OwningContentType` (the fallback default is `"ArticleWidget"`, which is
+  Article-specific). `Pattern` is a **relative** pattern (e.g. `"{slug}"` or `topics/{topic}`) — the
+  CMS prefixes it with the parent page's route.
+
+### Required DI registration
+
+`RouteRegistrationService` collects widgets through `IEnumerable<IRoutableViewComponent>`, so each
+routable widget needs two registrations in `Program.cs`:
+
+```csharp
+builder.Services.AddScoped<MyRoutableViewComponent>();
+builder.Services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<MyRoutableViewComponent>());
+```
+
+The widget-registration seeder still discovers the component from its `[ContentZoneComponent]`
+attribute — this registration is *only* what makes routing work.
+
+### Route lifecycle
+
+Route rows are managed by `ContentZoneApiController`, which calls
+`IRouteRegistrationService.TryRegisterWidgetRoutesAsync` at three points:
+
+- **add** — `SaveItem` (create path) registers the widget's routes after inserting the item;
+- **edit** — `SaveItem` (update path) re-registers, sweeping the owner's stale routes first (a rename
+  or reparent replaces the old patterns);
+- **delete / deactivate** — `DeleteItem` and the inactive path call `TryRegisterWidgetRoutesAsync`
+  with `isActive = false`, which deletes the owner's routes.
+
+A non-routable component simply isn't found in the collection, so `TryRegisterWidgetRoutesAsync`
+early-outs and writes no routes.
+
+### Parent-route prefixing
+
+`RegisterWidgetRoutesAsync` prefixes each widget pattern with the parent page's route pattern, then
+normalises the result. A `FaqDetail` widget under a page at `/faq-test` therefore produces
+`/faq-test/{slug}`.
+
+### Route constraints must be inline
+
+Put constraints in the pattern itself — `Pattern = "{slug:regex(^[a-z0-9-]+$)}"` — not in
+`CMSRouteDTO.ConstraintsJson`. Route matching (`CMSRouteService.TryMatchPattern`) parses constraints
+out of the pattern text and **never reads `ConstraintsJson`**, so a constraint declared there is
+silently unenforced. Supported inline constraints are `int`, `guid`, `bool` and `regex(...)`.
+
+### Lowercasing caveat
+
+`NormalizePattern` lowercases the **entire** pattern, including any inline regex constraint. Keep
+every literal segment and every inline regex (`regex(...)`) in a widget pattern lowercase, or the
+constraint will silently stop matching after normalisation.
+
+### Configuration properties must tolerate `null`
+
+The admin form serializer writes `null` for any empty field. A non-nullable value-type config
+property (e.g. `int PageSize`) therefore fails deserialization on an empty input, and the failure
+discards the widget's **entire** stored configuration rather than just that value. Declare numeric
+properties as nullable (`int?`) and apply the fallback in the widget.
 
 ---
 

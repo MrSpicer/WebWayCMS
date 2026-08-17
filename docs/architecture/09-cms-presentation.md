@@ -170,14 +170,20 @@ public interface IViewDiscoveryService
 - `{contentRoot}/Areas/*/Views/Shared/Components/{componentName}/`
 - Sibling directories (to find views in `WebWayCMS/Views/`)
 
-Used by the `ViewPicker` `EditorType` — when an admin form has a `ViewPicker` field, the dropdown is populated with the discovered view names via the registry endpoint (`/wadmin/{contentType}/registry/{name}/properties`).
+Used by the `ViewPicker` `EditorType` — `FormViewPicker` calls this server-side to populate the
+dropdown for view-component views (a stored value not among the discovered views is retained as an
+option so an edit load keeps the selection).
 
 **`GetControllerViews(controllerName)`** — returns views whose path tail is `Views/{controllerName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
 - Compiled descriptors matching that tail (e.g. `/Views/{controllerName}/Index.cshtml`)
 - `{contentRoot}/Views/{controllerName}/`
 - Sibling directories
 
-Used by `PageRegistryHandler.GetProperties` to return the list of available views for a page controller type, shown in the page-edit admin UI.
+Used by `PageRegistryHandler.GetProperties` to return the list of available views for a page controller
+type. The page form's **View Name** dropdown is populated client-side from this: `page-upsert.js`
+calls `GET /wadmin/pages/registry/{name}/properties` and rebuilds the `<select>` from `availableViews`
+(the selected page type's `Views/{ControllerName}/*.cshtml`), preserving the current selection when it
+is still offered.
 
 ---
 
