@@ -1,0 +1,10 @@
+@model List<string>
+@if (Model.Any())
+{
+    <ul>
+        @foreach (var pattern in Model)
+        {
+            <li><a class="navbar-item" href="@pattern">@pattern</a></li>
+        }
+    </ul>
+}

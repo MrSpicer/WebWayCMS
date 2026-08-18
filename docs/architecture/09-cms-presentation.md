@@ -76,6 +76,17 @@ views do not set `Layout` themselves.
 
 ---
 
+### `RouteNavigationViewComponent`
+
+**Invocation:**
+```razor
+@await Component.InvokeAsync("RouteNavigation")
+```
+
+**Purpose:** Renders a flat list of links for every active, non-parameterized CMS route. Unlike `PageViewComponent`, it reads `ICMSRouteRegistry.GetActiveRoutes()` (the 60s-cached route registry) rather than `IPageModel`, so it surfaces routes owned by non-Page content (routable widgets, `[CmsRoute]` controllers) as well as pages. Routes whose `Pattern` contains a `{` placeholder are excluded; link text is the raw `Pattern` string. Takes no configuration.
+
+---
+
 ### `ContentBlockViewComponent`
 
 **Invocation:**
