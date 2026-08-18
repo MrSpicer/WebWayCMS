@@ -6,6 +6,7 @@ using NUnit.Framework;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Layout;
@@ -313,5 +314,52 @@ public class PageViewComponentTests
         var vm = (PageNavigationViewModel)ViewComponentHarness.Model(result)!;
 
         Assert.That(vm.Items, Has.Count.EqualTo(2));
+    }
+}
+
+[TestFixture]
+public class RouteNavigationViewComponentTests
+{
+    private ICMSRouteRegistry _routeRegistry = null!;
+    private RouteNavigationViewComponent _component = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _routeRegistry = Substitute.For<ICMSRouteRegistry>();
+        _component = new RouteNavigationViewComponent(_routeRegistry);
+        ViewComponentHarness.Attach(_component);
+    }
+
+    [Test]
+    public void Constructor_Null_Throws()
+        => Assert.That(() => new RouteNavigationViewComponent(null!), Throws.ArgumentNullException);
+
+    [Test]
+    public void Invoke_ExcludesParameterizedPatterns_AndKeepsRegistryOrder()
+    {
+        _routeRegistry.GetActiveRoutes().Returns(new List<CMSRouteDTO>
+        {
+            new() { Pattern = "/home" },
+            new() { Pattern = "/blog/{slug}" },
+            new() { Pattern = "/about" },
+            new() { Pattern = "/articles/{id:int}" }
+        });
+
+        var result = _component.Invoke();
+        var patterns = (List<string>)ViewComponentHarness.Model(result)!;
+
+        Assert.That(patterns, Is.EqualTo(new[] { "/home", "/about" }));
+    }
+
+    [Test]
+    public void Invoke_EmptyActiveRoutes_RendersEmptyList()
+    {
+        _routeRegistry.GetActiveRoutes().Returns(new List<CMSRouteDTO>());
+
+        var result = _component.Invoke();
+        var patterns = (List<string>)ViewComponentHarness.Model(result)!;
+
+        Assert.That(patterns, Is.Empty);
     }
 }

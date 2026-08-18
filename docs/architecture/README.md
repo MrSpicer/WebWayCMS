@@ -105,8 +105,10 @@ Project references between them (nothing else — dependencies only flow downwar
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  CMS View Components & Presentation  (cross-cutting rendering layer)│
-│  PageViewComponent · ContentBlockViewComponent · ArticleViewComponent│
-│  LayoutViewComponent · Admin Razor views · IViewDiscoveryService    │
+│  PageViewComponent · ContentBlockViewComponent                      │
+│  ArticleViewComponent · LayoutViewComponent                         │
+│  RouteNavigationViewComponent · Admin Razor views                   │
+│  IViewDiscoveryService                                              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
