@@ -1,9 +1,12 @@
 namespace WebWayCMS.Data.Models;
 
-public record FormComponentRegistrationDTO : IVersionedContent
+/// <summary>
+/// A form component registration. Registrations are not versioned — they are seeded and re-synced
+/// from code by <c>CmsFormComponentSeeder</c>, and edited in place via the admin UI.
+/// </summary>
+public record FormComponentRegistrationDTO
 {
-    public Guid VersionId { get; set; }
-    public ContentVersion Version { get; set; } = new();
+    public Guid Id { get; set; }
 
     public string ComponentName { get; set; } = string.Empty;
     public string ViewComponentName { get; set; } = string.Empty;

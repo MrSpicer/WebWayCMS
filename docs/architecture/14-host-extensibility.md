@@ -114,6 +114,22 @@ builder.Services.AddScoped<MyRoutableViewComponent>();
 builder.Services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<MyRoutableViewComponent>());
 ```
 
+### Host-contributed form components
+
+A host can also contribute **form components**: `[CMSFormComponent]` ViewComponents deriving
+`FormFieldViewComponentBase`. Unlike routable widgets, these need **no** `Program.cs` registration —
+`CmsFormComponentSeeder` scans the same assemblies passed to `AddApplicationAssembly(...)` and seeds a
+`FormComponentRegistration` row automatically. A property selects the component by name:
+`[FormProperty(FormComponent = "MyComponent")]` (no `EditorType` alias required). See
+`WebWayCMS.TestHost.ViewComponents.Forms.FormStarRating` / `FormIconPicker` for worked examples.
+
+A component used on a **JSON-bound** configuration form (a widget or page-type config, serialized via
+`ConfigurationJson`) must emit exactly **one** element carrying `data-prop` — the client-side serializer
+walks every `[data-prop]` element in the form and writes its `.value`, and the JSON deserializer on save
+has no tolerance for malformed shapes: a throw there silently drops the *entire* saved configuration,
+not just the offending field. A component that renders multiple inputs sharing one name (e.g. a radio
+group) is therefore safe only on **model-bound** forms (a content type's own upsert form).
+
 ## 7. Known Limits (Out of Scope)
 
 - The admin navbar is hardcoded (`WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml`), so a host type

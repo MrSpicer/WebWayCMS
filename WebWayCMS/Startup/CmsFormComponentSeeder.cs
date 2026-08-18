@@ -34,9 +34,8 @@ internal static class CmsFormComponentSeeder
 
         try
         {
-            var store = services.GetRequiredService<IContentStore<FormComponentRegistrationDTO>>();
             var formComponentService = services.GetRequiredService<IFormComponentRegistrationService>();
-            var existing = formComponentService.GetActiveAsync().GetAwaiter().GetResult();
+            var existing = formComponentService.GetAllAsync().GetAwaiter().GetResult();
 
             var existingByComponentName = new Dictionary<string, FormComponentRegistrationDTO>(
                 StringComparer.OrdinalIgnoreCase);
@@ -54,7 +53,7 @@ internal static class CmsFormComponentSeeder
             {
                 try
                 {
-                    SeedAssemblyFormComponents(assembly, store, existingByComponentName, logger);
+                    SeedAssemblyFormComponents(assembly, formComponentService, existingByComponentName, logger);
                 }
                 catch (Exception ex)
                 {
@@ -74,7 +73,7 @@ internal static class CmsFormComponentSeeder
 
     private static void SeedAssemblyFormComponents(
         Assembly assembly,
-        IContentStore<FormComponentRegistrationDTO> store,
+        IFormComponentRegistrationService service,
         Dictionary<string, FormComponentRegistrationDTO> existingByComponentName,
         ILogger logger)
     {
@@ -102,42 +101,31 @@ internal static class CmsFormComponentSeeder
 
             if (existingByComponentName.TryGetValue(componentName, out var existing))
             {
-                var existingDataTypeNamesJson = existing.DataTypeNamesJson;
-                var existingEditorTypeAlias = existing.EditorTypeAlias;
-                var existingDefault = existing.IsDefaultForType;
-                var existingWriteView = existing.WriteViewName;
-                var existingReadView = existing.ReadViewName;
-
-                if (existingDataTypeNamesJson != dataTypeNamesJson
-                    || existingEditorTypeAlias != editorTypeAlias
-                    || existingDefault != attribute.IsDefaultForType
-                    || existingWriteView != writeViewName
-                    || existingReadView != readViewName)
+                if (existing.DataTypeNamesJson != dataTypeNamesJson
+                    || existing.EditorTypeAlias != editorTypeAlias
+                    || existing.IsDefaultForType != attribute.IsDefaultForType
+                    || existing.WriteViewName != writeViewName
+                    || existing.ReadViewName != readViewName
+                    || existing.ViewComponentName != viewComponentName)
                 {
-                    var updated = existing with
-                    {
-                        DataTypeNamesJson = dataTypeNamesJson,
-                        EditorTypeAlias = editorTypeAlias,
-                        IsDefaultForType = attribute.IsDefaultForType,
-                        WriteViewName = writeViewName,
-                        ReadViewName = readViewName
-                    };
-                    var save = store.SaveDraftAsync(updated, null).GetAwaiter().GetResult();
-                    store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
-                    logger.Information("Re-synced form component registration '{ComponentName}'", componentName);
+                    existing.DataTypeNamesJson = dataTypeNamesJson;
+                    existing.EditorTypeAlias = editorTypeAlias;
+                    existing.IsDefaultForType = attribute.IsDefaultForType;
+                    existing.WriteViewName = writeViewName;
+                    existing.ReadViewName = readViewName;
+                    existing.ViewComponentName = viewComponentName;
+
+                    var save = service.UpsertAsync(existing).GetAwaiter().GetResult();
+                    if (save.Success)
+                        logger.Information("Re-synced form component registration '{ComponentName}'", componentName);
+                    else
+                        logger.Warning("Failed to re-sync form component registration '{ComponentName}': {Error}", componentName, save.ErrorMessage);
                 }
                 continue;
             }
 
             var dto = new FormComponentRegistrationDTO
             {
-                Version = new ContentVersion
-                {
-                    Title = string.IsNullOrEmpty(attribute.DisplayName)
-                        ? FormPropertyBuilder.InsertSpaces(componentName)
-                        : attribute.DisplayName,
-                    Slug = componentName.ToLowerInvariant(),
-                },
                 ComponentName = componentName,
                 ViewComponentName = viewComponentName,
                 DisplayName = string.IsNullOrEmpty(attribute.DisplayName)
@@ -157,10 +145,16 @@ internal static class CmsFormComponentSeeder
 
             try
             {
-                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
-                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
-                existingByComponentName[componentName] = dto;
-                logger.Information("Seeded form component registration '{ComponentName}' as '{DisplayName}'", componentName, dto.DisplayName);
+                var save = service.UpsertAsync(dto).GetAwaiter().GetResult();
+                if (save.Success)
+                {
+                    existingByComponentName[componentName] = dto;
+                    logger.Information("Seeded form component registration '{ComponentName}' as '{DisplayName}'", componentName, dto.DisplayName);
+                }
+                else
+                {
+                    logger.Warning("Failed to seed form component registration '{ComponentName}': {Error}", componentName, save.ErrorMessage);
+                }
             }
             catch (Exception ex)
             {

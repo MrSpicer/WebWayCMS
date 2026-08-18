@@ -222,9 +222,14 @@ Plain entity, no `IVersionedContent`, no version history (matching `CMSRouteMode
 Routes are written by Publish, never by Save, so a draft slug change does not touch the route table
 until published.
 
-### `WidgetRegistrationDTO` / `PageControllerRegistrationDTO` / `FormComponentRegistrationDTO`
+### `WidgetRegistrationDTO` / `PageControllerRegistrationDTO`
 Registration records (seeded at startup), each `IVersionedContent` with an `IsActive` type field and a
 published/draft `Version.State`.
+
+### `FormComponentRegistrationDTO`
+Registration records (seeded at startup). **Not versioned** — a plain row keyed by `Id` with an
+`IsActive` type field. Seeded and re-synced in place by `CmsFormComponentSeeder`, and edited in place
+via `/wadmin/formcomponents`.
 
 ### `ContentZoneDTO`
 `Name`, `Description`. **There is no `Items` collection** — which item *versions* belong to a zone
@@ -366,11 +371,13 @@ routes, invalidated on every write).
 | `UpsertAsync(route)` | Keys the replace on `(OwningContentNodeId, Pattern)`; returns `(bool Success, string? ErrorMessage, CMSRouteDTO? Route)` — a foreign owner on the same pattern is a collision (failure), never a silent steal |
 | `DeleteAsync(id)` / `DeleteByOwningContentAsync(nodeId)` | Hard-delete route(s) |
 
-Three read-only services back the registries:
+Three registration services back the registries (form components are unversioned and expose a full
+CRUD surface — `UpsertAsync`/`DeleteAsync` — alongside the reads):
 
 | Service | Filter |
 |---|---|
-| `IWidgetRegistrationService` / `IPageControllerRegistrationService` / `IFormComponentRegistrationService` | `IsActive && Version.State == Published && !Version.Node.IsDeleted`, ordered by Category → Order → DisplayName |
+| `IWidgetRegistrationService` / `IPageControllerRegistrationService` | `IsActive && Version.State == Published && !Version.Node.IsDeleted`, ordered by Category → Order → DisplayName |
+| `IFormComponentRegistrationService` | `IsActive` (unversioned row), ordered by Category → Order → DisplayName |
 
 ---
 

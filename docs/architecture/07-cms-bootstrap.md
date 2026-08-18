@@ -58,10 +58,11 @@ Runs in this order:
 | `IViewDiscoveryService` → `ViewDiscoveryService` | scoped |
 | `IWidgetRegistry` → `WidgetRegistry` | **singleton** |
 | `IPageControllerRegistry` → `PageControllerRegistry` | **singleton** |
-| `IContentStore<T>` for `PageDTO`, `ArticleDTO`, `ArticleListDTO`, `ContentBlockDTO`, `ContentZoneDTO`, `ContentZoneItemDTO`, `WidgetRegistrationDTO`, `PageControllerRegistrationDTO`, `FormComponentRegistrationDTO` | scoped |
+| `IContentStore<T>` for `PageDTO`, `ArticleDTO`, `ArticleListDTO`, `ContentBlockDTO`, `ContentZoneDTO`, `ContentZoneItemDTO`, `WidgetRegistrationDTO`, `PageControllerRegistrationDTO` | scoped |
 | `IContentZoneService` → `ContentZoneService` | scoped |
 | `IWidgetRegistrationService` → `WidgetRegistrationService` | scoped |
 | `IPageControllerRegistrationService` → `PageControllerRegistrationService` | scoped |
+| `IFormComponentRegistrationService` → `FormComponentRegistrationService` | scoped |
 | `ICMSRouteService` → `CMSRouteService` | scoped |
 | `IRouteRegistrationService` → `RouteRegistrationService` | scoped |
 | `IDefaultContentSeeder` → `DefaultContentSeeder` | scoped |
@@ -188,6 +189,7 @@ registered via `cms.AddApplicationAssembly` (`CmsAssemblyCatalog`), distinct and
 | Widget registrations | `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
 | Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly, `CmsAssemblyCatalog` |
 | Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
+| Form component registrations | `WebWayCMS.Presentation`, `WebWayCMS.Core`, entry assembly, `CmsAssemblyCatalog` (skipped by `WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS`) |
 
 ---
 

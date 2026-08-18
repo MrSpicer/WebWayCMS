@@ -67,7 +67,6 @@ internal static class CmsRenderingRegistration
         AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems");
         AddContentStore<WidgetRegistrationDTO>(services, "widgets");
         AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes");
-        AddContentStore<FormComponentRegistrationDTO>(services, "formcomponents");
 
         services.AddScoped<IContentZoneService, ContentZoneService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();

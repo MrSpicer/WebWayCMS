@@ -30,7 +30,7 @@ IVersionedContent { Guid VersionId; ContentVersion Version; }  (1:1 shared PK/FK
     ├── ContentZoneItemDTO
     ├── WidgetRegistrationDTO
     └── PageControllerRegistrationDTO
-    (CMSRouteDTO is NOT versioned — plain row, written by Publish)
+    (CMSRouteDTO and FormComponentRegistrationDTO are NOT versioned — plain rows)
 
 IContentStore<T where T : class, IVersionedContent>   (single generic engine)
     └── ContentStore<T>
@@ -42,12 +42,12 @@ VersionedModel<TDto>  (abstract)
             ├── PageModel
             ├── ContentZoneModel
             ├── WidgetRegistrationModel
-            ├── PageControllerRegistrationModel
-            └── CMSRouteModel
+            └── PageControllerRegistrationModel
         ArticleModel  (extends VersionedModel<ArticleDTO> directly — child resource, no standalone admin handler)
 
 IAdminCrudHandler  (interface)
-    └── implemented by each AdminCrudModel subclass
+    ├── implemented by each AdminCrudModel subclass
+    └── implemented directly by CMSRouteModel and FormComponentRegistrationModel (unversioned)
     └── resolved via AdminHandlerRegistry
     └── driven by AdminContentController (single controller, all content types)
 ```

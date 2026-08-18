@@ -2,8 +2,11 @@ using WebWayCMS.Attributes;
 
 namespace WebWayCMS.Models.FormComponentRegistration;
 
-public sealed class FormComponentRegistrationUpsertViewModel : BaseContentViewModel
+public sealed class FormComponentRegistrationUpsertViewModel
 {
+    [FormProperty(EditorType = EditorType.Hidden, Order = 0, FormComponent = "Hidden")]
+    public Guid? Id { get; set; }
+
     [FormProperty(Label = "Component Name", EditorType = EditorType.Text, IsRequired = true, Order = 3,
         HelpText = "The registry key (e.g. 'RichText').", FormComponent = "Text")]
     public string ComponentName { get; init; } = string.Empty;

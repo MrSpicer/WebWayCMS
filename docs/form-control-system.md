@@ -76,6 +76,9 @@ gets a rendered form in the admin UI. This is the same mechanism behind content-
 
 All files can live in the **`WebWayCMS.Presentation`** ViewComponents/Views tree (for a control
 shipped with the CMS) or in the host project (for a site-specific control) — the seeder scans both.
+`WebWayCMS.TestHost.ViewComponents.Forms.FormStarRating` / `FormIconPicker` are worked examples of the
+host-project case: `StarRating` is a model-bound multi-radio control, `IconPicker` is a single-`<select>`
+control safe on JSON-bound forms too — see the binding-mode note in Step 3.
 
 ### Step 1 — (Optional) Add an `EditorType` value
 
@@ -123,9 +126,12 @@ public sealed class FormRating : FormFieldViewComponentBase { }
 | `Order` | Sort order within the category; lower values appear first |
 | `WriteViewName` / `ReadViewName` | View names to invoke; default to `"Write"` / `"Read"` |
 
-These values are the **seed defaults** written into the control's registration row the first time
-the CMS starts. After that, the row is authoritative — edit the control at `/wadmin/formcomponents`
-rather than changing the attribute.
+`DisplayName`, `Description`, `Category`, `IconClass`, and `Order` are **seed defaults**, written once
+and then admin-owned — edit the control at `/wadmin/formcomponents` to change them, since the seeder
+never overwrites an existing row's values for these fields. `DataTypes`, `EditorType`,
+`IsDefaultForType`, `WriteViewName`, `ReadViewName`, and `ViewComponentName` are different: the seeder
+**re-syncs** these on every startup, so the attribute (and the class name, for `ViewComponentName`)
+stays authoritative for them and an admin edit to one is only durable until the next restart.
 
 ### Step 3 — Create the Razor view
 
@@ -153,6 +159,13 @@ For a control that renders its own layout (e.g. a checkbox with an inline `<labe
 `chrome="none"` to `<form-field>` instead, as `FormCheckbox`'s view does. Add a `Read.cshtml` in the
 same folder for a dedicated read-only rendering; omit it to fall back to the write view.
 
+**JSON-bound forms need exactly one `data-prop` element.** A widget or page-type configuration form
+posts as JSON (see "Binding mode" above); the client-side serializer walks every `[data-prop]` element
+in the sub-form and writes its value, and a malformed shape on deserialize silently drops the *entire*
+saved configuration. A control that emits several inputs sharing one name — a radio group, for
+example — is therefore only safe on a **model-bound** form (a content type's own upsert form). A
+control built around a single element (`<select>`, `<input>`, `<textarea>`) works in both modes.
+
 ### Step 4 — No registration required
 
 At startup the CMS scans its own assemblies and `Assembly.GetEntryAssembly()` and seeds a
@@ -162,10 +175,11 @@ or `Program.cs` are needed, and the control is available to `[FormProperty(Edito
 
 Two consequences worth knowing:
 
-- **Seeding only inserts.** If you later change the attribute's `DisplayName`, `Category`, `Order`,
-  or `IsDefaultForType`, the stored row is *not* updated. Edit the control at
-  `/wadmin/formcomponents`, or delete its row and restart to re-seed.
-  `WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS=true` suppresses seeding.
+- **Seeding re-syncs on every start, but only some fields.** `DataTypeNamesJson`, `EditorTypeAlias`,
+  `IsDefaultForType`, `WriteViewName`, `ReadViewName`, and `ViewComponentName` are re-written from the
+  attribute (and the class name) on every startup; `DisplayName`, `Description`, `Category`, `IconClass`,
+  and `Order` become admin-owned after the first seed and are left alone.
+  `WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS=true` suppresses seeding entirely.
 - **A control that fails to resolve falls back to `"Text"`.** If the registry row is deleted or
   deactivated, fields that named it explicitly render as plain text inputs rather than failing.
 
