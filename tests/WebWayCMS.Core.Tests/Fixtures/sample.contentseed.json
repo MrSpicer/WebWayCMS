@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "id": "3f2c9d18-0a41-4c2e-9c7a-5b1d2e6f8a90",
+      "contentType": "pages",
+      "publish": true,
+      "fields": {
+        "title": "About Us",
+        "slug": "about"
+      }
+    }
+  ]
+}

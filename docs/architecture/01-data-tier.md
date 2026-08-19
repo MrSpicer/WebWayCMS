@@ -231,6 +231,12 @@ Registration records (seeded at startup). **Not versioned** — a plain row keye
 `IsActive` type field. Seeded and re-synced in place by `CmsFormComponentSeeder`, and edited in place
 via `/wadmin/formcomponents`.
 
+### `ContentSeedRecordDTO` — **not versioned**
+The JSON content-seed ledger. **Not versioned** — a plain row keyed by `SeedId` (the stable Guid a
+JSON item carries) mapping it to the CMS-generated `NodeId` it produced, plus the `ContentHash`
+applied last time. Written by `JsonContentSeeder` and read back on every boot to decide whether an
+item is unchanged (skip) or must be re-applied. See [Area 15](15-content-seeding.md).
+
 ### `ContentZoneDTO`
 `Name`, `Description`. **There is no `Items` collection** — which item *versions* belong to a zone
 depends on the read context, so items are resolved through `IContentZoneService.GetItemsAsync(zoneNodeId)`.
@@ -269,6 +275,7 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | `WidgetRegistrationDTOEntityConfiguration` | `WidgetRegistrations` |
 | `PageControllerRegistrationDTOEntityConfiguration` | `PageControllerRegistrations` |
 | `FormComponentRegistrationDTOEntityConfiguration` | `FormComponentRegistrations` |
+| `ContentSeedRecordDTOEntityConfiguration` | `ContentSeedRecords` |
 
 Migrations live in `WebWayCMS.Data/Migrations/`; `./scripts/RebuildEFMigrations.sh` wipes and
 regenerates a single `InitialCreate` (destructive, not additive).

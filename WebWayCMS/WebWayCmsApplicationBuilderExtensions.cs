@@ -35,6 +35,7 @@ public static class WebWayCmsApplicationBuilderExtensions
         app.EnsureFormComponentRegistrationsSeeded(throwOnError);
         app.EnsurePageControllerRegistrationsSeeded(throwOnError);
         app.EnsureCodeBasedRoutesSeeded(throwOnError);
+        app.EnsureJsonContentSeeded(throwOnError);
         app.ConfigureAdminPipeline();
         return app;
     }

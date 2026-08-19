@@ -87,6 +87,26 @@
   immediately-visible behaviour. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
 - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
 
+## Content Seeding (JSON)
+
+- A host (or a satellite content DLL) can ship a JSON file of serialized content that is discovered
+  at startup and created/updated in the database, then published. **Admin mode only** (it dispatches
+  through `IAdminHandlerRegistry`, which a rendering-only host lacks).
+- Three sources: embedded resources named `*.contentseed.json` in the scanned assemblies, `*.json`
+  files under the `ContentSeed:Path` directory (default `contentseed`, content-root-relative), and
+  explicit files via `IWebWayCmsBuilder.AddContentSeedFile` / `AddContentSeedAssembly`.
+- Each item carries a stable Guid `id` (the *seed key*), `contentType`, optional `publish` (default
+  true), and a camelCase `fields` object matching the type's upsert view model (`describe_content_type`
+  is the authoring reference). `nodeId`/`expectedVersionNumber` are stripped from `fields`.
+- Reuses the MCP dispatch generically (`IAdminHandlerRegistry` → `CreateEmptyUpsertViewModel` /
+  `GetUpsertViewModelAsync` → `ContentFieldMerger.TryMerge` → `SaveUpsertAsync` → `PublishAsync`),
+  so it inherits rich-text sanitization, required-field validation, and route writing on publish.
+- Update rule: `JsonContentSeeder` hashes the item and re-applies only when the hash differs from the
+  `ContentSeedRecords` ledger (keyed by seed id → generated `ContentNode.Id`). Admin edits survive
+  reboots; a shipped content change takes effect. A failed save doesn't record the hash, so it retries.
+- Gate it with `WEBWAYCMS_SKIP_CONTENTSEED=true` or `ContentSeed:Enabled=false`.
+- See [docs/architecture/15-content-seeding.md](docs/architecture/15-content-seeding.md).
+
 ## Testing
 
 - Test projects live under `tests/`, one per source project (NUnit + NSubstitute). Each references

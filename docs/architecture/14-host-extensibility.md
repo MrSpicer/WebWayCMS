@@ -40,6 +40,8 @@ catalogs that the existing registration reads.
 | `AddContentType<T>(string key)` | registers `IContentStore<T>` |
 | `AddMappingProfile(Profile)` | contributes to the `IMapper` singleton |
 | `AddMigrationsContext<TContext>(string historyTable)` | `AddDbContext<TContext>` over Npgsql with that history table, and enrolls it in the migration runner |
+| `AddContentSeedFile(string path)` | registers a JSON content seed file applied at startup (admin mode only) |
+| `AddContentSeedAssembly(Assembly)` | registers an assembly whose embedded `*.contentseed.json` resources are applied at startup (admin mode only) |
 | `Services` | escape hatch |
 
 `AddApplicationAssembly` and the three `AddModelConfiguration*` forms all register an

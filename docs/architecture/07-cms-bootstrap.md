@@ -127,17 +127,23 @@ UseWebWayCmsRendering                 UseWebWayCmsAdmin
                                       2. EnsureCmsRolesAndAdminSeeded
 2. EnsureDefaultHomePage              3. EnsureDefaultHomePage
 3. EnsureWidgetRegistrationsSeeded    4. EnsureWidgetRegistrationsSeeded
-4. EnsurePageControllerRegistrations   5. EnsurePageControllerRegistrations
+4. EnsureFormComponentRegistrations   5. EnsureFormComponentRegistrations
      Seeded                                Seeded
-5. EnsureCodeBasedRoutesSeeded        6. EnsureCodeBasedRoutesSeeded
-6. ConfigureRenderingPipeline         7. ConfigureAdminPipeline
+5. EnsurePageControllerRegistrations   6. EnsurePageControllerRegistrations
+     Seeded                                Seeded
+6. EnsureCodeBasedRoutesSeeded        7. EnsureCodeBasedRoutesSeeded
+                                      8. EnsureJsonContentSeeded
+7. ConfigureRenderingPipeline         9. ConfigureAdminPipeline
 ```
 
 `UseWebWayCms(app)` simply calls `UseWebWayCmsAdmin(app)`.
 
 Every step is idempotent — calling `UseWebWayCms*` on a fully-initialized database is safe and fast. The
 three registration seeders **only insert**: a widget, page type, or route pattern that already
-exists is skipped and never updated, so after the first run the database is authoritative.
+exists is skipped and never updated, so after the first run the database is authoritative. The JSON
+content seeder (`EnsureJsonContentSeeded`, admin mode only) is the exception: it re-applies an item
+when its content hash changes, so it is the one place where shipped content *updates* the database.
+See [Area 15](15-content-seeding.md).
 
 Each method takes `bool throwOnError = true`. Migrations honour it directly; the seeders log and
 continue by default.
@@ -172,10 +178,11 @@ per host context), so the host's migrations never touch the CMS history table.
 | `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` | Skip seeding widget registrations from `[ContentZoneComponent]` |
 | `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` | Skip seeding page-type registrations from `[PageController]` |
 | `WEBWAYCMS_SKIP_CODEBASEDROUTES=true` | Skip seeding routes from `[CmsRoute]` |
+| `WEBWAYCMS_SKIP_CONTENTSEED=true` | Skip JSON content seeding (admin mode only) |
 
 All comparisons are case-insensitive. These variables are read at startup, not cached.
 
-A seventh variable applies to the EF design-time tooling rather than the running app:
+An eighth variable applies to the EF design-time tooling rather than the running app:
 `WEBWAYCMS_DESIGNTIME_CONNECTION` overrides the connection string `CmsDbContextFactory` uses when
 scaffolding migrations.
 
@@ -190,6 +197,7 @@ registered via `cms.AddApplicationAssembly` (`CmsAssemblyCatalog`), distinct and
 | Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly, `CmsAssemblyCatalog` |
 | Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
 | Form component registrations | `WebWayCMS.Presentation`, `WebWayCMS.Core`, entry assembly, `CmsAssemblyCatalog` (skipped by `WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS`) |
+| JSON content seeding | entry assembly + `CmsAssemblyCatalog` + `CmsContentSeedCatalog` (embedded `*.contentseed.json` resources), plus the configured disk directory and `AddContentSeedFile` paths (admin mode only; skipped by `WEBWAYCMS_SKIP_CONTENTSEED`) |
 
 ---
 

@@ -47,6 +47,17 @@ public interface IWebWayCmsBuilder
     /// with Npgsql and the given history table, and enrolls it in the startup migration runner.
     /// </summary>
     IWebWayCmsBuilder AddMigrationsContext<TContext>(string historyTable) where TContext : DbContext;
+
+    /// <summary>
+    /// Registers a JSON content seed file to be applied at startup (path resolved against the host's
+    /// content root when not rooted).
+    /// </summary>
+    IWebWayCmsBuilder AddContentSeedFile(string path);
+
+    /// <summary>
+    /// Registers an assembly whose embedded <c>*.contentseed.json</c> resources are applied at startup.
+    /// </summary>
+    IWebWayCmsBuilder AddContentSeedAssembly(Assembly assembly);
 }
 
 internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
@@ -55,6 +66,8 @@ internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
     private readonly List<Assembly> _assemblies = new();
     private readonly List<Type> _migrationContextTypes = new();
     private readonly List<Profile> _profiles = new();
+    private readonly List<string> _contentSeedFiles = new();
+    private readonly List<Assembly> _contentSeedAssemblies = new();
 
     public WebWayCmsBuilder(IServiceCollection services, IConfiguration configuration)
     {
@@ -69,6 +82,10 @@ internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
     internal IReadOnlyList<Type> MigrationContextTypes => _migrationContextTypes;
 
     internal IReadOnlyList<Profile> Profiles => _profiles;
+
+    internal IReadOnlyList<string> ContentSeedFiles => _contentSeedFiles;
+
+    internal IReadOnlyList<Assembly> ContentSeedAssemblies => _contentSeedAssemblies;
 
     public IWebWayCmsBuilder AddApplicationAssembly(Assembly assembly)
     {
@@ -126,9 +143,27 @@ internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
         return this;
     }
 
+    public IWebWayCmsBuilder AddContentSeedFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        _contentSeedFiles.Add(path);
+        return this;
+    }
+
+    public IWebWayCmsBuilder AddContentSeedAssembly(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (_contentSeedAssemblies.Contains(assembly))
+            return this;
+
+        _contentSeedAssemblies.Add(assembly);
+        return this;
+    }
+
     internal void RegisterCatalogs()
     {
         Services.AddSingleton(new CmsAssemblyCatalog(_assemblies));
         Services.AddSingleton(new CmsMigrationsContextCatalog(_migrationContextTypes));
+        Services.AddSingleton(new CmsContentSeedCatalog(_contentSeedFiles, _contentSeedAssemblies));
     }
 }

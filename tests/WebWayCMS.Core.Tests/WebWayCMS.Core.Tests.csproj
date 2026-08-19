@@ -7,4 +7,7 @@
     <ProjectReference Include="..\..\WebWayCMS.Core\WebWayCMS.Core.csproj" />
     <ProjectReference Include="..\..\WebWayCMS.Admin\WebWayCMS.Admin.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\sample.contentseed.json" />
+  </ItemGroup>
 </Project>

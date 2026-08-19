@@ -63,6 +63,9 @@ Full catalog in [07-cms-bootstrap](07-cms-bootstrap.md#2-addwebwaycmsrendering--
 - eight `IAdminCrudHandler` registrations forwarding the already-registered scoped models
 - the `WebWayCMS.Admin` assembly as an `AssemblyPart` **and** a `CompiledRazorAssemblyPart`
 - `AddWebWayCmsMcp(configuration)`
+- the JSON content-seeding sources and `IJsonContentSeeder` (admin mode only — a rendering-only
+  host has no `IAdminHandlerRegistry`, so it can never seed content; see
+  [15-content-seeding](15-content-seeding.md))
 
 So in rendering-only mode the domain models still exist and still serve view components — they are
 simply never exposed as admin handlers, and no controller can reach them.
@@ -78,18 +81,21 @@ ApplyCmsPendingMigrations              ApplyCmsPendingMigrations
                                        EnsureCmsRolesAndAdminSeeded
 EnsureDefaultHomePage                  EnsureDefaultHomePage
 EnsureWidgetRegistrationsSeeded        EnsureWidgetRegistrationsSeeded
+EnsureFormComponentRegistrationsSeeded EnsureFormComponentRegistrationsSeeded
 EnsurePageControllerRegistrationsSeeded EnsurePageControllerRegistrationsSeeded
 EnsureCodeBasedRoutesSeeded            EnsureCodeBasedRoutesSeeded
+                                       EnsureJsonContentSeeded
 ConfigureRenderingPipeline             ConfigureAdminPipeline
 ```
 
-The only differences: admin mode seeds roles and the admin user, and its pipeline calls
-`MapWebWayCmsMcp()` before mapping endpoints. Both pipelines run the identical
+The only differences: admin mode seeds roles and the admin user, runs the JSON content seeder, and
+its pipeline calls `MapWebWayCmsMcp()` before mapping endpoints. Both pipelines run the identical
 `ConfigureSharedMiddleware` and `MapCmsEndpoints`.
 
-Note that **both modes run all three registration seeders**, and both apply migrations. A
+Note that **both modes run the registration seeders**, and both apply migrations. A
 rendering-only instance is therefore not read-only against the database — it will migrate the
-schema and insert registration rows on startup. If that is not what you want (for example, several
+schema and insert registration rows on startup. (It will **not** seed JSON content — that is
+admin-mode only.) If that is not what you want (for example, several
 rendering replicas behind a load balancer), set the skip variables:
 
 ```

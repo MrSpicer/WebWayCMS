@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
         Action<IWebWayCmsBuilder>? configure)
     {
         AddWebWayCmsRendering(services, configuration, configure);
-        CmsAdminRegistration.MapAdminTypes(services);
+        CmsAdminRegistration.MapAdminTypes(services, configuration);
         services.AddWebWayCmsMcp(configuration);
         return services;
     }
@@ -58,7 +58,7 @@ public static class ServiceCollectionExtensions
         CmsRenderingRegistration.AddRenderingCoreTypes(services);
         CmsIdentityRegistration.ConfigureAuthorization(services, new ConfigurationBuilder().Build());
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
-        CmsAdminRegistration.MapAdminTypes(services);
+        CmsAdminRegistration.MapAdminTypes(services, new ConfigurationBuilder().Build());
         return services;
     }
 

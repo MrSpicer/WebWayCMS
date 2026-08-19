@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -9,6 +8,7 @@ using Microsoft.Extensions.Primitives;
 using ModelContextProtocol;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Content;
 using WebWayCMS.Controllers.Admin.Handlers;
 
 namespace WebWayCMS.Mcp;
@@ -20,9 +20,6 @@ namespace WebWayCMS.Mcp;
 /// </summary>
 internal static class McpToolHelpers
 {
-    /// <summary>Web-default (camelCase) options used for binding and describing fields.</summary>
-    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     /// <summary>An empty query collection for handler calls that take request query state.</summary>
     public static IQueryCollection EmptyQuery { get; } =
         new QueryCollection(new Dictionary<string, StringValues>());
@@ -64,45 +61,8 @@ internal static class McpToolHelpers
     /// </summary>
     public static object Merge(object baseModel, JsonElement fields)
     {
-        // Most clients send a JSON object, but some encode the object as a JSON string (when the
-        // schema leaves the parameter untyped); accept both so a valid write never silently no-ops.
-        // Anything else is unusable and must fail loudly rather than store an unchanged model.
-        if (AsObject(fields) is not { } overlay)
-            throw new McpException("fields must be a JSON object");
-
-        var node = JsonSerializer.SerializeToNode(baseModel, baseModel.GetType(), JsonOptions)!.AsObject();
-
-        foreach (var prop in overlay)
-            node[prop.Key] = prop.Value?.DeepClone();
-
-        return JsonSerializer.Deserialize(node, baseModel.GetType(), JsonOptions)!;
-    }
-
-    /// <summary>
-    /// Interprets <paramref name="fields"/> as a JSON object, transparently unwrapping a JSON
-    /// object that arrived encoded as a JSON string. Returns <c>null</c> for any other shape.
-    /// </summary>
-    private static JsonObject? AsObject(JsonElement fields)
-    {
-        switch (fields.ValueKind)
-        {
-            case JsonValueKind.Object:
-                return JsonNode.Parse(fields.GetRawText()) as JsonObject;
-            case JsonValueKind.String:
-                var raw = fields.GetString();
-                if (string.IsNullOrWhiteSpace(raw))
-                    return null;
-                try
-                {
-                    return JsonNode.Parse(raw) as JsonObject;
-                }
-                catch (JsonException)
-                {
-                    return null;
-                }
-            default:
-                return null;
-        }
+        return ContentFieldMerger.TryMerge(baseModel, fields)
+            ?? throw new McpException("fields must be a JSON object");
     }
 
     /// <summary>

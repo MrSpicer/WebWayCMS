@@ -266,6 +266,74 @@ public class WebWayCmsBuilderTests
         });
     }
 
+    [Test]
+    public void AddContentSeedFile_NullOrWhitespace_Throws()
+    {
+        var (builder, _) = NewBuilder();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => builder.AddContentSeedFile(null!), Throws.ArgumentNullException);
+            Assert.That(() => builder.AddContentSeedFile(string.Empty), Throws.ArgumentException);
+            Assert.That(() => builder.AddContentSeedFile("   "), Throws.ArgumentException);
+        });
+    }
+
+    [Test]
+    public void AddContentSeedFile_CollectsPath()
+    {
+        var (builder, _) = NewBuilder();
+
+        var result = builder.AddContentSeedFile("contentseed/site.json");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.SameAs(builder));
+            Assert.That(builder.ContentSeedFiles, Is.EqualTo(new[] { "contentseed/site.json" }));
+        });
+    }
+
+    [Test]
+    public void AddContentSeedAssembly_Null_Throws()
+    {
+        var (builder, _) = NewBuilder();
+
+        Assert.That(() => builder.AddContentSeedAssembly(null!), Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public void AddContentSeedAssembly_CollectsAndDeduplicates()
+    {
+        var (builder, _) = NewBuilder();
+        var assembly = typeof(TestDto).Assembly;
+
+        builder.AddContentSeedAssembly(assembly);
+        builder.AddContentSeedAssembly(assembly);
+
+        Assert.That(builder.ContentSeedAssemblies, Is.EqualTo(new[] { assembly }));
+    }
+
+    [Test]
+    public void RegisterCatalogs_RegistersContentSeedCatalog()
+    {
+        var (builder, services) = NewBuilder();
+        var assembly = typeof(TestDto).Assembly;
+        builder.AddContentSeedFile("contentseed/site.json");
+        builder.AddContentSeedAssembly(assembly);
+
+        builder.RegisterCatalogs();
+
+        var descriptor = services.Single(d => d.ServiceType == typeof(CmsContentSeedCatalog)
+            && d.ImplementationInstance is CmsContentSeedCatalog);
+        var catalog = (CmsContentSeedCatalog)descriptor.ImplementationInstance!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(catalog.Files, Is.EqualTo(new[] { "contentseed/site.json" }));
+            Assert.That(catalog.Assemblies, Is.EqualTo(new[] { assembly }));
+        });
+    }
+
     private sealed class TestDto : IVersionedContent
     {
         public Guid VersionId { get; set; }
