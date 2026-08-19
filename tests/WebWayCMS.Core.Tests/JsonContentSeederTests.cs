@@ -503,4 +503,144 @@ public class JsonContentSeederTests
         await _handler.Received(2).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
         await _records.Received(2).UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>());
     }
+
+    [Test]
+    public async Task Seed_ReferenceResolvedFromExistingRecord_SubstitutesAndSaves()
+    {
+        StubHandler();
+        var refId = Guid.Parse("11111111-0000-4000-8000-000000000001");
+        var refNodeId = Guid.Parse("aaaaaaaa-0000-4000-8000-000000000001");
+        _records.GetAsync(refId, Arg.Any<CancellationToken>())
+            .Returns(new ContentSeedRecordDTO
+            {
+                SeedId = refId,
+                ContentTypeKey = "faqs",
+                NodeId = refNodeId,
+                ContentHash = "x",
+                Source = "s",
+                AppliedUtc = DateTime.UtcNow,
+            });
+
+        object? saved = null;
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true, NodeId: NodeId))
+            .AndDoes(c => saved = c.Arg<object>());
+
+        var fields = "{\"title\":\"About\",\"parentNodeId\":\"@seed:" + refId + "\"}";
+        var seeder = NewSeeder(Provider(Source("a.json", ItemJson(fields: fields))));
+
+        await seeder.SeedAsync();
+
+        await _handler.Received(1).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        var raw = JsonSerializer.Serialize(saved);
+        Assert.Multiple(() =>
+        {
+            Assert.That(raw, Does.Not.Contain("@seed:"));
+            Assert.That(raw, Does.Contain(refNodeId.ToString()));
+        });
+    }
+
+    [Test]
+    public async Task Seed_ReferenceToItemAppliedEarlierInSameRun_SubstitutesAndSaves()
+    {
+        StubHandler();
+        var refId = Guid.Parse("11111111-0000-4000-8000-000000000001");
+        var map = new Dictionary<Guid, ContentSeedRecordDTO>();
+        _records.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(ci => map.TryGetValue(ci.Arg<Guid>(), out var r) ? r : null);
+        _records.UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(ci => map[ci.Arg<ContentSeedRecordDTO>().SeedId] = ci.Arg<ContentSeedRecordDTO>());
+
+        var saved = new List<object>();
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true, NodeId: NodeId))
+            .AndDoes(c => saved.Add(c.Arg<object>()));
+
+        var items =
+            "{\"items\":[" +
+            "{\"id\":\"" + refId + "\",\"contentType\":\"pages\",\"fields\":{\"title\":\"Parent\"}}," +
+            "{\"id\":\"" + SeedId + "\",\"contentType\":\"pages\",\"fields\":{\"title\":\"Child\",\"parentNodeId\":\"@seed:" + refId + "\"}}]}";
+        var seeder = new JsonContentSeeder(new[] { Provider(Source("a.json", items)) }, _registry, _records, OptionsOf());
+
+        await seeder.SeedAsync();
+
+        await _handler.Received(2).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        var raw = JsonSerializer.Serialize(saved[1]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(raw, Does.Not.Contain("@seed:"));
+            Assert.That(raw, Does.Contain(NodeId.ToString()));
+        });
+    }
+
+    [Test]
+    public async Task Seed_ForwardReference_ResolvedByDeferredPass()
+    {
+        StubHandler();
+        var refId = Guid.Parse("11111111-0000-4000-8000-000000000001");
+        var map = new Dictionary<Guid, ContentSeedRecordDTO>();
+        _records.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(ci => map.TryGetValue(ci.Arg<Guid>(), out var r) ? r : null);
+        _records.UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(ci => map[ci.Arg<ContentSeedRecordDTO>().SeedId] = ci.Arg<ContentSeedRecordDTO>());
+
+        var saved = new List<object>();
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true, NodeId: NodeId))
+            .AndDoes(c => saved.Add(c.Arg<object>()));
+
+        // The referencing item sorts first ("a.json") and the referenced item second ("b.json"), so
+        // only the deferred pass can resolve the forward reference.
+        var provider = Provider(
+            Source("a.json", ItemJson(fields: "{\"title\":\"Child\",\"parentNodeId\":\"@seed:" + refId + "\"}")),
+            Source("b.json", ItemJson(id: refId.ToString(), fields: "{\"title\":\"Parent\"}")));
+        var seeder = new JsonContentSeeder(new[] { provider }, _registry, _records, OptionsOf());
+
+        await seeder.SeedAsync();
+
+        await _handler.Received(2).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _records.Received(2).UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>());
+        // The child (saved second, after the deferred pass) carries the substituted parent node id.
+        var child = JsonSerializer.Serialize(saved[1]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(child, Does.Not.Contain("@seed:"));
+            Assert.That(child, Does.Contain(NodeId.ToString()));
+        });
+    }
+
+    [Test]
+    public async Task Seed_UnresolvedReference_DoesNotSaveOrRecord()
+    {
+        StubHandler();
+        var missingId = Guid.Parse("99999999-0000-4000-8000-000000000099");
+        var fields = "{\"title\":\"About\",\"parentNodeId\":\"@seed:" + missingId + "\"}";
+        var seeder = NewSeeder(Provider(Source("a.json", ItemJson(fields: fields))));
+
+        await seeder.SeedAsync();
+
+        await _records.Received(1).GetAsync(missingId, Arg.Any<CancellationToken>());
+        await _handler.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _records.DidNotReceive().UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Seed_MutuallyReferencingItems_TerminatesWithoutSaving()
+    {
+        StubHandler();
+        var idA = Guid.Parse("11111111-0000-4000-8000-000000000001");
+        var idB = Guid.Parse("22222222-0000-4000-8000-000000000002");
+        var items =
+            "{\"items\":[" +
+            "{\"id\":\"" + idA + "\",\"contentType\":\"pages\",\"fields\":{\"title\":\"A\",\"parentNodeId\":\"@seed:" + idB + "\"}}," +
+            "{\"id\":\"" + idB + "\",\"contentType\":\"pages\",\"fields\":{\"title\":\"B\",\"parentNodeId\":\"@seed:" + idA + "\"}}]}";
+        var seeder = new JsonContentSeeder(new[] { Provider(Source("a.json", items)) }, _registry, _records, OptionsOf());
+
+        await seeder.SeedAsync();
+
+        await _handler.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _records.DidNotReceive().UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>());
+    }
 }

@@ -31,6 +31,13 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
     private static readonly HashSet<string> IdentityKeys =
         new(StringComparer.OrdinalIgnoreCase) { "nodeId", "expectedVersionNumber" };
 
+    private enum ApplyOutcome
+    {
+        Applied,
+        Skipped,
+        Deferred,
+    }
+
     private readonly IEnumerable<IContentSeedSourceProvider> _providers;
     private readonly IAdminHandlerRegistry _registry;
     private readonly IContentSeedRecordService _records;
@@ -62,6 +69,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             .OrderBy(s => s.Name, StringComparer.Ordinal);
 
         var seenIds = new Dictionary<Guid, string>();
+        var pending = new List<(ContentSeedItem Item, string Source)>();
 
         foreach (var source in sources)
         {
@@ -75,23 +83,49 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
                 else
                     seenIds[item.Id] = source.Name;
 
-                await ApplyItemAsync(item, source.Name, ct);
+                pending.Add((item, source.Name));
             }
         }
+
+        // Deferred-retry pass: an item whose @seed reference has not been applied yet is retried after
+        // every other item has had a chance to run, so file/source ordering never decides whether a
+        // reference resolves. The loop stops when a pass makes no progress (empty, or every pending
+        // item deferred again — cycles and permanently missing references).
+        while (pending.Count > 0)
+        {
+            var deferred = new List<(ContentSeedItem Item, string Source)>();
+
+            foreach (var (item, source) in pending)
+            {
+                if (await ApplyItemAsync(item, source, ct) == ApplyOutcome.Deferred)
+                    deferred.Add((item, source));
+            }
+
+            if (deferred.Count == 0 || deferred.Count == pending.Count)
+            {
+                pending = deferred;
+                break;
+            }
+
+            pending = deferred;
+        }
+
+        foreach (var (item, _) in pending)
+            _logger.Warning("Content seed item '{SeedId}' has unresolved @seed reference(s); will retry next boot.", item.Id);
     }
 
-    private async Task ApplyItemAsync(ContentSeedItem item, string source, CancellationToken ct)
+    private async Task<ApplyOutcome> ApplyItemAsync(ContentSeedItem item, string source, CancellationToken ct)
     {
         if (item.Id == Guid.Empty)
         {
             _logger.Warning("Content seed item has no 'id'; skipping.");
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         if (item.Fields.ValueKind == JsonValueKind.Undefined)
         {
             _logger.Warning("Content seed item '{SeedId}' has no 'fields' object; skipping.", item.Id);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         var hash = ComputeHash(item);
@@ -100,14 +134,14 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         if (record != null && string.Equals(record.ContentHash, hash, StringComparison.Ordinal))
         {
             _logger.Debug("Content seed item '{SeedId}' is unchanged; skipping.", item.Id);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         var handler = _registry.GetHandler(item.ContentType);
         if (handler == null)
         {
             _logger.Warning("Content seed item '{SeedId}' references unknown content type '{ContentType}'; skipping.", item.Id, item.ContentType);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         // Only versioned content has a ContentNode identity the ledger can track. Non-versioned
@@ -116,7 +150,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         if (!handler.SupportsVersionHistory)
         {
             _logger.Warning("Content seed item '{SeedId}' references non-versioned content type '{ContentType}'; skipping.", item.Id, item.ContentType);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         object? existing = null;
@@ -127,12 +161,29 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         if (overlay == null)
         {
             _logger.Warning("Content seed item '{SeedId}' has a non-object 'fields' value; skipping.", item.Id);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         // The seeder owns identity: strip any id/version keys so a file can never trigger a
         // stale-version failure or hijack a node.
         StripIdentityKeys(overlay);
+
+        // Resolve @seed:{guid} references against the ledger before overlay. The hash above is
+        // computed over the raw item, so it never depends on generated node ids.
+        var resolved = new Dictionary<Guid, Guid>();
+        foreach (var seedId in SeedReferenceResolver.CollectReferences(overlay))
+        {
+            var refRecord = await _records.GetAsync(seedId, ct);
+            if (refRecord != null && refRecord.NodeId != Guid.Empty)
+                resolved[seedId] = refRecord.NodeId;
+        }
+
+        if (SeedReferenceResolver.Substitute(overlay, resolved).Count > 0)
+        {
+            // Hash is deliberately NOT recorded, so the item is retried (later this run, or next boot).
+            _logger.Debug("Content seed item '{SeedId}' references an unresolved @seed token; deferring.", item.Id);
+            return ApplyOutcome.Deferred;
+        }
 
         var model = ContentFieldMerger.TryMerge(existing ?? handler.CreateEmptyUpsertViewModel(), overlay)!;
 
@@ -141,7 +192,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         {
             // Hash is deliberately NOT recorded, so the item is retried on the next boot.
             _logger.Warning("Content seed item '{SeedId}' failed to save: {ErrorMessage}; will retry next boot.", item.Id, result.ErrorMessage);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         var nodeId = result.NodeId ?? record?.NodeId ?? Guid.Empty;
@@ -149,7 +200,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         if (nodeId == Guid.Empty)
         {
             _logger.Warning("Content seed item '{SeedId}' saved without a node id; skipping.", item.Id);
-            return;
+            return ApplyOutcome.Skipped;
         }
 
         if (item.Publish && handler.SupportsPublishing)
@@ -159,7 +210,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             {
                 // Hash is deliberately NOT recorded, so the item is retried on the next boot.
                 _logger.Warning("Content seed item '{SeedId}' failed to publish: {ErrorMessage}; will retry next boot.", item.Id, publishResult.ErrorMessage);
-                return;
+                return ApplyOutcome.Skipped;
             }
         }
 
@@ -174,6 +225,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         }, ct);
 
         _logger.Information("Seeded content item '{ContentType}' with seed id '{SeedId}' as node {NodeId}.", item.ContentType, item.Id, nodeId);
+        return ApplyOutcome.Applied;
     }
 
     private ContentSeedDocument? Deserialize(ContentSeedSource source)

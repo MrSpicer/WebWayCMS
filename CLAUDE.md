@@ -104,6 +104,10 @@
 - Update rule: `JsonContentSeeder` hashes the item and re-applies only when the hash differs from the
   `ContentSeedRecords` ledger (keyed by seed id → generated `ContentNode.Id`). Admin edits survive
   reboots; a shipped content change takes effect. A failed save doesn't record the hash, so it retries.
+- A string field (or a token inside a serialized-JSON string such as `configurationJson`) may reference
+  another seeded item's generated node id via `@seed:{guid}`; `SeedReferenceResolver` resolves it through
+  the ledger, and `SeedAsync` runs a deferred-retry pass so ordering never matters. Unresolved references
+  (including cycles) are not saved or hash-recorded and retry next boot.
 - Gate it with `WEBWAYCMS_SKIP_CONTENTSEED=true` or `ContentSeed:Enabled=false`.
 - See [docs/architecture/15-content-seeding.md](docs/architecture/15-content-seeding.md).
 

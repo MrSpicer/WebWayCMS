@@ -3,7 +3,7 @@
 **Namespaces:**
 - `WebWayCMS.Services.ContentSeeding` — `JsonContentSeeder`, `IContentSeedSourceProvider`,
   `AssemblyContentSeedSourceProvider`, `FileContentSeedSourceProvider`, `ContentSeedOptions`,
-  `ContentSeedSource`, `ContentSeedDocument`, `ContentSeedItem`
+  `ContentSeedSource`, `ContentSeedDocument`, `ContentSeedItem`, `SeedReferenceResolver`
 - `WebWayCMS.Content` — `ContentFieldMerger` (shared JSON field overlay)
 - `WebWayCMS.Data.Services` — `IContentSeedRecordService` / `ContentSeedRecordService`
 - `WebWayCMS.Startup` — `CmsContentSeedCatalog`, `CmsContentSeedRunner`
@@ -77,6 +77,9 @@ One shape, no variants:
   A missing or non-object `fields` value is a warning and the item is skipped. This is exactly what
   MCP's `describe_content_type` advertises, so `describe_content_type` doubles as the authoring
   reference.
+- `@seed:{guid}` — a string field value may reference another seeded item's id with an `@seed:`
+  token, which is replaced with the referenced item's generated node id at apply time (see §7
+  Cross-item references).
 
 `nodeId` and `expectedVersionNumber` are stripped from `fields` before overlay (case-insensitively) —
 the seeder owns identity and must never let a file trigger a stale-version failure or hijack a node.
@@ -116,8 +119,12 @@ resolve handler for item.contentType              -> null: warning, skip
                                                    -> !SupportsVersionHistory: warning, skip
 existing = record?.NodeId == null ? null : handler.GetUpsertViewModelAsync(record.NodeId)
                                                    -> null (deleted in admin) => recreate
-model = merge(fields) over (existing ?? handler.CreateEmptyUpsertViewModel())
-                                                   -> fields not an object: warning, skip
+overlay = fields as object                          -> not an object: warning, skip
+strip nodeId / expectedVersionNumber from overlay
+refs = collect @seed:{guid} tokens from overlay
+for each ref: map[ref] = ledger[ref].NodeId when present and != Guid.Empty
+overlay = substitute @seed tokens using map         -> any unresolved: defer (skip, hash NOT recorded)
+model = merge(overlay) over (existing ?? handler.CreateEmptyUpsertViewModel())
 save = handler.SaveUpsertAsync(model)             -> !Success: warning, skip (hash NOT recorded)
 nodeId = save.NodeId ?? record?.NodeId            -> Guid.Empty: warning, skip (hash NOT recorded)
 if item.publish && handler.SupportsPublishing:
@@ -155,12 +162,38 @@ route rows).
 The `WEBWAYCMS_SKIP_CONTENTSEED=true` environment variable is a separate kill switch checked by the
 runner (`CmsContentSeedRunner`) before the seeder is even resolved.
 
-## 7. Known Limitation
+## 7. Cross-item References (`@seed:{guid}`)
 
-Because the seed Guid is a key mapped to a generated node id (not the node id itself), a seed file
-**cannot cross-reference its own items** — e.g. a child page's `parentNodeId`, or an article's
-`articleListNodeId`. The ledger makes a future `"@seed:<guid>"` reference-resolution pass
-straightforward, but that is out of scope here. Seeded pages are root pages.
+Because the seed Guid is a key mapped to a generated node id (not the node id itself), an item that
+needs to point at another seeded item — a child page's `parentNodeId`, or an entity picker such as
+`ConfiguredPage.FeaturedFaqId` — references it with an `@seed:` token carrying the target item's seed
+id:
+
+```json
+"fields": {
+  "parentNodeId": "@seed:22222222-0000-4000-8000-000000000002",
+  "configurationJson": "{\"featuredFaqId\":\"@seed:11111111-0000-4000-8000-000000000001\"}"
+}
+```
+
+- **Token format** — `@seed:` followed by a Guid in canonical form. Substitution is a plain string
+  replace (`SeedReferenceResolver`), so a token works both as a whole string value (a bare guid that
+  deserializes to `Guid?`) and embedded inside a serialized-JSON string such as a page-type or widget
+  `configurationJson` — the case that matters most, since every page-type and widget config travels as
+  a JSON string.
+- **Resolution** — at apply time the seeder collects every referenced seed id, looks each up in the
+  `ContentSeedRecords` ledger, and maps it to `record.NodeId` when the record exists and its node id
+  is non-empty.
+- **Deferred pass** — resolution depends only on what has already been applied, so file/source
+  ordering never decides whether a reference resolves. `SeedAsync` re-applies any item left with an
+  unresolved reference after every other item has had a chance to run, and stops only when a pass
+  makes no progress.
+- **Unresolved ⇒ retry next boot** — an item that still has an unresolved reference is never saved and
+  its hash is never recorded (exactly like a failed save), so it is retried on the next boot.
+- **Cycles** — self-references and mutually-referencing items resolve to "no progress" and are
+  reported (a warning naming the item) rather than looped on.
+- **Hashes are reference-stable** — the hash is computed over the raw item *before* substitution, so a
+  fixture's hash does not depend on generated node ids.
 
 ## 8. Host Wiring
 
