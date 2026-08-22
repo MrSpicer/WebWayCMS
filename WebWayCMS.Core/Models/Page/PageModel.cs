@@ -123,8 +123,17 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         // Replace the page's route (a slug rename must drop the old pattern, not accumulate it).
         var previousRoutes = await _routeService.GetByOwningContentAsync(nodeId, ct);
+
+        // A publish replaces the route row wholesale, so an admin-set navigation name would be lost.
+        // Carry it forward from the existing row(s) — including a *blank* one, which is how an admin
+        // takes a page out of the navigation widgets. Only a page that has never had a route row
+        // (its first publish) seeds a navigation name from the title.
+        var navigationName = previousRoutes.Count > 0
+            ? previousRoutes.Select(r => r.NavigationName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
+            : draft.Version.Title;
+
         await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
-        var registration = await _routeRegistration.RegisterContentRoutesAsync(this, routePattern, draft.ControllerName, nodeId, ct);
+        var registration = await _routeRegistration.RegisterContentRoutesAsync(this, routePattern, draft.ControllerName, nodeId, navigationName, ct);
         if (!registration.Success)
         {
             // Roll the state flip back so a failed registration never leaves a published page

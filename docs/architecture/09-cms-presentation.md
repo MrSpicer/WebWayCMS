@@ -47,7 +47,7 @@ and so on.
 | File | Purpose |
 |------|---------|
 | `Views/Shared/_AdminLayout.cshtml` | Root admin layout: navbar, Bulma + FontAwesome from CDN, the CSRF and CKEditor-license meta tags, and optional CKEditor sections |
-| `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`) |
+| `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`). The hand-written links (Pages, Content Blocks, Articles, the Advanced dropdown) point at admin controller actions; ahead of them it renders `RouteNavigation` with `AdminRoutes = true`, so any published `/wadmin`-prefixed route with a `NavigationName` appears automatically |
 | `Views/Shared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal, rendered once by the layout |
 | `Views/AdminShared/VersionHistory.cshtml` | Shared version history list view used by all content types |
 
@@ -70,9 +70,15 @@ views do not set `Layout` themselves.
 @await Component.InvokeAsync("Page", new { config = new PageContentZoneConfiguration() })
 ```
 
-**Purpose:** Renders a page reference by fetching page data from `IPageModel`. Used to embed a page's content block zones as a widget within another zone.
+**Purpose:** Renders a **navigation tree** of CMS pages. Reads `IPageModel.GetPageIndexAsync()` and maps
+the page tree to `PageNavigationViewModel` / `PageNavigationItem`. Tree nodes without a `PageNodeId`
+(intermediate path segments that are not themselves pages) are dropped, so their children rise a level.
+The view emits bare Bulma `<a class="navbar-item">` links with a nested `<ul>` for children, and no
+wrapping element — it is meant to drop straight into a navbar.
 
-**Parameter:** `PageContentZoneConfiguration? config` — contains the target page configuration (zone slot names).
+**Parameter:** `PageContentZoneConfiguration? config` — `ShowDraftPages`, `ShowHiddenPages`,
+`AdminPages` (partitions on the `/wadmin` prefix: admin-only when true, admin-excluded when false)
+and `ViewName` (a ViewPicker over `Views/Shared/Components/Page/`).
 
 ---
 
@@ -80,10 +86,48 @@ views do not set `Layout` themselves.
 
 **Invocation:**
 ```razor
-@await Component.InvokeAsync("RouteNavigation")
+@await Component.InvokeAsync("RouteNavigation", new { config = new RouteNavigationConfiguration() })
 ```
 
-**Purpose:** Renders a flat list of links for every active, non-parameterized CMS route. Unlike `PageViewComponent`, it reads `ICMSRouteRegistry.GetActiveRoutes()` (the 60s-cached route registry) rather than `IPageModel`, so it surfaces routes owned by non-Page content (routable widgets, `[CmsRoute]` controllers) as well as pages. Routes whose `Pattern` contains a `{` placeholder are excluded; link text is the raw `Pattern` string. Takes no configuration.
+**Purpose:** Renders a navigation tree of links for every active CMS route. Unlike `PageViewComponent`,
+it reads `ICMSRouteRegistry.GetActiveRoutes()` (the 60s-cached route registry) rather than `IPageModel`,
+so it surfaces routes owned by non-Page content (routable widgets, `[CmsRoute]` controllers) as well as
+pages. It renders **the same markup as `PageViewComponent`** — bare `<a class="navbar-item">` links with
+a nested `<ul>` for children — so the two widgets are interchangeable inside a navbar zone.
+
+**Link text is the route's `NavigationName`**, and a route without one is **not rendered at all** — the
+widget is an opt-in menu, not a dump of every route. Page routes get theirs from the page title on their
+*first* publish (see `RegisterContentRoutesAsync` in [03-page-routing.md](03-page-routing.md)); code-based
+routes declare theirs on `[CmsRoute(..., NavigationName = "…")]`; anything else is named by an admin at
+`/wadmin/cmsroutes`. Clearing the name there is the supported way to pull a page out of the menu — a
+republish carries the blank forward rather than re-seeding it from the title.
+
+**Filters**, applied in order: patterns containing a `{` placeholder are always excluded (they cannot be
+linked without values); routes with no `NavigationName` are excluded; reserved routes are excluded unless
+`IncludeReserved` (a reserved row never dispatches — `CMSRouteService.MatchRouteAsync` skips it — so it is
+an unroutable placeholder); then the `/wadmin` prefix partition. That last one matches on a **segment
+boundary** (`AdminPathPrefix`, shared with `PageViewComponent`), so a public route at `/wadmin-guide`
+stays in the public nav instead of being swept into the admin navbar.
+
+**Nesting** happens *after* filtering: each surviving pattern is attached to its nearest surviving
+ancestor pattern (`/blog/news` under `/blog`), or stays at the root when it has none. A filtered-out
+parent therefore lets its children rise a level — so a named child of an **unnamed** parent appears at the
+top level — mirroring how `PageViewComponent` drops nodes without a `PageNodeId`. The site root `/` is
+never treated as a parent, so it does not swallow every other link.
+
+**Parameter:** `RouteNavigationConfiguration? config` — `AdminRoutes`, `IncludeReserved`, and `ViewName`
+(a ViewPicker over `Views/Shared/Components/RouteNavigation/`).
+
+**In-CMS consumer:** `WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml` invokes it with
+`AdminRoutes = true` and `ViewName = "AdminNavbar"` (it replaced an equivalent `PageViewComponent` call
+— `PageViewComponent` itself remains a placeable zone widget). It asks for the named view rather than
+`Default` so a host re-skinning `Default.cshtml` cannot break the admin navbar; see the warning in §6. The integration host drives its whole public navbar from it; see §6
+for how that host re-skins the view for Bootstrap.
+
+> The widget seeder (`CmsWidgetRegistrationSeeder`) is insert-only. A database seeded before this widget
+> gained a `ConfigurationType` keeps `PropertyDefinitionsJson = "[]"` and shows no config form; delete
+> and re-seed the row, or set its **Configuration Type Name** to
+> `WebWayCMS.Models.CMSRoute.RouteNavigationConfiguration` at `/wadmin/widgetregistration` and re-save.
 
 ---
 
@@ -212,3 +256,39 @@ For ViewComponent default views:
 - Create `MySite/Views/Shared/Components/ContentBlock/Default.cshtml`
 
 No configuration changes are needed; view resolution precedence handles the override automatically.
+
+**Worked example — re-skinning a component for a different CSS framework.** The CMS ships Bulma markup,
+but the integration host is a Bootstrap site. It overrides
+`Views/Shared/Components/RouteNavigation/Default.cshtml` to emit a self-contained
+`<ul class="navbar-nav flex-grow-1">` of `<li class="nav-item"><a class="nav-link">` instead of the
+shipped bare `<a class="navbar-item">`, and turns any item with children into a Bootstrap
+`dropdown-toggle` + `.dropdown-menu`. Its `_Layout.cshtml` then just calls
+`@await Component.InvokeAsync("RouteNavigation")`. The same host uses this technique for all eleven
+`Components/Layout/*.cshtml` views.
+
+Things worth copying from that view:
+
+- **Emit your own wrapper element**, so the component stays valid whether it lands in a navbar or a
+  content zone.
+- **Use the target framework's real submenu idiom — a nested list is not one.** The obvious translation
+  of the Bulma view is a nested `<ul class="navbar-nav">`, and it does not work:
+  `.navbar-expand-* .navbar-nav` is a **descendant** selector, so the inner list also inherits
+  `flex-direction:row` and renders as a second tier *inside* its parent `<li>`, leaving a ragged
+  two-tier block instead of a bar. Bootstrap supports exactly one navbar submenu — the dropdown.
+- **When the toggle stops being a link, repeat the item's own link inside the menu.** A
+  `dropdown-toggle` is `href="#"`, so without a first `.dropdown-item` pointing at the parent's own
+  path, that page becomes unreachable from the nav.
+- **Match the framework's depth limit.** Bootstrap has no true multi-level menu, so the host flattens
+  grandchildren into the same `.dropdown-menu` with a `ps-*` indent rather than dropping them. Where the
+  framework *does* nest (the shipped Bulma view), recurse rather than looping one level deep, so deep
+  trees are not silently truncated.
+
+> ⚠️ **An override is app-wide, not host-page-only.** View resolution is per *application*, and the
+> admin UI renders in the same application — so shadowing `Components/{X}/Default.cshtml` also changes
+> what the **admin** sees. That is invisible for `Components/Layout/*`, which nothing on the admin side
+> invokes, but it bites any component the admin UI also renders. `RouteNavigation` is the first such
+> component: the admin navbar loads only Bulma, so a Bootstrap `Default.cshtml` in the host would render
+> it unstyled. The CMS therefore ships a **named** Bulma view,
+> `WebWayCMS.Admin/Views/Shared/Components/RouteNavigation/AdminNavbar.cshtml`, and `_AdminNavbar.cshtml`
+> asks for it by `ViewName` — so a host is free to shadow `Default.cshtml` without touching the admin UI.
+> Apply the same pattern to any future CMS view rendered on both sides.

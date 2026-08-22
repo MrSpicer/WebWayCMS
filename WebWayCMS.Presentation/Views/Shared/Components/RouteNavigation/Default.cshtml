@@ -1,10 +1,28 @@
-@model List<string>
-@if (Model.Any())
+@using WebWayCMS.Models.CMSRoute
+@model RouteNavigationViewModel
+
+@if (Model.Items.Any())
 {
-    <ul>
-        @foreach (var pattern in Model)
+    @foreach (var item in Model.Items)
+    {
+        await RenderNavItem(item);
+    }
+}
+
+@functions {
+    async Task RenderNavItem(RouteNavigationItem item)
+    {
+        <a class="navbar-item" href="@item.Path">@item.Title</a>
+        @if (item.Children.Any())
         {
-            <li><a class="navbar-item" href="@pattern">@pattern</a></li>
+            <ul>
+                @foreach (var child in item.Children)
+                {
+                    <li>
+                        @{ await RenderNavItem(child); }
+                    </li>
+                }
+            </ul>
         }
-    </ul>
+    }
 }

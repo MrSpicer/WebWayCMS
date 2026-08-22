@@ -7,7 +7,7 @@ public interface IRouteRegistrationService
 {
     Task<(bool Success, string? ErrorMessage)> RegisterContentRoutesAsync(
         IRoutableContent content, string routePattern, string controllerName,
-        Guid contentNodeId, CancellationToken ct = default);
+        Guid contentNodeId, string? navigationName = null, CancellationToken ct = default);
 
     Task UnregisterContentRoutesAsync(Guid contentNodeId, CancellationToken ct = default);
 

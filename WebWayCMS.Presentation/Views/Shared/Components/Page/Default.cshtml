@@ -19,7 +19,7 @@
                 @foreach (var child in item.Children)
                 {
                     <li>
-                        <a class="navbar-item" href="@child.Path">@child.Title</a>
+                        @{ await RenderNavItem(child); }
                     </li>
                 }
             </ul>

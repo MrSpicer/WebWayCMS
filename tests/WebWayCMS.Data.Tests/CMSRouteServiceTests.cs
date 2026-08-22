@@ -237,6 +237,18 @@ public class CMSRouteServiceTests
     }
 
     [Test]
+    public async Task UpsertAsync_StoresNavigationName()
+    {
+        var route = new CMSRouteDTO { Pattern = "/test", NavigationName = "About Us" };
+
+        await NewService().UpsertAsync(route);
+
+        await using var verify = NewContext();
+        var stored = await verify.Set<CMSRouteDTO>().FirstAsync(r => r.Pattern == "/test");
+        Assert.That(stored.NavigationName, Is.EqualTo("About Us"));
+    }
+
+    [Test]
     public async Task UpsertAsync_ExistingRoute_ReplacesIt()
     {
         var owningNodeId = Guid.NewGuid();

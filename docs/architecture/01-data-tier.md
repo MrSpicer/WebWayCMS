@@ -216,6 +216,11 @@ Parent container for articles. No type-specific fields.
 Plain entity, no `IVersionedContent`, no version history (matching `CMSRouteModel.SupportsVersionHistory => false` and the hard-delete-replace behaviour):
 - `Id` — plain `Guid`
 - `Pattern` — normalized URL pattern (unique index)
+- `NavigationName` — human-readable link text for navigation widgets (nullable, max
+  `CMSRouteDTO.NavigationNameMaxLength` = 256, which the EF configuration and the upsert view model both
+  read). Seeded from the page title on the **first** publish only; after that whatever is on the existing
+  row is carried forward verbatim — including a blank, which is how an admin takes a page out of the
+  widgets. `RouteNavigationViewComponent` omits routes that have none
 - `DefaultsJson`, `ConstraintsJson`, `DataTokensJson` — route metadata (`DataTokens` stores a widget route's `ParentPageNodeId`)
 - `Order`, `OwningContentNodeId`, `OwningContentType`, `IsReserved`
 

@@ -39,7 +39,7 @@ namespace WebWayCMS.Data.Migrations
                     PasswordHash = table.Column<string>(type: "text", nullable: true),
                     SecurityStamp = table.Column<string>(type: "text", nullable: true),
                     ConcurrencyStamp = table.Column<string>(type: "text", nullable: true),
-                    PhoneNumber = table.Column<string>(type: "text", nullable: true),
+                    PhoneNumber = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     PhoneNumberConfirmed = table.Column<bool>(type: "boolean", nullable: false),
                     TwoFactorEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     LockoutEnd = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -73,6 +73,7 @@ namespace WebWayCMS.Data.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Pattern = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
+                    NavigationName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     DefaultsJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
                     ConstraintsJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     DataTokensJson = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
@@ -103,6 +104,46 @@ namespace WebWayCMS.Data.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_ContentNodes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ContentSeedRecords",
+                columns: table => new
+                {
+                    SeedId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentTypeKey = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    NodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    Source = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: false),
+                    AppliedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentSeedRecords", x => x.SeedId);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "FormComponentRegistrations",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    ViewComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false),
+                    DataTypeNamesJson = table.Column<string>(type: "text", nullable: false),
+                    EditorTypeAlias = table.Column<string>(type: "text", nullable: true),
+                    IsDefaultForType = table.Column<bool>(type: "boolean", nullable: false),
+                    WriteViewName = table.Column<string>(type: "text", nullable: false),
+                    ReadViewName = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FormComponentRegistrations", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -161,6 +202,25 @@ namespace WebWayCMS.Data.Migrations
                     table.PrimaryKey("PK_AspNetUserLogins", x => new { x.LoginProvider, x.ProviderKey });
                     table.ForeignKey(
                         name: "FK_AspNetUserLogins_AspNetUsers_UserId",
+                        column: x => x.UserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AspNetUserPasskeys",
+                columns: table => new
+                {
+                    CredentialId = table.Column<byte[]>(type: "bytea", maxLength: 1024, nullable: false),
+                    UserId = table.Column<string>(type: "text", nullable: false),
+                    Data = table.Column<string>(type: "jsonb", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AspNetUserPasskeys", x => x.CredentialId);
+                    table.ForeignKey(
+                        name: "FK_AspNetUserPasskeys_AspNetUsers_UserId",
                         column: x => x.UserId,
                         principalTable: "AspNetUsers",
                         principalColumn: "Id",
@@ -383,36 +443,6 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "FormComponentRegistrations",
-                columns: table => new
-                {
-                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    ViewComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    Description = table.Column<string>(type: "text", nullable: false),
-                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    Order = table.Column<int>(type: "integer", nullable: false),
-                    DataTypeNamesJson = table.Column<string>(type: "text", nullable: false),
-                    EditorTypeAlias = table.Column<string>(type: "text", nullable: true),
-                    IsDefaultForType = table.Column<bool>(type: "boolean", nullable: false),
-                    WriteViewName = table.Column<string>(type: "text", nullable: false),
-                    ReadViewName = table.Column<string>(type: "text", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_FormComponentRegistrations", x => x.VersionId);
-                    table.ForeignKey(
-                        name: "FK_FormComponentRegistrations_ContentVersions_VersionId",
-                        column: x => x.VersionId,
-                        principalTable: "ContentVersions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "PageControllerRegistrations",
                 columns: table => new
                 {
@@ -512,6 +542,11 @@ namespace WebWayCMS.Data.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_AspNetUserPasskeys_UserId",
+                table: "AspNetUserPasskeys",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_AspNetUserRoles_RoleId",
                 table: "AspNetUserRoles",
                 column: "RoleId");
@@ -552,6 +587,11 @@ namespace WebWayCMS.Data.Migrations
                 name: "IX_ContentNodes_SiteId",
                 table: "ContentNodes",
                 column: "SiteId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentSeedRecords_NodeId",
+                table: "ContentSeedRecords",
+                column: "NodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentVersions_ChangeSetId",
@@ -675,6 +715,9 @@ namespace WebWayCMS.Data.Migrations
                 name: "AspNetUserLogins");
 
             migrationBuilder.DropTable(
+                name: "AspNetUserPasskeys");
+
+            migrationBuilder.DropTable(
                 name: "AspNetUserRoles");
 
             migrationBuilder.DropTable(
@@ -688,6 +731,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ContentBlocks");
+
+            migrationBuilder.DropTable(
+                name: "ContentSeedRecords");
 
             migrationBuilder.DropTable(
                 name: "ContentZoneAssignments");

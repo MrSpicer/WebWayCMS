@@ -42,6 +42,7 @@
                     <thead>
                         <tr>
                             <th scope="col">Pattern</th>
+                            <th scope="col">Navigation Name</th>
                             <th scope="col">Owning Type</th>
                             <th scope="col">Reserved</th>
                             <th scope="col"><span class="is-sr-only">Actions</span></th>
@@ -52,6 +53,16 @@
                         {
                             <tr>
                                 <td><code>@route.Pattern</code></td>
+                                <td>
+                                    @if (string.IsNullOrWhiteSpace(route.NavigationName))
+                                    {
+                                        <span class="has-text-grey-light">&mdash;</span>
+                                    }
+                                    else
+                                    {
+                                        @route.NavigationName
+                                    }
+                                </td>
                                 <td>@route.OwningContentType</td>
                                 <td>
                                     @if (route.IsReserved)

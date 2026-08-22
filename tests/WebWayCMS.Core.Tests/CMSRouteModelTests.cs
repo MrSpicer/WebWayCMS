@@ -123,6 +123,19 @@ public class CMSRouteModelTests
     }
 
     [Test]
+    public async Task GetRouteIndexAsync_MapsNavigationName()
+    {
+        _routeService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            new() { Id = Guid.NewGuid(), Pattern = "/test", NavigationName = "About Us" }
+        });
+
+        var result = await _model.GetRouteIndexAsync();
+
+        Assert.That(result.Routes[0].NavigationName, Is.EqualTo("About Us"));
+    }
+
+    [Test]
     public async Task GetIndexViewModelAsync_ReturnsIndexViewModel()
     {
         _routeService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
@@ -334,5 +347,22 @@ public class CMSRouteModelTests
         var result = await _model.GetApiListAsync();
 
         Assert.That(result.Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetApiListAsync_PrefersNavigationNameOverPattern()
+    {
+        _routeService.GetActiveRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            new() { Id = Guid.NewGuid(), Pattern = "/named", NavigationName = "About Us" },
+            new() { Id = Guid.NewGuid(), Pattern = "/unnamed" },
+            new() { Id = Guid.NewGuid(), Pattern = "/blank", NavigationName = "  " }
+        });
+
+        var titles = (await _model.GetApiListAsync())
+            .Select(o => (string)o.GetType().GetProperty("title")!.GetValue(o)!)
+            .ToList();
+
+        Assert.That(titles, Is.EqualTo(new[] { "About Us", "/unnamed", "/blank" }));
     }
 }

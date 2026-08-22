@@ -21,7 +21,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
     public async Task<(bool Success, string? ErrorMessage)> RegisterContentRoutesAsync(
         IRoutableContent content, string routePattern, string controllerName,
-        Guid contentNodeId, CancellationToken ct = default)
+        Guid contentNodeId, string? navigationName = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(routePattern))
             return (true, null);
@@ -35,6 +35,10 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         var route = new CMSRouteDTO
         {
             Pattern = routePattern,
+            // Callers seed this from a content title, which allows far more characters than the
+            // column stores. Truncating here keeps an over-long title from failing the insert —
+            // which UpsertAsync can only report as a (nonexistent) route-pattern collision.
+            NavigationName = TruncateNavigationName(navigationName),
             DefaultsJson = JsonSerializer.Serialize(defaults),
             DataTokensJson = JsonSerializer.Serialize(new Dictionary<string, string>
             {
@@ -47,6 +51,11 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         var result = await _routeService.UpsertAsync(route, ct);
         return (result.Success, result.ErrorMessage);
     }
+
+    private static string? TruncateNavigationName(string? navigationName)
+        => navigationName is { Length: > CMSRouteDTO.NavigationNameMaxLength }
+            ? navigationName[..CMSRouteDTO.NavigationNameMaxLength]
+            : navigationName;
 
     public async Task UnregisterContentRoutesAsync(Guid contentNodeId, CancellationToken ct = default)
     {

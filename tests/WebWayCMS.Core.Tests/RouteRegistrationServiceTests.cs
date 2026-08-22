@@ -49,6 +49,39 @@ public class RouteRegistrationServiceTests
     }
 
     [Test]
+    public async Task RegisterContentRoutesAsync_OverlongNavigationName_IsTruncatedToColumnLength()
+    {
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        // A page title allows far more characters than the NavigationName column stores; letting one
+        // through would fail the insert, which UpsertAsync can only report as a pattern collision.
+        var longName = new string('x', CMSRouteDTO.NavigationNameMaxLength + 1);
+
+        await _service.RegisterContentRoutesAsync(
+            new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid(), longName);
+
+        await _routeService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.NavigationName!.Length == CMSRouteDTO.NavigationNameMaxLength),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RegisterContentRoutesAsync_NavigationNameAtColumnLength_IsKeptWhole()
+    {
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        var name = new string('x', CMSRouteDTO.NavigationNameMaxLength);
+
+        await _service.RegisterContentRoutesAsync(
+            new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid(), name);
+
+        await _routeService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.NavigationName == name), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task UnregisterContentRoutesAsync_DeactivatesRoutes()
     {
         await _service.UnregisterContentRoutesAsync(Guid.NewGuid());
@@ -203,6 +236,34 @@ public class RouteRegistrationServiceTests
 
         await _routeService.Received(2).UpsertAsync(
             Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RegisterContentRoutesAsync_NavigationName_ReachesTheRoute()
+    {
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        await _service.RegisterContentRoutesAsync(
+            new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid(), "About Us");
+
+        await _routeService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.NavigationName == "About Us"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RegisterContentRoutesAsync_NoNavigationName_LeavesItNull()
+    {
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        await _service.RegisterContentRoutesAsync(
+            new TestRoutableContent(), "/test", "TestCtrl", Guid.NewGuid());
+
+        await _routeService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.NavigationName == null),
+            Arg.Any<CancellationToken>());
     }
 
     [Test]

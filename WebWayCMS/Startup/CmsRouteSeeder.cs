@@ -37,9 +37,9 @@ internal static class CmsRouteSeeder
             var routeService = services.GetRequiredService<ICMSRouteService>();
             var existingRoutes = routeService.GetActiveRoutesAsync().GetAwaiter().GetResult();
 
-            var existingPatterns = new HashSet<string>(
-                existingRoutes.Select(r => r.Pattern),
-                StringComparer.OrdinalIgnoreCase);
+            var existingByPattern = existingRoutes
+                .GroupBy(r => r.Pattern, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var assemblies = CmsStartupHelpers.SeedAssemblies(
                 services,
@@ -51,7 +51,7 @@ internal static class CmsRouteSeeder
             {
                 try
                 {
-                    SeedAssemblyCodeBasedRoutes(assembly, routeService, existingPatterns, logger);
+                    SeedAssemblyCodeBasedRoutes(assembly, routeService, existingByPattern, logger);
                 }
                 catch (Exception ex)
                 {
@@ -75,7 +75,7 @@ internal static class CmsRouteSeeder
     private static void SeedAssemblyCodeBasedRoutes(
         Assembly assembly,
         ICMSRouteService routeService,
-        HashSet<string> existingPatterns,
+        Dictionary<string, CMSRouteDTO> existingByPattern,
         ILogger logger)
     {
         var controllerTypes = assembly.GetTypes()
@@ -95,8 +95,15 @@ internal static class CmsRouteSeeder
             {
                 var pattern = NormalizeRoutePattern(attr.Pattern);
 
-                if (existingPatterns.Contains(pattern))
+                if (existingByPattern.TryGetValue(pattern, out var existing))
+                {
+                    // The row already exists, so the rest of the attribute is not re-applied — but a
+                    // NavigationName added to an attribute after first boot would otherwise never
+                    // reach the database, leaving the route invisible to the navigation widgets.
+                    // Fill a blank name only; an admin-set one wins.
+                    BackfillNavigationName(existing, attr.NavigationName, routeService, logger);
                     continue;
+                }
 
                 var defaults = new Dictionary<string, string>
                 {
@@ -146,6 +153,7 @@ internal static class CmsRouteSeeder
                 var route = new CMSRouteDTO
                 {
                     Pattern = pattern,
+                    NavigationName = attr.NavigationName,
                     DefaultsJson = JsonSerializer.Serialize(defaults),
                     ConstraintsJson = attr.Constraints ?? "{}",
                     DataTokensJson = JsonSerializer.Serialize(dataTokens),
@@ -158,7 +166,7 @@ internal static class CmsRouteSeeder
                     var result = routeService.UpsertAsync(route).GetAwaiter().GetResult();
                     if (result.Success)
                     {
-                        existingPatterns.Add(pattern);
+                        existingByPattern[pattern] = route;
                         logger.Information("Seeded code-based route '{Pattern}' -> {Controller}.{Action}",
                             pattern, controllerName, attr.Action ?? "Index");
                     }
@@ -173,6 +181,30 @@ internal static class CmsRouteSeeder
                     logger.Warning(ex, "Failed to seed code-based route '{Pattern}'", pattern);
                 }
             }
+        }
+    }
+
+    private static void BackfillNavigationName(
+        CMSRouteDTO existing, string? navigationName, ICMSRouteService routeService, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(navigationName) || !string.IsNullOrWhiteSpace(existing.NavigationName))
+            return;
+
+        existing.NavigationName = navigationName;
+
+        try
+        {
+            var result = routeService.UpsertAsync(existing).GetAwaiter().GetResult();
+            if (result.Success)
+                logger.Information("Backfilled navigation name '{NavigationName}' on existing code-based route '{Pattern}'",
+                    navigationName, existing.Pattern);
+            else
+                logger.Warning("Failed to backfill navigation name on code-based route '{Pattern}': {ErrorMessage}",
+                    existing.Pattern, result.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning(ex, "Failed to backfill navigation name on code-based route '{Pattern}'", existing.Pattern);
         }
     }
 

@@ -344,6 +344,7 @@ public class MappingTests
             ConstraintsJson = "{\"b\":2}",
             DataTokensJson = "{\"c\":3}",
             OwningContentType = "Page",
+            NavigationName = "About Us",
             IsReserved = true
         };
         var nulls = new CMSRouteDTO
@@ -359,10 +360,12 @@ public class MappingTests
             var vm = _mapper.Map<CMSRouteUpsertViewModel>(full);
             Assert.That(vm.IsReserved, Is.True);
             Assert.That(vm.Pattern, Is.EqualTo("/test"));
+            Assert.That(vm.NavigationName, Is.EqualTo("About Us"));
             Assert.That(vm.DefaultsJson, Is.EqualTo("{\"a\":1}"));
 
             var n = _mapper.Map<CMSRouteUpsertViewModel>(nulls);
             Assert.That(n.Pattern, Is.Empty);
+            Assert.That(n.NavigationName, Is.Null);
             Assert.That(n.DefaultsJson, Is.EqualTo("{}"));
             Assert.That(n.ConstraintsJson, Is.EqualTo("{}"));
             Assert.That(n.DataTokensJson, Is.EqualTo("{}"));
@@ -380,7 +383,8 @@ public class MappingTests
             ConstraintsJson = "{\"b\":2}",
             DataTokensJson = "{\"c\":3}",
             IsReserved = true,
-            OwningContentType = "Page"
+            OwningContentType = "Page",
+            NavigationName = "About Us"
         };
 
         Assert.Multiple(() =>
@@ -389,6 +393,7 @@ public class MappingTests
             Assert.That(dto.Id, Is.EqualTo(full.Id));
             Assert.That(dto.IsReserved, Is.True);
             Assert.That(dto.Pattern, Is.EqualTo("/test"));
+            Assert.That(dto.NavigationName, Is.EqualTo("About Us"));
 
             var n = _mapper.Map<CMSRouteDTO>(new CMSRouteUpsertViewModel
             {
@@ -400,6 +405,7 @@ public class MappingTests
             });
             Assert.That(n.Id, Is.EqualTo(Guid.Empty));
             Assert.That(n.Pattern, Is.Empty);
+            Assert.That(n.NavigationName, Is.Null);
             Assert.That(n.DefaultsJson, Is.EqualTo("{}"));
             Assert.That(n.ConstraintsJson, Is.EqualTo("{}"));
             Assert.That(n.DataTokensJson, Is.EqualTo("{}"));

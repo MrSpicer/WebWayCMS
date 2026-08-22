@@ -301,6 +301,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsReserved")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("NavigationName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 

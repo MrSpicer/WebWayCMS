@@ -36,6 +36,7 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
             {
                 Id = r.Id,
                 Pattern = r.Pattern,
+                NavigationName = r.NavigationName,
                 OwningContentType = r.OwningContentType,
                 IsReserved = r.IsReserved
             }).ToList()
@@ -103,7 +104,11 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
     public async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
         var vm = await GetRouteIndexAsync(ct);
-        return vm.Routes.Select(r => (object)new { id = r.Id, title = r.Pattern });
+        return vm.Routes.Select(r => (object)new
+        {
+            id = r.Id,
+            title = string.IsNullOrWhiteSpace(r.NavigationName) ? r.Pattern : r.NavigationName
+        });
     }
 
     public bool HasSecondaryApiList => false;

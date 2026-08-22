@@ -23,8 +23,8 @@ public class PageContentZoneConfiguration
     public bool ShowHiddenPages { get; set; } = false;
 
     [FormProperty(
-        Label = "Include Admin Pages",
-        HelpText = "When enabled, includes pages whose route starts with /wadmin.",
+        Label = "Admin Pages",
+        HelpText = "When enabled, displays pages whose route starts with /wadmin.",
         EditorType = EditorType.Checkbox,
         Order = 3,
         FormComponent = "Checkbox"

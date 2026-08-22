@@ -134,8 +134,11 @@ group) is therefore safe only on **model-bound** forms (a content type's own ups
 
 ## 7. Known Limits (Out of Scope)
 
-- The admin navbar is hardcoded (`WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml`), so a host type
-  has no menu entry — it is reachable by URL and over MCP only.
+- The admin navbar's links to the built-in content types are hardcoded
+  (`WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml`), so a host **content type** gets no menu entry —
+  its CRUD screens are reachable by URL and over MCP only. (A host *page* is a different matter: the
+  navbar renders `RouteNavigation` with `AdminRoutes = true`, so anything published at a
+  `/wadmin`-prefixed route with a `NavigationName` shows up on its own.)
 - No rollback/uninstall semantics for host migrations, and non-Npgsql providers are unsupported
   (`ContentVersionEntityConfiguration` uses raw Postgres partial-index filters).
 

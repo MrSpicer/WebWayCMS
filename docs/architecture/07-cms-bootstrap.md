@@ -152,6 +152,11 @@ continue by default.
 > the admin path passes `true`. `DefaultContentSeeder.SeedDefaultPagesAsync` honours the flag —
 > when `false`, only the Home page is seeded; when `true`, the Dashboard page (at `/wadmin` with
 > `GenericAdminPageController`) is also seeded with its own independent guard.
+>
+> When the `/wadmin` route already exists, the seeder still backfills its `NavigationName` to
+> `"Dashboard"` if that column is blank, and only if it is blank. The admin navbar builds its
+> Dashboard link from that value (`RouteNavigation` with `AdminRoutes = true`), so a database
+> seeded before the column existed would otherwise have no link back to `/wadmin` at all.
 
 ---
 

@@ -12,8 +12,8 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260818011843_MakeFormComponentRegistrationUnversioned")]
-    partial class MakeFormComponentRegistrationUnversioned
+    [Migration("20260822012201_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -304,6 +304,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsReserved")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("NavigationName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
@@ -410,6 +414,39 @@ namespace WebWayCMS.Data.Migrations
                     b.HasIndex("SiteId");
 
                     b.ToTable("ContentNodes", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.ContentSeedRecordDTO", b =>
+                {
+                    b.Property<Guid>("SeedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AppliedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ContentTypeKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("SeedId");
+
+                    b.HasIndex("NodeId");
+
+                    b.ToTable("ContentSeedRecords", (string)null);
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentVersion", b =>

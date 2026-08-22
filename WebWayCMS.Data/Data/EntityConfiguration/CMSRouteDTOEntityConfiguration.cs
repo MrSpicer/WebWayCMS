@@ -12,6 +12,7 @@ public sealed class CMSRouteDTOEntityConfiguration : IEntityTypeConfiguration<CM
         entity.HasKey(e => e.Id);
         entity.Property(e => e.Pattern).IsRequired().HasMaxLength(512);
         entity.HasIndex(e => e.Pattern).IsUnique();
+        entity.Property(e => e.NavigationName).HasMaxLength(CMSRouteDTO.NavigationNameMaxLength);
         entity.Property(e => e.DefaultsJson).HasMaxLength(4000);
         entity.Property(e => e.ConstraintsJson).HasMaxLength(2000);
         entity.Property(e => e.DataTokensJson).HasMaxLength(2000);

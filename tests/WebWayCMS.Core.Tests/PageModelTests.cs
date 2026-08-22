@@ -523,14 +523,73 @@ public class PageModelTests
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).UnregisterContentRoutesAsync(nodeId, Arg.Any<CancellationToken>());
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
-            _model, "/test", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+            _model, "/test", "GenericPage", nodeId, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_NoPriorRoute_SeedsNavigationNameFromTitle()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
+
+        await _model.PublishPageAsync(nodeId);
+
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            _model, "/test", "GenericPage", nodeId, "Test", Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PriorRouteHasNavigationName_CarriesItForward()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            new() { Pattern = "/test", NavigationName = "Admin Override" }
+        });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
+
+        await _model.PublishPageAsync(nodeId);
+
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            _model, "/test", "GenericPage", nodeId, "Admin Override", Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PriorRouteNavigationNameIsBlank_StaysBlank()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            new() { Pattern = "/test", NavigationName = "   " }
+        });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
+
+        await _model.PublishPageAsync(nodeId);
+
+        // A blank name on an existing row is how an admin takes the page out of the navigation
+        // widgets, so republishing must not resurrect it from the title.
+        await _routeRegistration.Received(1).RegisterContentRoutesAsync(
+            _model, "/test", "GenericPage", nodeId, null, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -542,13 +601,13 @@ public class PageModelTests
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
-            _model, "/", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+            _model, "/", "GenericPage", nodeId, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -561,13 +620,13 @@ public class PageModelTests
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { new() { Pattern = "/blog/old-slug" } });
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
-            _model, "/blog/new", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+            _model, "/blog/new", "GenericPage", nodeId, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -580,13 +639,13 @@ public class PageModelTests
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { new() { Pattern = "/old-slug" } });
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
-            _model, "/new", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+            _model, "/new", "GenericPage", nodeId, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -601,14 +660,16 @@ public class PageModelTests
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
         _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>())
             .Returns(new List<CMSRouteDTO> { new() { Pattern = "/docs" } });
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
         await _routeRegistration.Received(1).RegisterContentRoutesAsync(
-            _model, "/docs/child", "GenericPage", nodeId, Arg.Any<CancellationToken>());
+            _model, "/docs/child", "GenericPage", nodeId, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -620,7 +681,7 @@ public class PageModelTests
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
 
         var result = await _model.PublishPageAsync(nodeId);
 
@@ -645,7 +706,7 @@ public class PageModelTests
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
         _cmsRouteService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
             .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
 
         var result = await _model.PublishPageAsync(nodeId);
 
@@ -678,7 +739,7 @@ public class PageModelTests
 
         Assert.That(result.Success, Is.False);
         await _routeRegistration.DidNotReceive().RegisterContentRoutesAsync(
-            Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+            Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
         await _store.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
@@ -704,7 +765,7 @@ public class PageModelTests
         _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(Page(title: "T"));
         _cmsRouteService.GetByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
-        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
 
         Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
 

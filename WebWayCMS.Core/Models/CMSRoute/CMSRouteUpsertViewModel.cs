@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Models.CMSRoute;
 
@@ -19,27 +20,34 @@ public sealed class CMSRouteUpsertViewModel
         FormComponent = "Text")]
     public string Pattern { get; set; } = string.Empty;
 
-    [FormProperty(Label = "Defaults", EditorType = EditorType.TextArea, Order = 3,
+    [MaxLength(CMSRouteDTO.NavigationNameMaxLength)]
+    [FormProperty(Label = "Navigation Name", EditorType = EditorType.Text, Order = 3,
+        Placeholder = "About Us",
+        HelpText = "Link text for this route in navigation widgets. Routes with no navigation name are not shown.",
+        MaxLength = CMSRouteDTO.NavigationNameMaxLength, FormComponent = "Text")]
+    public string? NavigationName { get; set; }
+
+    [FormProperty(Label = "Defaults", EditorType = EditorType.TextArea, Order = 4,
         HelpText = "JSON of default route values, e.g. {\"controller\":\"GenericPage\",\"action\":\"Index\"}.",
         FormComponent = "TextArea")]
     public string DefaultsJson { get; set; } = "{}";
 
-    [FormProperty(Label = "Constraints", EditorType = EditorType.TextArea, Order = 4,
+    [FormProperty(Label = "Constraints", EditorType = EditorType.TextArea, Order = 5,
         HelpText = "JSON of route constraints, e.g. {\"slug\":\"regex([a-z0-9-]+)\"}.",
         FormComponent = "TextArea")]
     public string ConstraintsJson { get; set; } = "{}";
 
-    [FormProperty(Label = "Data Tokens", EditorType = EditorType.TextArea, Order = 5,
+    [FormProperty(Label = "Data Tokens", EditorType = EditorType.TextArea, Order = 6,
         HelpText = "JSON of additional route data tokens.",
         FormComponent = "TextArea")]
     public string DataTokensJson { get; set; } = "{}";
 
-    [FormProperty(Label = "Order", EditorType = EditorType.Number, Order = 6,
+    [FormProperty(Label = "Order", EditorType = EditorType.Number, Order = 7,
         HelpText = "Route precedence. Lower numbers are matched first.",
         FormComponent = "Number")]
     public int Order { get; set; }
 
-    [FormProperty(Label = "Reserved", EditorType = EditorType.Checkbox, Order = 7,
+    [FormProperty(Label = "Reserved", EditorType = EditorType.Checkbox, Order = 8,
         HelpText = "Reserved routes block other routes from using this pattern, but do not route themselves.",
         FormComponent = "Checkbox")]
     public bool IsReserved { get; set; }

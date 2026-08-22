@@ -61,7 +61,7 @@ public class DefaultContentSeederTests
         await _pageStore.Received(1).SaveDraftAsync(
             Arg.Is<PageDTO>(p => p.ControllerName == "GenericPage"), null, Arg.Any<CancellationToken>());
         await _pageStore.Received(1).PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
-        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/"), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/" && r.NavigationName == "Home"), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -99,7 +99,7 @@ public class DefaultContentSeederTests
 
         await _pageStore.Received(1).SaveDraftAsync(
             Arg.Is<PageDTO>(p => p.ControllerName == "GenericAdminPage"), null, Arg.Any<CancellationToken>());
-        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin" && r.NavigationName == "Dashboard"), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -113,6 +113,61 @@ public class DefaultContentSeederTests
         await _seeder.SeedDefaultPagesAsync(true);
 
         await _pageStore.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SeedDefaultPages_AdminRouteExistsWithBlankNavigationName_BackfillsDashboard()
+    {
+        // The admin navbar is built from navigation names, so a '/wadmin' row seeded before that
+        // column existed would leave the admin with no link home.
+        var existing = new CMSRouteDTO { Pattern = "/wadmin", NavigationName = "  " };
+        _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult { Route = existing }));
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+
+        await _seeder.SeedDefaultPagesAsync(true);
+
+        Assert.Multiple(async () =>
+        {
+            await _pageStore.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+            await _routeService.Received(1).UpsertAsync(
+                Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin" && r.NavigationName == "Dashboard"),
+                Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task SeedDefaultPages_AdminRouteExistsWithNavigationName_LeavesItAlone()
+    {
+        var existing = new CMSRouteDTO { Pattern = "/wadmin", NavigationName = "Admin Override" };
+        _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult { Route = existing }));
+
+        await _seeder.SeedDefaultPagesAsync(true);
+
+        await _routeService.DidNotReceive().UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SeedDefaultPages_AdminRouteBackfillUpsertFails_LogsWarningAndCompletesWithoutThrowing()
+    {
+        var existing = new CMSRouteDTO { Pattern = "/wadmin" };
+        _routeService.MatchRouteAsync("/", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult()));
+        _routeService.MatchRouteAsync("/wadmin", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<CMSRouteMatchResult?>(new CMSRouteMatchResult { Route = existing }));
+        _routeService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns((false, "boom", null));
+
+        Assert.That(async () => await _seeder.SeedDefaultPagesAsync(true), Throws.Nothing);
+        await _routeService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin" && r.NavigationName == "Dashboard"),
+            Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -142,7 +197,7 @@ public class DefaultContentSeederTests
             .Returns((false, "boom", null));
 
         Assert.That(async () => await _seeder.SeedDefaultPagesAsync(false), Throws.Nothing);
-        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/"), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/" && r.NavigationName == "Home"), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -157,6 +212,6 @@ public class DefaultContentSeederTests
             .Returns((false, "boom", null));
 
         Assert.That(async () => await _seeder.SeedDefaultPagesAsync(true), Throws.Nothing);
-        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin"), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).UpsertAsync(Arg.Is<CMSRouteDTO>(r => r.Pattern == "/wadmin" && r.NavigationName == "Dashboard"), Arg.Any<CancellationToken>());
     }
 }

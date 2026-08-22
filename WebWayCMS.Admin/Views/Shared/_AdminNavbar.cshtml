@@ -1,5 +1,5 @@
 @using Microsoft.AspNetCore.Identity
-@using WebWayCMS.Models.Page;
+@using WebWayCMS.Models.CMSRoute;
 @inject SignInManager<IdentityUser> SignInManager
 @{
     var currentPath = Context.Request.Path.Value ?? "";
@@ -20,10 +20,10 @@
 
     <div id="adminNav" class="navbar-menu">
         <div class="navbar-start" role="list">
-            @await Component.InvokeAsync(name: "Page", new PageContentZoneConfiguration()
+            @await Component.InvokeAsync(name: "RouteNavigation", new RouteNavigationConfiguration()
             {
-                AdminPages = true,
-                ViewName = "Default"
+                AdminRoutes = true,
+                ViewName = "AdminNavbar"
             })
             <a class="navbar-item" href="/wadmin/pages" @(currentPath.StartsWith("/wadmin/pages") ?
                   "aria-current=\"page\"" : "") role="listitem">

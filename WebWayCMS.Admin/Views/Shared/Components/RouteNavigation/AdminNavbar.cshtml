@@ -1,0 +1,44 @@
+@using WebWayCMS.Models.CMSRoute
+@model RouteNavigationViewModel
+
+@*
+    Bulma view for the admin navbar. This exists as a *named* view rather than relying on Default
+    because a host application's Views/ folder shadows the RCL for the whole app — including the
+    admin UI. A host that re-skins Components/RouteNavigation/Default.cshtml for its own CSS
+    framework would otherwise break the admin navbar, which only loads Bulma.
+
+    Markup matches the hand-written <a class="navbar-item"> links in _AdminNavbar.cshtml, including
+    their aria-current="page" on the active link.
+*@
+
+@if (Model.Items.Any())
+{
+    @foreach (var item in Model.Items)
+    {
+        await RenderNavItem(item, topLevel: true);
+    }
+}
+
+@functions {
+    async Task RenderNavItem(RouteNavigationItem item, bool topLevel)
+    {
+        var currentPath = (Context.Request.Path.Value ?? "").TrimEnd('/');
+        var isCurrent = string.Equals(currentPath, item.Path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
+        @* Only a top-level link is a direct child of the navbar-start role="list"; a nested one is
+           already wrapped in an <li>, whose implicit listitem role must not be repeated here. *@
+        <a class="navbar-item" href="@item.Path" role="@(topLevel ? "listitem" : null)"
+           aria-current="@(isCurrent ? "page" : null)">@item.Title</a>
+        @if (item.Children.Any())
+        {
+            <ul>
+                @foreach (var child in item.Children)
+                {
+                    <li>
+                        @{ await RenderNavItem(child, topLevel: false); }
+                    </li>
+                }
+            </ul>
+        }
+    }
+}

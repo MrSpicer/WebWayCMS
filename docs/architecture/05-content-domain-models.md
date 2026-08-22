@@ -167,7 +167,8 @@ Each built-in content type that can contain zones (as a page, a layout region, e
 
 | Class | Used By |
 |-------|---------|
-| `PageContentZoneConfiguration` | Zone slots available on pages |
+| `PageContentZoneConfiguration` | `PageViewComponent` — page-navigation filters (`ShowDraftPages`, `ShowHiddenPages`, `AdminPages`) plus `ViewName` |
+| `RouteNavigationConfiguration` | `RouteNavigationViewComponent` — route-navigation filters (`AdminRoutes`, `IncludeReserved`) plus `ViewName` |
 | `ArticleContentZoneConfiguration` | Zone slots within article detail views |
 | `ContentBlockContentZoneConfiguration` | Zone slots within content block views |
 | `LayoutContentZoneConfiguration` | Zone slots in the shared layout |

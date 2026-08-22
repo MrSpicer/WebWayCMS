@@ -66,6 +66,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
             else
             {
                 logger.Debug("Admin page already exists, skipping default admin page creation.");
+                await BackfillNavigationNameAsync(existingAdminRoute.Route, "Dashboard", ct, logger);
             }
         }
     }
@@ -92,6 +93,24 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         await SeedRouteAsync("/wadmin", "GenericAdminPage", "Page", adminNodeId, ct, logger, "Dashboard");
     }
 
+    /// <summary>
+    /// The admin navbar is built from route navigation names, so a '/wadmin' row seeded before that
+    /// column existed would leave the admin with no link home. Fill a blank name; never overwrite one.
+    /// </summary>
+    private async Task BackfillNavigationNameAsync(
+        CMSRouteDTO route, string label, CancellationToken ct, ILogger logger)
+    {
+        if (!string.IsNullOrWhiteSpace(route.NavigationName))
+            return;
+
+        route.NavigationName = label;
+        var result = await _routeService.UpsertAsync(route, ct);
+        if (result.Success)
+            logger.Information("Backfilled navigation name '{Label}' on route '{Pattern}'", label, route.Pattern);
+        else
+            logger.Warning("Failed to backfill navigation name on route '{Pattern}': {ErrorMessage}", route.Pattern, result.ErrorMessage);
+    }
+
     private async Task SeedRouteAsync(
         string pattern, string controllerName, string owningContentType,
         Guid contentNodeId, CancellationToken ct, ILogger logger, string label)
@@ -111,6 +130,7 @@ public sealed class DefaultContentSeeder : IDefaultContentSeeder
         var route = new CMSRouteDTO
         {
             Pattern = pattern,
+            NavigationName = label,
             DefaultsJson = defaults,
             DataTokensJson = dataTokens,
             OwningContentNodeId = contentNodeId,
