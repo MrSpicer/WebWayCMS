@@ -44,7 +44,8 @@
             'ContentBlock': '/wadmin/contentblocks/api/list',
             'Article': '/wadmin/articles/api/list',
             'ArticleList': '/wadmin/articles/api/articlelists',
-            'ContentZone': '/wadmin/contentzones/api/list'
+            'ContentZone': '/wadmin/contentzones/api/list',
+            'Image': '/wadmin/images/api/list'
         };
 
         var endpoint = endpoints[entityType];

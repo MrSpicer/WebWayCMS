@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260822012201_InitialCreate")]
+    [Migration("20260917225002_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -696,6 +696,84 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("FormComponentRegistrations", (string)null);
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.ImageDTO", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("BlobHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.HasKey("VersionId");
+
+                    b.HasIndex("BlobHash");
+
+                    b.ToTable("Images", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.MediaBlobBytesDTO", b =>
+                {
+                    b.Property<string>("Hash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<byte[]>("Bytes")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Hash");
+
+                    b.ToTable("MediaBlobBytes", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.MediaBlobDTO", b =>
+                {
+                    b.Property<string>("Hash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Hash");
+
+                    b.HasIndex("CreatedUtc");
+
+                    b.ToTable("MediaBlobs", (string)null);
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.PageControllerRegistrationDTO", b =>
                 {
                     b.Property<Guid>("VersionId")
@@ -1053,6 +1131,17 @@ namespace WebWayCMS.Data.Migrations
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
                         .WithOne()
                         .HasForeignKey("WebWayCMS.Data.Models.ContentZoneItemDTO", "VersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Version");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.ImageDTO", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
+                        .WithOne()
+                        .HasForeignKey("WebWayCMS.Data.Models.ImageDTO", "VersionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

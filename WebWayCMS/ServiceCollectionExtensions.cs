@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using WebWayCMS.Mcp;
 using WebWayCMS.Startup;
+using WebWayCMS.Media;
 
 namespace WebWayCMS;
 
@@ -27,6 +28,7 @@ public static class ServiceCollectionExtensions
         CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
+        services.Configure<MediaOptions>(configuration.GetSection(MediaOptions.SectionName));
         return services;
     }
 

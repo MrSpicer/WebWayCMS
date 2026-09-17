@@ -22,6 +22,12 @@ public sealed class CmsRouteAttribute : Attribute
 
     public string? DataTokens { get; set; }
 
+    /// <summary>
+    /// Marks the seeded row as reserved: it occupies the pattern so an editor cannot create a page
+    /// that would be shadowed by this controller, but it is never matched for dispatch itself.
+    /// </summary>
+    public bool IsReserved { get; set; }
+
     public CmsRouteAttribute(string pattern)
     {
         Pattern = pattern ?? throw new ArgumentNullException(nameof(pattern));

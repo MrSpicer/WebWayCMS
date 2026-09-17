@@ -158,7 +158,8 @@ internal static class CmsRouteSeeder
                     ConstraintsJson = attr.Constraints ?? "{}",
                     DataTokensJson = JsonSerializer.Serialize(dataTokens),
                     Order = attr.Order,
-                    OwningContentType = "CodeBased"
+                    OwningContentType = "CodeBased",
+                    IsReserved = attr.IsReserved
                 };
 
                 try

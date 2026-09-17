@@ -33,6 +33,7 @@ public static class McpServiceCollectionExtensions
         services.AddScoped<ContentToolset>();
         services.AddScoped<VersionToolset>();
         services.AddScoped<ChildContentToolset>();
+        services.AddScoped<MediaToolset>();
 
         // The free-form "fields" parameters are typed as JsonElement, which produces an untyped
         // schema; some clients then send the value as a JSON string. Declaring those parameters as
@@ -56,6 +57,7 @@ public static class McpServiceCollectionExtensions
         var tools = ToolsFrom<ContentToolset>(toolOptions)
             .Concat(ToolsFrom<VersionToolset>(toolOptions))
             .Concat(ToolsFrom<ChildContentToolset>(toolOptions))
+            .Concat(ToolsFrom<MediaToolset>(toolOptions))
             .ToList();
 
         services.AddMcpServer()

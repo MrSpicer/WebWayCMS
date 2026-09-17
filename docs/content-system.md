@@ -376,3 +376,11 @@ builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyCont
 ---
 
 *For architectural reference — `ContentNode`/`ContentVersion` field semantics, versioning internals, DbContext catalog, service method reference, `AdminCrudModel<T>` dual-role pattern, and mapping conventions — see [docs/architecture/01-data-tier.md](architecture/01-data-tier.md) and [docs/architecture/05-content-domain-models.md](architecture/05-content-domain-models.md).*
+
+## Images
+
+`images` is a built-in content type (`ImageModel`, `ContentType => "images"`). It holds a
+`BlobHash` string pointing at a row in the shared media library, plus `AltText` and `Caption` —
+never the image bytes themselves, because the upsert view model is JSON round-tripped on every MCP
+update and content-seed apply. Uploading goes through `POST /api/media/upload`, which returns the
+hash the field stores. See [architecture/16-media-and-images](architecture/16-media-and-images.md).

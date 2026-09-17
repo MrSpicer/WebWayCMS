@@ -219,3 +219,27 @@ An unversioned entity (modelled on `CMSRouteDTO`), keyed by the seed id:
 
 `IContentSeedRecordService` exposes `GetAsync(seedId)` / `UpsertAsync(record)`. It lives in
 `WebWayCMS.Data` alongside the other plain-row services.
+
+---
+
+## Media references (`@media:{path}`)
+
+A seed item may reference an image file shipped beside the seed file:
+
+```json
+{ "id": "…", "contentType": "images",
+  "fields": { "title": "Logo", "altText": "Our logo", "blobHash": "@media:images/logo.png" } }
+```
+
+`SeedMediaResolver` loads the file, validates it exactly as an admin upload is validated, stores it
+in the media library, and substitutes the resulting content hash. Like `@seed:`, substitution is a
+plain string replace, so a token works as a whole field value or embedded inside a serialized-JSON
+string.
+
+Paths resolve relative to the seed file's own directory, or as a manifest resource of the seed
+resource's assembly — `ContentSeedSource` carries its declaring `Assembly` for this. A path may not
+escape the seed file's directory. An unresolvable or invalid reference is not saved and not
+hash-recorded, so the item retries on the next boot, matching the `@seed:` contract.
+
+Because media is content-addressed, re-running a seed that references the same file stores nothing
+new. See [16-media-and-images](16-media-and-images.md).

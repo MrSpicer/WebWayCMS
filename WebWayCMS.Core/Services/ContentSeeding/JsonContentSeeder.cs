@@ -42,18 +42,24 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
     private readonly IAdminHandlerRegistry _registry;
     private readonly IContentSeedRecordService _records;
     private readonly ContentSeedOptions _options;
+
+    // Optional: a host wired without media support simply leaves @media: tokens alone. The shipped
+    // admin registration always supplies one.
+    private readonly SeedMediaResolver? _mediaResolver;
     private readonly ILogger _logger = Log.ForContext<JsonContentSeeder>();
 
     public JsonContentSeeder(
         IEnumerable<IContentSeedSourceProvider> providers,
         IAdminHandlerRegistry registry,
         IContentSeedRecordService records,
-        IOptions<ContentSeedOptions> options)
+        IOptions<ContentSeedOptions> options,
+        SeedMediaResolver? mediaResolver = null)
     {
         _providers = providers ?? throw new ArgumentNullException(nameof(providers));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _records = records ?? throw new ArgumentNullException(nameof(records));
         _options = (options ?? throw new ArgumentNullException(nameof(options))).Value;
+        _mediaResolver = mediaResolver;
     }
 
     public async Task SeedAsync(CancellationToken ct = default)
@@ -69,7 +75,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             .OrderBy(s => s.Name, StringComparer.Ordinal);
 
         var seenIds = new Dictionary<Guid, string>();
-        var pending = new List<(ContentSeedItem Item, string Source)>();
+        var pending = new List<(ContentSeedItem Item, ContentSeedSource Source)>();
 
         foreach (var source in sources)
         {
@@ -83,7 +89,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
                 else
                     seenIds[item.Id] = source.Name;
 
-                pending.Add((item, source.Name));
+                pending.Add((item, source));
             }
         }
 
@@ -93,7 +99,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         // item deferred again — cycles and permanently missing references).
         while (pending.Count > 0)
         {
-            var deferred = new List<(ContentSeedItem Item, string Source)>();
+            var deferred = new List<(ContentSeedItem Item, ContentSeedSource Source)>();
 
             foreach (var (item, source) in pending)
             {
@@ -114,7 +120,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             _logger.Warning("Content seed item '{SeedId}' has unresolved @seed reference(s); will retry next boot.", item.Id);
     }
 
-    private async Task<ApplyOutcome> ApplyItemAsync(ContentSeedItem item, string source, CancellationToken ct)
+    private async Task<ApplyOutcome> ApplyItemAsync(ContentSeedItem item, ContentSeedSource source, CancellationToken ct)
     {
         if (item.Id == Guid.Empty)
         {
@@ -185,6 +191,19 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             return ApplyOutcome.Deferred;
         }
 
+        // Resolve @media:{path} tokens by storing the referenced file and substituting its hash.
+        // An unresolvable path is not saved and not hash-recorded, so it retries on the next boot --
+        // the same contract as an unresolved @seed reference.
+        var unresolvedMedia = _mediaResolver == null
+            ? []
+            : await _mediaResolver.SubstituteAsync(overlay, source, ct);
+        if (unresolvedMedia.Count > 0)
+        {
+            _logger.Warning("Content seed item '{SeedId}' references media that could not be loaded: {Paths}; will retry next boot.",
+                item.Id, string.Join(", ", unresolvedMedia));
+            return ApplyOutcome.Skipped;
+        }
+
         var model = ContentFieldMerger.TryMerge(existing ?? handler.CreateEmptyUpsertViewModel(), overlay)!;
 
         var result = await handler.SaveUpsertAsync(model, ct);
@@ -220,7 +239,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             ContentTypeKey = item.ContentType,
             NodeId = nodeId,
             ContentHash = hash,
-            Source = source,
+            Source = source.Name,
             AppliedUtc = DateTime.UtcNow,
         }, ct);
 

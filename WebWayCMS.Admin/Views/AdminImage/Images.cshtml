@@ -1,0 +1,93 @@
+@using WebWayCMS.Models.Image
+
+@model ImageIndexViewModel
+
+@{
+    ViewData["Title"] = "Images";
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <div class="admin-page-title-row">
+            <h1 class="title is-4">Images</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="images" class="button is-primary">
+                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                <span>New Image</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section">
+<div class="container is-fluid">
+
+        @if (!Model.Images.Any())
+        {
+            <div class="card admin-empty-state mt-4">
+                <div class="card-content has-text-centered py-6">
+                    <span class="icon is-large has-text-grey-light mb-4">
+                        <i class="fas fa-image fa-3x" aria-hidden="true"></i>
+                    </span>
+                    <p class="title is-5">No images yet</p>
+                    <p class="subtitle is-6 has-text-grey">Upload images to use across your site.</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="images" class="button is-primary mt-2">New Image</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="table is-fullwidth is-striped">
+                    <caption class="is-sr-only">List of images</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col"><span class="is-sr-only">Preview</span></th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Slug</th>
+                            <th scope="col">Modified</th>
+                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cb in Model.Images)
+                        {
+                            <tr>
+                                <td><img src="@WebWayCMS.Media.MediaUrl.For(cb.BlobHash)" alt="@cb.AltText" style="max-height:40px" /></td>
+                                <td>@cb.Title</td>
+                                <td>@cb.Slug</td>
+                                <td>@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <div class="buttons are-small">
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="images" asp-route-nodeId="@cb.NodeId" class="button is-small is-info is-light">Versions</a>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="images" asp-route-id="@cb.NodeId" class="button is-small">Edit</a>
+                                        @if (!(cb.IsPublished))
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="images" asp-route-nodeId="@cb.NodeId" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="images" asp-route-nodeId="@cb.NodeId" method="post" class="is-inline-block">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            </form>
+                                        }
+                                        <button type="button" class="button is-small is-danger is-light"
+                                                data-delete-trigger
+                                                data-delete-name="@cb.Title"
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "images", id = cb.NodeId })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+</div>
+</section>

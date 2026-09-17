@@ -191,6 +191,30 @@ public class WebWayCmsBuilderTests
     }
 
     [Test]
+    public void AddMediaStore_RegistersTheHostStoreAndWinsOverTheDefault()
+    {
+        var (builder, services) = NewBuilder();
+
+        builder.AddMediaStore<TestMediaBlobStore>();
+
+        var descriptor = services.Single(d => d.ServiceType == typeof(IMediaBlobStore));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(descriptor.ImplementationType, Is.EqualTo(typeof(TestMediaBlobStore)));
+            Assert.That(descriptor.Lifetime, Is.EqualTo(ServiceLifetime.Scoped));
+        });
+    }
+
+    [Test]
+    public void AddMediaStore_ReturnsBuilderForChaining()
+    {
+        var (builder, _) = NewBuilder();
+
+        Assert.That(builder.AddMediaStore<TestMediaBlobStore>(), Is.SameAs(builder));
+    }
+
+    [Test]
     public void AddMappingProfile_Null_Throws()
     {
         var (builder, _) = NewBuilder();
@@ -344,6 +368,15 @@ public class WebWayCmsBuilderTests
     private sealed class TestViewModel
     {
         public int Value { get; set; }
+    }
+
+    private sealed class TestMediaBlobStore : IMediaBlobStore
+    {
+        public Task<byte[]?> GetAsync(string hash, CancellationToken ct = default) => Task.FromResult<byte[]?>(null);
+        public Task<bool> ExistsAsync(string hash, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<(bool Success, string? ErrorMessage)> PutAsync(string hash, byte[] bytes, CancellationToken ct = default)
+            => Task.FromResult((true, (string?)null));
+        public Task<bool> DeleteAsync(string hash, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     private sealed class TestProfile : Profile

@@ -1,0 +1,30 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+        .Type("hidden").Css("image-picker-value")
+        .Naming().Value().Required()
+        .Build();
+    var previewUrl = WebWayCMS.Media.MediaUrl.For(Model.StringValue);
+}
+<form-field field="@Model">
+    <div class="image-picker" data-image-picker>
+        <input @Html.Raw(attrs) />
+        <figure class="image-picker-preview" data-image-picker-preview>
+            @if (!string.IsNullOrWhiteSpace(previewUrl))
+            {
+                <img src="@previewUrl" alt="" />
+            }
+        </figure>
+        <div class="file has-name is-fullwidth">
+            <label class="file-label">
+                <input class="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                       data-image-picker-input />
+                <span class="file-cta">
+                    <span class="file-label">Choose an image...</span>
+                </span>
+                <span class="file-name" data-image-picker-name>No file selected</span>
+            </label>
+        </div>
+        <p class="help is-danger is-hidden" data-image-picker-error></p>
+    </div>
+</form-field>

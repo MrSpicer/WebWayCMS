@@ -147,6 +147,35 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "MediaBlobBytes",
+                columns: table => new
+                {
+                    Hash = table.Column<string>(type: "character(64)", fixedLength: true, maxLength: 64, nullable: false),
+                    Bytes = table.Column<byte[]>(type: "bytea", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MediaBlobBytes", x => x.Hash);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MediaBlobs",
+                columns: table => new
+                {
+                    Hash = table.Column<string>(type: "character(64)", fixedLength: true, maxLength: 64, nullable: false),
+                    ContentType = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    ByteLength = table.Column<long>(type: "bigint", nullable: false),
+                    Width = table.Column<int>(type: "integer", nullable: false),
+                    Height = table.Column<int>(type: "integer", nullable: false),
+                    OriginalFileName = table.Column<string>(type: "character varying(260)", maxLength: 260, nullable: false),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MediaBlobs", x => x.Hash);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AspNetRoleClaims",
                 columns: table => new
                 {
@@ -443,6 +472,26 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Images",
+                columns: table => new
+                {
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    BlobHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    AltText = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    Caption = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Images", x => x.VersionId);
+                    table.ForeignKey(
+                        name: "FK_Images_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "PageControllerRegistrations",
                 columns: table => new
                 {
@@ -664,6 +713,16 @@ namespace WebWayCMS.Data.Migrations
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Images_BlobHash",
+                table: "Images",
+                column: "BlobHash");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_MediaBlobs_CreatedUtc",
+                table: "MediaBlobs",
+                column: "CreatedUtc");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PageControllerRegistrations_Category",
                 table: "PageControllerRegistrations",
                 column: "Category");
@@ -746,6 +805,15 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "FormComponentRegistrations");
+
+            migrationBuilder.DropTable(
+                name: "Images");
+
+            migrationBuilder.DropTable(
+                name: "MediaBlobBytes");
+
+            migrationBuilder.DropTable(
+                name: "MediaBlobs");
 
             migrationBuilder.DropTable(
                 name: "PageControllerRegistrations");

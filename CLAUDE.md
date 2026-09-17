@@ -111,6 +111,37 @@
 - Gate it with `WEBWAYCMS_SKIP_CONTENTSEED=true` or `ContentSeed:Enabled=false`.
 - See [docs/architecture/15-content-seeding.md](docs/architecture/15-content-seeding.md).
 
+## Media Library and Images (bytea, content-addressed)
+
+- Image bytes live in **Postgres `bytea`**, content-addressed by **SHA-256**, behind an
+  `IMediaBlobStore` seam (`AddMediaStore<TStore>()` on `IWebWayCmsBuilder` swaps it; the default is
+  registered with `TryAdd` so a host choice wins). Chosen because admin and rendering-only hosts
+  share a *database*, never a filesystem, and the shipped `docker-compose.yml` mounts no volume.
+- Three tables: `MediaBlobs` (catalog metadata, unversioned, `Hash` PK), `MediaBlobBytes`
+  (`bytea`, split out so catalog queries never materialize megabytes), and `Images` (versioned
+  `IVersionedContent` + `BlobHash`/`AltText`/`Caption`).
+- **Bytes never touch a view model.** `ContentFieldMerger` JSON round-trips the whole upsert view
+  model on every MCP update and seed apply, so `ImageUpsertViewModel` carries a `BlobHash` string
+  and upload goes through `POST /api/media/upload` separately. Widget config is capped at 4000
+  chars, so the Image widget stores a **node id**, not a hash.
+- `ImageValidator` (`WebWayCMS.Core/Security/`) sniffs **magic bytes** (PNG/JPEG/GIF/WebP), rejects
+  **SVG** outright, enforces the size cap, and parses dimensions from file headers — which is how
+  the CMS stores width/height with **no imaging-library dependency**. EXIF is **not** stripped
+  (deferred; GPS in phone photos is served verbatim).
+- Serving is `GET /media/{hash}/{fileName?}` (`MediaController`, in Core so rendering-only hosts
+  serve it), `immutable` cache + ETag + 304. No CSP change needed — `img-src 'self'` covers it. The
+  literal path outranks the `{**slug}` catch-all; `[CmsRoute("/media", IsReserved = true)]` also
+  reserves the pattern.
+- The admin picker is `FormImagePicker`, selected by **name** (`FormComponent = "ImagePicker"`) like
+  `FormEntityPicker` — no `EditorType` enum change. `media-picker.js` uploads and writes back only
+  the hash, keeping the admin form url-encoded.
+- Seed files reference images with `@media:{path}` (`SeedMediaResolver`), resolved against the seed
+  file's directory or its assembly's resources. MCP gets one read-only `list_media` tool; bytes
+  deliberately do not travel over MCP.
+- Config section `"Media"`: `MaxUploadBytes` (default 10 MB), `AllowedContentTypes` (matched against
+  the *sniffed* type).
+- See [docs/architecture/16-media-and-images.md](docs/architecture/16-media-and-images.md).
+
 ## Testing
 
 - Test projects live under `tests/`, one per source project (NUnit + NSubstitute). Each references

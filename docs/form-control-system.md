@@ -216,3 +216,20 @@ the discovered views as an option, so an edit load keeps the selection instead o
 *For architectural reference — the full `[FormProperty]` attribute surface, resolution order,
 `FormAttributeBuilder` contract, and dynamic sub-form materialization — see
 [docs/architecture/02-form-generation.md](architecture/02-form-generation.md).*
+
+## Worked example: the image picker
+
+`FormImagePicker` is a second example (after `FormEntityPicker`) of a control selected purely by
+registry name, with **no `EditorType` value of its own**:
+
+```csharp
+[FormProperty(Label = "Image", FormComponent = "ImagePicker", IsRequired = true, Order = 3)]
+public string BlobHash { get; set; } = string.Empty;
+```
+
+Its `Write.cshtml` emits a hidden input (built through `FormAttributeBuilder`, like every other
+control) plus a file input and a preview. `media-picker.js` uploads the file to the media API and
+writes only the returned content hash into the hidden input, so the surrounding form stays
+`application/x-www-form-urlencoded` and the view model never carries binary data.
+
+See [architecture/16-media-and-images](architecture/16-media-and-images.md).

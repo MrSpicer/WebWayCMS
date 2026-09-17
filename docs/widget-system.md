@@ -266,3 +266,13 @@ The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Ma
 ---
 
 *For architectural reference — zone resolution algorithm, lazy zone creation, registry internals, nested zones, and component configuration contract — see [docs/architecture/04-content-zone-framework.md](architecture/04-content-zone-framework.md).*
+
+## The Image widget
+
+`ImageViewComponent` (category "Media") renders an image content item chosen with an entity picker.
+Its configuration stores `Guid? ImageNodeId` — **nullable on purpose**: a non-nullable value type in
+a widget configuration silently discards the entire saved configuration when the field is left
+empty, because the editor writes `null`, deserialization throws, and the zone model falls back to an
+empty configuration object.
+
+See [architecture/16-media-and-images](architecture/16-media-and-images.md).

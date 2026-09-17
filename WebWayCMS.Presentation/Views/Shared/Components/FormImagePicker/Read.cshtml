@@ -1,0 +1,13 @@
+@model WebWayCMS.Forms.FormFieldContext
+@{
+    var url = WebWayCMS.Media.MediaUrl.For(Model.StringValue);
+}
+<dl>
+    <dt class="has-text-grey is-size-7">@Model.Label</dt>
+    <dd>
+        @if (!string.IsNullOrWhiteSpace(url))
+        {
+            <img src="@url" alt="" style="max-width:200px" />
+        }
+    </dd>
+</dl>

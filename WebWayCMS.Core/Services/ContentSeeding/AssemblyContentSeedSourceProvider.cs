@@ -56,7 +56,7 @@ public sealed class AssemblyContentSeedSourceProvider : IContentSeedSourceProvid
                 }
 
                 using var reader = new StreamReader(stream);
-                yield return new ContentSeedSource(name, reader.ReadToEnd());
+                yield return new ContentSeedSource(name, reader.ReadToEnd(), assembly);
             }
         }
     }

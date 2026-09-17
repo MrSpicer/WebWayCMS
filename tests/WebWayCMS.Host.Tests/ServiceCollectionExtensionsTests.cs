@@ -25,6 +25,7 @@ using WebWayCMS.Identity;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.ContentBlock;
+using WebWayCMS.Models.Image;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Pages;
@@ -240,12 +241,13 @@ public class ServiceCollectionExtensionsTests
             Assert.That(p.GetService<IArticleListModel>(), Is.Not.Null);
             Assert.That(p.GetService<IContentZoneModel>(), Is.Not.Null);
             Assert.That(p.GetService<IArticleModel>(), Is.Not.Null);
+            Assert.That(p.GetService<IImageModel>(), Is.Not.Null);
             Assert.That(p.GetService<CMSRouteTransformer>(), Is.Not.Null);
             Assert.That(p.GetService<IContentReadContext>(), Is.Not.Null);
             Assert.That(p.GetService<IChangeSetScope>(), Is.Not.Null);
             Assert.That(p.GetService<IContentUserContext>(), Is.Not.Null);
             Assert.That(p.GetService<IContentZoneService>(), Is.Not.Null);
-            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(8));
+            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(9));
         });
     }
 

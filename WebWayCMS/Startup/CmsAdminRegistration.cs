@@ -13,6 +13,8 @@ using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Routing;
 using WebWayCMS.Services.ContentSeeding;
+using WebWayCMS.Data.Services;
+using WebWayCMS.Media;
 
 namespace WebWayCMS.Startup;
 
@@ -28,6 +30,7 @@ internal static class CmsAdminRegistration
         services.AddScoped<WebWayCMS.Data.Services.IContentReadContext, PreviewAwareReadContext>();
 
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.ContentBlock.ContentBlockModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Image.ImageModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Page.PageModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Article.ArticleListModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.ContentZone.ContentZoneModel>());
@@ -46,6 +49,10 @@ internal static class CmsAdminRegistration
             sp.GetRequiredService<IWebHostEnvironment>(),
             sp.GetRequiredService<IOptions<ContentSeedOptions>>(),
             sp.GetService<CmsContentSeedCatalog>()?.Files ?? []));
+        // Lets a seed file ship an image beside it via an @media:{path} token.
+        services.AddScoped(sp => new SeedMediaResolver(
+            sp.GetRequiredService<IMediaLibrary>(),
+            sp.GetRequiredService<IOptions<MediaOptions>>().Value.MaxUploadBytes));
         services.AddScoped<IJsonContentSeeder, JsonContentSeeder>();
 
         services.Configure<MvcOptions>(_ => { });

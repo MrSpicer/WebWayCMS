@@ -8,12 +8,12 @@ The libraries are distributed as NuGet packages: a host references the single um
 
 | Library | Contents |
 |---|---|
-| `WebWayCMS.Data` | DTOs, `CmsDbContext`, entity configurations, Services, Migrations |
+| `WebWayCMS.Data` | DTOs, `CmsDbContext`, entity configurations, Services (content stores, media library/blob store), Migrations |
 | `WebWayCMS.Identity` | UserService, SmtpEmailSender, LoggingEmailSender, SmtpOptions, external-auth options |
 | `WebWayCMS.Forms` | Attributes (`[FormProperty]`, `[PageController]`, `[ContentZoneComponent]`, `[CmsRoute]`), FormPropertyBuilder, FormFieldsTagHelper |
 | `WebWayCMS.Routing` | CMSRouteTransformer, NotReservedConstraint, PageControllerRegistry |
 | `WebWayCMS.ContentZones` | WidgetRegistry |
-| `WebWayCMS.Core` | Controllers, Domain Models, ViewModels, MappingProfile, RichTextSanitizer, admin handler contracts |
+| `WebWayCMS.Core` | Controllers, Domain Models, ViewModels, MappingProfile, RichTextSanitizer, ImageValidator, admin handler contracts |
 | `WebWayCMS.Presentation` | Public ViewComponents, Views, Identity Areas, wwwroot |
 | `WebWayCMS.Admin` | Admin controllers, admin Razor views, AdminHandlerRegistry, admin wwwroot |
 | `WebWayCMS.Mcp` | MCP server: toolsets, transport wiring, API-key filter |

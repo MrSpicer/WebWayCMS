@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;
@@ -18,6 +19,7 @@ using WebWayCMS.Models.Article;
 using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Models.Image;
 using WebWayCMS.Models.FormComponentRegistration;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Models.PageControllerRegistration;
@@ -63,10 +65,15 @@ internal static class CmsRenderingRegistration
         AddContentStore<ArticleDTO>(services, "articles");
         AddContentStore<ArticleListDTO>(services, "articlelists");
         AddContentStore<ContentBlockDTO>(services, "contentblocks");
+        AddContentStore<ImageDTO>(services, "images");
         AddContentStore<ContentZoneDTO>(services, "contentzones");
         AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems");
         AddContentStore<WidgetRegistrationDTO>(services, "widgets");
         AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes");
+
+        // Registered for both deployment modes: a rendering-only host still serves media bytes.
+        services.TryAddScoped<IMediaBlobStore, MediaBlobStore>();
+        services.AddScoped<IMediaLibrary, MediaLibrary>();
 
         services.AddScoped<IContentZoneService, ContentZoneService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
@@ -97,6 +104,8 @@ internal static class CmsRenderingRegistration
 
     private static void AddDomainModels(IServiceCollection services, IReadOnlyList<Profile>? hostProfiles = null)
     {
+        services.AddScoped<ImageModel>();
+        services.AddScoped<IImageModel>(sp => sp.GetRequiredService<ImageModel>());
         services.AddScoped<ContentBlockModel>();
         services.AddScoped<IContentBlockModel>(sp => sp.GetRequiredService<ContentBlockModel>());
 

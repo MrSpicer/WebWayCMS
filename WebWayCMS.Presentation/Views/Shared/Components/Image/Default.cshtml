@@ -1,0 +1,18 @@
+@model WebWayCMS.Models.Image.ImageViewModel
+@{
+    // Razor omits an attribute whose value is null, so the dimensions appear only when known.
+    int? width = Model.Width > 0 ? Model.Width : null;
+    int? height = Model.Height > 0 ? Model.Height : null;
+}
+@if (!string.IsNullOrWhiteSpace(Model.Url))
+{
+    <figure class="cms-image @Model.CssClass">
+        @* Explicit dimensions come from the media catalog and reserve the box before the image loads. *@
+        <img src="@Model.Url" alt="@Model.AltText" width="@width" height="@height"
+             loading="lazy" decoding="async" />
+        @if (Model.ShowCaption && !string.IsNullOrWhiteSpace(Model.Caption))
+        {
+            <figcaption>@Model.Caption</figcaption>
+        }
+    </figure>
+}

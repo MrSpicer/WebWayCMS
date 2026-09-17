@@ -4,6 +4,7 @@ using WebWayCMS.Models;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
+using WebWayCMS.Models.Image;
 using WebWayCMS.Models.Page;
 
 namespace WebWayCMS.Data;
@@ -53,6 +54,60 @@ public sealed class MappingProfile : Profile
             NodeId = s.Version.Node.Id,
             Title = s.Version.Title ?? string.Empty,
             Slug = s.Version.Slug ?? string.Empty,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
+        });
+
+        // Image mappings
+        CreateMap<ImageDTO, ImageViewModel>(s => new ImageViewModel
+        {
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            BlobHash = s.BlobHash ?? string.Empty,
+            AltText = s.AltText ?? string.Empty,
+            Caption = s.Caption,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
+        });
+
+        CreateMap<ImageDTO, ImageUpsertViewModel>(s => new ImageUpsertViewModel
+        {
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = System.Net.WebUtility.UrlDecode(s.Version.Slug) ?? string.Empty,
+            BlobHash = s.BlobHash ?? string.Empty,
+            AltText = s.AltText ?? string.Empty,
+            Caption = s.Caption,
+            PublicationDate = s.Version.PublishStartUtc,
+            PublicationEndDate = s.Version.PublishEndUtc,
+            IsHidden = s.Version.Node.IsHidden,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
+        });
+
+        CreateMap<ImageUpsertViewModel, ImageDTO>(s => new ImageDTO
+        {
+            BlobHash = s.BlobHash ?? string.Empty,
+            AltText = s.AltText ?? string.Empty,
+            Caption = s.Caption,
+            Version = NewVersion(s)
+        });
+
+        CreateMap<ImageDTO, ImageItemViewModel>(s => new ImageItemViewModel
+        {
+            NodeId = s.Version.Node.Id,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            BlobHash = s.BlobHash ?? string.Empty,
+            AltText = s.AltText ?? string.Empty,
             IsPublished = s.Version.State == ContentVersionState.Published,
             CreationDate = s.Version.Node.CreatedUtc,
             ModificationDate = s.Version.CreatedUtc

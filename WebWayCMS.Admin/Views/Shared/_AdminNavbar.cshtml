@@ -37,6 +37,10 @@
                                "aria-current=\"page\"" : "") role="listitem">
                 Articles
             </a>
+            <a class="navbar-item" href="/wadmin/images" @(currentPath.StartsWith("/wadmin/images") ?
+                               "aria-current=\"page\"" : "") role="listitem">
+                Images
+            </a>
             <div class="navbar-item has-dropdown" id="advancedDropdown" role="listitem">
                 <button class="navbar-link" id="advancedDropdownTrigger" aria-expanded="false" aria-controls="advancedDropdownMenu">
                     Advanced

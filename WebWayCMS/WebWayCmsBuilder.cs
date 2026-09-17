@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Startup;
 
@@ -58,6 +59,13 @@ public interface IWebWayCmsBuilder
     /// Registers an assembly whose embedded <c>*.contentseed.json</c> resources are applied at startup.
     /// </summary>
     IWebWayCmsBuilder AddContentSeedAssembly(Assembly assembly);
+
+    /// <summary>
+    /// Replaces the storage medium for media bytes. The CMS default stores them in Postgres; a host
+    /// can swap in a filesystem or cloud implementation without touching the media catalog, which
+    /// always stays in the database.
+    /// </summary>
+    IWebWayCmsBuilder AddMediaStore<TStore>() where TStore : class, IMediaBlobStore;
 }
 
 internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
@@ -122,6 +130,14 @@ internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(contentTypeKey);
         CmsRenderingRegistration.AddContentStore<T>(Services, contentTypeKey);
+        return this;
+    }
+
+    public IWebWayCmsBuilder AddMediaStore<TStore>() where TStore : class, IMediaBlobStore
+    {
+        // The default is registered with TryAdd, so an explicit host choice registered here wins
+        // regardless of the order the two registrations happen in.
+        Services.AddScoped<IMediaBlobStore, TStore>();
         return this;
     }
 

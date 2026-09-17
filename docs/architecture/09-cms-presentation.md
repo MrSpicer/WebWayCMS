@@ -292,3 +292,26 @@ Things worth copying from that view:
 > `WebWayCMS.Admin/Views/Shared/Components/RouteNavigation/AdminNavbar.cshtml`, and `_AdminNavbar.cshtml`
 > asks for it by `ViewName` — so a host is free to shadow `Default.cshtml` without touching the admin UI.
 > Apply the same pattern to any future CMS view rendered on both sides.
+
+### ImageViewComponent
+
+Renders an image from the CMS media library inside a content zone.
+
+```cshtml
+@await Component.InvokeAsync("Image", new ImageContentZoneConfiguration { ImageNodeId = id })
+```
+
+Configured by `ImageContentZoneConfiguration` (`ImageNodeId`, `CssClass`, `ShowCaption`,
+`ViewName`). It references an image *content node* rather than a blob hash, so alt text and caption
+are defined once on the content item and the reference can be seeded with `@seed:{guid}`.
+
+`ImageNodeId` is `Guid?` on purpose — a non-nullable value type in a widget configuration silently
+discards the entire saved configuration when the admin leaves the field empty. `InvokeAsync` takes
+exactly one nullable parameter of the configuration type, which is what the zone renderer's
+single-parameter argument binding requires.
+
+The view emits explicit `width`/`height` from the media catalog to avoid layout shift, and the
+component renders empty content when no image is selected — it also runs live inside the admin
+inline editor, where a freshly dropped widget has no configuration yet.
+
+See [16-media-and-images](16-media-and-images.md).
