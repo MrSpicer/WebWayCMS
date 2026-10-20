@@ -15,7 +15,7 @@ namespace WebWayCMS.ViewComponents;
     IconClass = "fa-route",
     Order = 20
 )]
-public class RouteNavigationViewComponent : ViewComponent
+public class RouteNavigationViewComponent : WidgetViewComponent
 {
     private readonly ICMSRouteRegistry _routeRegistry;
 
@@ -38,8 +38,7 @@ public class RouteNavigationViewComponent : ViewComponent
             : routes.Where(r => !AdminPathPrefix.Matches(r.Pattern));
 
         var items = BuildTree(routes);
-        var viewName = string.IsNullOrWhiteSpace(config.ViewName) ? "Default" : config.ViewName;
-        return View(viewName, new RouteNavigationViewModel { Items = items });
+        return ModeView(config, new RouteNavigationViewModel { Items = items });
     }
 
     /// <summary>

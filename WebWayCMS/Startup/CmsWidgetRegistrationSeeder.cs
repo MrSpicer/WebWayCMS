@@ -4,11 +4,14 @@ using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewComponents;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Serilog;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
@@ -42,12 +45,13 @@ internal static class CmsWidgetRegistrationSeeder
                 StringComparer.OrdinalIgnoreCase);
 
             var assemblies = CmsStartupHelpers.SeedAssemblies(services, typeof(ContentZoneViewComponent).Assembly);
+            var db = services.GetRequiredService<CmsDbContext>();
 
             foreach (var assembly in assemblies)
             {
                 try
                 {
-                    SeedAssemblyWidgets(assembly, store, existingNames, logger);
+                    SeedAssemblyWidgets(assembly, store, db, existingNames, logger);
                 }
                 catch (Exception ex)
                 {
@@ -68,6 +72,7 @@ internal static class CmsWidgetRegistrationSeeder
     private static void SeedAssemblyWidgets(
         Assembly assembly,
         IContentStore<WidgetRegistrationDTO> store,
+        CmsDbContext db,
         HashSet<string> existingNames,
         ILogger logger)
     {
@@ -81,6 +86,11 @@ internal static class CmsWidgetRegistrationSeeder
                 continue;
 
             var componentName = GetWidgetComponentName(type);
+
+            // Every registration of this widget, active or not (existingNames only holds active
+            // ones), so a deactivated widget is already correct when it is reactivated.
+            SyncSupportsList(db, componentName, attribute.SupportsList, logger);
+
             if (existingNames.Contains(componentName))
                 continue;
 
@@ -115,6 +125,7 @@ internal static class CmsWidgetRegistrationSeeder
                 Order = attribute.Order,
                 ConfigurationTypeName = attribute.ConfigurationType?.FullName,
                 PropertyDefinitionsJson = propertyDefinitionsJson,
+                SupportsList = attribute.SupportsList,
                 IsActive = true,
             };
 
@@ -132,12 +143,36 @@ internal static class CmsWidgetRegistrationSeeder
         }
     }
 
-    internal static string GetWidgetComponentName(Type type)
+    /// <summary>
+    /// <see cref="WidgetRegistrationDTO.SupportsList"/> is a code capability (the widget's
+    /// attribute), not admin-edited content, so an existing registration is brought in line on every
+    /// boot. It is written to every version row directly rather than through the content store:
+    /// saving a draft would mint a version and publishing it would also publish any in-progress
+    /// admin edit of the registration. The name match is case-insensitive like the rest of the
+    /// widget registry (a plain <c>==</c> is case-sensitive in Postgres).
+    /// </summary>
+    private static void SyncSupportsList(CmsDbContext db, string componentName, bool supportsList, ILogger logger)
     {
-        const string suffix = "ViewComponent";
-        var name = type.Name;
-        return name.EndsWith(suffix, StringComparison.Ordinal)
-            ? name[..^suffix.Length]
-            : name;
+        try
+        {
+            var lowered = componentName.ToLowerInvariant();
+            var updated = db.Set<WidgetRegistrationDTO>()
+                .Where(w => w.ComponentName.ToLower() == lowered && w.SupportsList != supportsList)
+                .ExecuteUpdate(u => u.SetProperty(w => w.SupportsList, supportsList));
+
+            if (updated > 0)
+                logger.Information("Synced SupportsList={SupportsList} for widget registration '{ComponentName}'", supportsList, componentName);
+        }
+        catch (Exception ex)
+        {
+            logger.Warning(ex, "Failed to sync SupportsList for widget registration '{ComponentName}'", componentName);
+        }
     }
+
+    /// <summary>
+    /// The name MVC invokes the component by (and searches its views under):
+    /// <c>[ViewComponent(Name = ...)]</c> when present, else the type name minus "ViewComponent".
+    /// </summary>
+    internal static string GetWidgetComponentName(Type type)
+        => ViewComponentConventions.GetComponentName(type.GetTypeInfo());
 }

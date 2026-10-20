@@ -56,6 +56,7 @@ public class ContentZoneApiControllerTests
 {
     private IContentZoneService _service = null!;
     private IRouteRegistrationService _routeRegistration = null!;
+    private IWidgetRegistry _widgetRegistry = null!;
     private ContentZoneApiController _controller = null!;
 
     [SetUp]
@@ -63,7 +64,9 @@ public class ContentZoneApiControllerTests
     {
         _service = Substitute.For<IContentZoneService>();
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
-        _controller = new ContentZoneApiController(_service, _routeRegistration);
+        _widgetRegistry = Substitute.For<IWidgetRegistry>();
+        _widgetRegistry.GetByName("Lister").Returns(new WidgetRegistrationInfo { Name = "Lister", SupportsList = true });
+        _controller = new ContentZoneApiController(_service, _routeRegistration, _widgetRegistry);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
         _routeRegistration.TryRegisterWidgetRoutesAsync(
             Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
@@ -87,8 +90,9 @@ public class ContentZoneApiControllerTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneApiController(null!, _routeRegistration), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(null!, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, null!, _widgetRegistry), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _routeRegistration, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -119,6 +123,43 @@ public class ContentZoneApiControllerTests
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ZoneId = zoneId }, default);
 
         Assert.That(result, Is.InstanceOf<OkObjectResult>());
+    }
+
+    [Test]
+    public async Task SaveItem_Create_WithListMetadata_StoresNormalizedMetadata()
+    {
+        var zoneId = Guid.NewGuid();
+        ContentZoneItemDTO? added = null;
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                added = c.Arg<ContentZoneItemDTO>();
+                added.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return added;
+            });
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ComponentName = "Lister", ZoneName = "Z", ZoneId = zoneId, MetadataJson = "{\"DisplayMode\":\"List\"}"
+        }, default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(added!.MetadataJson, Is.EqualTo("{\"DisplayMode\":\"List\"}"));
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_Create_ListMetadataForWidgetWithoutListSupport_ReturnsBadRequest()
+    {
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ComponentName = "C", ZoneName = "Z", ZoneId = Guid.NewGuid(), MetadataJson = "{\"DisplayMode\":\"List\"}"
+        }, default);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+        await _service.DidNotReceiveWithAnyArgs().AddItemAsync(default, default!, default);
     }
 
     [Test]

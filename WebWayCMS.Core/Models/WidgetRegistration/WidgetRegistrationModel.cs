@@ -9,6 +9,7 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
+using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Services;
 
@@ -18,8 +19,7 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
 {
     private readonly IContentStore<WidgetRegistrationDTO> _store;
     private readonly IWidgetRegistry _widgetRegistry;
-    private readonly IViewDiscoveryService _viewDiscoveryService;
-    private readonly WidgetRegistrationRegistryHandler _registryHandler;
+    private readonly ContentZoneRegistryHandler _registryHandler;
 
     protected override IContentStore<WidgetRegistrationDTO> Store => _store;
 
@@ -44,8 +44,10 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
-        _viewDiscoveryService = viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService));
-        _registryHandler = new WidgetRegistrationRegistryHandler(widgetRegistry, viewDiscoveryService);
+        // The widgets admin exposes the same component registry endpoints as the zone editor.
+        _registryHandler = new ContentZoneRegistryHandler(
+            widgetRegistry,
+            viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService)));
     }
 
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
@@ -77,6 +79,7 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
             Order = dto.Order,
             ConfigurationTypeName = dto.ConfigurationTypeName,
             IsActive = dto.IsActive,
+            SupportsList = dto.SupportsList,
             IsPublished = dto.Version.State == ContentVersionState.Published,
         };
     }
@@ -186,6 +189,7 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
             Order = historical.Order,
             ConfigurationTypeName = historical.ConfigurationTypeName,
             IsActive = historical.IsActive,
+            SupportsList = historical.SupportsList,
             IsPublished = historical.Version.State == ContentVersionState.Published,
         };
     }
@@ -245,108 +249,6 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
         catch
         {
             return null;
-        }
-    }
-
-    private sealed class WidgetRegistrationRegistryHandler : IAdminRegistryHandler
-    {
-        private readonly IWidgetRegistry _registry;
-        private readonly IViewDiscoveryService _viewDiscoveryService;
-        private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<WidgetRegistrationRegistryHandler>();
-
-        public WidgetRegistrationRegistryHandler(
-            IWidgetRegistry registry,
-            IViewDiscoveryService viewDiscoveryService)
-        {
-            _registry = registry;
-            _viewDiscoveryService = viewDiscoveryService;
-        }
-
-        public IActionResult GetAll()
-        {
-            var components = _registry.GetAllComponents().Select(c => new
-            {
-                name = c.Name,
-                displayName = c.DisplayName,
-                description = c.Description,
-                category = c.Category
-            }).ToList();
-
-            return new JsonResult(components);
-        }
-
-        public IActionResult GetProperties(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-                return new BadRequestObjectResult(new { error = "Component name is required." });
-
-            var component = _registry.GetByName(name);
-            if (component == null)
-                return new NotFoundObjectResult(new { error = $"Component '{name}' not found." });
-
-            var properties = component.Properties.Select(p =>
-            {
-                Dictionary<string, string> dropdownOptions = p.DropdownOptions;
-
-                if (p.EditorType == EditorType.ViewPicker && !string.IsNullOrWhiteSpace(p.ViewComponentName))
-                {
-                    var views = _viewDiscoveryService.GetAvailableViews(p.ViewComponentName);
-                    if (views.Any())
-                        dropdownOptions = views.ToDictionary(v => v, v => v);
-                    else
-                    {
-                        _logger.Warning("No views found for ViewComponent '{ComponentName}'", p.ViewComponentName);
-                        dropdownOptions = new Dictionary<string, string>();
-                    }
-                }
-
-                return new
-                {
-                    name = p.Name,
-                    label = p.Label,
-                    helpText = p.HelpText,
-                    placeholder = p.Placeholder,
-                    editorType = p.EditorType.ToString().ToLowerInvariant(),
-                    isRequired = p.IsRequired,
-                    defaultValue = p.DefaultValue,
-                    order = p.Order,
-                    group = p.Group,
-                    entityType = p.EntityType,
-                    dropdownOptions,
-                    viewComponentName = p.ViewComponentName,
-                    min = p.Min,
-                    max = p.Max,
-                    maxLength = p.MaxLength
-                };
-            }).OrderBy(p => p.order).ToList();
-
-            return new JsonResult(new
-            {
-                componentName = component.Name,
-                displayName = component.DisplayName,
-                category = component.Category,
-                properties
-            });
-        }
-
-        public IActionResult GetForm(string name, string? valuesJson)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-                return new BadRequestObjectResult(new { error = "Component name is required." });
-
-            var component = _registry.GetByName(name);
-            if (component == null)
-                return new NotFoundObjectResult(new { error = $"Component '{name}' not found." });
-
-            object? instance = null;
-            if (!string.IsNullOrWhiteSpace(component.ConfigurationTypeName))
-            {
-                var configType = ResolveConfigurationType(component.ConfigurationTypeName);
-                if (configType != null)
-                    instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(configType, valuesJson);
-            }
-
-            return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance);
         }
     }
 }

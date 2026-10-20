@@ -433,6 +433,7 @@ namespace WebWayCMS.Data.Migrations
                     Ordinal = table.Column<int>(type: "integer", nullable: false),
                     ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ComponentPropertiesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
+                    MetadataJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
@@ -551,6 +552,7 @@ namespace WebWayCMS.Data.Migrations
                     Order = table.Column<int>(type: "integer", nullable: false),
                     ConfigurationTypeName = table.Column<string>(type: "text", nullable: true),
                     PropertyDefinitionsJson = table.Column<string>(type: "text", nullable: false),
+                    SupportsList = table.Column<bool>(type: "boolean", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>

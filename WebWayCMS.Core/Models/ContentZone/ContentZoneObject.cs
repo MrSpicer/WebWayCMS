@@ -1,3 +1,5 @@
+using WebWayCMS.ContentZones;
+
 namespace WebWayCMS.Models.ContentZone;
 
 //probably move this to Data and use as dto
@@ -13,4 +15,10 @@ public class ContentZoneObject : IContentZoneObject
 
     public string ComponentName { get; set; } = string.Empty;
     public object ComponentProperties { get; set; } = default!;
+
+    /// <summary>
+    /// The item's widget metadata (display mode + admin presentation fields), deserialized
+    /// from the zone item's <c>MetadataJson</c> column at map time.
+    /// </summary>
+    public WidgetMetadata Metadata { get; set; } = new();
 }

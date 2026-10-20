@@ -1,8 +1,9 @@
 using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace WebWayCMS.Models.Page;
 
-public class PageContentZoneConfiguration
+public class PageContentZoneConfiguration : WidgetConfiguration
 {
     [FormProperty(
         Label = "Show Draft Pages",
@@ -30,15 +31,4 @@ public class PageContentZoneConfiguration
         FormComponent = "Checkbox"
     )]
     public bool AdminPages { get; set; } = false;
-
-    [FormProperty(
-        Label = "View Name",
-        HelpText = "The view template to use. Leave empty for default behavior.",
-        Placeholder = "e.g., Default",
-        EditorType = EditorType.ViewPicker,
-        ViewComponentName = "Page",
-        Order = 5,
-        FormComponent = "ViewPicker"
-    )]
-    public string? ViewName { get; set; }
 }

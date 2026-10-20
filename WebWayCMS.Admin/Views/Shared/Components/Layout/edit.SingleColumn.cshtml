@@ -1,0 +1,8 @@
+@*
+    Edit-mode counterpart of view.SingleColumn: the same slot layout as the public
+    view, rendered with Bulma so it reads correctly inside the admin zone editor.
+    Nested zones inherit edit mode from the zone that renders this widget.
+*@
+
+<p class="heading is-6 has-text-weight-bold">Main</p>
+@await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })

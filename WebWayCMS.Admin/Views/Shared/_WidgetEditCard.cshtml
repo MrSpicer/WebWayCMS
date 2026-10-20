@@ -1,0 +1,26 @@
+@model WebWayCMS.ContentZones.WidgetRegistrationInfo
+@*
+    Generic fallback card rendered in the admin zone editor when a widget has no edit-mode views
+    (neither edit.{variant} for the item's chosen variant nor edit.default). Shows the widget's
+    registration info so the editor still identifies the item.
+*@
+<div class="notification is-light cz-edit-card">
+    <div class="media">
+        <div class="media-left">
+            <span class="icon has-text-grey">
+                <i class="@Model?.IconClass @(Model != null ? "fas" : "fa fa-cube")" aria-hidden="true"></i>
+            </span>
+        </div>
+        <div class="media-content">
+            <p class="title is-6 has-text-weight-normal">@Model?.DisplayName</p>
+            @if (!string.IsNullOrWhiteSpace(Model?.Description))
+            {
+                <p class="is-size-7 has-text-grey">@Model.Description</p>
+            }
+            <p class="is-size-7 has-text-grey-light mt-1">
+                <span class="icon is-small"><i class="fas fa-info-circle" aria-hidden="true"></i></span>
+                No edit preview — this widget renders its public view on the site.
+            </p>
+        </div>
+    </div>
+</div>

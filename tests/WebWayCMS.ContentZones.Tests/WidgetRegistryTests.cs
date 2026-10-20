@@ -130,6 +130,22 @@ public class WidgetRegistryTests
     }
 
     [Test]
+    public void GetByName_CarriesSupportsList()
+    {
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            WidgetDto("Faq", "FAQ") with { SupportsList = true },
+            WidgetDto("Layout", "Layout")
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_registry.GetByName("Faq")!.SupportsList, Is.True);
+            Assert.That(_registry.GetByName("Layout")!.SupportsList, Is.False);
+        });
+    }
+
+    [Test]
     public void GetCategories_ReturnsOrderedCategories()
     {
         _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>

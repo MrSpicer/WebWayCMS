@@ -1,4 +1,5 @@
 using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace WebWayCMS.Models.Image;
 
@@ -7,7 +8,7 @@ namespace WebWayCMS.Models.Image;
 /// blob hash directly, so alt text and caption stay defined once on the content item and the
 /// reference can be resolved by a content seed file's <c>@seed:{guid}</c> token.
 /// </summary>
-public sealed class ImageContentZoneConfiguration
+public sealed class ImageContentZoneConfiguration : WidgetConfiguration
 {
     /// <remarks>
     /// Nullable deliberately. A non-nullable value type here would silently discard the *entire*
@@ -25,8 +26,4 @@ public sealed class ImageContentZoneConfiguration
 
     [FormProperty(Label = "Show caption", EditorType = EditorType.Checkbox, Order = 3, FormComponent = "Checkbox")]
     public bool ShowCaption { get; set; }
-
-    [FormProperty(Label = "View", Order = 4, FormComponent = "ViewPicker", ViewComponentName = "Image",
-        HelpText = "Optional alternate view.")]
-    public string? ViewName { get; set; }
 }

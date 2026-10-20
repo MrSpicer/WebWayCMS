@@ -79,6 +79,23 @@ public sealed class FormPropertyAttribute : Attribute
     public bool IsRequired { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets the render mode this property configures, for ViewPicker editors.
+    /// The picker lists only the widget views whose file name starts with this mode's prefix
+    /// (e.g. <c>view.</c> for <see cref="WidgetRenderMode.View"/>, <c>list.</c> for
+    /// <see cref="WidgetRenderMode.List"/>). Only used when <see cref="EditorType"/> is
+    /// <see cref="Attributes.EditorType.ViewPicker"/>.
+    /// </summary>
+    public WidgetRenderMode RenderMode { get; set; } = WidgetRenderMode.View;
+
+    /// <summary>
+    /// Gets or sets the widget display modes this property applies to. A widget configuration form
+    /// rendered for one display mode shows only the fields tagged with it (the zone editor merges
+    /// them over the stored JSON, so the other mode's values survive a switch). It affects form
+    /// rendering only; it is not consulted by validation. Defaults to both modes.
+    /// </summary>
+    public WidgetDisplayMode DisplayModes { get; set; } = WidgetDisplayMode.Single | WidgetDisplayMode.List;
+
+    /// <summary>
     /// Gets or sets the minimum value for numeric properties.
     /// Use <see cref="double.NaN"/> or don't set to indicate no minimum.
     /// </summary>

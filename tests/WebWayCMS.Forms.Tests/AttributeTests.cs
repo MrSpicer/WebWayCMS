@@ -145,4 +145,17 @@ public class AttributeTests
     private sealed class MultiRouteController
     {
     }
+
+    [Test]
+    public void WidgetRenderModeExtensions_ToFilePrefix_ReturnsLowercaseModeName()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(WidgetRenderMode.View.ToFilePrefix(), Is.EqualTo("view"));
+            Assert.That(WidgetRenderMode.Edit.ToFilePrefix(), Is.EqualTo("edit"));
+            Assert.That(WidgetRenderMode.List.ToFilePrefix(), Is.EqualTo("list"));
+            Assert.That(WidgetRenderMode.Admin.ToFilePrefix(), Is.EqualTo("admin"));
+            Assert.That(WidgetRenderMode.AdminList.ToFilePrefix(), Is.EqualTo("adminlist"));
+        });
+    }
 }

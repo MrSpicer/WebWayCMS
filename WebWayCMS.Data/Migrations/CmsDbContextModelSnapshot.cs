@@ -612,6 +612,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MetadataJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
 
@@ -893,6 +897,9 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<string>("PropertyDefinitionsJson")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("SupportsList")
+                        .HasColumnType("boolean");
 
                     b.HasKey("VersionId");
 

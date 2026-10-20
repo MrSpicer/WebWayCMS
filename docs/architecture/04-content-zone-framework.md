@@ -52,7 +52,11 @@ await Component.InvokeAsync("ContentZone", new
 
 **Read mode** (default): Renders each widget ViewComponent in order. Returns `Content(string.Empty)` for empty zones.
 
-**Edit mode**: Renders the `Edit` view instead of the default view. Populates `ViewData["ComponentsByCategory"]` with `IWidgetRegistry.GetComponentsByCategory()` for the add-widget dropdown.
+**Edit mode**: Sets `ViewData["ContentZone:RenderMode"] = WidgetRenderMode.Edit` (read mode sets
+`WidgetRenderMode.View`), which mode-aware widgets (`WidgetViewComponent`) honour — they render their
+`edit.*` views (or the generic edit card) instead of their public views. Also populates
+`ViewData["ComponentsByCategory"]` with `IWidgetRegistry.GetComponentsByCategory()` for the
+add-widget dropdown.
 
 ---
 
@@ -210,28 +214,47 @@ Nesting depth is unlimited, but each level adds a database query. Avoid deep nes
 
 **Runtime deserialization:** `ContentZoneModel` deserializes the JSON into the `ConfigurationType` when building `ContentZoneViewModel`. The result is stored in `ContentZoneObject.Configuration`.
 
-**Widget receives:** The typed configuration object as a parameter to `InvokeAsync`:
+**Widget receives:** The typed configuration object as a parameter to `Invoke`. Mode-aware widgets
+derive from `WidgetViewComponent` and return `ModeView(config, model)`, which resolves the active
+render mode's view (`{mode}.{variant}.cshtml`, per-mode fallback chain, generic edit card / empty
+content per mode — see [widget-system.md → Render Modes](../widget-system.md#render-modes)):
 ```csharp
-public class MyWidgetViewComponent : ViewComponent
+public class MyWidgetViewComponent : WidgetViewComponent
 {
     public IViewComponentResult Invoke(MyWidgetConfiguration? configuration)
     {
         configuration ??= new MyWidgetConfiguration();
-        return View(configuration);
+        return ModeView(configuration, configuration);
     }
 }
 ```
 
-If `ConfigurationType` is `null`, the widget receives no configuration parameter.
+The configuration type derives from `WidgetConfiguration` (contributes the `ViewName` (Single) /
+`ListViewName` (List) pickers and the attached `WidgetMetadata`). At render time `ContentZoneModel`
+deserializes the zone item's `MetadataJson` column into `WidgetMetadata` and attaches it to
+`config.Metadata`; the metadata's `DisplayMode` (Single/List, only for
+`[ContentZoneComponent(SupportsList = true)]` widgets — coerced to Single otherwise) together with the
+request path (admin vs. public) and the zone's edit flag decide the render mode. If `ConfigurationType` is `null`,
+the widget receives no configuration parameter and passes `null` to `ModeView`.
 
 ### Entity-picker endpoint resolution
 
-The admin `EntityPicker` form component loads its options client-side from
-`WebWayCMS.Admin/wwwroot/js/form-components.js`. A small hardcoded map covers the built-in content
-types; for any other `EntityType` it now falls back to the generic admin list endpoint
-`GET /wadmin/{contentType}/api/list` (served by `AdminContentController` → the handler's
-`GetApiListAsync`). A host content type can therefore be an `EntityPicker` target by setting
-`EntityType = "<contentTypeKey>"` — no JS edit required.
+The list endpoint for an `EntityPicker` is resolved **server-side**: `FormEntityPicker` passes the
+field's `EntityType` and the (optional) `IAdminHandlerRegistry` to `EntityPickerEndpoint.Resolve`
+(`WebWayCMS.Core/Controllers/Admin/Handlers/`), and `Write.cshtml` emits the result as
+`data-endpoint` on the `<select>`. `form-components.js` only fetches that URL; it holds no endpoint
+map. Resolution order:
+
+1. a handler whose `ContentType` equals the entity type → `GET /wadmin/{contentType}/api/list`
+   (e.g. host `faqs`);
+2. a handler whose `ContentType` is the plural (`ContentBlock` → `contentblocks`, `Image` → `images`,
+   `Article` → `articles`, `ContentZone` → `contentzones`);
+3. a handler secondary list key equal to the entity type or its plural
+   (`ArticleList` → `GET /wadmin/articles/api/articlelists`).
+
+A host content type can therefore be an `EntityPicker` target by setting
+`EntityType = "<contentTypeKey>"` — no JS edit required. With no match (or on a rendering-only host,
+which has no registry) the attribute is omitted and the picker shows "Unknown entity type".
 
 ---
 

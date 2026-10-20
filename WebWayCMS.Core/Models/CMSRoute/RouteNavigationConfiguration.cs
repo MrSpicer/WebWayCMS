@@ -1,8 +1,9 @@
 using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace WebWayCMS.Models.CMSRoute;
 
-public class RouteNavigationConfiguration
+public class RouteNavigationConfiguration : WidgetConfiguration
 {
     [FormProperty(
         Label = "Admin Routes",
@@ -21,15 +22,4 @@ public class RouteNavigationConfiguration
         FormComponent = "Checkbox"
     )]
     public bool IncludeReserved { get; set; } = false;
-
-    [FormProperty(
-        Label = "View Name",
-        HelpText = "The view template to use. Leave empty for default behavior.",
-        Placeholder = "e.g., Default",
-        EditorType = EditorType.ViewPicker,
-        ViewComponentName = "RouteNavigation",
-        Order = 5,
-        FormComponent = "ViewPicker"
-    )]
-    public string? ViewName { get; set; }
 }

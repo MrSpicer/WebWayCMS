@@ -13,6 +13,7 @@ public sealed class ContentZoneItemDTOEntityConfiguration : IEntityTypeConfigura
         entity.ConfigureContentLink();
         entity.Property(e => e.ComponentName).IsRequired().HasMaxLength(256);
         entity.Property(e => e.ComponentPropertiesJson).HasMaxLength(4000);
+        entity.Property(e => e.MetadataJson).HasMaxLength(4000);
         entity.ToTable("ContentZoneItems");
 
         entity.HasOne<ContentNode>()

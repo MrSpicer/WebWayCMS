@@ -21,6 +21,14 @@ public record ContentZoneItemDTO : IVersionedContent
     /// <summary>JSON-serialized properties to pass to the ViewComponent.</summary>
     public string ComponentPropertiesJson { get; set; } = "{}";
 
+    /// <summary>
+    /// JSON-serialized per-item widget metadata (<c>WidgetMetadata</c>: the Single/List display
+    /// mode plus admin label/note/CSS class/anchor id), edited through the zone editor's settings
+    /// (cog) dialog. A null value on an update means "keep the existing metadata" so a
+    /// content-config save never wipes it; new items normalize to <c>"{}"</c> on write.
+    /// </summary>
+    public string? MetadataJson { get; set; }
+
     /// <summary>Whether this item is active and should be rendered.</summary>
     public bool IsActive { get; set; } = true;
 }

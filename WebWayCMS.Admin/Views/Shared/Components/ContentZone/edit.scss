@@ -82,9 +82,53 @@
     color: var(--admin-text-muted, #64748b);
 }
 
+.zone-object-note {
+    font-size: 0.7rem;
+    color: var(--admin-text-muted, #64748b);
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .zone-object-content {
     padding: 0.5rem;
+    // Edit-mode views render inside the dark admin theme. Bulma's light-theme defaults for strong
+    // text, headings, boxes, notifications and menus would be dark-on-dark or light-on-light here,
+    // so pin them to the admin palette.
     color: var(--admin-text, #e2e8f0);
+    border-radius: 0 0 var(--admin-radius-sm, 4px) var(--admin-radius-sm, 4px);
+
+    strong, b, h1, h2, h3, h4, h5, h6, .title, .heading {
+        color: var(--admin-text, #e2e8f0);
+    }
+
+    a,
+    .menu-list a {
+        color: var(--admin-primary, #818cf8);
+    }
+
+    .menu-list a:hover {
+        background: var(--admin-primary-light, #2d3562);
+        color: var(--admin-text, #e2e8f0);
+    }
+
+    .menu-list li ul {
+        border-left-color: var(--admin-border, #3a4460);
+    }
+
+    .box,
+    .notification {
+        background: var(--admin-surface, #1e2433);
+        color: var(--admin-text, #e2e8f0);
+        border: 1px solid var(--admin-border, #3a4460);
+        box-shadow: none;
+    }
+
+    .has-text-grey,
+    .has-text-grey-light {
+        color: var(--admin-text-muted, #94a3b8) !important;
+    }
 }
 
 .zone-add-widget {

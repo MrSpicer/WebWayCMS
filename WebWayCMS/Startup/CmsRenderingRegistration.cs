@@ -1,10 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;
@@ -43,7 +45,16 @@ internal static class CmsRenderingRegistration
         services.AddHttpContextAccessor();
         services.AddSingleton<UserService>();
 
-        services.AddScoped<IViewDiscoveryService, ViewDiscoveryService>();
+        // View discovery caches each component's scan for the instance's lifetime and now runs on
+        // every widget render. Outside Development views are compiled and fixed, so one shared
+        // instance caches for the app lifetime; in Development a per-request instance keeps
+        // freshly-added .cshtml files (runtime compilation) visible without a restart.
+        services.AddSingleton<ViewDiscoveryService>();
+        services.AddScoped<IViewDiscoveryService>(sp =>
+            sp.GetRequiredService<IWebHostEnvironment>().IsDevelopment()
+                ? ActivatorUtilities.CreateInstance<ViewDiscoveryService>(sp)
+                : sp.GetRequiredService<ViewDiscoveryService>());
+        services.AddScoped<IWidgetViewResolver, WidgetViewResolver>();
 
         services.AddSingleton<IWidgetRegistry, WidgetRegistry>();
         services.AddSingleton<IFormComponentRegistry, FormComponentRegistry>();

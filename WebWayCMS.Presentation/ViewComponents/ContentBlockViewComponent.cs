@@ -16,7 +16,7 @@ namespace WebWayCMS.ViewComponents;
     IconClass = "fa-file-alt",
     Order = 1
 )]
-public class ContentBlockViewComponent : ViewComponent
+public class ContentBlockViewComponent : WidgetViewComponent
 {
     private readonly IContentBlockModel _model;
 
@@ -28,9 +28,15 @@ public class ContentBlockViewComponent : ViewComponent
     public async Task<IViewComponentResult> InvokeAsync(ContentBlockContentZoneConfiguration config)
     {
         if (config == null || config.ContentBlockID == Guid.Empty)
-            return Content(string.Empty);
+        {
+            // No block picked yet: the zone editor shows its edit view's "No content" placeholder;
+            // public pages render nothing.
+            return RenderModeFor(config) == WidgetRenderMode.Edit
+                ? ModeView(config, new ContentBlockViewModel())
+                : Content(string.Empty);
+        }
 
         var vm = await _model.GetViewModelByNodeIdAsync(config.ContentBlockID, CancellationToken.None);
-        return View(vm ?? new ContentBlockViewModel { NodeId = config.ContentBlockID });
+        return ModeView(config, vm ?? new ContentBlockViewModel { NodeId = config.ContentBlockID });
     }
 }

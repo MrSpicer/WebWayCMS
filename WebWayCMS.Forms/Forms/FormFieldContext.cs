@@ -1,3 +1,5 @@
+using WebWayCMS.Attributes;
+
 namespace WebWayCMS.Forms;
 
 /// <summary>
@@ -20,6 +22,18 @@ public sealed class FormFieldContext
     /// Write (edit) or Read (display) mode.
     /// </summary>
     public FormFieldMode Mode { get; init; } = FormFieldMode.Write;
+
+    /// <summary>
+    /// The render mode this field configures, for ViewPicker fields (e.g. the single-item
+    /// <c>view.*</c> picker vs. the <c>list.*</c> picker on a widget config form).
+    /// </summary>
+    public WidgetRenderMode RenderMode { get; init; } = WidgetRenderMode.View;
+
+    /// <summary>
+    /// The widget/component name the form is being rendered for, used by ViewPicker fields that do
+    /// not name their component explicitly (they pick up the widget name from the form context).
+    /// </summary>
+    public string ComponentName { get; init; } = string.Empty;
 
     /// <summary>
     /// The HTML input name attribute value, e.g. "Title".

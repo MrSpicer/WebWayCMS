@@ -1,26 +1,13 @@
-using System.ComponentModel.DataAnnotations;
-
-using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace WebWayCMS.Models.Layout;
 
 /// <summary>
 /// Configuration model for the Layout ViewComponent when used within a content zone.
+/// The layout variant is picked with the inherited <see cref="WidgetConfiguration.ViewName"/>
+/// picker (<c>view.*</c>); the zone editor mirrors that name to <c>edit.{variant}</c>, falling back
+/// to <c>edit.default</c>.
 /// </summary>
-public class LayoutContentZoneConfiguration
+public class LayoutContentZoneConfiguration : WidgetConfiguration
 {
-    /// <summary>
-    /// Gets or sets the name of the view to render.
-    /// </summary>
-    [FormProperty(
-        Label = "View Name",
-        HelpText = "Select the view template to render.",
-        EditorType = EditorType.ViewPicker,
-        ViewComponentName = "Layout",
-        IsRequired = true,
-        Order = 1,
-        FormComponent = "ViewPicker"
-    )]
-    [Required(ErrorMessage = "Please select a view.")]
-    public string ViewName { get; set; } = string.Empty;
 }

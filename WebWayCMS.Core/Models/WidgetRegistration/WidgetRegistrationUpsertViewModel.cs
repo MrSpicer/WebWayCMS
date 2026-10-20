@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using WebWayCMS.Attributes;
 
 namespace WebWayCMS.Models.WidgetRegistration;
@@ -35,4 +37,12 @@ public sealed class WidgetRegistrationUpsertViewModel : BaseContentViewModel
     [FormProperty(Label = "Active", EditorType = EditorType.Checkbox, Order = 10,
         HelpText = "Whether this widget appears in the Add Widget dialog.", FormComponent = "Checkbox")]
     public bool IsActive { get; init; } = true;
+
+    /// <summary>
+    /// Read-only: whether the widget supports list mode. Comes from the widget's
+    /// <c>[ContentZoneComponent(SupportsList = ...)]</c> and is synced on boot, so it is shown on the
+    /// form but never bound or saved (excluded from the form fields and the JSON round-trip).
+    /// </summary>
+    [JsonIgnore]
+    public bool SupportsList { get; init; }
 }

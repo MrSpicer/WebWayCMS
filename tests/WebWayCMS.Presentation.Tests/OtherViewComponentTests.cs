@@ -5,6 +5,7 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
@@ -22,13 +23,14 @@ public class ContentBlockViewComponentTests
 {
     private IContentBlockModel _model = null!;
     private ContentBlockViewComponent _component = null!;
+    private WidgetComponentHarness.Context _widget = null!;
 
     [SetUp]
     public void SetUp()
     {
         _model = Substitute.For<IContentBlockModel>();
         _component = new ContentBlockViewComponent(_model);
-        ViewComponentHarness.Attach(_component);
+        _widget = WidgetComponentHarness.Attach(_component);
     }
 
     [Test]
@@ -42,11 +44,17 @@ public class ContentBlockViewComponentTests
     [Test]
     public async Task ValidId_RendersFoundOrFallbackViewModel()
     {
+        _widget.Hit("ContentBlock", WidgetRenderMode.View, "default", "view.Default");
+
         var id = Guid.NewGuid();
         _model.GetViewModelByNodeIdAsync(id, Arg.Any<CancellationToken>()).Returns(new ContentBlockViewModel(), (ContentBlockViewModel?)null);
 
-        Assert.That(ViewComponentHarness.Model(await _component.InvokeAsync(new ContentBlockContentZoneConfiguration { ContentBlockID = id })),
-            Is.InstanceOf<ContentBlockViewModel>());
+        var result = await _component.InvokeAsync(new ContentBlockContentZoneConfiguration { ContentBlockID = id });
+        Assert.Multiple(() =>
+        {
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
+            Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<ContentBlockViewModel>());
+        });
         // Second call returns null -> falls back to a new view model carrying the node id.
         var fallback = (ContentBlockViewModel)ViewComponentHarness.Model(await _component.InvokeAsync(new ContentBlockContentZoneConfiguration { ContentBlockID = id }))!;
         Assert.That(fallback.NodeId, Is.EqualTo(id));
@@ -149,7 +157,7 @@ public class ContentZoneViewComponentTests
     [Test]
     public async Task InheritedEditMode_FromViewData_RendersEditView()
     {
-        _component.ViewComponentContext.ViewData["ContentZone:EditMode"] = true;
+        _component.ViewComponentContext.ViewData["ContentZone:RenderMode"] = WidgetRenderMode.Edit;
         _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns(ZoneVm());
         _registry.GetComponentsByCategory().Returns(new Dictionary<string, IReadOnlyList<WidgetRegistrationInfo>>());
 
@@ -158,6 +166,7 @@ public class ContentZoneViewComponentTests
         Assert.Multiple(() =>
         {
             Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Edit"));
+            Assert.That(_component.ViewComponentContext.ViewData["ContentZone:RenderMode"], Is.EqualTo(WidgetRenderMode.Edit));
             Assert.That(_component.ViewComponentContext.ViewData.ContainsKey("ComponentsByCategory"), Is.True);
         });
     }
@@ -193,6 +202,7 @@ public class ContentZoneViewComponentTests
         Assert.Multiple(() =>
         {
             Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Edit"));
+            Assert.That(_component.ViewComponentContext.ViewData["ContentZone:RenderMode"], Is.EqualTo(WidgetRenderMode.Edit));
             Assert.That(_component.ViewComponentContext.ViewData.ContainsKey("ComponentsByCategory"), Is.True);
         });
     }
@@ -206,29 +216,61 @@ public class ContentZoneViewComponentTests
 
         Assert.That(result, Is.InstanceOf<ContentViewComponentResult>());
     }
+
+    [Test]
+    public async Task PublicMode_SetsViewRenderModeInViewData()
+    {
+        _model.GetOrCreateViewModelAsync("X", Arg.Any<CancellationToken>()).Returns(ZoneVm(withItems: true));
+
+        await _component.InvokeAsync(zoneName: "X", IsGlobal: true);
+
+        Assert.That(_component.ViewComponentContext.ViewData["ContentZone:RenderMode"], Is.EqualTo(WidgetRenderMode.View));
+    }
 }
 
 [TestFixture]
 public class LayoutViewComponentTests
 {
     [Test]
-    public void Invoke_NullConfig_RendersDefaultView()
+    public void Invoke_NullConfig_ResolvesDefaultView()
     {
         var component = new LayoutViewComponent();
-        ViewComponentHarness.Attach(component);
+        var widget = WidgetComponentHarness.Attach(component);
+        widget.Hit("Layout", WidgetRenderMode.View, "default", "view.Default");
 
-        Assert.That(component.Invoke(null!), Is.InstanceOf<ViewViewComponentResult>());
+        var result = component.Invoke(null!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ViewViewComponentResult>());
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
+        });
     }
 
     [Test]
-    public void Invoke_WithConfig_RendersNamedView()
+    public void Invoke_WithConfig_ResolvesPickedView()
     {
         var component = new LayoutViewComponent();
-        ViewComponentHarness.Attach(component);
+        var widget = WidgetComponentHarness.Attach(component);
+        widget.Hit("Layout", WidgetRenderMode.View, "MyLayout", "view.MyLayout");
 
         var result = component.Invoke(new LayoutContentZoneConfiguration { ViewName = "MyLayout" });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("MyLayout"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.MyLayout"));
+    }
+
+    [Test]
+    public void Invoke_EditModeContext_ResolvesEditView()
+    {
+        var component = new LayoutViewComponent();
+        var widget = WidgetComponentHarness.Attach(component);
+        widget.Hit("Layout", WidgetRenderMode.Edit, "default", "edit.default");
+
+        component.ViewComponentContext.ViewData["ContentZone:RenderMode"] = WidgetRenderMode.Edit;
+
+        var result = component.Invoke(new LayoutContentZoneConfiguration());
+
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("edit.default"));
     }
 }
 
@@ -237,13 +279,16 @@ public class PageViewComponentTests
 {
     private IPageModel _model = null!;
     private PageViewComponent _component = null!;
+    private WidgetComponentHarness.Context _widget = null!;
 
     [SetUp]
     public void SetUp()
     {
         _model = Substitute.For<IPageModel>();
         _component = new PageViewComponent(_model);
-        ViewComponentHarness.Attach(_component);
+        _widget = WidgetComponentHarness.Attach(_component);
+        _widget.Hit("Page", WidgetRenderMode.View, "default", "view.Default");
+        _widget.Hit("Page", WidgetRenderMode.View, "Menu", "view.Menu");
     }
 
     [Test]
@@ -272,7 +317,7 @@ public class PageViewComponentTests
                 Node("/hidden", hidden: true),
                 Node("/wadmin/x"),
                 new() { Path = "/intermediate", PageNodeId = null } // no PageNodeId -> filtered out
-			}
+ 			}
         });
 
         var result = await _component.InvokeAsync();
@@ -280,7 +325,7 @@ public class PageViewComponentTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
             Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/a" }));
             Assert.That(vm.Items[0].Children.Single().Path, Is.EqualTo("/a/b"));
         });
@@ -299,7 +344,7 @@ public class PageViewComponentTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Menu"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Menu"));
             Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/wadmin/x" }));
         });
     }
@@ -324,13 +369,17 @@ public class RouteNavigationViewComponentTests
 {
     private ICMSRouteRegistry _routeRegistry = null!;
     private RouteNavigationViewComponent _component = null!;
+    private WidgetComponentHarness.Context _widget = null!;
 
     [SetUp]
     public void SetUp()
     {
         _routeRegistry = Substitute.For<ICMSRouteRegistry>();
         _component = new RouteNavigationViewComponent(_routeRegistry);
-        ViewComponentHarness.Attach(_component);
+        _widget = WidgetComponentHarness.Attach(_component);
+        _widget.Hit("RouteNavigation", WidgetRenderMode.View, "default", "view.Default");
+        _widget.Hit("RouteNavigation", WidgetRenderMode.View, "Menu", "view.Menu");
+        _widget.Hit("RouteNavigation", WidgetRenderMode.Admin, "default", "admin.default");
     }
 
     private void Routes(params CMSRouteDTO[] routes)
@@ -372,7 +421,7 @@ public class RouteNavigationViewComponentTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
             Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/home", "/about" }));
             Assert.That(vm.Items.Select(i => i.Title), Is.EqualTo(new[] { "/home", "/about" }));
         });
@@ -442,7 +491,7 @@ public class RouteNavigationViewComponentTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Menu"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Menu"));
             Assert.That(vm.Items.Select(i => i.Path), Is.EqualTo(new[] { "/wadmin/page" }));
         });
     }
@@ -454,7 +503,7 @@ public class RouteNavigationViewComponentTests
 
         var result = _component.Invoke(new RouteNavigationConfiguration { ViewName = "   " });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
     }
 
     [Test]
@@ -566,13 +615,16 @@ public class ImageViewComponentTests
 {
     private WebWayCMS.Models.Image.IImageModel _model = null!;
     private ImageViewComponent _component = null!;
+    private WidgetComponentHarness.Context _widget = null!;
 
     [SetUp]
     public void SetUp()
     {
         _model = Substitute.For<WebWayCMS.Models.Image.IImageModel>();
         _component = new ImageViewComponent(_model);
-        ViewComponentHarness.Attach(_component);
+        _widget = WidgetComponentHarness.Attach(_component);
+        _widget.Hit("Image", WidgetRenderMode.View, "default", "view.Default");
+        _widget.Hit("Image", WidgetRenderMode.View, "Hero", "view.Hero");
     }
 
     private static WebWayCMS.Models.Image.ImageViewModel Vm() => new()
@@ -638,7 +690,7 @@ public class ImageViewComponentTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
             Assert.That(model.CssClass, Is.EqualTo("rounded"));
             Assert.That(model.ShowCaption, Is.True);
         });
@@ -656,7 +708,7 @@ public class ImageViewComponentTests
             ViewName = "   "
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Default"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Default"));
     }
 
     [Test]
@@ -671,6 +723,6 @@ public class ImageViewComponentTests
             ViewName = "Hero"
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Hero"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("view.Hero"));
     }
 }

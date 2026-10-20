@@ -1,0 +1,16 @@
+@*
+    Edit-mode counterpart of view.TwoColumnEqual: the same slot layout as the public
+    view, rendered with Bulma so it reads correctly inside the admin zone editor.
+    Nested zones inherit edit mode from the zone that renders this widget.
+*@
+
+<div class="columns is-mobile">
+    <div class="column is-6">
+        <p class="heading is-6 has-text-weight-bold">Left</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Left" })
+    </div>
+    <div class="column is-6">
+        <p class="heading is-6 has-text-weight-bold">Right</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Right" })
+    </div>
+</div>

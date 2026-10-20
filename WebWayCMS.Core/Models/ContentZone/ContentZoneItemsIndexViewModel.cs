@@ -19,6 +19,7 @@ public sealed class ContentZoneItemViewModel
     public Guid ZoneId { get; set; }
     public string ComponentName { get; set; } = string.Empty;
     public string ComponentPropertiesJson { get; set; } = string.Empty;
+    public string? MetadataJson { get; set; }
     public int Ordinal { get; set; }
     public bool IsActive { get; set; }
 }

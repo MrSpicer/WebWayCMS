@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 using WebWayCMS.Attributes;
@@ -19,6 +20,13 @@ public static class FormPropertyBuilder
         foreach (var prop in modelType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (!prop.CanRead || !prop.CanWrite)
+                continue;
+
+            // Properties excluded from the JSON config round-trip (e.g. the runtime-only
+            // Metadata on WidgetConfiguration) are not form fields: a value written
+            // into them would never be persisted, and re-reading it could fail deserialization
+            // and drop the entire stored configuration.
+            if (prop.GetCustomAttribute<JsonIgnoreAttribute>() != null)
                 continue;
 
             var attr = prop.GetCustomAttribute<FormPropertyAttribute>();
@@ -42,6 +50,8 @@ public static class FormPropertyBuilder
                 IsRequired = attr?.IsRequired == true || requiredAttr != null,
                 EntityType = attr?.EntityType ?? string.Empty,
                 ViewComponentName = attr?.ViewComponentName ?? string.Empty,
+                RenderMode = attr?.RenderMode ?? WidgetRenderMode.View,
+                DisplayModes = attr?.DisplayModes ?? (WidgetDisplayMode.Single | WidgetDisplayMode.List),
                 Min = GetMinValue(attr, rangeAttr),
                 Max = GetMaxValue(attr, rangeAttr),
                 MaxLength = GetMaxLengthValue(attr, stringLengthAttr),

@@ -115,13 +115,18 @@ parent therefore lets its children rise a level — so a named child of an **unn
 top level — mirroring how `PageViewComponent` drops nodes without a `PageNodeId`. The site root `/` is
 never treated as a parent, so it does not swallow every other link.
 
-**Parameter:** `RouteNavigationConfiguration? config` — `AdminRoutes`, `IncludeReserved`, and `ViewName`
-(a ViewPicker over `Views/Shared/Components/RouteNavigation/`).
+**Parameter:** `RouteNavigationConfiguration? config` — `AdminRoutes`, `IncludeReserved`, plus the
+inherited `WidgetConfiguration` view picker (`ViewName`, over the `view.*` files in
+`Views/Shared/Components/RouteNavigation/`).
 
 **In-CMS consumer:** `WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml` invokes it with
-`AdminRoutes = true` and `ViewName = "AdminNavbar"` (it replaced an equivalent `PageViewComponent` call
-— `PageViewComponent` itself remains a placeable zone widget). It asks for the named view rather than
-`Default` so a host re-skinning `Default.cshtml` cannot break the admin navbar; see the warning in §6. The integration host drives its whole public navbar from it; see §6
+`AdminRoutes = true` and `ViewName = "Navbar"` (it replaced an equivalent `PageViewComponent` call —
+`PageViewComponent` itself remains a placeable zone widget). The navbar renders on `/wadmin` pages, so
+the widget resolves admin render mode automatically and renders `admin.Navbar.cshtml`, so a host
+re-skinning `view.default.cshtml` cannot break the admin navbar. It is a named variant rather than
+`admin.default` so that a `RouteNavigation` widget placed in a zone on an admin page still falls back
+to its own `view.{ViewName}` instead of rendering as bare navbar links;
+see the warning in §6. The integration host drives its whole public navbar from it; see §6
 for how that host re-skins the view for Bootstrap.
 
 > The widget seeder (`CmsWidgetRegistrationSeeder`) is insert-only. A database seeded before this widget
@@ -198,13 +203,13 @@ Located in `WebWayCMS.Admin`:
 | `Views/AdminShared/VersionHistory.cshtml` | Full version list view with restore and delete-version actions |
 | `Views/Shared/Components/ContentZone/edit.cshtml` | The inline zone editor, with its own `edit.scss` and `edit.js` |
 
-The public components directory (`WebWayCMS.Presentation/Views/Shared/Components/`) contains the default views for each built-in ViewComponent (e.g. `ContentZone/Default.cshtml`).
+The public components directory (`WebWayCMS.Presentation/Views/Shared/Components/`) contains the default views for each built-in ViewComponent (e.g. `ContentZone/Default.cshtml`, `ContentBlock/view.default.cshtml`). Widget edit-mode views (`edit.*.cshtml`, rendered only by the admin zone editor) and the generic edit card (`Views/Shared/_WidgetEditCard.cshtml`) ship in `WebWayCMS.Admin`. Widget view files are named `{mode}.{variant}.cshtml`; see [widget-system.md → Render Modes](../widget-system.md).
 
 ---
 
 ## 5. `IViewDiscoveryService`
 
-`ViewDiscoveryService` discovers available view names (excluding partials prefixed with `_`) from **two combined sources**, so the result is correct in both debug and Release/Docker builds. It is a **scoped** service.
+`ViewDiscoveryService` discovers available view names (excluding partials prefixed with `_`) from **two combined sources**, so the result is correct in both debug and Release/Docker builds. It is a **scoped** service, and caches each component's scan for the request — widget rendering (`WidgetViewResolver`) resolves views on every render.
 
 1. **Compiled views from application parts** — enumerates `ApplicationPartManager` → `ViewsFeature` and inspects each `CompiledViewDescriptor.RelativePath`. This is the only source available in Release/Docker, where views are compiled into assemblies (e.g. `CompiledRazorAssemblyPart` for `WebWayCMS.Presentation`) and no `.cshtml` files exist on disk.
 2. **Filesystem scan** — scans standard ASP.NET view locations on disk, so freshly-added `.cshtml` files appear in development without a rebuild.
@@ -214,20 +219,33 @@ The two result sets are unioned (case-insensitive).
 ```csharp
 public interface IViewDiscoveryService
 {
-    IReadOnlyList<string> GetAvailableViews(string componentName);
+    IReadOnlyList<string> GetAvailableViews(string componentName, WidgetRenderMode mode);
+    bool TryResolveView(string componentName, WidgetRenderMode mode, string? variant, out string? viewName);
     IReadOnlyList<string> GetControllerViews(string controllerName);
 }
 ```
 
-**`GetAvailableViews(componentName)`** — returns views whose path tail is `Views/Shared/Components/{componentName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
-- Compiled descriptors matching that tail (e.g. `/Views/Shared/Components/{componentName}/Default.cshtml`)
-- `{contentRoot}/Views/Shared/Components/{componentName}/`
-- `{contentRoot}/Areas/*/Views/Shared/Components/{componentName}/`
-- Sibling directories (to find views in `WebWayCMS/Views/`)
+**`GetAvailableViews(componentName, mode)`** — returns the **variant names** of the views at exactly `/Views/Shared/Components/{componentName}/{mode}.{variant}.cshtml`, with the mode prefix stripped (`view.TwoColumnEqual.cshtml` → `TwoColumnEqual`). Un-prefixed files are ignored. Sources:
+- Compiled descriptors at that path (e.g. `/Views/Shared/Components/{componentName}/view.default.cshtml`)
+- `{contentRoot}/Views/Shared/Components/{componentName}/` (development, runtime compilation)
 
-Used by the `ViewPicker` `EditorType` — `FormViewPicker` calls this server-side to populate the
-dropdown for view-component views (a stored value not among the discovered views is retained as an
-option so an edit load keeps the selection).
+Only the locations the Razor view engine searches for a non-area view component are scanned. Widget
+rendering trusts a discovery hit and renders it without further fallback, so a view under `Areas/*`
+or in a sibling folder would be reported but then fail to load (a 500 instead of falling back to
+`view.default`).
+
+Each component's scan is cached for the service instance's lifetime. Outside Development the host
+registers one shared instance (views are compiled, so the set is fixed and public renders do no
+per-request IO); in Development it creates one per request, so a freshly-added `.cshtml` shows up
+without a restart.
+
+Used by the `ViewPicker` `EditorType` — `FormViewPicker` calls this server-side with the field's
+`RenderMode` to populate the dropdown (a stored value not among the discovered views is retained as an
+option so an edit load keeps the selection; a mode with no views renders no picker).
+
+**`TryResolveView(componentName, mode, variant, out viewName)`** — maps an empty/`default` or named
+variant to the real file name (`view.TwoColumnEqual`), matching case-insensitively. `WidgetViewResolver`
+builds the per-mode fallback chain on top of it.
 
 **`GetControllerViews(controllerName)`** — returns views whose path tail is `Views/{controllerName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
 - Compiled descriptors matching that tail (e.g. `/Views/{controllerName}/Index.cshtml`)
@@ -253,18 +271,18 @@ For example, to replace the admin navbar (from `WebWayCMS.Admin`):
 - Create `MySite/Views/Shared/_AdminNavbar.cshtml`
 
 For ViewComponent default views:
-- Create `MySite/Views/Shared/Components/ContentBlock/Default.cshtml`
+- Create `MySite/Views/Shared/Components/ContentBlock/view.default.cshtml`
 
 No configuration changes are needed; view resolution precedence handles the override automatically.
 
 **Worked example — re-skinning a component for a different CSS framework.** The CMS ships Bulma markup,
 but the integration host is a Bootstrap site. It overrides
-`Views/Shared/Components/RouteNavigation/Default.cshtml` to emit a self-contained
+`Views/Shared/Components/RouteNavigation/view.default.cshtml` to emit a self-contained
 `<ul class="navbar-nav flex-grow-1">` of `<li class="nav-item"><a class="nav-link">` instead of the
 shipped bare `<a class="navbar-item">`, and turns any item with children into a Bootstrap
 `dropdown-toggle` + `.dropdown-menu`. Its `_Layout.cshtml` then just calls
 `@await Component.InvokeAsync("RouteNavigation")`. The same host uses this technique for all eleven
-`Components/Layout/*.cshtml` views.
+`Components/Layout/view.*.cshtml` views.
 
 Things worth copying from that view:
 
@@ -284,14 +302,15 @@ Things worth copying from that view:
   trees are not silently truncated.
 
 > ⚠️ **An override is app-wide, not host-page-only.** View resolution is per *application*, and the
-> admin UI renders in the same application — so shadowing `Components/{X}/Default.cshtml` also changes
-> what the **admin** sees. That is invisible for `Components/Layout/*`, which nothing on the admin side
-> invokes, but it bites any component the admin UI also renders. `RouteNavigation` is the first such
-> component: the admin navbar loads only Bulma, so a Bootstrap `Default.cshtml` in the host would render
-> it unstyled. The CMS therefore ships a **named** Bulma view,
-> `WebWayCMS.Admin/Views/Shared/Components/RouteNavigation/AdminNavbar.cshtml`, and `_AdminNavbar.cshtml`
-> asks for it by `ViewName` — so a host is free to shadow `Default.cshtml` without touching the admin UI.
-> Apply the same pattern to any future CMS view rendered on both sides.
+> admin UI renders in the same application — so shadowing a file also changes what the **admin** sees
+> wherever the admin renders that same file. Render modes are what keep the two apart: a host overrides
+> the public `view.*` files, while the admin renders different files — the zone editor renders
+> `edit.*` views (or the generic edit card), and the admin navbar renders `RouteNavigation` in
+> `Admin` mode (`WebWayCMS.Admin/Views/Shared/Components/RouteNavigation/admin.Navbar.cshtml`). A host
+> is therefore free to re-skin `view.*` for its own CSS framework without touching the admin UI. Any
+> future CMS view rendered on both sides should get its own mode-prefixed admin/edit file the same way.
+> **Remember to rename overrides** to the `{mode}.{variant}.cshtml` scheme: an un-prefixed
+> `Default.cshtml` is ignored by discovery and silently stops overriding the CMS's `view.default`.
 
 ### ImageViewComponent
 

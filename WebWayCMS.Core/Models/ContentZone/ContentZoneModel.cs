@@ -66,6 +66,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
             viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService)));
     }
 
+    /// <summary>The registration for a widget, or null when it is not registered.</summary>
+    internal WidgetRegistrationInfo? GetWidget(string componentName) => _registry.GetByName(componentName);
+
     // IContentZoneModel members
 
     public async Task<ContentZoneViewModel?> GetViewModelAsync(string contentZoneName, CancellationToken ct = default)
@@ -332,13 +335,29 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
         var items = await _service.GetItemsAsync(zone.Version.Node.Id, ct);
         vm.ZoneObjects = items
-            .Select(i => new ContentZoneObject
+            .Select(i =>
             {
-                Id = i.Version.Node.Id,
-                Ordinal = i.Ordinal,
-                ZoneId = i.ContentZoneNodeId,
-                ComponentName = i.ComponentName,
-                ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson)
+                var obj = new ContentZoneObject
+                {
+                    Id = i.Version.Node.Id,
+                    Ordinal = i.Ordinal,
+                    ZoneId = i.ContentZoneNodeId,
+                    ComponentName = i.ComponentName,
+                    ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson),
+                    Metadata = WidgetMetadataJson.Parse(i.MetadataJson)
+                };
+
+                // A stored List mode only renders as a list while the widget still supports it
+                // (the capability is code-owned and can be removed after the item was saved).
+                if (obj.Metadata.DisplayMode != WidgetDisplayMode.Single && _registry.GetByName(i.ComponentName)?.SupportsList != true)
+                    obj.Metadata.DisplayMode = WidgetDisplayMode.Single;
+
+                // Attach the metadata to the configuration so widget view resolution can pick up
+                // the item's display mode (single vs. list).
+                if (obj.ComponentProperties is WidgetConfiguration widgetConfig)
+                    widgetConfig.Metadata = obj.Metadata;
+
+                return obj;
             })
             .ToList();
         return vm;
@@ -438,6 +457,7 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
                 ZoneId = i.ContentZoneNodeId,
                 ComponentName = i.ComponentName,
                 ComponentPropertiesJson = i.ComponentPropertiesJson,
+                MetadataJson = i.MetadataJson,
                 Ordinal = i.Ordinal,
                 IsActive = i.IsActive
             }).ToList()
@@ -456,6 +476,7 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ExpectedVersionNumber = item.Version.VersionNumber,
             ComponentName = item.ComponentName,
             ComponentPropertiesJson = item.ComponentPropertiesJson,
+            MetadataJson = item.MetadataJson,
             IsActive = item.IsActive,
         };
     }
@@ -478,7 +499,27 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         if (validation != null)
             return validation;
 
-        if (vm.NodeId == null || vm.NodeId == Guid.Empty)
+        // Loaded up front for the stored display mode; a missing item is reported after metadata
+        // validation, keeping validation errors ahead of "not found".
+        var isCreate = vm.NodeId == null || vm.NodeId == Guid.Empty;
+        var existing = isCreate ? null : await _model.GetItemByNodeIdAsync(vm.NodeId!.Value, ct);
+
+        // Null/empty metadata means "not supplied": a create stores "{}" and an update keeps the
+        // existing value. Supplied metadata is validated and stored in canonical form; an item that
+        // already stores List keeps it even if its widget has since dropped list support.
+        string? metadataJson = null;
+        if (!string.IsNullOrWhiteSpace(vm.MetadataJson))
+        {
+            var metadataError = WidgetMetadataJson.Normalize(
+                vm.MetadataJson,
+                _model.GetWidget(vm.ComponentName),
+                WidgetMetadataJson.StoresList(existing?.MetadataJson),
+                out metadataJson);
+            if (metadataError != null)
+                return metadataError;
+        }
+
+        if (isCreate)
         {
             if (!Guid.TryParse(parentKey, out var zoneNodeId))
                 return new AdminSaveResult(false, "A valid content zone id is required.");
@@ -488,6 +529,7 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
                 ContentZoneNodeId = zoneNodeId,
                 ComponentName = vm.ComponentName,
                 ComponentPropertiesJson = string.IsNullOrWhiteSpace(vm.ComponentPropertiesJson) ? "{}" : vm.ComponentPropertiesJson,
+                MetadataJson = metadataJson,
                 IsActive = vm.IsActive,
             };
             var createdItem = await _model.AddItemAsync(zoneNodeId, newItem, ct);
@@ -497,7 +539,6 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             return new AdminSaveResult(true);
         }
 
-        var existing = await _model.GetItemByNodeIdAsync(vm.NodeId.Value, ct);
         if (existing == null)
             return new AdminSaveResult(false, "Content zone item not found.");
 
@@ -505,6 +546,9 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         {
             ComponentName = vm.ComponentName,
             ComponentPropertiesJson = vm.ComponentPropertiesJson,
+            // Not supplied: keep the existing metadata so a content-config save never wipes the
+            // per-item metadata dialog's values.
+            MetadataJson = metadataJson ?? existing.MetadataJson,
             IsActive = vm.IsActive,
         };
         var ok = await _model.UpdateItemAsync(updated, ct);
@@ -584,8 +628,26 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ExpectedVersionNumber = current.Version.VersionNumber,
             ComponentName = historical.ComponentName,
             ComponentPropertiesJson = historical.ComponentPropertiesJson,
+            MetadataJson = RestorableMetadataJson(historical.MetadataJson, historical.ComponentName, current.MetadataJson),
             IsActive = historical.IsActive,
         };
+    }
+
+    /// <summary>
+    /// A historical version's metadata as it can be saved back today. A historical List on a widget
+    /// that has since dropped list support (and that the current item does not already store as
+    /// List) is restored as Single — it renders as Single anyway, and saving List would be rejected.
+    /// </summary>
+    private string? RestorableMetadataJson(string? historicalJson, string componentName, string? currentJson)
+    {
+        if (!WidgetMetadataJson.StoresList(historicalJson)
+            || _model.GetWidget(componentName)?.SupportsList == true
+            || WidgetMetadataJson.StoresList(currentJson))
+            return historicalJson;
+
+        var metadata = WidgetMetadataJson.Parse(historicalJson);
+        metadata.DisplayMode = WidgetDisplayMode.Single;
+        return JsonSerializer.Serialize(metadata);
     }
 
     public async Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default)
@@ -642,7 +704,8 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
             name = c.Name,
             displayName = c.DisplayName,
             description = c.Description,
-            category = c.Category
+            category = c.Category,
+            supportsList = c.SupportsList
         }).ToList();
 
         return new JsonResult(components);
@@ -661,14 +724,17 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
         {
             Dictionary<string, string> dropdownOptions = p.DropdownOptions;
 
-            if (p.EditorType == EditorType.ViewPicker && !string.IsNullOrWhiteSpace(p.ViewComponentName))
+            if (p.EditorType == EditorType.ViewPicker)
             {
-                var views = _viewDiscoveryService.GetAvailableViews(p.ViewComponentName);
+                // The picker lists only this property's render mode's views. The component name
+                // comes from the attribute when set, otherwise from the registered widget.
+                var viewComponentName = string.IsNullOrWhiteSpace(p.ViewComponentName) ? component.Name : p.ViewComponentName;
+                var views = _viewDiscoveryService.GetAvailableViews(viewComponentName, p.RenderMode);
                 if (views.Any())
                     dropdownOptions = views.ToDictionary(v => v, v => v);
                 else
                 {
-                    _logger.Warning("No views found for ViewComponent '{ComponentName}'", p.ViewComponentName);
+                    _logger.Warning("No {Mode} views found for ViewComponent '{ComponentName}'", p.RenderMode, viewComponentName);
                     dropdownOptions = new Dictionary<string, string>();
                 }
             }
@@ -680,6 +746,8 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
                 helpText = p.HelpText,
                 placeholder = p.Placeholder,
                 editorType = p.EditorType.ToString().ToLowerInvariant(),
+                renderMode = p.RenderMode.ToString().ToLowerInvariant(),
+                displayModes = p.DisplayModes.ToString().ToLowerInvariant(),
                 isRequired = p.IsRequired,
                 defaultValue = p.DefaultValue,
                 order = p.Order,
@@ -698,11 +766,14 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
             componentName = component.Name,
             displayName = component.DisplayName,
             category = component.Category,
+            supportsList = component.SupportsList,
             properties
         });
     }
 
-    public IActionResult GetForm(string name, string? valuesJson)
+    public IActionResult GetForm(string name, string? valuesJson) => GetForm(name, valuesJson, null);
+
+    public IActionResult GetForm(string name, string? valuesJson, WidgetDisplayMode? displayMode)
     {
         if (string.IsNullOrWhiteSpace(name))
             return new BadRequestObjectResult(new { error = "Component name is required." });
@@ -719,6 +790,6 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
                 instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(configType, valuesJson);
         }
 
-        return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance);
+        return WebWayCMS.Forms.DynamicConfigurationForm.Render(instance, name, displayMode);
     }
 }

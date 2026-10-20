@@ -26,6 +26,10 @@ public sealed class SampleZoneConfig
     public int X { get; set; }
 }
 
+public sealed class SampleWidgetConfig : WidgetConfiguration
+{
+}
+
 [TestFixture]
 public class ContentZoneModelTests
 {
@@ -166,6 +170,80 @@ public class ContentZoneModelTests
         var vm = await _model.GetViewModelByIdAsync(zoneId);
 
         Assert.That(vm!.ZoneObjects, Has.Count.EqualTo(6));
+    }
+
+    [Test]
+    public async Task MapToViewModel_MetadataDeserialized_AndAttachedToWidgetConfig()
+    {
+        var zoneId = Guid.NewGuid();
+        var zone = Zone(zoneId, "Z");
+
+        var metadataItem = Item("Widget", "{}", 1);
+        metadataItem.MetadataJson = "{\"displayMode\":\"List\",\"adminLabel\":\"Admin Label\",\"cssClass\":\"c\",\"anchorId\":\"a\"}";
+
+        var malformedItem = Item("Widget", "{}", 2);
+        malformedItem.MetadataJson = "{bad";
+
+        var nullItem = Item("Widget", "{}", 3);
+        nullItem.MetadataJson = "null";
+
+        var emptyItem = Item("Widget", "{}", 4);
+        emptyItem.MetadataJson = "{}";
+
+        _service.GetZoneByNodeAsync(zoneId, Arg.Any<CancellationToken>()).Returns(zone);
+        _service.GetItemsAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { metadataItem, malformedItem, nullItem, emptyItem });
+        // Fresh instance per item (matching the production registry's Activator semantics), so the
+        // per-item metadata attachment doesn't leak across items.
+        _registry.CreateDefaultConfiguration("Widget").Returns(_ => new SampleWidgetConfig());
+        _registry.GetByName("Widget").Returns(new WidgetRegistrationInfo { Name = "Widget", SupportsList = true });
+
+        var vm = await _model.GetViewModelByIdAsync(zoneId);
+
+        Assert.Multiple(() =>
+        {
+            var objs = vm!.ZoneObjects!;
+            Assert.That(objs, Has.Count.EqualTo(4));
+
+            // Valid metadata deserializes and is attached to the WidgetConfiguration.
+            var good = objs.First(o => o.Ordinal == 1);
+            Assert.That(good.Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.List));
+            Assert.That(good.Metadata.AdminLabel, Is.EqualTo("Admin Label"));
+            Assert.That(good.Metadata.CssClass, Is.EqualTo("c"));
+            Assert.That(good.Metadata.AnchorId, Is.EqualTo("a"));
+            var goodConfig = good.ComponentProperties as SampleWidgetConfig;
+            Assert.That(goodConfig, Is.Not.Null);
+            Assert.That(goodConfig!.Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.List), "metadata must be attached to the config");
+
+            // Malformed / null / "{}" all degrade to an empty metadata document.
+            Assert.That(objs.First(o => o.Ordinal == 2).Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+            Assert.That(objs.First(o => o.Ordinal == 3).Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+            Assert.That(objs.First(o => o.Ordinal == 4).Metadata.AdminLabel, Is.Null);
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(null)]
+    public async Task MapToViewModel_StoredListMode_WidgetWithoutListSupport_RendersSingle(bool? supportsList)
+    {
+        var zoneId = Guid.NewGuid();
+        var item = Item("Widget", "{}", 1);
+        item.MetadataJson = "{\"DisplayMode\":\"List\"}";
+
+        _service.GetZoneByNodeAsync(zoneId, Arg.Any<CancellationToken>()).Returns(Zone(zoneId, "Z"));
+        _service.GetItemsAsync(zoneId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+        _registry.CreateDefaultConfiguration("Widget").Returns(_ => new SampleWidgetConfig());
+        _registry.GetByName("Widget").Returns(supportsList == null
+            ? null
+            : new WidgetRegistrationInfo { Name = "Widget", SupportsList = supportsList.Value });
+
+        var vm = await _model.GetViewModelByIdAsync(zoneId);
+
+        var obj = vm!.ZoneObjects!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(obj.Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+            Assert.That(((SampleWidgetConfig)obj.ComponentProperties).Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+        });
     }
 
     [Test]
@@ -557,6 +635,152 @@ public class ContentZoneModelTests
     }
 
     [Test]
+    public async Task ChildHandler_SaveChildUpsert_Create_StoresCanonicalMetadata()
+    {
+        var child = _model.ChildHandler!;
+        var zoneId = Guid.NewGuid();
+        ContentZoneItemDTO? captured = null;
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                captured = c.Arg<ContentZoneItemDTO>();
+                captured.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return captured;
+            });
+
+        var result = await child.SaveChildUpsertAsync(zoneId.ToString(), new ContentZoneItemUpsertViewModel
+        {
+            ComponentName = "ContentBlock",
+            MetadataJson = "{\"anchorId\":\"intro\",\"adminNote\":null}"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(captured!.MetadataJson, Is.EqualTo("{\"DisplayMode\":\"Single\",\"AnchorId\":\"intro\"}"));
+        });
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_InvalidMetadata_RejectedBeforeAnyWrite()
+    {
+        var child = _model.ChildHandler!;
+
+        var created = await child.SaveChildUpsertAsync(Guid.NewGuid().ToString(), new ContentZoneItemUpsertViewModel
+        {
+            ComponentName = "ContentBlock",
+            MetadataJson = "{\"anchorId\":\"a onmouseover=alert(1)\"}"
+        });
+        var updated = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        {
+            NodeId = Guid.NewGuid(),
+            ComponentName = "ContentBlock",
+            MetadataJson = "not json"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Success, Is.False);
+            Assert.That(created.ErrorField, Is.EqualTo("AnchorId"));
+            Assert.That(updated.Success, Is.False);
+            Assert.That(updated.ErrorField, Is.EqualTo("MetadataJson"));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_Update_ReplacesOrKeepsMetadata()
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}") with { MetadataJson = "{\"AdminLabel\":\"Old\"}" };
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        var saved = new List<ContentZoneItemDTO>();
+        _service.UpdateItemAsync(Arg.Do<ContentZoneItemDTO>(saved.Add), Arg.Any<CancellationToken>()).Returns(true);
+
+        await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        {
+            NodeId = item.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"adminLabel\":\"New\"}"
+        });
+        await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        {
+            NodeId = item.Version.Node.Id, ComponentName = "C", MetadataJson = "  "
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved[0].MetadataJson, Is.EqualTo("{\"DisplayMode\":\"Single\",\"AdminLabel\":\"New\"}"));
+            Assert.That(saved[1].MetadataJson, Is.EqualTo("{\"AdminLabel\":\"Old\"}"));
+        });
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_Update_StoredListOnWidgetThatDroppedListSupport_IsKept()
+    {
+        var child = _model.ChildHandler!;
+        _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
+        var listItem = Item("C", "{}") with { MetadataJson = "{\"DisplayMode\":\"List\"}" };
+        var singleItem = Item("C", "{}");
+        _itemStore.GetCurrentDraftAsync(listItem.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(listItem);
+        _itemStore.GetCurrentDraftAsync(singleItem.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(singleItem);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        // An item already stored as List can be re-saved unchanged (e.g. an MCP update_child).
+        var kept = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        {
+            NodeId = listItem.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"DisplayMode\":\"List\"}"
+        });
+        // Newly choosing List on a Single item is still rejected.
+        var chosen = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        {
+            NodeId = singleItem.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"DisplayMode\":\"List\"}"
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(kept.Success, Is.True);
+            Assert.That(chosen.Success, Is.False);
+            Assert.That(chosen.ErrorField, Is.EqualTo("DisplayMode"));
+        });
+    }
+
+    [Test]
+    public async Task ChildHandler_GetChildRestore_HistoricalListOnWidgetWithoutListSupport_RestoresAsSingle()
+    {
+        var child = _model.ChildHandler!;
+        _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
+        _registry.GetByName("L").Returns(new WidgetRegistrationInfo { Name = "L", SupportsList = true });
+
+        async Task<string?> Restored(string component, string? historicalJson, string? currentJson)
+        {
+            var historical = Item(component, "{}") with { MetadataJson = historicalJson };
+            var current = historical with { VersionId = Guid.NewGuid(), MetadataJson = currentJson };
+            _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
+            _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(current);
+            var vm = (ContentZoneItemUpsertViewModel)(await child.GetChildRestoreVersionViewModelAsync("k", historical.VersionId))!;
+            return vm.MetadataJson;
+        }
+
+        const string list = "{\"DisplayMode\":\"List\",\"AdminLabel\":\"Kept\"}";
+
+        var downgraded = await Restored("C", list, "{}");
+        var supported = await Restored("L", list, "{}");
+        var grandfathered = await Restored("C", list, list);
+        var single = await Restored("C", "{}", "{}");
+        var unregistered = await Restored("Gone", list, "{}");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(WidgetMetadataJson.Parse(downgraded).DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+            Assert.That(WidgetMetadataJson.Parse(downgraded).AdminLabel, Is.EqualTo("Kept"));
+            Assert.That(supported, Is.EqualTo(list));
+            Assert.That(grandfathered, Is.EqualTo(list));
+            Assert.That(single, Is.EqualTo("{}"));
+            Assert.That(WidgetMetadataJson.Parse(unregistered).DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
+        });
+    }
+
+    [Test]
     public async Task ChildHandler_DeleteChild_And_VersionHistory_Restore_DeleteVersion()
     {
         var child = _model.ChildHandler!;
@@ -619,8 +843,8 @@ public class ContentZoneModelTests
                 new() { Name = "Plain", EditorType = EditorType.Text, Order = 3 },
             }
         });
-        _viewDiscovery.GetAvailableViews("Has").Returns(new[] { "Default" });
-        _viewDiscovery.GetAvailableViews("Empty").Returns(Array.Empty<string>());
+        _viewDiscovery.GetAvailableViews("Has", WebWayCMS.Attributes.WidgetRenderMode.View).Returns(new[] { "Default" });
+        _viewDiscovery.GetAvailableViews("Empty", WebWayCMS.Attributes.WidgetRenderMode.View).Returns(Array.Empty<string>());
 
         Assert.That(_model.RegistryHandler!.GetProperties("C"), Is.InstanceOf<JsonResult>());
     }
@@ -667,6 +891,47 @@ public class ContentZoneModelTests
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
         Assert.That(((PartialViewResult)result).ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_WithDisplayMode_PassesItToTheForm()
+    {
+        _registry.GetByName("Typed").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Typed",
+            ConfigurationTypeName = typeof(SampleZoneConfig).FullName
+        });
+
+        var withMode = (PartialViewResult)_model.RegistryHandler!.GetForm("Typed", null, WidgetDisplayMode.List);
+        var withoutMode = (PartialViewResult)_model.RegistryHandler!.GetForm("Typed", null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withMode.ViewData!["DynamicForm:DisplayMode"], Is.EqualTo(WidgetDisplayMode.List));
+            Assert.That(withoutMode.ViewData!.ContainsKey("DynamicForm:DisplayMode"), Is.False);
+        });
+    }
+
+    [Test]
+    public void RegistryHandler_GetProperties_ReportsSupportsListAndDisplayModes()
+    {
+        _registry.GetByName("L").Returns(new WidgetRegistrationInfo
+        {
+            Name = "L",
+            SupportsList = true,
+            Properties = new List<FormPropertyInfo>
+            {
+                new() { Name = "Heading", Label = "Heading", EditorType = EditorType.Text, DisplayModes = WidgetDisplayMode.List },
+            }
+        });
+
+        var json = System.Text.Json.JsonSerializer.Serialize(((JsonResult)_model.RegistryHandler!.GetProperties("L")).Value);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"supportsList\":true"));
+            Assert.That(json, Does.Contain("\"displayModes\":\"list\""));
+        });
     }
 
     [Test]

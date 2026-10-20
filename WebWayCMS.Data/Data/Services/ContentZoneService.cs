@@ -248,6 +248,10 @@ public sealed class ContentZoneService : IContentZoneService
 
         item.ContentZoneNodeId = zoneNodeId;
 
+        // New items always carry a metadata document, so the column never holds null on a write.
+        if (string.IsNullOrWhiteSpace(item.MetadataJson))
+            item.MetadataJson = "{}";
+
         if (item.Ordinal == 0)
         {
             var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
@@ -282,6 +286,9 @@ public sealed class ContentZoneService : IContentZoneService
         {
             ComponentName = item.ComponentName,
             ComponentPropertiesJson = item.ComponentPropertiesJson,
+            // Null metadata means "not supplied": a content-config save must never wipe the
+            // per-item metadata edited through the zone editor's metadata dialog.
+            MetadataJson = string.IsNullOrWhiteSpace(item.MetadataJson) ? existing.MetadataJson : item.MetadataJson,
             IsActive = item.IsActive
             // Ordinal and ContentZoneNodeId are preserved from the existing record.
         };

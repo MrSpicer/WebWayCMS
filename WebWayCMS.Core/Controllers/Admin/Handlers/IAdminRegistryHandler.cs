@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 
+using WebWayCMS.Attributes;
+
 namespace WebWayCMS.Controllers.Admin.Handlers;
 
 /// <summary>
@@ -20,4 +22,12 @@ public interface IAdminRegistryHandler
     /// Default returns 404 so existing handlers compile without changes.
     /// </summary>
     IActionResult GetForm(string name, string? valuesJson) => new NotFoundResult();
+
+    /// <summary>
+    /// The form endpoint rendered for one widget display mode: only the configuration fields
+    /// tagged for <paramref name="displayMode"/> are rendered (null renders every field). Default
+    /// ignores the mode and delegates to <see cref="GetForm(string, string?)"/>, for registries
+    /// whose entries have no display modes (page controllers).
+    /// </summary>
+    IActionResult GetForm(string name, string? valuesJson, WidgetDisplayMode? displayMode) => GetForm(name, valuesJson);
 }

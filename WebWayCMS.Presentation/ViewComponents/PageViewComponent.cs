@@ -13,7 +13,7 @@ namespace WebWayCMS.ViewComponents;
     IconClass = "fa-sitemap",
     Order = 10
 )]
-public class PageViewComponent : ViewComponent
+public class PageViewComponent : WidgetViewComponent
 {
     private readonly IPageModel _model;
 
@@ -27,8 +27,7 @@ public class PageViewComponent : ViewComponent
         config ??= new PageContentZoneConfiguration();
         var index = await _model.GetPageIndexAsync();
         var items = MapNodes(index.Pages, config);
-        var viewName = config.ViewName ?? "Default";
-        return View(viewName, new PageNavigationViewModel { Items = items });
+        return ModeView(config, new PageNavigationViewModel { Items = items });
     }
 
     private static List<PageNavigationItem> MapNodes(List<PageTreeNode> nodes, PageContentZoneConfiguration config)

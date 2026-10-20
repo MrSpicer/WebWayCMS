@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Models.ContentZone;
@@ -39,8 +40,10 @@ public class ContentZoneViewComponent : ViewComponent
     {
         var ct = HttpContext.RequestAborted;
 
-        // A nested zone inherits edit mode from the ancestor zone that is being edited.
-        if (ViewData["ContentZone:EditMode"] as bool? == true)
+        // A nested zone inside a zone being edited is edited too. Inheritance only ever turns edit
+        // mode on: an ancestor rendering in View mode must not override an explicit editMode:true
+        // (e.g. a view rendered inside a public zone that embeds an inline editor).
+        if (ViewData["ContentZone:RenderMode"] is WidgetRenderMode.Edit)
             editMode = true;
 
         ContentZoneViewModel? vm;
@@ -100,9 +103,9 @@ public class ContentZoneViewComponent : ViewComponent
         if (vm.Id != Guid.Empty)
             ViewData["ContentZone:ParentZoneId"] = vm.Id;
 
-        // Thread edit mode down so nested zones (e.g. inside a Layout widget) are editable too.
-        if (editMode)
-            ViewData["ContentZone:EditMode"] = true;
+        // Thread the render mode down so widgets and nested zones (e.g. inside a Layout widget)
+        // resolve the correct view mode. Edit in the zone editor, View everywhere else.
+        ViewData["ContentZone:RenderMode"] = editMode ? WidgetRenderMode.Edit : WidgetRenderMode.View;
 
         if (editMode)
         {

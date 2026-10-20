@@ -45,6 +45,14 @@ public sealed class ContentZoneComponentAttribute : Attribute
     public int Order { get; set; } = 0;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the widget can render a list as well as a single
+    /// item. When true, the zone editor offers a Single/List choice for each item (stored as the
+    /// item's <see cref="WidgetDisplayMode"/>), and configuration fields can be tagged per mode with
+    /// <see cref="FormPropertyAttribute.DisplayModes"/>. Default is false (single only).
+    /// </summary>
+    public bool SupportsList { get; set; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="ContentZoneComponentAttribute"/> class.
     /// </summary>
     public ContentZoneComponentAttribute()

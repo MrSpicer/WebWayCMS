@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Controllers.Api;
@@ -20,11 +22,13 @@ public class ContentZoneApiController : ControllerBase
 
     private readonly IContentZoneService _service;
     private readonly IRouteRegistrationService _routeRegistration;
+    private readonly IWidgetRegistry _widgetRegistry;
 
-    public ContentZoneApiController(IContentZoneService service, IRouteRegistrationService routeRegistration)
+    public ContentZoneApiController(IContentZoneService service, IRouteRegistrationService routeRegistration, IWidgetRegistry widgetRegistry)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
+        _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
     }
 
     /// <summary>
@@ -43,6 +47,16 @@ public class ContentZoneApiController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(request.ZoneName))
             return BadRequest(new { error = "Zone name is required." });
+
+        // Metadata is only taken on create (the Add Widget modal's Single/List choice); updates
+        // keep the stored metadata, which the settings dialog edits through its own endpoint.
+        string? createMetadataJson = null;
+        if (!string.IsNullOrWhiteSpace(request.MetadataJson))
+        {
+            var metadataError = WidgetMetadataJson.Normalize(request.MetadataJson, _widgetRegistry.GetByName(request.ComponentName), out createMetadataJson);
+            if (metadataError != null)
+                return BadRequest(new { error = metadataError.ErrorMessage });
+        }
 
         try
         {
@@ -118,6 +132,7 @@ public class ContentZoneApiController : ControllerBase
                     ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
                     ComponentPropertiesJson = request.ComponentPropertiesJson ?? "{}",
+                    MetadataJson = createMetadataJson,
                     IsActive = true
                 };
 
@@ -190,9 +205,57 @@ public class ContentZoneApiController : ControllerBase
             zoneId = item.ContentZoneNodeId,
             componentName = item.ComponentName,
             componentPropertiesJson = item.ComponentPropertiesJson,
+            metadataJson = item.MetadataJson,
             ordinal = item.Ordinal,
             isActive = item.IsActive
         });
+    }
+
+    /// <summary>
+    /// Updates the per-item widget metadata (the cog editor's values). Validated as a
+    /// <see cref="WidgetMetadata"/> and saved through the zone service, which auto-publishes like
+    /// every other item write.
+    /// </summary>
+    [HttpPut("items/{itemId:guid}/metadata")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateItemMetadata(Guid itemId, [FromBody] UpdateItemMetadataRequest request, CancellationToken ct)
+    {
+        if (request == null)
+            return BadRequest(new { error = "Request body is required." });
+
+        // The dialog always saves the whole document, so an empty body clears the metadata.
+        string? metadataJson = "{}";
+
+        try
+        {
+            var existing = await _service.GetItemByNodeIdAsync(itemId, ct);
+            if (existing == null)
+                return NotFound(new { error = "Item not found." });
+
+            if (!string.IsNullOrWhiteSpace(request.MetadataJson))
+            {
+                var validation = WidgetMetadataJson.Normalize(
+                    request.MetadataJson,
+                    _widgetRegistry.GetByName(existing.ComponentName),
+                    WidgetMetadataJson.StoresList(existing.MetadataJson),
+                    out metadataJson);
+                if (validation != null)
+                    return BadRequest(new { error = validation.ErrorMessage });
+            }
+
+            // Only the metadata column changes; everything else is preserved from the existing item.
+            var updated = existing with { MetadataJson = metadataJson };
+            var ok = await _service.UpdateItemAsync(updated, ct);
+            if (!ok)
+                return NotFound(new { error = "Item not found." });
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to update content zone item metadata.");
+            return StatusCode(500, new { error = "Failed to update metadata." });
+        }
     }
 }
 
@@ -237,4 +300,21 @@ public class SaveItemRequest
     /// JSON-serialized configuration properties for the component.
     /// </summary>
     public string? ComponentPropertiesJson { get; set; }
+
+    /// <summary>
+    /// JSON-serialized <c>WidgetMetadata</c> for a new item (e.g. the Add Widget modal's display
+    /// mode). Ignored on update.
+    /// </summary>
+    public string? MetadataJson { get; set; }
+}
+
+/// <summary>
+/// Request model for updating a content zone item's widget metadata.
+/// </summary>
+public class UpdateItemMetadataRequest
+{
+    /// <summary>
+    /// JSON-serialized <c>WidgetMetadata</c> (the display mode plus the admin presentation fields).
+    /// </summary>
+    public string? MetadataJson { get; set; }
 }

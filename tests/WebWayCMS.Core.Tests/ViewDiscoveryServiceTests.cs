@@ -7,6 +7,7 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
@@ -25,26 +26,32 @@ public class ViewDiscoveryServiceTests
         _root = Path.Combine(_parent, "Host");
         var lib = Path.Combine(_parent, "Lib");
 
-        // Host: main component views (+ a partial to be skipped) and an area.
-        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "Default.cshtml");
-        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "Compact.cshtml");
-        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "_Partial.cshtml");
+        // Host: mode-prefixed component views (+ a partial to be skipped) and an area.
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "view.default.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "view.compact.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "edit.default.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "list.default.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "admin.nav.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "adminlist.table.cshtml");
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "_partial.cshtml");
         WriteView(Path.Combine(_root, "Views", "Home"), "Index.cshtml");
-        WriteView(Path.Combine(_root, "Areas", "Admin", "Views", "Shared", "Components", "Widget"), "AreaView.cshtml");
+        WriteView(Path.Combine(_root, "Areas", "Admin", "Views", "Shared", "Components", "Widget"), "view.area.cshtml");
 
-        // Sibling library: component + area views discovered via the parent-dir scan.
-        WriteView(Path.Combine(lib, "Views", "Shared", "Components", "Widget"), "LibView.cshtml");
+        // Sibling library: component views the view engine never searches for a non-area render, so
+        // discovery must not report them (controller views are still scanned here).
+        WriteView(Path.Combine(lib, "Views", "Shared", "Components", "Widget"), "view.lib.cshtml");
+        WriteView(Path.Combine(lib, "Views", "Shared", "Components", "Widget"), "edit.lib.cshtml");
         WriteView(Path.Combine(lib, "Views", "Home"), "LibHome.cshtml");
-        WriteView(Path.Combine(lib, "Areas", "Pub", "Views", "Shared", "Components", "Widget"), "LibArea.cshtml");
+        WriteView(Path.Combine(lib, "Areas", "Pub", "Views", "Shared", "Components", "Widget"), "edit.libarea.cshtml");
 
         var env = Substitute.For<IWebHostEnvironment>();
         env.ContentRootPath.Returns(_root);
 
         // Compiled views (the only source available in Release/Docker where no files exist on disk).
         var apm = BuildPartManager(
-            "/Views/Shared/Components/Widget/Compiled.cshtml",
-            "/Areas/Admin/Views/Shared/Components/Widget/CompiledArea.cshtml",
-            "/Views/Shared/Components/Widget/_CompiledPartial.cshtml",
+            "/Views/Shared/Components/Widget/view.compiled.cshtml",
+            "/Areas/Admin/Views/Shared/Components/Widget/view.compiledarea.cshtml",
+            "/Views/Shared/Components/Widget/_compiledpartial.cshtml",
             "/Views/Home/CompiledHome.cshtml",
             "/Solo.cshtml"); // too short to match either pattern
 
@@ -90,9 +97,146 @@ public class ViewDiscoveryServiceTests
     }
 
     [Test]
+    public void GetAvailableViews_CachesEachComponentScanForTheServiceLifetime()
+    {
+        var before = _service.GetAvailableViews("Widget", WidgetRenderMode.View);
+
+        // A file added after the first scan is not seen by the same instance (the host shares one
+        // instance outside Development and creates one per request in Development).
+        WriteView(Path.Combine(_root, "Views", "Shared", "Components", "Widget"), "view.added.cshtml");
+        var after = _service.GetAvailableViews("Widget", WidgetRenderMode.View);
+        var resolved = _service.TryResolveView("Widget", WidgetRenderMode.View, "added", out _);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(after, Is.EqualTo(before));
+            Assert.That(resolved, Is.False);
+        });
+    }
+
+    [Test]
     public void GetAvailableViews_Whitespace_ReturnsEmpty()
     {
-        Assert.That(_service.GetAvailableViews("  "), Is.Empty);
+        Assert.That(_service.GetAvailableViews("  ", WidgetRenderMode.View), Is.Empty);
+    }
+
+    [Test]
+    public void GetAvailableViews_ListsOnlyThatModeStrippingPrefix_SkippingPartialsAndOtherModes()
+    {
+        var viewModes = _service.GetAvailableViews("Widget", WidgetRenderMode.View);
+        var editModes = _service.GetAvailableViews("Widget", WidgetRenderMode.Edit);
+        var listModes = _service.GetAvailableViews("Widget", WidgetRenderMode.List);
+
+        Assert.Multiple(() =>
+        {
+            // View mode: host content root + compiled non-area parts, prefix stripped.
+            Assert.That(viewModes, Does.Contain("default"));
+            Assert.That(viewModes, Does.Contain("compact"));
+            Assert.That(viewModes, Does.Contain("compiled"));
+            Assert.That(viewModes, Does.Not.Contain("partial"));
+            Assert.That(viewModes, Does.Not.Contain("compiledpartial"));
+
+            // Areas and sibling folders are not non-area view-component locations: a hit there
+            // would stop the fallback chain and then fail to load.
+            Assert.That(viewModes, Does.Not.Contain("area"));
+            Assert.That(viewModes, Does.Not.Contain("lib"));
+            Assert.That(viewModes, Does.Not.Contain("compiledarea"));
+
+            // Edit mode only sees edit.* files from the same locations.
+            Assert.That(editModes, Does.Contain("default"));
+            Assert.That(editModes, Does.Not.Contain("lib"));
+            Assert.That(editModes, Does.Not.Contain("libarea"));
+            Assert.That(editModes, Does.Not.Contain("compact"));
+
+            // List mode only sees list.* files.
+            Assert.That(listModes, Does.Contain("default"));
+            Assert.That(listModes, Does.Not.Contain("compact"));
+        });
+    }
+
+    [Test]
+    public void GetAvailableViews_AdminAndAdminListPrefixesDoNotOverlap()
+    {
+        var admin = _service.GetAvailableViews("Widget", WidgetRenderMode.Admin);
+        var adminList = _service.GetAvailableViews("Widget", WidgetRenderMode.AdminList);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(admin, Is.EqualTo(new[] { "nav" }));
+            Assert.That(adminList, Is.EqualTo(new[] { "table" }));
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.Admin, "table", out _), Is.False);
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.AdminList, "table", out var view), Is.True);
+            Assert.That(view, Is.EqualTo("adminlist.table"));
+        });
+    }
+
+    [Test]
+    public void TryResolveView_ResolvesCaseInsensitiveReturningRealCasing()
+    {
+        Assert.Multiple(() =>
+        {
+            // Explicit variant resolves to the full file name.
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "compact", out var compact), Is.True);
+            Assert.That(compact, Is.EqualTo("view.compact"));
+
+            // Case-insensitive: "Compact" -> real casing "view.compact".
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "Compact", out var ci), Is.True);
+            Assert.That(ci, Is.EqualTo("view.compact"));
+
+            // Edit mode resolves its own file.
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.Edit, "default", out var edit), Is.True);
+            Assert.That(edit, Is.EqualTo("edit.default"));
+        });
+    }
+
+    [Test]
+    public void TryResolveView_AreaOrSiblingOnlyView_ReturnsFalseSoTheCallerFallsBack()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "area", out _), Is.False);
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "compiledarea", out _), Is.False);
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "lib", out _), Is.False);
+        });
+    }
+
+    [Test]
+    public void TryResolveView_EmptyOrDefaultVariant_ResolvesDefault()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, null, out var fromNull), Is.True);
+            Assert.That(fromNull, Is.EqualTo("view.default"));
+
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "  ", out var fromBlank), Is.True);
+            Assert.That(fromBlank, Is.EqualTo("view.default"));
+
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "DEFAULT", out var fromDefault), Is.True);
+            Assert.That(fromDefault, Is.EqualTo("view.default"));
+        });
+    }
+
+    [Test]
+    public void TryResolveView_Missing_MissingMode_MissingComponent_ReturnsFalse()
+    {
+        Assert.Multiple(() =>
+        {
+            // No view.default? It exists, so use a variant that does not.
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.View, "nope", out var missing), Is.False);
+            Assert.That(missing, Is.Null);
+
+            // Admin mode has no files at all for this component.
+            Assert.That(_service.TryResolveView("Widget", WidgetRenderMode.Admin, "default", out var admin), Is.False);
+            Assert.That(admin, Is.Null);
+
+            // Whitespace component.
+            Assert.That(_service.TryResolveView("  ", WidgetRenderMode.View, "default", out var blank), Is.False);
+            Assert.That(blank, Is.Null);
+
+            // Unknown component.
+            Assert.That(_service.TryResolveView("DoesNotExist", WidgetRenderMode.View, "default", out var unknown), Is.False);
+            Assert.That(unknown, Is.Null);
+        });
     }
 
     [Test]
@@ -115,7 +259,7 @@ public class ViewDiscoveryServiceTests
             if (!denied)
                 Assert.Ignore("Process can read the directory (likely running as root).");
 
-            Assert.That(() => _service.GetAvailableViews("Locked"), Throws.Nothing);
+            Assert.That(() => _service.GetAvailableViews("Locked", WidgetRenderMode.View), Throws.Nothing);
         }
         finally
         {
@@ -124,31 +268,37 @@ public class ViewDiscoveryServiceTests
     }
 
     [Test]
-    public void GetAvailableViews_AggregatesFilesystemAndCompiledViews_SkippingPartials()
-    {
-        var views = _service.GetAvailableViews("Widget");
-
-        Assert.Multiple(() =>
-        {
-            // Filesystem (debug) sources.
-            Assert.That(views, Does.Contain("Default"));
-            Assert.That(views, Does.Contain("Compact"));
-            Assert.That(views, Does.Contain("AreaView"));
-            Assert.That(views, Does.Contain("LibView"));
-            Assert.That(views, Does.Contain("LibArea"));
-            Assert.That(views, Does.Not.Contain("_Partial"));
-
-            // Compiled (Release/Docker) sources, including an area-scoped one.
-            Assert.That(views, Does.Contain("Compiled"));
-            Assert.That(views, Does.Contain("CompiledArea"));
-            Assert.That(views, Does.Not.Contain("_CompiledPartial"));
-        });
-    }
-
-    [Test]
     public void GetControllerViews_Whitespace_ReturnsEmpty()
     {
         Assert.That(_service.GetControllerViews(" "), Is.Empty);
+    }
+
+    [Test]
+    public void GetControllerViews_UnreadableDirectory_IsCaughtAndDoesNotThrow()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("Unix file-mode permissions required to force a directory read error.");
+            return;
+        }
+
+        var locked = Path.Combine(_root, "Views", "LockedCtrl");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            var denied = false;
+            try { Directory.GetFiles(locked); }
+            catch { denied = true; }
+            if (!denied)
+                Assert.Ignore("Process can read the directory (likely running as root).");
+
+            Assert.That(() => _service.GetControllerViews("LockedCtrl"), Throws.Nothing);
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     [Test]
@@ -162,12 +312,6 @@ public class ViewDiscoveryServiceTests
             Assert.That(views, Does.Contain("LibHome"));
             Assert.That(views, Does.Contain("CompiledHome"));
         });
-    }
-
-    [Test]
-    public void GetAvailableViews_UnknownComponent_ReturnsEmpty()
-    {
-        Assert.That(_service.GetAvailableViews("DoesNotExist"), Is.Empty);
     }
 
     [Test]

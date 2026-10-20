@@ -2,10 +2,15 @@
 @model RouteNavigationViewModel
 
 @*
-    Bulma view for the admin navbar. This exists as a *named* view rather than relying on Default
-    because a host application's Views/ folder shadows the RCL for the whole app — including the
-    admin UI. A host that re-skins Components/RouteNavigation/Default.cshtml for its own CSS
-    framework would otherwise break the admin navbar, which only loads Bulma.
+    Bulma navbar items for the admin navbar. _AdminNavbar.cshtml asks for ViewName = "Navbar" and
+    renders on /wadmin pages (admin render mode), so this resolves as admin.Navbar. It is a named
+    variant, not admin.default, so a RouteNavigation widget placed in a zone on an admin page still
+    falls back to its own view.{ViewName} rather than turning into bare navbar links.
+
+    It is separate from the view.* files because a host application's Views/ folder shadows the RCL
+    for the whole app — including the admin UI. A host that re-skins
+    Components/RouteNavigation/view.default.cshtml for its own CSS framework would otherwise break
+    the admin navbar, which only loads Bulma.
 
     Markup matches the hand-written <a class="navbar-item"> links in _AdminNavbar.cshtml, including
     their aria-current="page" on the active link.

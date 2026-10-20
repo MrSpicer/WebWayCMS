@@ -20,6 +20,42 @@ public class FormPropertyBuilderTests
     }
 
     [Test]
+    public void BuildPropertyInfos_SkipsJsonIgnoredProperties()
+    {
+        var infos = FormPropertyBuilder.BuildPropertyInfos(typeof(JsonIgnoredModel));
+
+        Assert.That(infos.Select(i => i.Name), Is.EquivalentTo(new[] { "Visible" }));
+    }
+
+    [Test]
+    public void BuildPropertyInfos_CarriesDisplayModes_DefaultingToBoth()
+    {
+        var infos = FormPropertyBuilder.BuildPropertyInfos(typeof(DisplayModeModel)).ToDictionary(i => i.Name);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(infos["SingleOnly"].DisplayModes, Is.EqualTo(WidgetDisplayMode.Single));
+            Assert.That(infos["ListOnly"].DisplayModes, Is.EqualTo(WidgetDisplayMode.List));
+            Assert.That(infos["Shared"].DisplayModes, Is.EqualTo(WidgetDisplayMode.Single | WidgetDisplayMode.List));
+        });
+    }
+
+    [Test]
+    public void FormPropertyInfo_AppliesTo_MatchesTaggedModes_NullMatchesAll()
+    {
+        var single = new FormPropertyInfo { DisplayModes = WidgetDisplayMode.Single };
+        var both = new FormPropertyInfo();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(single.AppliesTo(null), Is.True);
+            Assert.That(single.AppliesTo(WidgetDisplayMode.Single), Is.True);
+            Assert.That(single.AppliesTo(WidgetDisplayMode.List), Is.False);
+            Assert.That(both.AppliesTo(WidgetDisplayMode.List), Is.True);
+        });
+    }
+
+    [Test]
     public void BuildPropertyInfos_SortsByOrderThenName()
     {
         var infos = FormPropertyBuilder.BuildPropertyInfos(typeof(GroupedModel));

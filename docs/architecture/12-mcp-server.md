@@ -150,7 +150,7 @@ are exactly the admin URL segments: `pages`, `contentblocks`, `articles`, `conte
 `pagetypes`, `formcomponents`, `cmsroutes`.
 
 The `articles` type is asymmetric by design: `list_content("articles")` returns the individual
-*articles* (the entity picker in `form-components.js` maps `'Article'` to that list), while the
+*articles* (an `EntityType = "Article"` picker resolves to that list via `EntityPickerEndpoint`), while the
 article *lists* an agent creates live behind the secondary list
 `list_secondary_content("articles", "articlelists")`. `list_content_types` advertises this via
 `secondaryApiListKeys`, so an agent that just ran `create_content("articles")` knows to read the

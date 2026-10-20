@@ -116,6 +116,20 @@ builder.Services.AddScoped<MyRoutableViewComponent>();
 builder.Services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<MyRoutableViewComponent>());
 ```
 
+### Host widgets and render modes
+
+Host widgets participate in [render modes](../widget-system.md#render-modes) exactly like the
+built-ins: derive the component from `WidgetViewComponent`, the config from `WidgetConfiguration`
+(contributing the Single/List view pickers; set `SupportsList = true` on the attribute and tag fields
+with `DisplayModes` for a list-capable widget), and name the host views
+`MySite/Views/Shared/Components/{WidgetName}/{mode}.{variant}.cshtml`. `ViewDiscoveryService` scans
+both the host view locations and the compiled package application parts, so a host file
+**shadows** a package view of the same `{mode}.{variant}` name (the Razor view engine searches host
+views before Razor class libraries) — this is how a host overrides a built-in widget's rendering
+without touching the package. `WebWayCMS.TestHost` carries worked examples: the list-capable `Faq`
+widget (Single = one FAQ by slug or configured id, List = the FAQ list), `FaqCount` / `FaqTopic`, and `Views/Shared/Components/Layout/view.*.cshtml`
+files that override the CMS `Layout` widget's views.
+
 ### Host-contributed form components
 
 A host can also contribute **form components**: `[CMSFormComponent]` ViewComponents deriving
@@ -143,5 +157,7 @@ group) is therefore safe only on **model-bound** forms (a content type's own ups
   (`ContentVersionEntityConfiguration` uses raw Postgres partial-index filters).
 
 > The `EntityPicker` endpoint map used to be a hardcoded-JS limit that prevented a host type from
-> being an `EntityPicker` target. `form-components.js` now falls back to the generic
-> `GET /wadmin/{contentType}/api/list` endpoint, so host content types work with no JS edit.
+> being an `EntityPicker` target. The endpoint is now resolved server-side from the handler registry
+> (`EntityPickerEndpoint.Resolve`, emitted as `data-endpoint`), so `EntityType = "faqs"` resolves to
+> `GET /wadmin/faqs/api/list` with no JS edit. See
+> [04-content-zone-framework.md](04-content-zone-framework.md#entity-picker-endpoint-resolution).

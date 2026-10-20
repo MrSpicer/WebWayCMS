@@ -1,0 +1,24 @@
+@*
+    Edit-mode counterpart of view.FourColumn: the same slot layout as the public
+    view, rendered with Bulma so it reads correctly inside the admin zone editor.
+    Nested zones inherit edit mode from the zone that renders this widget.
+*@
+
+<div class="columns is-mobile">
+    <div class="column is-3">
+        <p class="heading is-6 has-text-weight-bold">Column1</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Column1" })
+    </div>
+    <div class="column is-3">
+        <p class="heading is-6 has-text-weight-bold">Column2</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Column2" })
+    </div>
+    <div class="column is-3">
+        <p class="heading is-6 has-text-weight-bold">Column3</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Column3" })
+    </div>
+    <div class="column is-3">
+        <p class="heading is-6 has-text-weight-bold">Column4</p>
+        @await Component.InvokeAsync("ContentZone", new { zoneName = "Column4" })
+    </div>
+</div>

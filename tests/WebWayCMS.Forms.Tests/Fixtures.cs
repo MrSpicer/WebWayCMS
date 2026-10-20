@@ -73,6 +73,18 @@ public sealed class EmptyModel
 {
 }
 
+/// <summary>
+/// Properties excluded from the JSON round-trip (System.Text.Json [JsonIgnore]) are runtime-only
+/// and must not become form fields.
+/// </summary>
+public sealed class JsonIgnoredModel
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string RuntimeOnly { get; set; } = "nope";
+
+    public string Visible { get; set; } = "yes";
+}
+
 /// <summary>Two grouped sections plus an ungrouped trailing field.</summary>
 public sealed class GroupedModel
 {
@@ -220,4 +232,16 @@ public sealed class InferenceModel
     public DayOfWeek EnumProp { get; set; }
     public string StringProp { get; set; } = string.Empty;
     public int? NullableIntProp { get; set; }
+}
+/// <summary>Fields tagged per widget display mode, plus an untagged field shared by both.</summary>
+public sealed class DisplayModeModel
+{
+    [FormProperty(Label = "Single Only", DisplayModes = WidgetDisplayMode.Single, Order = 1)]
+    public string? SingleOnly { get; set; }
+
+    [FormProperty(Label = "List Only", DisplayModes = WidgetDisplayMode.List, Order = 2)]
+    public string? ListOnly { get; set; }
+
+    [FormProperty(Label = "Shared", Order = 3)]
+    public string? Shared { get; set; }
 }

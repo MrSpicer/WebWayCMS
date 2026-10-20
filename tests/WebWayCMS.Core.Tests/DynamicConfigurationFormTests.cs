@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Forms;
 
 namespace WebWayCMS.Core.Tests;
@@ -167,5 +168,32 @@ public class DynamicConfigurationFormTests
         Assert.That(result, Is.Not.Null);
         Assert.That(result.ViewName, Is.EqualTo("~/Views/AdminShared/_DynamicForm.cshtml"));
         Assert.That(result.ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void Render_DisplayModeAndExclusions_TravelInViewData()
+    {
+        var excluded = new[] { "DisplayMode" };
+
+        var result = DynamicConfigurationForm.Render(new TestConfig(), "Faq", WidgetDisplayMode.List, excluded);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ViewData!["DynamicForm:ComponentName"], Is.EqualTo("Faq"));
+            Assert.That(result.ViewData["DynamicForm:DisplayMode"], Is.EqualTo(WidgetDisplayMode.List));
+            Assert.That(result.ViewData["DynamicForm:ExcludedProperties"], Is.SameAs(excluded));
+        });
+    }
+
+    [Test]
+    public void Render_NoDisplayMode_EmptyExclusions_LeaveViewDataUnset()
+    {
+        var result = DynamicConfigurationForm.Render(new TestConfig(), excludedProperties: Array.Empty<string>());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ViewData!.ContainsKey("DynamicForm:DisplayMode"), Is.False);
+            Assert.That(result.ViewData.ContainsKey("DynamicForm:ExcludedProperties"), Is.False);
+        });
     }
 }

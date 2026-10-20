@@ -133,7 +133,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - Admin surface for the `WidgetRegistrations` table seeded from `[ContentZoneComponent]`
 - Every mutation calls `IWidgetRegistry.Invalidate()` so the 5-minute cache does not mask edits
 - `BuildPropertyDefinitions(configurationTypeName)` resolves the CLR type and re-serializes `FormPropertyBuilder.BuildPropertyInfos(type)` into `PropertyDefinitionsJson`, returning an error if the type cannot be resolved
-- Exposes a nested `WidgetRegistrationRegistryHandler : IAdminRegistryHandler`, which resolves `EditorType.ViewPicker` options through `IViewDiscoveryService`
+- Exposes the same `ContentZoneRegistryHandler : IAdminRegistryHandler` as `ContentZoneModel` (one shared implementation of the component registry endpoints), which resolves `EditorType.ViewPicker` options through `IViewDiscoveryService`
 
 ### `PageControllerRegistrationModel`
 

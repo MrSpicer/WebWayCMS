@@ -1,0 +1,28 @@
+@model WebWayCMS.Models.Image.ImageViewModel
+@*
+    Edit-mode counterpart of the Image public view: a thumbnail (served from the media endpoint)
+    with alt text and caption, framed in Bulma so it reads correctly inside the zone editor.
+*@
+@if (Model != null && !string.IsNullOrWhiteSpace(Model.BlobHash))
+{
+    <figure class="box">
+        @* Razor drops an attribute whose value is null, so unknown dimensions emit nothing. *@
+        <img src="@Model.Url" alt="@Model.AltText"
+             width="@(Model.Width > 0 ? (int?)Model.Width : null)"
+             height="@(Model.Height > 0 ? (int?)Model.Height : null)" />
+        <figcaption class="mt-2 is-size-7 has-text-grey">
+            @Model.AltText
+            @if (Model.ShowCaption && !string.IsNullOrWhiteSpace(Model.Caption))
+            {
+                <em class="has-text-grey-light"> — @Model.Caption</em>
+            }
+        </figcaption>
+    </figure>
+}
+else
+{
+    <div class="notification is-light has-text-grey">
+        <span class="icon"><i class="fas fa-image" aria-hidden="true"></i></span>
+        No image selected.
+    </div>
+}

@@ -20,10 +20,11 @@
 
     <div id="adminNav" class="navbar-menu">
         <div class="navbar-start" role="list">
+            @* Rendered on an admin page, so the widget resolves admin.{ViewName}: admin.Navbar. *@
             @await Component.InvokeAsync(name: "RouteNavigation", new RouteNavigationConfiguration()
             {
                 AdminRoutes = true,
-                ViewName = "AdminNavbar"
+                ViewName = "Navbar"
             })
             <a class="navbar-item" href="/wadmin/pages" @(currentPath.StartsWith("/wadmin/pages") ?
                   "aria-current=\"page\"" : "") role="listitem">

@@ -44,6 +44,10 @@
   (`CmsDbContextFactory` passes an empty extension list; `RebuildEFMigrations.sh` is unaffected).
 - A host `AdminCrudModel<T>` registered as `IAdminCrudHandler` is served by `AdminContentController`
   and MCP-visible for free. Two handlers sharing a `ContentType` key throw at first registry resolution.
+- A host content type is an `EntityPicker` target via `EntityType = "<contentTypeKey>"`: the list
+  endpoint is resolved server-side (`EntityPickerEndpoint.Resolve` over `IAdminHandlerRegistry` —
+  exact key, plural, then secondary list key) and emitted as `data-endpoint`; `form-components.js`
+  has no endpoint map.
 - See [docs/architecture/14-host-extensibility.md](docs/architecture/14-host-extensibility.md).
 
 ## Content Versioning (Node/Version model)
@@ -85,7 +89,74 @@
   makes `PreviewAwareReadContext` serve drafts for the zones/widgets rendered inside the previewed page.
 - Zone **items** auto-publish on write (no separate publish surface), preserving the inline editor's
   immediately-visible behaviour. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
-- See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
+ - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
+
+## Widget Render Modes
+
+- Widget views are split by **render mode**: files are named `{mode}.{variant}.cshtml` (mode
+  lowercase). Five fixed modes: `view.*` (public single item, the default), `list.*` (public list),
+  `admin.*` (single item on an admin page), `adminlist.*` (list on an admin page), and `edit.*` (the
+  admin zone editor, plain Bulma on a light canvas). Un-prefixed files are ignored by discovery.
+  The point: the site can be styled independently of the admin while the same content still renders
+  correctly inside the admin.
+- **The mode is derived, never picked by the widget or a caller** (`WidgetViewComponent.GetContextMode`):
+  `Edit` when the zone is in edit mode (the `ContentZone:RenderMode` ViewData set by
+  `ContentZoneViewComponent`); otherwise admin vs. public from the request path
+  (`AdminPathPrefix.Matches` — `/wadmin` on a segment boundary), and single vs. list from the item's
+  **display mode**. There is no `config.RenderMode` override and no `Summary` mode.
+- **Display mode** (`WidgetDisplayMode`: `Single` | `List`) is a per-item choice stored in
+  `WidgetMetadata.DisplayMode`. Only widgets declaring `[ContentZoneComponent(SupportsList = true)]`
+  may be `List`: the zone editor shows a Single/List toggle in the Add Widget modal and a Display
+  Mode field in the settings (cog) dialog for them only, and `WidgetMetadataJson.Normalize` rejects
+  `List` for any other widget (zone API, MCP, content seed). A stored `List` on a widget that no longer
+  supports it renders as `Single`, and is grandfathered on writes: an update of an item already stored
+  as `List` keeps it (only *newly* choosing `List` is rejected), and restoring a historical `List`
+  version restores it as `Single`. `SupportsList` is a `WidgetRegistrations` column that
+  `CmsWidgetRegistrationSeeder` syncs from the attribute on every boot for every registration, active
+  or not, matching names case-insensitively (read-only in the admin).
+- **Single and List have different configurators:** tag config fields with
+  `[FormProperty(DisplayModes = WidgetDisplayMode.Single | List)]` (default both). The form
+  endpoint `POST /wadmin/widgets/registry/{name}/form?displayMode=single|list` renders only that
+  mode's fields; the zone editor merges the rendered fields over the stored JSON, so the other mode's
+  values survive a switch. A list-capable widget branches its data loading on `DisplayModeFor(config)`.
+- Mode-aware widgets derive from `WidgetViewComponent` and return `ModeView(config, model)`
+  instead of `View(...)`; `RenderModeFor(config)` reports the active mode. The base resolves the view
+  through `IWidgetViewResolver`, which it pulls from `HttpContext.RequestServices` on first use
+  (no constructor plumbing). The derived class name drives the component name (strip
+  `ViewComponent`), which must match the `[ContentZoneComponent]` registration and view directory.
+- The per-mode fallback chain lives in `WidgetViewResolver.Resolve` (pure, unit-tested). Admin and
+  edit modes **mirror the public variant name** (no admin/edit pickers): **View** `view.{ViewName}`→
+  `view.default`→empty; **List** `list.{ListViewName}`→`list.default`→View; **Admin**
+  `admin.{ViewName}`→`admin.default`→View; **AdminList** `adminlist.{ListViewName}`→
+  `adminlist.default`→`admin.{ViewName}`→`admin.default`→List→View; **Edit** `edit.{ViewName}` (or
+  `edit.{ListViewName}` in list mode)→`edit.default`→generic edit card. Empty/`"default"` always
+  means the mode's default view.
+- Widget configs derive from `WidgetConfiguration` (abstract base: the `ViewName` (Single) /
+  `ListViewName` (List) view pickers + an attached `WidgetMetadata`; do not re-declare `ViewPicker`
+  properties). View pickers list only the views that exist for the field's render mode; a stored
+  value for a missing/renamed view stays selectable rather than being dropped.
+- **Per-item metadata** is a `MetadataJson` column on the zone item (4000 chars, normalized to
+  `"{}"`, null/whitespace on a child update keeps the existing value). Every write is validated and
+  re-serialized through `WidgetMetadataJson.Normalize` (never stored verbatim). The zone editor's settings (cog)
+  button edits it via `POST /wadmin/widgets/registry/{name}/metadata-form` (render the form) +
+  `PUT /api/contentzones/items/{id}/metadata` (save); `ContentZoneModel` deserializes it into
+  `WidgetMetadata` and attaches it to `config.Metadata` at render time.
+- `ViewDiscoveryService` scans host view locations *and* compiled package application parts, so a
+  host `{mode}.{variant}` file **shadows** a package view of the same name (host views are searched
+  before RCLs) — how a host overrides a built-in widget's rendering. Only
+  `/Views/Shared/Components/{name}/` is scanned (no `Areas/*`, no sibling folders): rendering trusts a
+  discovery hit, so it must only report views the view engine can load. Scans are cached per instance —
+  one shared instance outside Development, one per request in Development.
+- The widget component name is MVC's (`ViewComponentConventions.GetComponentName`), so
+  `[ViewComponent(Name = ...)]` is honoured by the base class, the seeder, and the view directory.
+- The admin navbar renders `RouteNavigation` with `ViewName = "Navbar"` → `admin.Navbar.cshtml`. Don't
+  ship navbar markup as `admin.default`: it would take over every admin-page `RouteNavigation` widget.
+- **Hard break, no compat shim:** un-prefixed view files are ignored (a host override not renamed to
+  `view.*` silently stops overriding), list rendering reads `ListViewName`, not a legacy `ViewName`,
+  and old metadata keys (`EditViewName`/`SummaryViewName`/`AdminViewName`) are ignored on parse.
+- **Known exception:** `ArticleViewComponent` predates render modes and still calls `View(...)`
+  with un-prefixed names (`Article`/`List`/`UpsertForm`); migrating it is a known follow-up.
+- See [docs/widget-system.md](docs/widget-system.md) → Render Modes.
 
 ## Content Seeding (JSON)
 

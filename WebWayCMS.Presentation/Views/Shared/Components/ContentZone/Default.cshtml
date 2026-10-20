@@ -9,7 +9,11 @@
     <div class="content-zone" data-zone-name="@Model.Name">
         @foreach (var obj in Model.ZoneObjects.OrderBy(o => o.Ordinal))
         {
-            <div class="zone-object" data-ordinal="@obj.Ordinal">
+            // The item's metadata contributes an anchor id and extra CSS classes to the wrapper.
+            // Razor encodes attribute values and drops an attribute whose value is null.
+            var metaClass = string.IsNullOrWhiteSpace(obj.Metadata.CssClass) ? null : obj.Metadata.CssClass.Trim();
+            var anchorId = string.IsNullOrWhiteSpace(obj.Metadata.AnchorId) ? null : obj.Metadata.AnchorId;
+            <div class="zone-object @metaClass" id="@anchorId" data-ordinal="@obj.Ordinal">
                 @await Component.InvokeAsync(obj.ComponentName, obj.ComponentProperties)
             </div>
         }

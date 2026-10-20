@@ -19,6 +19,9 @@ public sealed class ContentZoneItemUpsertViewModel
     [FormProperty(Label = "Component Properties (JSON)", EditorType = EditorType.TextArea, Order = 2, FormComponent = "TextArea")]
     public string ComponentPropertiesJson { get; init; } = string.Empty;
 
-    [FormProperty(Label = "Active", EditorType = EditorType.Checkbox, Order = 3, FormComponent = "Checkbox")]
+    [FormProperty(Label = "Metadata (JSON)", EditorType = EditorType.TextArea, Order = 3, FormComponent = "TextArea")]
+    public string? MetadataJson { get; init; }
+
+    [FormProperty(Label = "Active", EditorType = EditorType.Checkbox, Order = 4, FormComponent = "Checkbox")]
     public bool IsActive { get; init; }
 }

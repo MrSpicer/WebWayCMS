@@ -139,7 +139,7 @@ public class WidgetRegistrationModelTests
     {
         var id = Guid.NewGuid();
         _store.GetCurrentDraftAsync(id, Arg.Any<CancellationToken>()).Returns(Dto(
-            nodeId: id, componentName: "CB", displayName: "Content Block", configTypeName: "SomeType"));
+            nodeId: id, componentName: "CB", displayName: "Content Block", configTypeName: "SomeType") with { SupportsList = true });
 
         var result = await _model.GetUpsertViewModelAsync(id, new Microsoft.AspNetCore.Http.QueryCollection());
 
@@ -147,6 +147,7 @@ public class WidgetRegistrationModelTests
         var vm = (WidgetRegistrationUpsertViewModel)result!;
         Assert.Multiple(() =>
         {
+            Assert.That(vm.SupportsList, Is.True);
             Assert.That(vm.ComponentName, Is.EqualTo("CB"));
             Assert.That(vm.DisplayName, Is.EqualTo("Content Block"));
             Assert.That(vm.ConfigurationTypeName, Is.EqualTo("SomeType"));
@@ -507,7 +508,7 @@ public class WidgetRegistrationModelTests
     public void RegistryHandler_GetProperties_ViewPickerPopulatesDropdownFromDiscovery()
     {
         var views = new List<string> { "Default", "List" };
-        _viewDiscovery.GetAvailableViews("SomeComponent").Returns(views);
+        _viewDiscovery.GetAvailableViews("SomeComponent", WidgetRenderMode.View).Returns(views);
 
         _registry.GetByName("V").Returns(new WidgetRegistrationInfo
         {
@@ -530,13 +531,13 @@ public class WidgetRegistrationModelTests
         var result = _model.RegistryHandler!.GetProperties("V");
 
         Assert.That(result, Is.InstanceOf<JsonResult>());
-        _viewDiscovery.Received(1).GetAvailableViews("SomeComponent");
+        _viewDiscovery.Received(1).GetAvailableViews("SomeComponent", WidgetRenderMode.View);
     }
 
     [Test]
     public void RegistryHandler_GetProperties_ViewPickerNoViews_ReturnsEmptyDict()
     {
-        _viewDiscovery.GetAvailableViews("HasNoViews").Returns(new List<string>());
+        _viewDiscovery.GetAvailableViews("HasNoViews", WidgetRenderMode.View).Returns(new List<string>());
 
         _registry.GetByName("V").Returns(new WidgetRegistrationInfo
         {
@@ -603,6 +604,47 @@ public class WidgetRegistrationModelTests
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
         Assert.That(((PartialViewResult)result).ViewData!.Model, Is.Null);
+    }
+
+    [Test]
+    public void RegistryHandler_GetForm_WithDisplayMode_PassesItToTheForm()
+    {
+        _registry.GetByName("Typed").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Typed",
+            ConfigurationTypeName = typeof(SampleZoneConfig).FullName
+        });
+
+        var withMode = (PartialViewResult)_model.RegistryHandler!.GetForm("Typed", null, WidgetDisplayMode.List);
+        var withoutMode = (PartialViewResult)_model.RegistryHandler!.GetForm("Typed", null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withMode.ViewData!["DynamicForm:DisplayMode"], Is.EqualTo(WidgetDisplayMode.List));
+            Assert.That(withoutMode.ViewData!.ContainsKey("DynamicForm:DisplayMode"), Is.False);
+        });
+    }
+
+    [Test]
+    public void RegistryHandler_GetProperties_ReportsSupportsListAndDisplayModes()
+    {
+        _registry.GetByName("L").Returns(new WidgetRegistrationInfo
+        {
+            Name = "L",
+            SupportsList = true,
+            Properties = new List<FormPropertyInfo>
+            {
+                new() { Name = "Heading", Label = "Heading", EditorType = EditorType.Text, DisplayModes = WidgetDisplayMode.List },
+            }
+        });
+
+        var json = System.Text.Json.JsonSerializer.Serialize(((JsonResult)_model.RegistryHandler!.GetProperties("L")).Value);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"supportsList\":true"));
+            Assert.That(json, Does.Contain("\"displayModes\":\"list\""));
+        });
     }
 
     [Test]

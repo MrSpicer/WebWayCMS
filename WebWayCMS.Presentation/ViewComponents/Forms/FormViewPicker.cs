@@ -25,12 +25,23 @@ public sealed class FormViewPicker : FormFieldViewComponentBase
         if (field.Mode == FormFieldMode.Read)
             return View(name, field);
 
-        Dictionary<string, string> options = new();
-        if (!string.IsNullOrWhiteSpace(field.ViewComponentName))
+        // The picker lists only the field's render mode's views (e.g. view.* on the content config
+        // form, edit.* in the metadata editor). The component name comes from the field's
+        // ViewComponentName when set, else the widget name supplied by the form context.
+        var componentName = !string.IsNullOrWhiteSpace(field.ViewComponentName)
+            ? field.ViewComponentName
+            : field.ComponentName;
+
+        // The empty "-- Default --" option already selects the mode's default view, so the
+        // "default" variant itself is not listed again.
+        var hasViews = false;
+        var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(componentName))
         {
-            var views = _viewDiscoveryService.GetAvailableViews(field.ViewComponentName);
-            if (views.Any())
-                options = views.ToDictionary(v => v, v => v);
+            var views = _viewDiscoveryService.GetAvailableViews(componentName, field.RenderMode);
+            hasViews = views.Count > 0;
+            foreach (var view in views.Where(v => !string.Equals(v, "default", StringComparison.OrdinalIgnoreCase)))
+                options[view] = view;
         }
 
         // Keep a stored value selectable even when it is not among the discovered views, so a view
@@ -38,6 +49,11 @@ public sealed class FormViewPicker : FormFieldViewComponentBase
         // the next save (and, on an edit load, the server-rendered select actually selects it).
         if (!string.IsNullOrWhiteSpace(field.StringValue) && !options.ContainsKey(field.StringValue))
             options[field.StringValue] = field.StringValue;
+
+        // Picker visibility is inferred from files: a mode with neither views nor a stored value
+        // renders nothing, so the content form never shows e.g. an edit-mode picker.
+        if (!hasViews && options.Count == 0)
+            return Content(string.Empty);
 
         var viewModel = new DropdownViewModel
         {

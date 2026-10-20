@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
+using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Models.Shared;
 
@@ -14,10 +16,12 @@ public class AdminContentController : Controller
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();
 
     private readonly IAdminHandlerRegistry _registry;
+    private readonly IWidgetRegistry _widgetRegistry;
 
-    public AdminContentController(IAdminHandlerRegistry registry)
+    public AdminContentController(IAdminHandlerRegistry registry, IWidgetRegistry widgetRegistry)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -222,13 +226,43 @@ public class AdminContentController : Controller
 
     [HttpPost("{contentType}/registry/{name}/form")]
     [ValidateAntiForgeryToken]
-    public IActionResult RegistryForm(string contentType, string name, [FromBody] string? valuesJson)
+    public IActionResult RegistryForm(string contentType, string name, [FromBody] string? valuesJson, [FromQuery] string? displayMode = null)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
 
         if (handler.RegistryHandler == null) return NotFound();
-        return handler.RegistryHandler.GetForm(name, valuesJson);
+
+        // ?displayMode=single|list renders only that mode's configuration fields; anything else
+        // (including no value) renders every field.
+        WidgetDisplayMode? mode = Enum.TryParse<WidgetDisplayMode>(displayMode, ignoreCase: true, out var parsed)
+            && (parsed == WidgetDisplayMode.Single || parsed == WidgetDisplayMode.List)
+                ? parsed
+                : null;
+        return handler.RegistryHandler.GetForm(name, valuesJson, mode);
+    }
+
+    // ─── Widget metadata form ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Renders the per-item widget metadata form (the display mode plus the admin presentation
+    /// fields) for the zone editor's settings (cog) dialog. The display-mode field is left out for
+    /// widgets that do not support list mode.
+    /// </summary>
+    [HttpPost("widgets/registry/{name}/metadata-form")]
+    [ValidateAntiForgeryToken]
+    public IActionResult WidgetMetadataForm(string name, [FromBody] string? valuesJson)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return BadRequest(new { error = "Component name is required." });
+
+        var component = _widgetRegistry.GetByName(name);
+        if (component == null)
+            return NotFound(new { error = $"Component '{name}' not found." });
+
+        var metadata = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(typeof(WidgetMetadata), valuesJson);
+        var excluded = component.SupportsList ? null : new[] { nameof(WidgetMetadata.DisplayMode) };
+        return WebWayCMS.Forms.DynamicConfigurationForm.Render(metadata, name, excludedProperties: excluded);
     }
 
     // ─── Version History (top-level) ──────────────────────────────────────────

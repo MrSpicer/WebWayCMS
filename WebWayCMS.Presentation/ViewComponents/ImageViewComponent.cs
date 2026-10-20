@@ -16,7 +16,7 @@ namespace WebWayCMS.ViewComponents;
     IconClass = "fa-image",
     Order = 5
 )]
-public class ImageViewComponent : ViewComponent
+public class ImageViewComponent : WidgetViewComponent
 {
     private readonly IImageModel _model;
 
@@ -34,18 +34,23 @@ public class ImageViewComponent : ViewComponent
     /// </remarks>
     public async Task<IViewComponentResult> InvokeAsync(ImageContentZoneConfiguration? config = null)
     {
-        // This also renders live inside the admin inline editor, where a freshly dropped widget has
-        // no configuration yet — degrade to nothing rather than throwing.
-        if (config?.ImageNodeId == null || config.ImageNodeId == Guid.Empty)
-            return Content(string.Empty);
+        var vm = config?.ImageNodeId is Guid imageNodeId && imageNodeId != Guid.Empty
+            ? await _model.GetViewModelByNodeIdAsync(imageNodeId, CancellationToken.None)
+            : null;
 
-        var vm = await _model.GetViewModelByNodeIdAsync(config.ImageNodeId.Value, CancellationToken.None);
         if (vm == null)
-            return Content(string.Empty);
+        {
+            // No image picked yet (a freshly dropped widget) or the image was deleted. The zone
+            // editor shows its edit view's "No image selected" placeholder; public pages render
+            // nothing rather than throwing.
+            return RenderModeFor(config) == WidgetRenderMode.Edit
+                ? ModeView(config, new ImageViewModel())
+                : Content(string.Empty);
+        }
 
-        vm.CssClass = config.CssClass;
+        vm.CssClass = config!.CssClass;
         vm.ShowCaption = config.ShowCaption;
 
-        return View(string.IsNullOrWhiteSpace(config.ViewName) ? "Default" : config.ViewName, vm);
+        return ModeView(config, vm);
     }
 }

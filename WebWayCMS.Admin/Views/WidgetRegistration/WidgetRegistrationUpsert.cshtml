@@ -39,6 +39,14 @@
             <div class="card">
                 <div class="card-content">
                     <form-fields for="@Model" />
+                    @if (Model != null && Model.NodeId.HasValue)
+                    {
+                        <div class="field">
+                            <label class="label">List Mode</label>
+                            <p>@(Model.SupportsList ? "Supported" : "Not supported")</p>
+                            <p class="help">Set by the widget's code (<code>[ContentZoneComponent(SupportsList = true)]</code>); not editable here.</p>
+                        </div>
+                    }
                 </div>
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">

@@ -18,4 +18,10 @@ public class CmsWidgetRegistrationSeederTests
     {
         Assert.That(CmsWidgetRegistrationSeeder.GetWidgetComponentName(typeof(PlainComponent)), Is.EqualTo("PlainComponent"));
     }
+
+    [Test]
+    public void GetWidgetComponentName_ViewComponentNameAttribute_UsesAttributeName()
+    {
+        Assert.That(CmsWidgetRegistrationSeeder.GetWidgetComponentName(typeof(NamedWidgetViewComponent)), Is.EqualTo("Renamed"));
+    }
 }

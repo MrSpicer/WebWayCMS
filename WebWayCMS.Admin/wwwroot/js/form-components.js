@@ -40,15 +40,9 @@
         if (select.dataset.entityPickerLoading) return;
         select.dataset.entityPickerLoading = 'true';
 
-        var endpoints = {
-            'ContentBlock': '/wadmin/contentblocks/api/list',
-            'Article': '/wadmin/articles/api/list',
-            'ArticleList': '/wadmin/articles/api/articlelists',
-            'ContentZone': '/wadmin/contentzones/api/list',
-            'Image': '/wadmin/images/api/list'
-        };
-
-        var endpoint = endpoints[entityType];
+        // The endpoint is resolved server-side from the handler registry (FormEntityPicker), so
+        // host content types work without a client-side map.
+        var endpoint = select.dataset.endpoint;
         if (!endpoint) {
             select.innerHTML = '<option value="">-- Unknown entity type: ' + escapeHtml(entityType) + ' --</option>';
             select.style.display = '';

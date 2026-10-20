@@ -1,9 +1,11 @@
 @model WebWayCMS.Forms.FormFieldContext
 @{
+    var endpoint = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.EndpointViewDataKey] as string;
     var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
         .Css("entity-picker")
         .Naming().Required().DescribedBy()
         .Data("entity-type", Model.EntityType)
+        .Data("endpoint", endpoint ?? string.Empty)
         .Data("current-value", Model.StringValue)
         .Build();
 }

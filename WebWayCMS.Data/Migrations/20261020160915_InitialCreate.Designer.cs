@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20260917225002_InitialCreate")]
+    [Migration("20261020160915_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -615,6 +615,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MetadataJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<int>("Ordinal")
                         .HasColumnType("integer");
 
@@ -896,6 +900,9 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<string>("PropertyDefinitionsJson")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("SupportsList")
+                        .HasColumnType("boolean");
 
                     b.HasKey("VersionId");
 

@@ -244,6 +244,7 @@ public class WidgetRegistry : IWidgetRegistry
                 IconClass = dto.IconClass,
                 Order = dto.Order,
                 ConfigurationTypeName = dto.ConfigurationTypeName,
+                SupportsList = dto.SupportsList,
                 Properties = DeserializePropertyDefinitions(dto.PropertyDefinitionsJson)
             };
 

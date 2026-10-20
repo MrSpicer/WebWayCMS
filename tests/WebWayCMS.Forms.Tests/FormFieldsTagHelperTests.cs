@@ -49,13 +49,15 @@ public class FormFieldsTagHelperTests
             new HtmlHelperOptions());
     }
 
-    private async Task<string> RenderAsync(object? model, FormFieldMode mode = FormFieldMode.Write, FormFieldBinding binding = FormFieldBinding.Model)
+    private async Task<string> RenderAsync(object? model, FormFieldMode mode = FormFieldMode.Write, FormFieldBinding binding = FormFieldBinding.Model,
+        WidgetDisplayMode? displayMode = null)
     {
         var helper = new FormFieldsTagHelper(_resolver)
         {
             For = model,
             Mode = mode,
             Binding = binding,
+            DisplayMode = displayMode,
             ViewContext = _viewContext
         };
 
@@ -143,6 +145,47 @@ public class FormFieldsTagHelperTests
 
         Assert.That(html, Does.Contain("form-group-section"));
         Assert.That(html, Does.Contain(">Only<"));
+    }
+
+    // Renders DisplayModeModel and returns the names of the fields that were rendered.
+    private async Task<List<string>> RenderedDisplayModeFieldsAsync(WidgetDisplayMode? displayMode = null)
+    {
+        var componentInfo = new FormComponentInfo { Name = "Text", ViewComponentName = "Text", WriteViewName = "Write", ReadViewName = "Read" };
+        var rendered = new List<string>();
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(x =>
+        {
+            rendered.Add(x.Arg<FormPropertyInfo>().Name);
+            return componentInfo;
+        });
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
+
+        await RenderAsync(new DisplayModeModel(), displayMode: displayMode);
+        return rendered;
+    }
+
+    [Test]
+    public async Task Process_NoDisplayMode_RendersEveryField()
+    {
+        Assert.That(await RenderedDisplayModeFieldsAsync(), Is.EqualTo(new[] { "SingleOnly", "ListOnly", "Shared" }));
+    }
+
+    [Test]
+    public async Task Process_DisplayModeAttribute_RendersOnlyMatchingFields()
+    {
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await RenderedDisplayModeFieldsAsync(WidgetDisplayMode.Single), Is.EqualTo(new[] { "SingleOnly", "Shared" }));
+            Assert.That(await RenderedDisplayModeFieldsAsync(WidgetDisplayMode.List), Is.EqualTo(new[] { "ListOnly", "Shared" }));
+        });
+    }
+
+    [Test]
+    public async Task Process_DisplayModeAndExclusionsFromViewData_FilterFields()
+    {
+        _viewContext.ViewData["DynamicForm:DisplayMode"] = WidgetDisplayMode.List;
+        _viewContext.ViewData["DynamicForm:ExcludedProperties"] = new[] { "shared" };
+
+        Assert.That(await RenderedDisplayModeFieldsAsync(), Is.EqualTo(new[] { "ListOnly" }));
     }
 
     [Test]

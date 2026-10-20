@@ -7,6 +7,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 - [System Overview](#system-overview)
 - [Core Components](#core-components)
 - [Placing a Zone in a View](#placing-a-zone-in-a-view)
+- [Render Modes](#render-modes)
 - [How to Add a New Widget](#how-to-add-a-new-widget)
 - [Routable Widgets](#routable-widgets)
 
@@ -17,7 +18,8 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 - A **Content Zone** is a named slot in a Razor view. Each zone stores an ordered list of widget instances in the database.
 - The `ContentZone` view component renders all widgets assigned to a zone path. When an admin is viewing the page it also renders an inline "Add Widget" button and edit controls.
 - **Widgets** are ViewComponent classes decorated with `[ContentZoneComponent]`. At startup the CMS reflects over the `WebWayCMS.Presentation` assembly and the entry assembly (`MySite`) and **seeds a row per widget** into the `WidgetRegistrations` table. From then on the runtime registry, `IWidgetRegistry`, serves widget metadata from the database — so widgets can be renamed, re-categorised, or deactivated from the admin UI at `/wadmin/widgets` with no code change.
-- Each widget can declare a typed **configuration class**. Properties on that class decorated with `[FormProperty]` are rendered as form fields in the admin "Add Widget" modal.
+- Each widget can declare a typed **configuration class** deriving from `WidgetConfiguration`. Properties on that class decorated with `[FormProperty]` are rendered as form fields in the admin "Add Widget" modal; the base class contributes the per-mode view pickers.
+- Widgets participate in **render modes**: their views are named `{mode}.{variant}.cshtml` (public `view.*`/`list.*`, admin-page `admin.*`/`adminlist.*`, zone-editor `edit.*`); the active mode is derived from where the widget renders and the item's Single/List display mode. See [Render Modes](#render-modes).
 
 ---
 
@@ -31,6 +33,11 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 | `WidgetRegistrationModel` | `WebWayCMS.Core/Models/WidgetRegistration/WidgetRegistrationModel.cs` | The `widgets` admin content type |
 | `[ContentZoneComponent]` | `WebWayCMS.Forms/Attributes/ContentZoneComponentAttribute.cs` | Marks a ViewComponent as a widget; read once at startup to seed its registration row |
 | `[FormProperty]` / `EditorType` | `WebWayCMS.Forms/Attributes/FormPropertyAttribute.cs` | Drives config form field generation in the admin UI |
+| `WidgetViewComponent` | `WebWayCMS.Presentation/ViewComponents/WidgetViewComponent.cs` | Base class for mode-aware widgets; `ModeView(config, model)` resolves the active mode's view, `DisplayModeFor(config)` reports Single/List |
+| `WidgetConfiguration` | `WebWayCMS.ContentZones/Models/WidgetConfiguration.cs` | Abstract base for widget configs; carries the per-mode view pickers and the attached `WidgetMetadata` |
+| `WidgetMetadata` | `WebWayCMS.ContentZones/Models/WidgetMetadata.cs` | Per-item metadata (display mode, admin label/note, CSS class, anchor) stored in the zone item's `MetadataJson` column |
+| `IWidgetViewResolver` / `WidgetViewResolver` | `WebWayCMS.Core/Services/WidgetViewResolver.cs` | Pure per-mode fallback logic (chosen variant → mode default → mode fallback → generic card/nothing) |
+| `IViewDiscoveryService` / `ViewDiscoveryService` | `WebWayCMS.Core/Services/ViewDiscoveryService.cs` | Discovers `{mode}.{variant}.cshtml` files across host views and package application parts |
 
 ---
 
@@ -51,6 +58,106 @@ In normal (non-admin) mode the component renders nothing if the zone has no item
 
 ---
 
+## Render Modes
+
+A widget's views are split by **render mode**. View files are named `{mode}.{variant}.cshtml`
+(mode lowercase, e.g. `view.TwoColumnEqual.cshtml`, `adminlist.default.cshtml`). The modes exist so a
+site can be styled independently of the admin while the same content still renders correctly inside
+the admin. Exactly one mode is active per render, and it is **derived, never chosen** by the widget or
+its caller:
+
+| Mode | Active when |
+|---|---|
+| `View` | A public page, item display mode `Single` (the default) |
+| `List` | A public page, item display mode `List` |
+| `Admin` | An admin page (request path under `/wadmin`), display mode `Single` |
+| `AdminList` | An admin page, display mode `List` |
+| `Edit` | The admin zone editor (`ContentZone` renders it with a light Bulma canvas; the editor is a CMS-owned surface, so edit views are plain Bulma markup). Only the zone being in edit mode selects it |
+
+`WidgetViewComponent.GetContextMode` returns `Edit` when the zone's `ContentZone:RenderMode`
+ViewData says so; otherwise admin vs. public comes from `AdminPathPrefix.Matches(Request.Path)` and
+single vs. list from the item's display mode. Non-zone callers (e.g. the admin navbar's
+`RouteNavigation`) get the right mode automatically from the path.
+
+### Display mode: Single vs. List
+
+A widget opts in to list rendering with `[ContentZoneComponent(SupportsList = true)]`. For such a
+widget each zone item stores a **display mode** (`WidgetDisplayMode.Single` or `List`) in its metadata
+(`WidgetMetadata.DisplayMode`):
+
+- The zone editor's **Add Widget** modal shows a Single/List toggle; the **settings (cog)** dialog
+  shows a Display Mode field. Neither appears for widgets without list support.
+- Single and List have **different configurators**: tag each config field with the mode(s) it
+  applies to, `[FormProperty(DisplayModes = WidgetDisplayMode.List, …)]` (untagged fields apply to
+  both). `POST /wadmin/widgets/registry/{name}/form?displayMode=single|list` renders only that mode's
+  fields. The zone editor merges the rendered fields over the stored configuration JSON, so switching
+  modes keeps the other mode's values.
+- The widget branches on `DisplayModeFor(config)` to load one item or a collection, then calls
+  `ModeView(config, model)`; the base picks `view`/`list`/`admin`/`adminlist`/`edit` for it.
+- Saving `List` for a widget that does not support it is **rejected** by
+  `WidgetMetadataJson.Normalize` on every write path (zone API, MCP child saves, content seeds). A
+  stored `List` on a widget that later drops support renders as `Single`, and is grandfathered so the
+  item stays editable: an update of an item that already stores `List` keeps it, and restoring a
+  historical `List` version (via `restore_child_version`) restores it as `Single`.
+- `SupportsList` is stored on the widget registration and synced from the attribute on every boot
+  by the registration seeder (it is shown read-only in the admin widget screen).
+
+The TestHost's `Faq` widget is the reference example: Single resolves one FAQ from the URL slug or a
+configured FAQ (`view.*`), List renders a sorted, limited list (`list.*`).
+
+### Resolution fallback
+
+`WidgetViewResolver.Resolve` applies a per-mode fallback chain. The admin and edit modes **mirror the
+public variant name** — there are no separate admin/edit pickers — so a widget shipping `view.Card`
+and `admin.Card` renders the matching admin view automatically:
+
+- **View:** `view.{ViewName}` → `view.default` → nothing (the widget renders an empty string).
+- **List:** `list.{ListViewName}` → `list.default` → the View chain.
+- **Admin:** `admin.{ViewName}` → `admin.default` → the View chain.
+- **AdminList:** `adminlist.{ListViewName}` → `adminlist.default` → `admin.{ViewName}` →
+  `admin.default` → the List chain (and so the View chain).
+- **Edit:** `edit.{ViewName}` (or `edit.{ListViewName}` when the item is in List mode, so a Layout's
+  editor shows the same slots as its public variant) → `edit.default` → the generic CMS edit card
+  (`_WidgetEditCard.cshtml`, showing the widget's registration info).
+
+Empty or `"default"` always means the mode's default view. View pickers on the config form only list
+the views that exist for that mode (a mode with no views renders no picker), so a stored value for a
+renamed or missing view is kept selectable rather than silently dropped.
+
+### Per-item metadata (the cog)
+
+Each zone item has a `MetadataJson` column (4000 chars, normalized to `"{}"`) edited through the
+zone editor's settings (cog) button: the display mode (list-capable widgets only) plus admin
+presentation fields (label, note, CSS class, anchor id). The metadata is deserialized into
+`WidgetMetadata` and attached to the configuration at render time, so views can also read
+`Configuration.Metadata`. Saving is `PUT /api/contentzones/items/{id}/metadata` (the dialog always
+sends the whole document; an empty payload clears it). A new item's metadata (the Add Widget modal's
+display mode) travels on `POST /api/contentzones/items` as `metadataJson`. Through the generic
+zone-item child save (MCP `create_child`/`update_child`, content seeds) an empty `metadataJson` means
+"not supplied" and keeps the existing value. Every write path validates the JSON as a
+`WidgetMetadata` (display mode, CSS-class and anchor-id patterns, lengths) via
+`WidgetMetadataJson.Normalize` and stores the CMS's re-serialized canonical form, never the caller's
+JSON verbatim.
+
+### Breaking change: un-prefixed views and legacy `ViewName` values
+
+Render modes are a hard break — there is no compatibility shim:
+
+- Un-prefixed view files (`Default.cshtml`, `Compact.cshtml`) are ignored. A host override that is not
+  renamed to `view.default.cshtml` (etc.) **silently stops overriding** and the CMS view renders instead.
+- List rendering reads `ListViewName`, not `ViewName`. Items saved before the switch with a list
+  variant in `viewName` render `list.default` until an editor re-picks the *List View*.
+- Metadata keys from the first render-mode iteration (`EditViewName`, `SummaryViewName`,
+  `AdminViewName`) and the `Summary` mode are gone; stored keys are ignored on parse.
+
+### Known exception
+
+`ArticleViewComponent` (the blog widget) predates render modes and still calls `View(...)` directly
+with un-prefixed view names (`Article`, `List`, `UpsertForm`); it renders its public views in every
+mode. Migrating it to the scheme is a known follow-up.
+
+---
+
 ## How to Add a New Widget
 
 All files live in **`MySite`**. No changes to the CMS library are needed.
@@ -59,14 +166,18 @@ All files live in **`MySite`**. No changes to the CMS library are needed.
 
 **`MySite/ViewComponents/MyWidgetConfiguration.cs`**
 
-Properties decorated with `[FormProperty]` appear as form fields in the admin "Add Widget" modal. Omit this class entirely if the widget has no configuration.
+Properties decorated with `[FormProperty]` appear as form fields in the admin "Add Widget" modal.
+The class derives from `WidgetConfiguration`, which contributes the per-mode view pickers
+(`ViewName`, `ListViewName`) — do not declare your own `ViewPicker` properties. Omit this class
+entirely if the widget has no configuration (the component then passes `null` to `ModeView`).
 
 ```csharp
 using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace MySite.ViewComponents;
 
-public class MyWidgetConfiguration
+public class MyWidgetConfiguration : WidgetConfiguration
 {
     [FormProperty(Label = "Heading", EditorType = EditorType.Text, Order = 1)]
     public string Heading { get; set; } = string.Empty;
@@ -92,7 +203,7 @@ Available `EditorType` values:
 | `Color` | Color picker |
 | `Url` | URL input with validation |
 | `Email` | Email input with validation |
-| `ViewPicker` | Dropdown of available views for the component |
+| `ViewPicker` | Dropdown of the component's available views for the field's render mode (`RenderMode` on `[FormProperty]`) |
 | `PageControllerPicker` | Dropdown populated client-side from the registered page types |
 | `Hidden` | Hidden field (included in config, not shown) |
 
@@ -103,6 +214,7 @@ Available `EditorType` values:
 ```csharp
 using Microsoft.AspNetCore.Mvc;
 using WebWayCMS.Attributes;
+using WebWayCMS.ViewComponents;
 
 namespace MySite.ViewComponents;
 
@@ -114,15 +226,25 @@ namespace MySite.ViewComponents;
     IconClass = "fa-star",
     Order = 10
 )]
-public class MyWidgetViewComponent : ViewComponent
+public class MyWidgetViewComponent : WidgetViewComponent
 {
     public IViewComponentResult Invoke(MyWidgetConfiguration config)
     {
         config ??= new MyWidgetConfiguration();
-        return View(config);
+        return ModeView(config, config);
     }
 }
 ```
+
+The component **must** derive from `WidgetViewComponent` (not plain `ViewComponent`) and return
+`ModeView(config, model)` instead of `View(...)`: `ModeView` resolves the active render mode's view
+through the `IWidgetViewResolver` (which the base class pulls from `HttpContext.RequestServices` on
+first use — no constructor plumbing needed) and falls back to the generic edit card or empty content
+per mode. The derived class name drives the component name (`MyWidgetViewComponent` → `MyWidget`),
+which must match the `[ContentZoneComponent]` registration and the view directory name. A widget
+that can also render a list sets `SupportsList = true`, tags its config fields with
+`DisplayModes`, and branches its data loading on `DisplayModeFor(config)` (see
+[Display mode](#display-mode-single-vs-list)).
 
 `[ContentZoneComponent]` properties:
 
@@ -134,14 +256,18 @@ public class MyWidgetViewComponent : ViewComponent
 | `ConfigurationType` | The config class from Step 1; omit if no config is needed |
 | `IconClass` | Font Awesome class for the admin UI icon (e.g. `"fa-star"`) |
 | `Order` | Sort order within the category; lower values appear first |
+| `SupportsList` | The widget can render a list as well as a single item (enables the zone editor's Single/List choice) |
 
 These values are the **seed defaults** written into the widget's registration row the first time the
 CMS starts. After that, the row is authoritative — edit the widget at `/wadmin/widgets` rather than
-changing the attribute.
+changing the attribute. The exception is `SupportsList`, a code capability that the seeder re-syncs from the attribute on
+every boot.
 
-### Step 3 — Create the Razor view
+### Step 3 — Create the Razor views
 
-**`MySite/Views/Shared/Components/MyWidget/Default.cshtml`**
+Views are named **`{mode}.{variant}.cshtml`** (mode lowercase). At minimum a public view:
+
+**`MySite/Views/Shared/Components/MyWidget/view.default.cshtml`**
 
 ```cshtml
 @model MySite.ViewComponents.MyWidgetConfiguration
@@ -151,7 +277,19 @@ changing the attribute.
 </div>
 ```
 
-Additional named views (e.g. `Compact.cshtml`) can be added in the same folder and selected via a `ViewPicker` config property.
+Additional variants (e.g. `view.Compact.cshtml`) are picked by the `View` picker on the config form.
+Optional per-mode files:
+
+- `edit.default.cshtml` (+ variants) — the admin zone editor's rendering. Plain **Bulma** markup on a
+  light canvas; without any `edit.*` file the editor shows the generic widget card instead.
+- `list.default.cshtml` (+ variants) — list rendering, for an item in List display mode
+  (`SupportsList` widgets).
+- `admin.*` / `adminlist.*` — the same content rendered on an admin page (admin styling), mirroring
+  the `view.*` / `list.*` variant names; without them the admin falls back to the public views.
+
+Un-prefixed files are ignored by view discovery (they are host-internal or pre-render-mode
+leftovers). A mode with no views resolves through the fallback chain in
+[Render Modes](#render-modes).
 
 ### Step 4 — No registration required
 
@@ -228,7 +366,7 @@ early-outs and writes no routes.
 ### Parent-route prefixing
 
 `RegisterWidgetRoutesAsync` prefixes each widget pattern with the parent page's route pattern, then
-normalises the result. A `FaqDetail` widget under a page at `/faq-test` therefore produces
+normalises the result. A `Faq` widget under a page at `/faq-test` therefore produces
 `/faq-test/{slug}`.
 
 ### Route constraints must be inline

@@ -77,6 +77,25 @@ public class FormPropertyInfo
     public string ViewComponentName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the render mode this property configures, for ViewPicker fields.
+    /// The picker lists only views whose file name starts with this mode's prefix.
+    /// </summary>
+    public WidgetRenderMode RenderMode { get; set; } = WidgetRenderMode.View;
+
+    /// <summary>
+    /// Gets or sets the widget display modes this property applies to (see
+    /// <see cref="FormPropertyAttribute.DisplayModes"/>).
+    /// </summary>
+    public WidgetDisplayMode DisplayModes { get; set; } = WidgetDisplayMode.Single | WidgetDisplayMode.List;
+
+    /// <summary>
+    /// True when this property applies to <paramref name="displayMode"/>; a null mode (a form that
+    /// is not rendered for a particular display mode) matches every property.
+    /// </summary>
+    public bool AppliesTo(WidgetDisplayMode? displayMode)
+        => displayMode == null || (DisplayModes & displayMode.Value) != 0;
+
+    /// <summary>
     /// Gets or sets dropdown options as key-value pairs.
     /// </summary>
     public Dictionary<string, string> DropdownOptions { get; set; } = new();

@@ -169,6 +169,15 @@ public class InterfaceDefaultsTests
     }
 
     [Test]
+    public void IAdminRegistryHandler_DefaultDisplayModeGetForm_DelegatesToGetForm()
+    {
+        IAdminRegistryHandler handler = new MinimalRegistryHandler();
+        var result = handler.GetForm("test", null, WebWayCMS.Attributes.WidgetDisplayMode.List);
+
+        Assert.That(result, Is.InstanceOf<NotFoundResult>());
+    }
+
+    [Test]
     public async Task AdminCrudModel_DefaultRestoreVersionViewModel_ReturnsNull()
     {
         var store = Substitute.For<IContentStore<ContentBlockDTO>>();

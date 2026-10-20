@@ -1,0 +1,35 @@
+@using WebWayCMS.Models.Page
+@model PageNavigationViewModel
+@*
+    Edit-mode counterpart of the Page navigation public view: a Bulma menu of the nav items so the
+    structure reads correctly inside the admin zone editor.
+*@
+@if (Model?.Items?.Any() != true)
+{
+    <div class="notification is-light has-text-grey">
+        <span class="icon"><i class="fas fa-sitemap" aria-hidden="true"></i></span>
+        No pages.
+    </div>
+}
+else
+{
+    <aside class="menu">
+        <ul class="menu-list">
+            @foreach (var item in Model.Items)
+            {
+                <li>
+                    <a href="@item.Path">@item.Title</a>
+                    @if (item.Children.Any())
+                    {
+                        <ul class="menu-list">
+                            @foreach (var child in item.Children)
+                            {
+                                <li><a href="@child.Path">@child.Title</a></li>
+                            }
+                        </ul>
+                    }
+                </li>
+            }
+        </ul>
+    </aside>
+}

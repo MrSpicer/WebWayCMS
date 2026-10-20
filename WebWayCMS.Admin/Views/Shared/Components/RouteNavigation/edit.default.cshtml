@@ -1,0 +1,35 @@
+@using WebWayCMS.Models.CMSRoute
+@model RouteNavigationViewModel
+@*
+    Edit-mode counterpart of the Route navigation public view: a Bulma menu of the routes so the
+    structure reads correctly inside the admin zone editor.
+*@
+@if (Model?.Items?.Any() != true)
+{
+    <div class="notification is-light has-text-grey">
+        <span class="icon"><i class="fas fa-route" aria-hidden="true"></i></span>
+        No routes.
+    </div>
+}
+else
+{
+    <aside class="menu">
+        <ul class="menu-list">
+            @foreach (var item in Model.Items)
+            {
+                <li>
+                    <a href="@item.Path">@item.Title</a>
+                    @if (item.Children.Any())
+                    {
+                        <ul class="menu-list">
+                            @foreach (var child in item.Children)
+                            {
+                                <li><a href="@child.Path">@child.Title</a></li>
+                            }
+                        </ul>
+                    }
+                </li>
+            }
+        </ul>
+    </aside>
+}

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.DependencyInjection;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Forms;
 
 namespace WebWayCMS.TagHelpers;
@@ -52,6 +53,22 @@ public class FormFieldsTagHelper : TagHelper
     [HtmlAttributeName("binding")]
     public FormFieldBinding Binding { get; set; } = FormFieldBinding.Model;
 
+    /// <summary>
+    /// The widget/component name this form is rendered for, carried to every field so ViewPicker
+    /// fields without an explicit <c>ViewComponentName</c> can discover views for the widget.
+    /// Supplied by <c>DynamicConfigurationForm.Render(instance, componentName)</c> via ViewData.
+    /// </summary>
+    [HtmlAttributeName("component")]
+    public string? Component { get; set; }
+
+    /// <summary>
+    /// The widget display mode this form is rendered for. When set, only properties whose
+    /// <see cref="FormPropertyInfo.DisplayModes"/> include it are rendered. Supplied by
+    /// <c>DynamicConfigurationForm.Render(..., displayMode)</c> via ViewData when not set here.
+    /// </summary>
+    [HtmlAttributeName("display-mode")]
+    public WidgetDisplayMode? DisplayMode { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         output.TagName = null;
@@ -61,7 +78,21 @@ public class FormFieldsTagHelper : TagHelper
 
         var modelType = For.GetType();
         var model = For;
-        var properties = FormPropertyBuilder.BuildPropertyInfos(modelType);
+        // The display mode and excluded properties travel in ViewData too (set by
+        // DynamicConfigurationForm.Render); fields that do not apply are not rendered at all, so
+        // the JSON-bound serializer leaves their stored values untouched.
+        var displayMode = DisplayMode ?? ViewContext.ViewData["DynamicForm:DisplayMode"] as WidgetDisplayMode?;
+        var excluded = ViewContext.ViewData["DynamicForm:ExcludedProperties"] as IReadOnlyCollection<string>
+            ?? Array.Empty<string>();
+        var properties = FormPropertyBuilder.BuildPropertyInfos(modelType)
+            .Where(p => p.AppliesTo(displayMode) && !excluded.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        // The component name travels in ViewData (the dynamic form partial is rendered by
+        // DynamicConfigurationForm, which has no tag-helper attribute to set it with).
+        var componentName = !string.IsNullOrWhiteSpace(Component)
+            ? Component!
+            : ViewContext.ViewData["DynamicForm:ComponentName"] as string ?? string.Empty;
 
         if (properties.Count == 0)
             return;
@@ -102,7 +133,7 @@ public class FormFieldsTagHelper : TagHelper
                 while (i < properties.Count)
                 {
                     var groupProp = properties[i];
-                    var fieldContext = BuildFieldContext(groupProp, model);
+                    var fieldContext = BuildFieldContext(groupProp, model, componentName);
                     var componentInfo = _resolver.Resolve(groupProp);
 
                     if (componentInfo != null)
@@ -136,7 +167,7 @@ public class FormFieldsTagHelper : TagHelper
             }
             else
             {
-                var fieldContext = BuildFieldContext(prop, model);
+                var fieldContext = BuildFieldContext(prop, model, componentName);
                 var componentInfo = _resolver.Resolve(prop);
 
                 if (componentInfo != null)
@@ -167,7 +198,7 @@ public class FormFieldsTagHelper : TagHelper
     private string ResolveViewName(FormComponentInfo componentInfo)
         => Mode == FormFieldMode.Read ? componentInfo.ReadViewName : componentInfo.WriteViewName;
 
-    private FormFieldContext BuildFieldContext(FormPropertyInfo prop, object model)
+    private FormFieldContext BuildFieldContext(FormPropertyInfo prop, object model, string componentName)
     {
         var value = GetModelValue(model, prop.Name);
         var nameAttr = Binding == FormFieldBinding.Model ? prop.Name : string.Empty;
@@ -177,6 +208,8 @@ public class FormFieldsTagHelper : TagHelper
             Property = prop,
             Value = value,
             Mode = Mode,
+            RenderMode = prop.RenderMode,
+            ComponentName = componentName,
             InputName = nameAttr,
             ElementId = prop.Name,
             JsonBound = Binding == FormFieldBinding.Json
