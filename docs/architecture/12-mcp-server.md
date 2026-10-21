@@ -138,6 +138,10 @@ DTO-level restore), `delete_version`.
 `update_child`, `delete_child`, `reorder_children`, `list_child_versions`, `restore_child_version`,
 `delete_child_version`.
 
+Child writes on `contentzones` items follow the zone draft rule: in a zone that belongs to a page they
+create **drafts** that go live only when the page is published (`publish_content("pages", nodeId)`
+publishes the page and every pending zone item under it); in a global zone they go live immediately.
+
 The `publish_*`/`unpublish_*`/`restore_*` tools run with effective admin authority — the bearer token
 is the security boundary — so an agent can publish. Their tool descriptions state this plainly. The
 tool annotations reflect the same line: the read tools (`list_*`/`get_*`/`describe_content_type`/

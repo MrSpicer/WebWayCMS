@@ -7,6 +7,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 - [System Overview](#system-overview)
 - [Core Components](#core-components)
 - [Placing a Zone in a View](#placing-a-zone-in-a-view)
+- [Editing and Publishing a Page's Zones](#editing-and-publishing-a-pages-zones)
 - [Render Modes](#render-modes)
 - [How to Add a New Widget](#how-to-add-a-new-widget)
 - [Routable Widgets](#routable-widgets)
@@ -55,6 +56,30 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 - `IsGlobal = true` — bypasses the page context so one zone instance is shared across all pages.
 
 In normal (non-admin) mode the component renders nothing if the zone has no items assigned.
+
+---
+
+## Editing and Publishing a Page's Zones
+
+Each row of the admin Pages list has an **Edit Zones** button that opens the page zone editor
+(`/wadmin/contentzones/page/{pageNodeId}`): every zone assigned to the page, stacked on one screen in
+the normal zone editor (Add Widget, edit, cog settings, delete; nested Layout zones inline). A toolbar
+shows the draft status with **Publish**, **Discard changes**, **Unpublish**, **Edit page**, and **Back**;
+a **Preview** tab shows the draft page in an iframe.
+
+- **Edits to a page's zones are drafts.** Adding, editing, re-configuring, reordering, or deleting a
+  widget in any zone under a page (nested zones included) saves a draft version; the live site is
+  unchanged. A deleted widget that was live becomes an inactive draft; a never-published one is removed.
+  This applies to every write path — this editor, the single-zone editor, the Advanced item pages, MCP.
+- **Publishing the page publishes its zones.** Any page publish (this toolbar, the Pages list, the page
+  form, MCP `publish_content`) publishes the page and every pending zone item under it in one change
+  set. The Pages list shows **Pending** while zone drafts exist.
+- **Discard changes** reverts every pending zone item to its published version (never-published items
+  are deleted). Page field edits are not touched.
+- **Global zones** (`IsGlobal = true`, e.g. a site footer) belong to no page, so their edits still go
+  live immediately.
+- A page's slots are created the first time its template renders. The editor handles a brand-new page by
+  rendering the preview in the background and reloading once.
 
 ---
 
@@ -351,14 +376,16 @@ attribute — this registration is *only* what makes routing work.
 
 ### Route lifecycle
 
-Route rows are managed by `ContentZoneApiController`, which calls
-`IRouteRegistrationService.TryRegisterWidgetRoutesAsync` at three points:
+Route rows follow what is **live**, so when they change depends on the zone:
 
-- **add** — `SaveItem` (create path) registers the widget's routes after inserting the item;
-- **edit** — `SaveItem` (update path) re-registers, sweeping the owner's stale routes first (a rename
-  or reparent replaces the old patterns);
-- **delete / deactivate** — `DeleteItem` and the inactive path call `TryRegisterWidgetRoutesAsync`
-  with `isActive = false`, which deletes the owner's routes.
+- **Page zones** (the usual case — a routable widget's routes are prefixed with its page's route): an
+  item is a draft until the page is published, so its routes are (re)registered by the **page publish
+  cascade** (`PageModel.PublishPageAsync` → `TryRegisterWidgetRoutesAsync` for each item that went live,
+  with `isActive = false` for a published removal, which deletes the owner's routes). Saving or deleting
+  a draft never touches the route table.
+- **Global zones** — items publish on write, so `ContentZoneApiController` (and the admin child handler)
+  call `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` on **add**, **edit** (re-registers,
+  sweeping the owner's stale routes first), and **delete / deactivate** (`isActive = false`).
 
 A non-routable component simply isn't found in the collection, so `TryRegisterWidgetRoutesAsync`
 early-outs and writes no routes.

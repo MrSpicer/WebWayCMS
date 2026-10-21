@@ -1,0 +1,134 @@
+@using WebWayCMS.Models.ContentZone
+@model PageZonesEditViewModel
+
+@{
+    ViewData["Title"] = $"Edit Zones: {Model.PageTitle}";
+    var editorUrl = Url.Action("PageZones", "AdminContentZone", new { pageNodeId = Model.PageNodeId });
+}
+
+<div class="admin-page-header">
+    <div class="container">
+        <nav class="breadcrumb" aria-label="breadcrumbs">
+            <ul>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
+                <li><a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId">@Model.PageTitle</a></li>
+                <li class="is-active"><a href="#" aria-current="page">Edit Zones</a></li>
+            </ul>
+        </nav>
+        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+    </div>
+</div>
+
+<section class="section">
+<div class="container is-fluid">
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="notification is-danger" role="alert">
+            @TempData["Error"]
+        </div>
+    }
+
+    @* Toolbar: draft status plus the page-level publish actions. Zone edits below are drafts until Publish. *@
+    <div class="level box py-3 mb-4 page-zones-toolbar">
+        <div class="level-left">
+            <div class="level-item">
+                @if (!Model.IsPublished)
+                {
+                    <span class="tag is-warning is-medium">Not published</span>
+                }
+                else if (Model.HasPendingChanges)
+                {
+                    <span class="tag is-warning is-medium">Pending changes</span>
+                }
+                else
+                {
+                    <span class="tag is-success is-medium">Up to date</span>
+                }
+            </div>
+        </div>
+        <div class="level-right">
+            <div class="level-item">
+                <div class="buttons">
+                    <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@Model.PageNodeId" method="post" class="is-inline-block">
+                        <input type="hidden" name="returnUrl" value="@editorUrl" />
+                        <button type="submit" class="button is-success" @(Model.HasPendingChanges || !Model.IsPublished ? "" : "disabled")>
+                            <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                            <span>Publish</span>
+                        </button>
+                    </form>
+                    @if (Model.HasPendingZoneChanges)
+                    {
+                        <form asp-action="DiscardPageZones" asp-route-pageNodeId="@Model.PageNodeId" method="post" class="is-inline-block"
+                              data-confirm="Discard all unpublished zone changes on this page? This cannot be undone.">
+                            <button type="submit" class="button is-danger is-light">
+                                <span class="icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
+                                <span>Discard changes</span>
+                            </button>
+                        </form>
+                    }
+                    @if (Model.IsPublished)
+                    {
+                        <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@Model.PageNodeId" method="post" class="is-inline-block">
+                            <input type="hidden" name="returnUrl" value="@editorUrl" />
+                            <button type="submit" class="button is-warning is-light">Unpublish</button>
+                        </form>
+                    }
+                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId" class="button">Edit page</a>
+                    <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages" class="button">Back to Pages</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs is-boxed mb-0" role="tablist">
+        <ul>
+            <li class="is-active" data-tab="zones">
+                <a href="#zones" role="tab" id="page-zones-tab-zones" aria-controls="page-zones-panel-zones" aria-selected="true">
+                    <span class="icon is-small"><i class="fas fa-th-large" aria-hidden="true"></i></span>
+                    <span>Edit zones</span>
+                </a>
+            </li>
+            <li data-tab="preview">
+                <a href="#preview" role="tab" id="page-zones-tab-preview" aria-controls="page-zones-panel-preview" aria-selected="false">
+                    <span class="icon is-small"><i class="fas fa-eye" aria-hidden="true"></i></span>
+                    <span>Preview</span>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <div id="page-zones-panel-zones" class="page-zones-panel" role="tabpanel" aria-labelledby="page-zones-tab-zones"
+         data-empty="@(Model.Slots.Count == 0 ? "true" : "false")">
+        @if (Model.Slots.Count == 0)
+        {
+            <div class="notification is-light mt-4" role="status">
+                This page has no zones yet. Its template creates them the first time it renders — loading the preview…
+            </div>
+        }
+        else
+        {
+            foreach (var slot in Model.Slots)
+            {
+                <div class="box mt-4">
+                    <h2 class="title is-6">@slot.SlotName</h2>
+                    @await Component.InvokeAsync("ContentZone", new { zoneName = slot.SlotName, zoneId = slot.ZoneNodeId, editMode = true })
+                </div>
+            }
+        }
+    </div>
+
+    <div id="page-zones-panel-preview" class="page-zones-panel" role="tabpanel" aria-labelledby="page-zones-tab-preview" hidden>
+        @* The preview action refreshes the preview cookie, then redirects to /_preview/{id}. *@
+        <iframe class="page-zones-preview mt-4"
+                title="Draft preview of @Model.PageTitle"
+                data-src="@Url.Action("Preview", "AdminContent", new { contentType = "pages", nodeId = Model.PageNodeId })"
+                style="width: 100%; height: 80vh; border: 1px solid #dbdbdb; border-radius: 4px;"></iframe>
+    </div>
+
+</div>
+</section>
+
+@section Scripts {
+    <script src="~/_content/WebWayCMS.Admin/js/page-zones-edit.js"></script>
+}

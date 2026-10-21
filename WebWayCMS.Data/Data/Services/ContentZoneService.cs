@@ -7,9 +7,10 @@ namespace WebWayCMS.Data.Services;
 
 /// <summary>
 /// Manages content zones: item resolution, assignment (slot) management, and item writes.
-/// Zone and item versioning is delegated to the generic <see cref="IContentStore{T}"/>. Zone items
-/// auto-publish on write (there is no separate publish surface for items), preserving the inline
-/// editor's immediately-visible behaviour while still producing proper version history.
+/// Zone and item versioning is delegated to the generic <see cref="IContentStore{T}"/>. Items in a
+/// zone that belongs to a page (directly or through nested zones) are written as drafts and go live
+/// only when the page is published (<see cref="PublishPageZonesAsync"/>); items in global/name-based
+/// zones have no page to publish them, so they auto-publish on write.
 /// </summary>
 public sealed class ContentZoneService : IContentZoneService
 {
@@ -266,7 +267,8 @@ public sealed class ContentZoneService : IContentZoneService
         if (!save.Success)
             throw new InvalidOperationException(save.ErrorMessage ?? "Failed to add content zone item.");
 
-        await _itemStore.PublishAsync(save.NodeId, ct);
+        if (!await IsPageOwnedZoneAsync(zoneNodeId, ct))
+            await _itemStore.PublishAsync(save.NodeId, ct);
         return item;
     }
 
@@ -299,12 +301,25 @@ public sealed class ContentZoneService : IContentZoneService
         if (!save.Success)
             return false;
 
-        await _itemStore.PublishAsync(nodeId, ct);
+        if (!await IsPageOwnedZoneAsync(existing.ContentZoneNodeId, ct))
+            await _itemStore.PublishAsync(nodeId, ct);
         return true;
     }
 
     public async Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default)
     {
+        // A live item in a page's zone must stay live until the page is published, so its removal is
+        // recorded as an inactive draft. Anything else (never published, or a global zone) goes now.
+        var current = await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
+        if (current != null
+            && await IsPageOwnedZoneAsync(current.ContentZoneNodeId, ct)
+            && await HasPublishedVersionAsync(itemNodeId, ct))
+        {
+            using var _ = _changeSetScope.Begin(ChangeSetKind.Save, itemNodeId, null);
+            var save = await _itemStore.SaveDraftAsync(current with { IsActive = false }, null, ct);
+            return save.Success;
+        }
+
         return await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
     }
 
@@ -322,6 +337,8 @@ public sealed class ContentZoneService : IContentZoneService
             resolved.Add(current);
         }
 
+        var publish = !await IsPageOwnedZoneAsync(zoneNodeId, ct);
+
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
 
         for (int i = 0; i < resolved.Count; i++)
@@ -331,13 +348,151 @@ public sealed class ContentZoneService : IContentZoneService
             if (!save.Success)
                 return false;
 
-            await _itemStore.PublishAsync(itemNodeIdsInOrder[i], ct);
+            if (publish)
+                await _itemStore.PublishAsync(itemNodeIdsInOrder[i], ct);
         }
 
         return true;
     }
 
+    // ─── page draft lifecycle ─────────────────────────────────────────────────
+
+    public async Task<List<Guid>> GetZoneTreeNodeIdsForPageAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        return WalkZoneTree(pageNodeId, assignments);
+    }
+
+    public async Task<List<Guid>> GetPendingItemNodeIdsAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default)
+    {
+        var ids = zoneNodeIds.ToList();
+        if (ids.Count == 0)
+            return [];
+
+        return await PendingItems()
+            .Where(i => ids.Contains(i.ContentZoneNodeId))
+            .Select(i => i.Version.NodeId)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
+    public async Task<HashSet<Guid>> GetPagesWithPendingZoneChangesAsync(IEnumerable<Guid> pageNodeIds, CancellationToken ct = default)
+    {
+        var pageIds = pageNodeIds.ToList();
+        if (pageIds.Count == 0)
+            return [];
+
+        var pendingZoneIds = await PendingItems()
+            .Select(i => i.ContentZoneNodeId)
+            .Distinct()
+            .ToListAsync(ct);
+        if (pendingZoneIds.Count == 0)
+            return [];
+
+        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        var pending = pendingZoneIds.ToHashSet();
+        return pageIds
+            .Where(pageId => WalkZoneTree(pageId, assignments).Any(pending.Contains))
+            .ToHashSet();
+    }
+
+    public async Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var pendingIds = await GetPendingItemNodeIdsAsync(await GetZoneTreeNodeIdsForPageAsync(pageNodeId, ct), ct);
+
+        var published = new List<ContentZoneItemDTO>();
+        var errors = new List<string>();
+        foreach (var itemNodeId in pendingIds)
+        {
+            var result = await _itemStore.PublishAsync(itemNodeId, ct);
+            var item = result.Success ? await _itemStore.GetCurrentDraftAsync(itemNodeId, ct) : null;
+            if (item == null)
+            {
+                errors.Add(result.ErrorMessage ?? $"Content zone item {itemNodeId} could not be published.");
+                continue;
+            }
+
+            published.Add(item);
+        }
+
+        return new PageZonePublishResult(published, errors);
+    }
+
+    public async Task<(bool Success, string? ErrorMessage)> DiscardPageZoneDraftsAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var pendingIds = await GetPendingItemNodeIdsAsync(await GetZoneTreeNodeIdsForPageAsync(pageNodeId, ct), ct);
+
+        using var _ = _changeSetScope.Begin(ChangeSetKind.Discard, pageNodeId, null);
+
+        var errors = new List<string>();
+        foreach (var itemNodeId in pendingIds)
+        {
+            var result = await _itemStore.DiscardDraftAsync(itemNodeId, ct);
+            if (!result.Success)
+            {
+                errors.Add(result.ErrorMessage ?? $"Content zone item {itemNodeId} could not be discarded.");
+                continue;
+            }
+
+            // A never-published item is deleted outright by the discard; sweep any route rows it may
+            // own so the route table never points at a deleted node.
+            if (result.VersionId == Guid.Empty)
+                await _routeService.DeleteByOwningContentAsync(itemNodeId, ct);
+        }
+
+        return errors.Count == 0 ? (true, null) : (false, string.Join(" ", errors));
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
+
+    private async Task<bool> IsPageOwnedZoneAsync(Guid zoneNodeId, CancellationToken ct)
+        => (await GetParentPageNodeForZoneAsync(zoneNodeId, ct)).HasValue;
+
+    private Task<bool> HasPublishedVersionAsync(Guid nodeId, CancellationToken ct)
+        => _context.Set<ContentVersion>()
+            .AnyAsync(v => v.NodeId == nodeId && v.State == ContentVersionState.Published, ct);
+
+    /// <summary>Items whose current draft differs from what is live (never published, or edited since).</summary>
+    private IQueryable<ContentZoneItemDTO> PendingItems()
+        => _context.Set<ContentZoneItemDTO>()
+            .AsNoTracking()
+            .Where(i => i.Version.IsCurrentDraft
+                     && i.Version.Culture == string.Empty
+                     && i.Version.Segment == string.Empty
+                     && i.Version.State != ContentVersionState.Published
+                     && !i.Version.Node.IsDeleted);
+
+    /// <summary>
+    /// Every zone under a page: its directly assigned zones, then their nested child zones,
+    /// breadth-first. The visited set guards against assignment cycles.
+    /// </summary>
+    private static List<Guid> WalkZoneTree(Guid pageNodeId, IReadOnlyCollection<ContentZoneAssignmentDTO> assignments)
+    {
+        var result = new List<Guid>();
+        var visited = new HashSet<Guid>();
+        var frontier = assignments
+            .Where(a => a.ParentPageNodeId == pageNodeId)
+            .Select(a => a.ContentZoneNodeId)
+            .ToList();
+
+        while (frontier.Count > 0)
+        {
+            var added = frontier.Where(visited.Add).ToList();
+            result.AddRange(added);
+            frontier = assignments
+                .Where(a => a.ParentZoneNodeId.HasValue && added.Contains(a.ParentZoneNodeId.Value))
+                .Select(a => a.ContentZoneNodeId)
+                .ToList();
+        }
+
+        return result;
+    }
 
     private async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> ResolveOrCreateAssignmentAsync(
         Guid? parentPageNodeId, Guid? parentZoneNodeId, string slotName,

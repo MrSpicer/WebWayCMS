@@ -12,4 +12,7 @@ public interface IContentZoneModel
     Task<ContentZoneViewModel> GetOrCreateViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default);
     Task<ContentZoneViewModel?> GetViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default);
     Task<ContentZoneViewModel?> GetViewModelByIdAsync(Guid nodeId, CancellationToken ct = default);
+
+    /// <summary>The zone slots assigned directly to a page, ordered by slot name.</summary>
+    Task<IReadOnlyList<PageZoneSlot>> GetPageZoneSlotsAsync(Guid pageNodeId, CancellationToken ct = default);
 }

@@ -33,4 +33,11 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<ContentWriteResult> RestoreAsync(Guid versionId, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid nodeId, bool softDelete, CancellationToken ct = default);
     Task<bool> DeleteVersionAsync(Guid versionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Throws away an unpublished current draft. The previously published version (or, failing that,
+    /// the newest earlier version) becomes the current draft again; a node whose only version is the
+    /// draft is hard-deleted. A current draft that is itself published is left untouched.
+    /// </summary>
+    Task<ContentWriteResult> DiscardDraftAsync(Guid nodeId, CancellationToken ct = default);
 }

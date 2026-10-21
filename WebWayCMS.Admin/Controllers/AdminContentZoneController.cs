@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.ContentZones;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentZone;
 
 namespace WebWayCMS.Controllers.Admin;
@@ -12,11 +14,19 @@ public class AdminContentZoneController : Controller
 {
     private readonly IContentZoneModel _model;
     private readonly IWidgetRegistry _registry;
+    private readonly IContentStore<PageDTO> _pageStore;
+    private readonly IContentZoneService _zoneService;
 
-    public AdminContentZoneController(IContentZoneModel model, IWidgetRegistry registry)
+    public AdminContentZoneController(
+        IContentZoneModel model,
+        IWidgetRegistry registry,
+        IContentStore<PageDTO> pageStore,
+        IContentZoneService zoneService)
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
+        _zoneService = zoneService ?? throw new ArgumentNullException(nameof(zoneService));
     }
 
     [HttpGet("zone-edit/{id:guid}")]
@@ -27,5 +37,46 @@ public class AdminContentZoneController : Controller
 
         ViewData["ZoneId"] = id;
         return View("~/Views/AdminContentZone/ZoneEdit.cshtml", zone);
+    }
+
+    /// <summary>
+    /// The page zone editor: every zone assigned to the page, editable on one screen. Zone items in a
+    /// page's zones are drafts until the page is published, so this request reads drafts.
+    /// </summary>
+    [HttpGet("page/{pageNodeId:guid}")]
+    public async Task<IActionResult> PageZones(Guid pageNodeId, CancellationToken ct)
+    {
+        var page = await _pageStore.GetCurrentDraftAsync(pageNodeId, ct);
+        if (page == null) return NotFound();
+
+        HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true;
+
+        var versions = await _pageStore.GetAllVersionsAsync(pageNodeId, ct);
+        var isPublished = versions.Any(v => v.Version.State == ContentVersionState.Published);
+        var zonePending = (await _zoneService.GetPagesWithPendingZoneChangesAsync([pageNodeId], ct)).Contains(pageNodeId);
+
+        var vm = new PageZonesEditViewModel
+        {
+            PageNodeId = pageNodeId,
+            PageTitle = page.Version.Title,
+            IsPublished = isPublished,
+            HasPendingChanges = zonePending || page.Version.State != ContentVersionState.Published,
+            HasPendingZoneChanges = zonePending,
+            Slots = await _model.GetPageZoneSlotsAsync(pageNodeId, ct)
+        };
+
+        return View("~/Views/AdminContentZone/PageZonesEdit.cshtml", vm);
+    }
+
+    /// <summary>Throws away the page's unpublished zone-item drafts, reverting to what is live.</summary>
+    [HttpPost("page/{pageNodeId:guid}/discard")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DiscardPageZones(Guid pageNodeId, CancellationToken ct)
+    {
+        var (success, errorMessage) = await _zoneService.DiscardPageZoneDraftsAsync(pageNodeId, ct);
+        if (!success)
+            TempData["Error"] = errorMessage;
+
+        return RedirectToAction(nameof(PageZones), new { pageNodeId });
     }
 }

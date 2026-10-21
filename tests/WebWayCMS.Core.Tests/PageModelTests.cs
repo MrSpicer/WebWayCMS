@@ -39,6 +39,7 @@ public class PageModelTests
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _cmsRouteService = Substitute.For<ICMSRouteService>();
         _contentZoneService = Substitute.For<IContentZoneService>();
+        _contentZoneService.PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([], []));
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope);
     }
@@ -1197,6 +1198,99 @@ public class PageModelTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorField, Is.EqualTo("Slug"));
         });
+    }
+
+    // ─── zone drafts: pending flag + publish cascade ──────────────────────────
+
+    [Test]
+    public async Task GetPageIndexAsync_PublishedPageWithPendingZoneDrafts_HasPendingChanges()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "T", state: ContentVersionState.Published, nodeId: nodeId);
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid> { nodeId });
+        _contentZoneService.GetPagesWithPendingZoneChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<Guid> { nodeId });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { RouteFor(nodeId, "/t") });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        Assert.That(vm.Pages.Single(p => p.Path == "/t").HasPendingChanges, Is.True);
+    }
+
+    private Guid ArrangeSuccessfulPagePublish()
+    {
+        var nodeId = Guid.NewGuid();
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(Page(title: "Test", nodeId: nodeId));
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((true, null));
+        return nodeId;
+    }
+
+    private static ContentZoneItemDTO ZoneItem(string component, bool active = true)
+        => new()
+        {
+            ComponentName = component,
+            IsActive = active,
+            Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } }
+        };
+
+    [Test]
+    public async Task PublishPageAsync_PublishesZoneDraftsAndRegistersTheirRoutes()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        var active = ZoneItem("Faq");
+        var removed = ZoneItem("Faq", active: false);
+        _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([active, removed], []));
+        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", active.Version.Node.Id, nodeId, true, Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", removed.Version.Node.Id, nodeId, false, Arg.Any<CancellationToken>());
+        _changeSetScope.Received(1).Begin(ChangeSetKind.Publish, nodeId, null);
+    }
+
+    [Test]
+    public async Task PublishPageAsync_ZoneFailures_ReportedAfterThePagePublishes()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        var withMessage = ZoneItem("A");
+        var withoutMessage = ZoneItem("B");
+        _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([withMessage, withoutMessage], ["item failed."]));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("A", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns((false, "route taken."));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns((false, null));
+
+        var (success, error) = await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.StartWith("Page published; some zone changes failed:"));
+            Assert.That(error, Does.Contain("item failed."));
+            Assert.That(error, Does.Contain("route taken."));
+            Assert.That(error, Does.Contain("Failed to register routes for widget 'B'."));
+        });
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PageFails_LeavesZoneDraftsAlone()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "nope"));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.False);
+        await _contentZoneService.DidNotReceive().PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 }
 

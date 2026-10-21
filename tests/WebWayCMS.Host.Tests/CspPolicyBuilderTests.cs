@@ -85,4 +85,40 @@ public class CspPolicyBuilderTests
         // Other defaults remain.
         Assert.That(policy, Does.Contain("default-src 'self'"));
     }
+
+    [Test]
+    public void BuildForPreview_Defaults_AllowsSameOriginFraming()
+    {
+        var policy = CspPolicyBuilder.BuildForPreview(new CspOptions());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(policy, Does.Contain("frame-ancestors 'self'"));
+            Assert.That(policy, Does.Not.Contain("frame-ancestors 'none'"));
+            Assert.That(policy, Does.Contain("default-src 'self'"));
+        });
+    }
+
+    [Test]
+    public void BuildForPreview_HostFrameAncestors_Wins()
+    {
+        var options = new CspOptions
+        {
+            Directives = { ["frame-ancestors"] = "'none'" },
+        };
+
+        Assert.That(CspPolicyBuilder.BuildForPreview(options), Does.Contain("frame-ancestors 'none'"));
+    }
+
+    [Test]
+    public void BuildForPreview_Disabled_ReturnsEmpty()
+    {
+        Assert.That(CspPolicyBuilder.BuildForPreview(new CspOptions { Enabled = false }), Is.Empty);
+    }
+
+    [Test]
+    public void Build_Defaults_StillDenyFraming()
+    {
+        Assert.That(CspPolicyBuilder.Build(new CspOptions()), Does.Contain("frame-ancestors 'none'"));
+    }
 }

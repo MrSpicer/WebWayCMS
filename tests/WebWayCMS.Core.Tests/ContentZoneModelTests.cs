@@ -1003,4 +1003,63 @@ public class ContentZoneModelTests
 
         Assert.That(result, Is.Null);
     }
+
+    [Test]
+    public async Task GetPageZoneSlotsAsync_MapsAssignmentsOrderedBySlotName()
+    {
+        var pageId = Guid.NewGuid();
+        Guid main = Guid.NewGuid(), aside = Guid.NewGuid();
+        _service.GetAllAssignmentsForPageAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneAssignmentDTO>
+        {
+            new() { SlotName = "main", ContentZoneNodeId = main, ParentPageNodeId = pageId },
+            new() { SlotName = "Aside", ContentZoneNodeId = aside, ParentPageNodeId = pageId },
+        });
+
+        var slots = await _model.GetPageZoneSlotsAsync(pageId);
+
+        Assert.That(slots, Is.EqualTo(new[] { new PageZoneSlot("Aside", aside), new PageZoneSlot("main", main) }));
+    }
+
+    [Test]
+    public async Task ChildHandler_PageZoneItem_DefersRouteRegistrationToPagePublish()
+    {
+        var child = _model.ChildHandler!;
+        var zoneId = Guid.NewGuid();
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                var item = c.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return item;
+            });
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(Guid.NewGuid());
+
+        var created = await child.SaveChildUpsertAsync(zoneId.ToString(),
+            new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
+
+        Assert.That(created.Success, Is.True);
+        await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_GlobalZoneItem_RegistersRoutesWithoutAPage()
+    {
+        var child = _model.ChildHandler!;
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                var item = c.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = itemNodeId };
+                return item;
+            });
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
+
+        await child.SaveChildUpsertAsync(zoneId.ToString(),
+            new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
+
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("ContentBlock", itemNodeId, null, true, Arg.Any<CancellationToken>());
+    }
 }

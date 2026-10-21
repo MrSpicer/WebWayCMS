@@ -22,6 +22,8 @@
           DestinationFiles="wwwroot/js/content-zone-edit.js" />
     <Copy SourceFiles="Views/AdminPage/PageUpsert.js"
           DestinationFiles="wwwroot/js/page-upsert.js" />
+    <Copy SourceFiles="Views/AdminContentZone/PageZonesEdit.js"
+          DestinationFiles="wwwroot/js/page-zones-edit.js" />
     <Copy SourceFiles="Views/Shared/form-components.js"
           DestinationFiles="wwwroot/js/form-components.js" />
   </Target>

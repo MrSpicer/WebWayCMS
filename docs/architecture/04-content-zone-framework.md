@@ -12,8 +12,9 @@
 
 > **Versioning note (Node/Version model):** zone **items** and assignments are keyed on `ContentNode.Id`
 > (not a version row); items have no static `Items` navigation and are resolved through
-> `IContentZoneService.GetItemsAsync(zoneNodeId)` at the read context. Zone items auto-publish on
-> write. See [01-data-tier](01-data-tier.md).
+> `IContentZoneService.GetItemsAsync(zoneNodeId)` at the read context. Items in a page's zones are
+> drafts until the page is published (the page publish cascades to them); items in global zones
+> auto-publish on write. See [01-data-tier](01-data-tier.md) §7.
 **Consumed by:** Admin CRUD Framework (zone controller + inline API), any Razor view invoking `ContentZone` component
 
 ---

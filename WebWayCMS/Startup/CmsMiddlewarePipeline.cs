@@ -43,15 +43,21 @@ internal static class CmsMiddlewarePipeline
         var cspOptions = app.Services.GetRequiredService<IOptions<CspOptions>>().Value;
         var cspHeaderName = CspPolicyBuilder.HeaderName(cspOptions);
         var cspHeaderValue = CspPolicyBuilder.Build(cspOptions);
+        var previewCspHeaderValue = CspPolicyBuilder.BuildForPreview(cspOptions);
 
         app.Use(async (context, next) =>
         {
+            // The draft preview is the one response the admin embeds (the page zone editor's Preview
+            // tab), so it alone may be framed — by the same origin only.
+            var isPreview = context.Request.Path.StartsWithSegments(PreviewConstants.PathPrefix);
+            var csp = isPreview ? previewCspHeaderValue : cspHeaderValue;
+
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["X-Frame-Options"] = "DENY";
+            context.Response.Headers["X-Frame-Options"] = isPreview ? "SAMEORIGIN" : "DENY";
             context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
-            if (cspHeaderValue.Length > 0)
-                context.Response.Headers[cspHeaderName] = cspHeaderValue;
+            if (csp.Length > 0)
+                context.Response.Headers[cspHeaderName] = csp;
             await next();
         });
 

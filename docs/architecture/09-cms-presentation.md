@@ -54,7 +54,7 @@ and so on.
 Admin assets referenced by the layout: `~/_content/WebWayCMS.Admin/css/admin.css` and
 `~/_content/WebWayCMS.Admin/js/admin.js`. The project's `.csproj` compiles
 `Views/Shared/Components/ContentZone/edit.scss` into `wwwroot/css/content-zone-edit.css` and copies
-the view-adjacent `edit.js` / `PageUpsert.js` into `wwwroot/js/` as part of the build.
+the view-adjacent `edit.js` / `PageUpsert.js` / `PageZonesEdit.js` into `wwwroot/js/` as part of the build.
 
 Each admin view folder carries its own `_ViewStart.cshtml` pointing at `_AdminLayout`, so individual
 views do not set `Layout` themselves.

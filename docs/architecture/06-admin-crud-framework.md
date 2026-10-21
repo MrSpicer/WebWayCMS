@@ -191,8 +191,8 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 
 | Method | Route | Action |
 |--------|-------|--------|
-| POST | `/wadmin/{contentType}/publish/{nodeId:guid}` | `Publish` |
-| POST | `/wadmin/{contentType}/unpublish/{nodeId:guid}` | `Unpublish` |
+| POST | `/wadmin/{contentType}/publish/{nodeId:guid}` | `Publish` — optional `returnUrl` form field: redirects back there when it is a local URL, else to the index |
+| POST | `/wadmin/{contentType}/unpublish/{nodeId:guid}` | `Unpublish` — same `returnUrl` handling |
 | GET | `/wadmin/{contentType}/preview/{nodeId:guid}` | `Preview` — sets the preview cookie and redirects to `/_preview/{nodeId}` (gated on `SupportsPreview`) |
 
 **Child CRUD:**
@@ -252,7 +252,31 @@ Example URLs:
 
 ## 9. `AdminContentZoneController`
 
-Handles the admin inline zone editing view (`~/Views/AdminContentZone/ZoneEdit.cshtml`). Delegates to `IContentZoneModel` for zone metadata and **`IWidgetRegistry`** for the available widget list. This controller is separate from `AdminContentController` because zone editing uses a specialized split-panel UI rather than the standard upsert form.
+Handles the admin inline zone editing views. Delegates to `IContentZoneModel` for zone metadata, **`IContentStore<PageDTO>`** for the page, and **`IContentZoneService`** for the page draft lifecycle. This controller is separate from `AdminContentController` because zone editing uses a specialized UI rather than the standard upsert form.
+
+| Method | Route | Action |
+|--------|-------|--------|
+| GET | `/wadmin/contentzones/zone-edit/{id:guid}` | `ZoneEdit` — one zone (`~/Views/AdminContentZone/ZoneEdit.cshtml`) |
+| GET | `/wadmin/contentzones/page/{pageNodeId:guid}` | `PageZones` — the **page zone editor** (`PageZonesEdit.cshtml`); 404 for an unknown page |
+| POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `DiscardPageZoneDraftsAsync`, then back to the editor |
+
+**Page zone editor.** Opened from the **Edit Zones** button on each Pages list row. It lists the page's
+zone assignments (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in
+the unchanged `ContentZone` editor (`editMode: true`), one box per slot; nested zones inside Layout
+widgets are editable inline as usual. The request sets `PreviewConstants.DraftRequestItemKey`, so
+`PreviewAwareReadContext` serves drafts for it alone. Above the zones:
+
+- **Toolbar** — status tag (Not published / Pending changes / Up to date), **Publish** and
+  **Unpublish** (post to the existing `AdminContentController` actions with `returnUrl` = the editor),
+  **Discard changes** (only when zone drafts are pending; confirm first), **Edit page**, **Back to Pages**.
+- **Tabs** — *Edit zones* (default) and *Preview*, an iframe of `/wadmin/pages/preview/{id}` (refreshes
+  the preview cookie, then `/_preview/{id}`), reloaded each time the tab opens. The active tab is kept
+  in the URL hash (`#preview`) so the reload after every zone edit keeps it.
+- **Empty page** — slots are created lazily by the page template, so with none yet the editor loads the
+  preview in the background and reloads once (sessionStorage guard) to show the slots it created.
+
+Behaviour lives in `Views/AdminContentZone/PageZonesEdit.js` (copied to `wwwroot/js/page-zones-edit.js`
+at build; vanilla JS, no inline script).
 
 ---
 

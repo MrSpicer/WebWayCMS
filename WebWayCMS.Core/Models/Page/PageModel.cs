@@ -72,7 +72,11 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var pages = await _store.GetAllCurrentDraftsAsync(ct);
         var activeRoutes = await _routeService.GetAllRoutesAsync(ct);
         var publishedNodeIds = await _store.GetPublishedNodeIdsAsync(ct) ?? [];
-        return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes, publishedNodeIds) };
+
+        // A published page with unpublished zone-item drafts has pending changes too.
+        var pendingZonePages = await _contentZoneService.GetPagesWithPendingZoneChangesAsync(
+            pages.Select(p => p.Version.Node.Id), ct) ?? [];
+        return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes, publishedNodeIds, pendingZonePages) };
     }
 
     public async Task<(bool Success, string? ErrorMessage)> SavePageUpsertAsync(PageUpsertViewModel model, CancellationToken ct = default)
@@ -109,6 +113,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         // fails without leaving the page Published-but-routeless.
         var draft = await _store.GetCurrentDraftAsync(nodeId, ct);
         if (draft == null) return (false, "Page not found.");
+
+        // The page and its zone-item drafts go live as one change set.
+        using var _ = ChangeSetScope.Begin(ChangeSetKind.Publish, nodeId, null);
 
         var parentNodeId = draft.Version.Node.ParentNodeId;
         var slug = System.Net.WebUtility.UrlDecode(draft.Version.Slug);
@@ -147,7 +154,29 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             return (false, registration.ErrorMessage ?? "Failed to register the page route.");
         }
 
-        return (true, null);
+        return await PublishZoneDraftsAsync(nodeId, ct);
+    }
+
+    /// <summary>
+    /// Publishes the page's pending zone-item drafts (nested zones included) and registers each
+    /// published item's widget routes — routes follow what is live, so they change only here.
+    /// </summary>
+    private async Task<(bool Success, string? ErrorMessage)> PublishZoneDraftsAsync(Guid pageNodeId, CancellationToken ct)
+    {
+        var zones = await _contentZoneService.PublishPageZonesAsync(pageNodeId, ct);
+
+        var errors = zones.Errors.ToList();
+        foreach (var item in zones.Published)
+        {
+            var routes = await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                item.ComponentName, item.Version.Node.Id, pageNodeId, item.IsActive, ct);
+            if (!routes.Success)
+                errors.Add(routes.ErrorMessage ?? $"Failed to register routes for widget '{item.ComponentName}'.");
+        }
+
+        return errors.Count == 0
+            ? (true, null)
+            : (false, "Page published; some zone changes failed: " + string.Join(" ", errors));
     }
 
     public async Task<(bool Success, string? ErrorMessage)> UnpublishPageAsync(Guid nodeId, CancellationToken ct = default)
@@ -258,7 +287,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         => DeletePageVersionAsync(id, ct);
 
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static List<PageTreeNode> BuildTree(List<PageDTO> pages, List<CMSRouteDTO> activeRoutes, HashSet<Guid> publishedNodeIds)
+    private static List<PageTreeNode> BuildTree(List<PageDTO> pages, List<CMSRouteDTO> activeRoutes, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingZonePages)
     {
         var routeMap = activeRoutes
             .Where(r => r.OwningContentType == "Page" && r.OwningContentNodeId.HasValue)
@@ -290,7 +319,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         Title = page.Version.Title,
                         PageNodeId = page.Version.Node.Id,
                         IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds),
-                        HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds),
+                        HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
                         IsHidden = page.Version.Node.IsHidden
                     };
                     nodeMap["/"] = rootNode;
@@ -301,7 +330,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     rootNode.Title = page.Version.Title;
                     rootNode.PageNodeId = page.Version.Node.Id;
                     rootNode.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
-                    rootNode.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds);
+                    rootNode.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
                     rootNode.IsHidden = page.Version.Node.IsHidden;
                 }
                 continue;
@@ -323,7 +352,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         Title = isLeaf ? page.Version.Title : segments[i],
                         PageNodeId = isLeaf ? page.Version.Node.Id : null,
                         IsPublished = isLeaf && IsNodePublished(page.Version.Node.Id, publishedNodeIds),
-                        HasPendingChanges = isLeaf && HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds),
+                        HasPendingChanges = isLeaf && HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
                         IsHidden = isLeaf && page.Version.Node.IsHidden
                     };
                     nodeMap[currentPath] = node;
@@ -346,7 +375,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     node.Title = page.Version.Title;
                     node.PageNodeId = page.Version.Node.Id;
                     node.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
-                    node.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds);
+                    node.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
                     node.IsHidden = page.Version.Node.IsHidden;
                 }
             }
@@ -402,8 +431,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private static bool IsNodePublished(Guid nodeId, HashSet<Guid> publishedNodeIds)
         => publishedNodeIds.Contains(nodeId);
 
-    private static bool HasPendingChanges(Guid nodeId, ContentVersionState state, HashSet<Guid> publishedNodeIds)
-        => publishedNodeIds.Contains(nodeId) && state != ContentVersionState.Published;
+    private static bool HasPendingChanges(Guid nodeId, ContentVersionState state, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingZonePages)
+        => publishedNodeIds.Contains(nodeId)
+           && (state != ContentVersionState.Published || pendingZonePages.Contains(nodeId));
 
     private async Task<string> DeriveRoutePatternForPublishAsync(string slug, Guid nodeId, Guid? parentNodeId, CancellationToken ct)
     {

@@ -180,7 +180,7 @@ files for it:
 
 | Asset | Served from |
 |---|---|
-| `admin.css`, `admin.js`, `bulma.min.css`, `content-zone-edit.css/js`, `page-upsert.js` | `~/_content/WebWayCMS.Admin/...` |
+| `admin.css`, `admin.js`, `bulma.min.css`, `content-zone-edit.css/js`, `page-upsert.js`, `page-zones-edit.js` | `~/_content/WebWayCMS.Admin/...` |
 | `bulma.min.css`, `validation.js` for the public/Identity pages | `~/_content/WebWayCMS.Presentation/...` |
 | CKEditor 5, Bulma, Font Awesome | CDNs, allow-listed by the default CSP |
 

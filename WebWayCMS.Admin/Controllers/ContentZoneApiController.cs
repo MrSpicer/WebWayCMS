@@ -113,13 +113,10 @@ public class ContentZoneApiController : ControllerBase
                 var existingItem = await _service.GetItemByNodeIdAsync(request.ItemId.Value, ct);
                 if (existingItem != null)
                 {
-                    var pageNodeId = request.ParentPageNodeId
-                        ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
-                    var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                        item.ComponentName, existingItem.Version.Node.Id,
-                        pageNodeId, item.IsActive, ct);
-                    if (!routeResult.Success)
-                        return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
+                    var routeError = await RegisterGlobalWidgetRoutesAsync(
+                        item.ComponentName, existingItem.Version.Node.Id, zoneNodeId, request.ParentPageNodeId, item.IsActive, ct);
+                    if (routeError != null)
+                        return routeError;
                 }
 
                 return Ok(new { success = true, itemId = request.ItemId.Value, zoneId = zoneNodeId });
@@ -138,13 +135,10 @@ public class ContentZoneApiController : ControllerBase
 
                 var createdItem = await _service.AddItemAsync(zoneNodeId, item, ct);
 
-                var pageNodeId = request.ParentPageNodeId
-                    ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
-                var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                    item.ComponentName, createdItem.Version.Node!.Id,
-                    pageNodeId, createdItem.IsActive, ct);
-                if (!routeResult.Success)
-                    return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
+                var routeError = await RegisterGlobalWidgetRoutesAsync(
+                    item.ComponentName, createdItem.Version.Node!.Id, zoneNodeId, request.ParentPageNodeId, createdItem.IsActive, ct);
+                if (routeError != null)
+                    return routeError;
 
                 return Ok(new { success = true, itemId = createdItem.Version.Node.Id, zoneId = zoneNodeId });
             }
@@ -168,11 +162,10 @@ public class ContentZoneApiController : ControllerBase
             var item = await _service.GetItemByNodeIdAsync(itemId, ct);
             if (item != null)
             {
-                var pageNodeId = await _service.GetParentPageNodeForZoneAsync(item.ContentZoneNodeId, ct);
-                var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                    item.ComponentName, item.Version.Node.Id, pageNodeId, false, ct);
-                if (!routeResult.Success)
-                    return StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
+                var routeError = await RegisterGlobalWidgetRoutesAsync(
+                    item.ComponentName, item.Version.Node.Id, item.ContentZoneNodeId, null, false, ct);
+                if (routeError != null)
+                    return routeError;
             }
 
             var deleted = await _service.RemoveItemAsync(itemId, ct);
@@ -256,6 +249,25 @@ public class ContentZoneApiController : ControllerBase
             Logger.Error(ex, "Failed to update content zone item metadata.");
             return StatusCode(500, new { error = "Failed to update metadata." });
         }
+    }
+
+    /// <summary>
+    /// Registers a widget's routes for an item in a global zone. An item in a page's zone is a draft
+    /// until the page is published, so its routes are left to the page publish cascade. Returns the
+    /// error response when registration fails, otherwise null.
+    /// </summary>
+    private async Task<IActionResult?> RegisterGlobalWidgetRoutesAsync(
+        string componentName, Guid itemNodeId, Guid zoneNodeId, Guid? parentPageNodeId, bool isActive, CancellationToken ct)
+    {
+        var pageNodeId = parentPageNodeId ?? await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
+        if (pageNodeId.HasValue)
+            return null;
+
+        var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
+            componentName, itemNodeId, null, isActive, ct);
+        return routeResult.Success
+            ? null
+            : StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });
     }
 }
 

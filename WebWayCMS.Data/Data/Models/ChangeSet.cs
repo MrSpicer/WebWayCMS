@@ -6,7 +6,8 @@ public enum ChangeSetKind
     Publish = 1,
     Unpublish = 2,
     Restore = 3,
-    Delete = 4
+    Delete = 4,
+    Discard = 5
 }
 
 /// <summary>

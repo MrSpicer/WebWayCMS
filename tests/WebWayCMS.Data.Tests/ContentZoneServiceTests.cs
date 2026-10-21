@@ -1066,4 +1066,304 @@ public class ContentZoneServiceTests
             Assert.That(dto.Version.Title, Is.EqualTo(string.Empty));
         });
     }
+
+    // ─── page-owned zones: drafts until the page is published ─────────────────
+
+    /// <summary>Seeds a published zone assigned to a page and returns the zone node id.</summary>
+    private async Task<Guid> SeedPageZoneAsync(Guid pageNodeId, string slot = "Main")
+    {
+        var zoneNodeId = Guid.NewGuid();
+        await SeedZonesAsync(Zone(zoneNodeId, 0, slot));
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = slot, ContentZoneNodeId = zoneNodeId, ParentPageNodeId = pageNodeId });
+        return zoneNodeId;
+    }
+
+    private ContentStore<ContentZoneItemDTO> ItemStore(CmsDbContext ctx)
+        => TestStore.Create<ContentZoneItemDTO>(ctx, "contentzoneitems");
+
+    [Test]
+    public async Task AddItemAsync_PageZone_StaysDraft()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+
+        var item = await NewService().AddItemAsync(zoneNodeId, new ContentZoneItemDTO { ComponentName = "ContentBlock" });
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(item.Version.State, Is.EqualTo(ContentVersionState.Draft));
+            Assert.That(await NewService().GetItemsAsync(zoneNodeId), Is.Empty, "not live");
+            Assert.That(await NewService(readContext: new TestReadContext(ContentReadMode.Draft)).GetItemsAsync(zoneNodeId), Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_PageZone_PublishedItem_LeavesLiveVersionUntouched()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+        var itemNodeId = Guid.NewGuid();
+        await SeedItemsAsync(Item(zoneNodeId, itemNodeId, component: "Old"));
+
+        var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        });
+
+        var store = ItemStore(NewContext());
+        var live = await store.GetAsync(itemNodeId);
+        var draft = await store.GetCurrentDraftAsync(itemNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(live!.ComponentName, Is.EqualTo("Old"));
+            Assert.That(draft!.ComponentName, Is.EqualTo("New"));
+            Assert.That(draft.Version.State, Is.EqualTo(ContentVersionState.Draft));
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_PageZone_OrdinalsAreDrafts()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+        var a = Item(zoneNodeId, ordinal: 1);
+        var b = Item(zoneNodeId, ordinal: 2);
+        await SeedItemsAsync(a, b);
+
+        var ok = await NewService().ReorderItemsAsync(zoneNodeId, [b.Version.Node.Id, a.Version.Node.Id]);
+
+        var live = await NewService().GetItemsAsync(zoneNodeId);
+        var draft = await NewService(readContext: new TestReadContext(ContentReadMode.Draft)).GetItemsAsync(zoneNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(live.Select(i => i.Version.NodeId), Is.EqualTo(new[] { a.Version.Node.Id, b.Version.Node.Id }));
+            Assert.That(draft.Select(i => i.Version.NodeId), Is.EqualTo(new[] { b.Version.Node.Id, a.Version.Node.Id }));
+        });
+    }
+
+    [Test]
+    public async Task RemoveItemAsync_PageZone_PublishedItem_SavesInactiveDraft()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+        var item = Item(zoneNodeId);
+        await SeedItemsAsync(item);
+
+        var ok = await NewService().RemoveItemAsync(item.Version.Node.Id);
+
+        var store = ItemStore(NewContext());
+        var live = await store.GetAsync(item.Version.Node.Id);
+        var draft = await store.GetCurrentDraftAsync(item.Version.Node.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(live!.IsActive, Is.True, "still live until the page is published");
+            Assert.That(draft!.IsActive, Is.False);
+            Assert.That(draft.Version.State, Is.EqualTo(ContentVersionState.Draft));
+        });
+    }
+
+    [Test]
+    public async Task RemoveItemAsync_PageZone_NeverPublished_HardDeletes()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+        var item = Item(zoneNodeId, state: ContentVersionState.Draft);
+        await SeedItemsAsync(item);
+
+        var ok = await NewService().RemoveItemAsync(item.Version.Node.Id);
+
+        await using var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(ctx.Set<ContentNode>().Any(n => n.Id == item.Version.Node.Id), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task RemoveItemAsync_PageZone_DraftSaveFails_ReturnsFalse()
+    {
+        var zoneNodeId = await SeedPageZoneAsync(Guid.NewGuid());
+        var item = Item(zoneNodeId);
+        await SeedItemsAsync(item);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "boom"));
+
+        var ok = await NewService(itemStore: itemStore).RemoveItemAsync(item.Version.Node.Id);
+
+        Assert.That(ok, Is.False);
+        await itemStore.DidNotReceive().DeleteAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task GetZoneTreeNodeIdsForPageAsync_WalksNestedZonesAndGuardsCycles()
+    {
+        var pageNodeId = Guid.NewGuid();
+        Guid zoneA = Guid.NewGuid(), zoneB = Guid.NewGuid(), otherPageZone = Guid.NewGuid();
+        await SeedAssignmentsAsync(
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = zoneA, ParentPageNodeId = pageNodeId },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = zoneB, ParentZoneNodeId = zoneA },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Loop", ContentZoneNodeId = zoneA, ParentZoneNodeId = zoneB },
+            new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Main", ContentZoneNodeId = otherPageZone, ParentPageNodeId = Guid.NewGuid() });
+
+        var ids = await NewService().GetZoneTreeNodeIdsForPageAsync(pageNodeId);
+
+        Assert.That(ids, Is.EqualTo(new[] { zoneA, zoneB }));
+    }
+
+    [Test]
+    public async Task GetPendingItemNodeIdsAsync_ReturnsUnpublishedCurrentDraftsInTheGivenZones()
+    {
+        var zone = Guid.NewGuid();
+        var otherZone = Guid.NewGuid();
+        var live = Item(zone);
+        var draft = Item(zone, state: ContentVersionState.Draft);
+        var elsewhere = Item(otherZone, state: ContentVersionState.Draft);
+        var deleted = Item(zone, state: ContentVersionState.Draft);
+        deleted.Version.Node.IsDeleted = true;
+        await SeedItemsAsync(live, draft, elsewhere, deleted);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await NewService().GetPendingItemNodeIdsAsync([]), Is.Empty);
+            Assert.That(await NewService().GetPendingItemNodeIdsAsync([zone]), Is.EqualTo(new[] { draft.Version.Node.Id }));
+        });
+    }
+
+    [Test]
+    public async Task GetPagesWithPendingZoneChangesAsync_FlagsPagesWithNestedDrafts()
+    {
+        var pendingPage = Guid.NewGuid();
+        var cleanPage = Guid.NewGuid();
+        var parentZone = await SeedPageZoneAsync(pendingPage);
+        var childZone = Guid.NewGuid();
+        await SeedAssignmentsAsync(new ContentZoneAssignmentDTO { Id = Guid.NewGuid(), SlotName = "Sub", ContentZoneNodeId = childZone, ParentZoneNodeId = parentZone });
+        var cleanZone = await SeedPageZoneAsync(cleanPage);
+        await SeedItemsAsync(Item(childZone, state: ContentVersionState.Draft), Item(cleanZone));
+
+        var result = await NewService().GetPagesWithPendingZoneChangesAsync([pendingPage, cleanPage]);
+
+        Assert.That(result, Is.EquivalentTo(new[] { pendingPage }));
+    }
+
+    [Test]
+    public async Task GetPagesWithPendingZoneChangesAsync_NoPagesOrNoDrafts_ReturnsEmpty()
+    {
+        var page = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(page);
+        await SeedItemsAsync(Item(zone));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await NewService().GetPagesWithPendingZoneChangesAsync([]), Is.Empty);
+            Assert.That(await NewService().GetPagesWithPendingZoneChangesAsync([page]), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task PublishPageZonesAsync_PublishesEveryPendingDraftUnderThePage()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(pageNodeId);
+        var otherZone = await SeedPageZoneAsync(Guid.NewGuid());
+        var added = Item(zone, state: ContentVersionState.Draft, component: "Added");
+        var untouched = Item(otherZone, state: ContentVersionState.Draft);
+        await SeedItemsAsync(added, untouched);
+
+        var result = await NewService().PublishPageZonesAsync(pageNodeId);
+
+        var store = ItemStore(NewContext());
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Errors, Is.Empty);
+            Assert.That(result.Published.Select(i => i.ComponentName), Is.EqualTo(new[] { "Added" }));
+            Assert.That(await store.GetAsync(added.Version.Node.Id), Is.Not.Null);
+            Assert.That(await store.GetAsync(untouched.Version.Node.Id), Is.Null, "another page's draft stays a draft");
+        });
+    }
+
+    [Test]
+    public async Task PublishPageZonesAsync_Failures_AreCollectedPerItem()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(pageNodeId);
+        var failsWithMessage = Item(zone, state: ContentVersionState.Draft);
+        var failsSilently = Item(zone, state: ContentVersionState.Draft);
+        var vanishes = Item(zone, state: ContentVersionState.Draft);
+        await SeedItemsAsync(failsWithMessage, failsSilently, vanishes);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.PublishAsync(failsWithMessage.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "boom"));
+        itemStore.PublishAsync(failsSilently.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false));
+        itemStore.PublishAsync(vanishes.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        itemStore.GetCurrentDraftAsync(vanishes.Version.Node.Id, Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+
+        var result = await NewService(itemStore: itemStore).PublishPageZonesAsync(pageNodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Published, Is.Empty);
+            Assert.That(result.Errors, Has.Count.EqualTo(3));
+            Assert.That(result.Errors, Does.Contain("boom"));
+            Assert.That(result.Errors, Does.Contain($"Content zone item {vanishes.Version.Node.Id} could not be published."));
+        });
+    }
+
+    [Test]
+    public async Task DiscardPageZoneDraftsAsync_RevertsEditsAndDeletesNeverPublishedItems()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(pageNodeId);
+        var live = Item(zone, component: "Old");
+        var added = Item(zone, state: ContentVersionState.Draft);
+        await SeedItemsAsync(live, added);
+        await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = live.Version.Node.Id } }
+        });
+        var routeService = Substitute.For<ICMSRouteService>();
+
+        var (success, error) = await NewService(routeService: routeService).DiscardPageZoneDraftsAsync(pageNodeId);
+
+        var ctx = NewContext();
+        var current = await ItemStore(ctx).GetCurrentDraftAsync(live.Version.Node.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.True);
+            Assert.That(error, Is.Null);
+            Assert.That(current!.ComponentName, Is.EqualTo("Old"));
+            Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Published));
+            Assert.That(ctx.Set<ContentNode>().Any(n => n.Id == added.Version.Node.Id), Is.False);
+        });
+        await routeService.Received(1).DeleteByOwningContentAsync(added.Version.Node.Id, Arg.Any<CancellationToken>());
+        await routeService.DidNotReceive().DeleteByOwningContentAsync(live.Version.Node.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task DiscardPageZoneDraftsAsync_Failures_AreReported()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(pageNodeId);
+        var a = Item(zone, state: ContentVersionState.Draft);
+        var b = Item(zone, state: ContentVersionState.Draft);
+        await SeedItemsAsync(a, b);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.DiscardDraftAsync(a.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "boom"));
+        itemStore.DiscardDraftAsync(b.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false));
+
+        var (success, error) = await NewService(itemStore: itemStore).DiscardPageZoneDraftsAsync(pageNodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.Contain("boom"));
+            Assert.That(error, Does.Contain($"Content zone item {b.Version.Node.Id} could not be discarded."));
+        });
+    }
 }

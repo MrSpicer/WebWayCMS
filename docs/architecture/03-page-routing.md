@@ -93,7 +93,8 @@ its draft (a route row only exists after Publish). When the path matches `/_prev
 
 `AdminContentController.Preview` sets the `wwcms_preview` cookie and redirects to
 `/_preview/{nodeId}`; the cookie is what makes `PreviewAwareReadContext` serve drafts for the content
-zones and widgets rendered *inside* the previewed page.
+zones and widgets rendered *inside* the previewed page. `/_preview` responses are the only ones that may
+be framed (same origin only) — the admin page zone editor shows the draft preview in an iframe tab.
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
 > **before** the dynamic route, so real controller routes such as `AdminContentController`'s

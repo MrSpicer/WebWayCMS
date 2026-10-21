@@ -342,6 +342,50 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         return true;
     }
 
+    public async Task<ContentWriteResult> DiscardDraftAsync(Guid nodeId, CancellationToken ct = default)
+    {
+        using var _ = EnsureScope(ChangeSetKind.Discard, nodeId);
+
+        var currentDraft = await _set
+            .Include(e => e.Version)
+            .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
+                                   && e.Version.Culture == string.Empty
+                                   && e.Version.Segment == string.Empty
+                                   && e.Version.IsCurrentDraft, ct);
+        if (currentDraft == null)
+            return new ContentWriteResult(false, NotFoundMessage);
+
+        if (currentDraft.Version.State == ContentVersionState.Published)
+            return new ContentWriteResult(true, VersionId: currentDraft.VersionId, NodeId: nodeId);
+
+        // Fall back to the published version, else the newest earlier one, so a once-live node keeps
+        // its history instead of being deleted.
+        var fallback = await _versions
+            .Where(v => v.NodeId == nodeId
+                     && v.Culture == string.Empty
+                     && v.Segment == string.Empty
+                     && v.Id != currentDraft.VersionId)
+            .OrderByDescending(v => v.State == ContentVersionState.Published)
+            .ThenByDescending(v => v.VersionNumber)
+            .FirstOrDefaultAsync(ct);
+
+        if (fallback == null)
+        {
+            await DeleteAsync(nodeId, softDelete: false, ct);
+            return new ContentWriteResult(true, NodeId: nodeId);
+        }
+
+        // Remove the draft in its own SaveChanges before promoting the fallback, so the filtered
+        // unique index on IsCurrentDraft never sees two current drafts at once.
+        _set.Remove(currentDraft);
+        _versions.Remove(currentDraft.Version);
+        await SaveChangesAsync(ct);
+
+        fallback.IsCurrentDraft = true;
+        await SaveChangesAsync(ct);
+        return new ContentWriteResult(true, VersionId: fallback.Id, NodeId: nodeId);
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private async Task<ContentWriteResult> CreateDraftAsync(T entity, CancellationToken ct)

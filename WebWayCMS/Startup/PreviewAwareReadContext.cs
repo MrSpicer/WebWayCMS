@@ -5,8 +5,9 @@ using WebWayCMS.Data.Services;
 namespace WebWayCMS.Startup;
 
 /// <summary>
-/// The admin read context. Serves drafts only when the request carries a valid preview cookie
-/// <em>and</em> the user is authenticated as an Admin/Editor; otherwise it serves published content.
+/// The admin read context. Serves drafts only when the user is authenticated as an Admin/Editor
+/// <em>and</em> the request either carries a valid preview cookie or was marked as a draft read by an
+/// admin action (<see cref="PreviewConstants.DraftRequestItemKey"/>); otherwise it serves published content.
 /// </summary>
 internal sealed class PreviewAwareReadContext : IContentReadContext
 {
@@ -30,6 +31,8 @@ internal sealed class PreviewAwareReadContext : IContentReadContext
             return false;
         if (!(ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Editor")))
             return false;
+        if (ctx.Items.TryGetValue(PreviewConstants.DraftRequestItemKey, out var flag) && flag is true)
+            return true;
         return ctx.Request.Cookies.TryGetValue(PreviewConstants.CookieName, out var value)
             && value == PreviewConstants.CookieValue;
     }

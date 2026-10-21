@@ -63,14 +63,18 @@
   `ContentService<T>`/`PageService`/zone CRUD. Reads are `GetAsync(nodeId)`/`GetAllAsync()`/… (read-context
   aware) plus `GetCurrentDraftAsync`/`GetAllCurrentDraftsAsync` (admin) and `GetAllVersionsAsync` (history).
   Writes are `SaveDraftAsync(entity, expectedVersionNumber)`, `PublishAsync`, `UnpublishAsync`,
-  `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync` and return `ContentWriteResult`.
+  `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync`, `DiscardDraftAsync` and return `ContentWriteResult`.
+  `DiscardDraftAsync` throws away an unpublished current draft: the published version (else the newest
+  earlier one) becomes current again; a node whose only version is the draft is hard-deleted.
 - **Two invariants** (enforced in code; filtered unique indexes are the DB backstop): exactly one
   `IsCurrentDraft` per (NodeId, Culture, Segment), and at most one `Published` per variant.
   `SaveDraftAsync` mints a new version only when editing a published item; repeated edits of a draft update
   in place. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
 - **Read context is a mode boundary:** `IContentReadContext { Mode (Published|Draft), Culture, Segment }`.
   Rendering-only hosts register a sealed `PublishedContentReadContext` (can never serve a draft); admin hosts
-  register `PreviewAwareReadContext` (Draft only with a `wwcms_preview` cookie + Admin/Editor role).
+  register `PreviewAwareReadContext` (Draft only for an Admin/Editor that has a `wwcms_preview` cookie
+  **or** whose request an admin action marked with `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true`
+  — the page zone editor does this so it reads drafts without the site-wide cookie).
   Version selection lives in one place: `ContentQueryExtensions.AtReadContext`.
 - **Edits are drafts until an explicit Publish.** Routes are written by Publish (never Save) via
   `ICMSRouteService`; a draft slug change doesn't touch the route table until published.
@@ -87,8 +91,25 @@
   requires an authenticated Admin/Editor, loads the draft via `IContentStore<PageDTO>.GetCurrentDraftAsync`,
   and dispatches to the page's controller — so a never-published page can preview. The cookie is what
   makes `PreviewAwareReadContext` serve drafts for the zones/widgets rendered inside the previewed page.
-- Zone **items** auto-publish on write (no separate publish surface), preserving the inline editor's
-  immediately-visible behaviour. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
+- Zone **items in a page's zones** (directly or via nested zones — `GetParentPageNodeForZoneAsync`
+  resolves to a page) are **drafts until the page is published**, whichever path wrote them (zone editor,
+  child CRUD, MCP). Delete of a once-published item saves an `IsActive=false` draft; a never-published
+  item is hard-deleted; reorder saves draft ordinals. Items in **global/name-based zones** (no page)
+  still auto-publish on write. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
+- **Page publish cascades:** `PageModel.PublishPageAsync` (every publish path: toolbar, Pages list, page
+  form, MCP `publish_content`) publishes the page, then `IContentZoneService.PublishPageZonesAsync`
+  publishes every pending item under it in the same change set, and registers each item's widget routes.
+  Widget routes for page-zone items change **only** at publish (never on a draft save/delete);
+  global-zone items register on write. A zone failure after the page went live returns
+  `"Page published; some zone changes failed: …"` and those items stay pending. The Pages list
+  "Pending" tag includes pending zone drafts (`GetPagesWithPendingZoneChangesAsync`).
+- **Page zone editor:** `GET /wadmin/contentzones/page/{pageNodeId}` (Pages list → **Edit Zones**) stacks
+  every zone assigned to the page (`IContentZoneModel.GetPageZoneSlotsAsync`) in the unchanged zone
+  editor, under a toolbar (status, Publish, Discard changes, Unpublish, Edit page, Back) and two tabs:
+  Edit zones / Preview (an iframe of the existing preview action; `#preview` hash remembers the tab).
+  Publish/Unpublish post to the existing actions with a `returnUrl` (local URLs only). Discard is
+  `POST /wadmin/contentzones/page/{pageNodeId}/discard` → `DiscardPageZoneDraftsAsync`. Slots are created
+  lazily by the page template, so an empty page loads the preview in the background and reloads once.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
 
 ## Widget Render Modes
@@ -284,7 +305,10 @@
   admin UI working (CKEditor/Bulma/FontAwesome CDNs); a host overrides or adds individual directives,
   and directives it does not mention keep the CMS default (set a directive to empty to drop it). The
   default `script-src` allows no `'unsafe-inline'`, so keep admin scripts in files, not inline
-  `<script>` blocks. The policy string is built by the unit-tested `CspPolicyBuilder`.
+  `<script>` blocks. Framing is denied everywhere (`X-Frame-Options: DENY`, `frame-ancestors 'none'`)
+  **except** responses under `/_preview` (`PreviewConstants.PathPrefix`), which send `SAMEORIGIN` /
+  `frame-ancestors 'self'` (`CspPolicyBuilder.BuildForPreview`; a host `frame-ancestors` override still
+  wins) so the page zone editor can embed the draft preview. The policy string is built by the unit-tested `CspPolicyBuilder`.
 - **Auth rate limiting:** the Identity login/register/password-reset/external-login/passkey endpoints are
   throttled per client IP **and per endpoint family** (`AuthRateLimiting`, wired via
   `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.

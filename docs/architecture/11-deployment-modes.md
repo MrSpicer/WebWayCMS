@@ -34,7 +34,9 @@ Version selection is driven by `IContentReadContext`, registered **per mode**:
   `ContentReadMode.Published`. A rendering-only host is therefore **physically incapable of serving a
   draft** — there is no preview cookie and no code path to a draft read.
 - `AddWebWayCmsAdmin` replaces it with `PreviewAwareReadContext`, which serves `Draft` only when the
-  request carries a valid `wwcms_preview` cookie **and** the user is authenticated as `Admin`/`Editor`.
+  user is authenticated as `Admin`/`Editor` **and** the request either carries a valid `wwcms_preview`
+  cookie or was marked as a draft read by an admin action (`PreviewConstants.DraftRequestItemKey` in
+  `HttpContext.Items` — the page zone editor).
 
 This is the same DI boundary described in §5: the rendering path resolves a context that can only ever
 return published rows.
@@ -130,7 +132,7 @@ contains MVC views only — no Razor Pages; the Identity pages stayed in `WebWay
 `_AdminNavbar`, `_DeleteConfirmModal`).
 
 **Assets** — `wwwroot/css/{admin,bulma.min,content-zone-edit}.css`,
-`wwwroot/js/{admin,content-zone-edit,page-upsert}.js`, served as
+`wwwroot/js/{admin,content-zone-edit,page-upsert,page-zones-edit}.js`, served as
 `~/_content/WebWayCMS.Admin/...`.
 
 ---

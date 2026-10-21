@@ -127,6 +127,15 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
+    public async Task<IReadOnlyList<PageZoneSlot>> GetPageZoneSlotsAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var assignments = await _service.GetAllAssignmentsForPageAsync(pageNodeId, ct);
+        return assignments
+            .OrderBy(a => a.SlotName, StringComparer.OrdinalIgnoreCase)
+            .Select(a => new PageZoneSlot(a.SlotName, a.ContentZoneNodeId))
+            .ToList();
+    }
+
     public async Task<ContentZoneDTO?> GetByIdAsync(Guid nodeId, CancellationToken ct = default)
     {
         return await _zoneStore.GetCurrentDraftAsync(nodeId, ct);
@@ -316,9 +325,14 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     internal async Task RegisterWidgetRouteIfRoutableAsync(
         string componentName, Guid itemNodeId, Guid zoneNodeId, bool isActive, CancellationToken ct)
     {
+        // A page's zone items are drafts until the page is published; their routes are registered by
+        // the page publish cascade so a draft never changes the live route table.
         var pageNodeId = await _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
+        if (pageNodeId.HasValue)
+            return;
+
         await _routeRegistration.TryRegisterWidgetRoutesAsync(
-            componentName, itemNodeId, pageNodeId, isActive, ct);
+            componentName, itemNodeId, null, isActive, ct);
     }
 
     private async Task<ContentZoneViewModel> MapToViewModelAsync(ContentZoneDTO zone, CancellationToken ct)

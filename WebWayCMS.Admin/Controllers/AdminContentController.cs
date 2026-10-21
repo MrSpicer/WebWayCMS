@@ -129,7 +129,7 @@ public class AdminContentController : Controller
 
     [HttpPost("{contentType}/publish/{nodeId:guid}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Publish(string contentType, Guid nodeId, CancellationToken ct)
+    public async Task<IActionResult> Publish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -140,12 +140,12 @@ public class AdminContentController : Controller
         if (!result.Success)
             TempData["Error"] = result.ErrorMessage;
 
-        return RedirectToAction(nameof(Index), new { contentType });
+        return RedirectAfterPublishing(contentType, returnUrl);
     }
 
     [HttpPost("{contentType}/unpublish/{nodeId:guid}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Unpublish(string contentType, Guid nodeId, CancellationToken ct)
+    public async Task<IActionResult> Unpublish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -156,8 +156,17 @@ public class AdminContentController : Controller
         if (!result.Success)
             TempData["Error"] = result.ErrorMessage;
 
-        return RedirectToAction(nameof(Index), new { contentType });
+        return RedirectAfterPublishing(contentType, returnUrl);
     }
+
+    /// <summary>
+    /// Back to where the publish was requested from (e.g. the page zone editor's toolbar) when that is
+    /// a local URL; otherwise to the content type's index. Never redirects off-site.
+    /// </summary>
+    private IActionResult RedirectAfterPublishing(string contentType, string? returnUrl)
+        => !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
+            ? LocalRedirect(returnUrl)
+            : RedirectToAction(nameof(Index), new { contentType });
 
     [HttpGet("{contentType}/preview/{nodeId:guid}")]
     [Authorize(Roles = "Admin,Editor")]

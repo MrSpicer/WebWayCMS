@@ -38,6 +38,14 @@ public interface IContentZoneService
     Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default);
     Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default);
 
+    // page draft lifecycle. Items in a page's zones (nested included) are drafts until the page is
+    // published; these list, publish, and discard those drafts for one page.
+    Task<List<Guid>> GetZoneTreeNodeIdsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
+    Task<List<Guid>> GetPendingItemNodeIdsAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default);
+    Task<HashSet<Guid>> GetPagesWithPendingZoneChangesAsync(IEnumerable<Guid> pageNodeIds, CancellationToken ct = default);
+    Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
+    Task<(bool Success, string? ErrorMessage)> DiscardPageZoneDraftsAsync(Guid pageNodeId, CancellationToken ct = default);
+
     // zone deletion (items + assignments + zone)
     Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
 

@@ -256,7 +256,7 @@ UseSerilogRequestLogging()     — (conditional) one summary line per request, o
                                   configured Serilog (UseCmsSerilog()/AddSerilog); otherwise skipped
                                — custom security headers middleware:
                                    X-Content-Type-Options: nosniff
-                                   X-Frame-Options: DENY
+                                   X-Frame-Options: DENY (SAMEORIGIN under /_preview)
                                    Referrer-Policy: strict-origin-when-cross-origin
                                    Permissions-Policy: geolocation=(), microphone=(), camera=()
                                    Content-Security-Policy (see below)

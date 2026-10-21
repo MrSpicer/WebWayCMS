@@ -21,6 +21,9 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
         _changeSetScope = changeSetScope ?? throw new ArgumentNullException(nameof(changeSetScope));
     }
 
+    /// <summary>Ambient change-set scoping, for derived models that group several writes into one entry.</summary>
+    protected IChangeSetScope ChangeSetScope => _changeSetScope;
+
     /// <summary>The store backing this content type's reads and writes.</summary>
     protected abstract IContentStore<TDto> Store { get; }
 

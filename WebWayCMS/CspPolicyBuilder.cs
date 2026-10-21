@@ -34,7 +34,16 @@ public static class CspPolicyBuilder
     /// Builds the policy string. Returns an empty string when disabled or when the merged policy has no
     /// directives (so the caller can skip emitting the header).
     /// </summary>
-    public static string Build(CspOptions options)
+    public static string Build(CspOptions options) => Build(options, frameAncestors: null);
+
+    /// <summary>
+    /// Builds the policy for the draft preview (<c>/_preview/*</c>), which the admin page zone editor
+    /// embeds in an iframe: identical to <see cref="Build(CspOptions)"/> except the default
+    /// <c>frame-ancestors</c> is <c>'self'</c>. A host-supplied <c>frame-ancestors</c> still wins.
+    /// </summary>
+    public static string BuildForPreview(CspOptions options) => Build(options, frameAncestors: "'self'");
+
+    private static string Build(CspOptions options, string? frameAncestors)
     {
         if (!options.Enabled)
             return string.Empty;
@@ -47,6 +56,9 @@ public static class CspPolicyBuilder
             merged[directive] = value;
             order.Add(directive);
         }
+
+        if (frameAncestors != null)
+            merged["frame-ancestors"] = frameAncestors;
 
         foreach (var (directive, value) in options.Directives)
         {

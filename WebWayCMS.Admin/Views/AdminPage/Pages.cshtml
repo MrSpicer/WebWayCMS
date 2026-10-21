@@ -121,8 +121,8 @@
                         <div class="buttons are-small">
                             <a href="@node.Path" target="_blank" class="button is-small is-light" rel="noopener">View</a>
                             <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info is-light">Versions</a>
-                            <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?pageId=@node.PageNodeId"
-                               class="button is-small is-info is-light">Content Zones</a>
+                            <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@node.PageNodeId"
+                               class="button is-small is-info is-light">Edit Zones</a>
                             <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageNodeId" class="button is-small">Edit</a>
                             <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info">Preview</a>
                             @if (!node.IsPublished || node.HasPendingChanges)

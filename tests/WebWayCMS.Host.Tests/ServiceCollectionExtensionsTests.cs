@@ -458,6 +458,33 @@ public class ContentReadContextTests
     }
 
     [Test]
+    public void PreviewAwareReadContext_AdminWithDraftRequestFlag_ReturnsDraft()
+    {
+        var ctx = Context(Principal("Admin"));
+        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
+
+        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Draft));
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_DraftRequestFlagNotTrue_ReturnsPublished()
+    {
+        var ctx = Context(Principal("Admin"));
+        ctx.Items[PreviewConstants.DraftRequestItemKey] = "true";
+
+        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_NonEditorWithDraftRequestFlag_ReturnsPublished()
+    {
+        var ctx = Context(Principal("Guest"));
+        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
+
+        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
+    }
+
+    [Test]
     public void PreviewAwareReadContext_AdminWithValidCookie_ReturnsDraft()
     {
         var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"), previewCookie: PreviewConstants.CookieValue)));

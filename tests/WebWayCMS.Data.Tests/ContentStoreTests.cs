@@ -800,4 +800,101 @@ public class ContentStoreTests
         Assert.That(ok, Is.True);
         Assert.That((await NewStore().GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(1));
     }
+
+    // ─── DiscardDraftAsync ────────────────────────────────────────────────────
+
+    [Test]
+    public async Task DiscardDraftAsync_UnknownNode_Fails()
+    {
+        var result = await NewStore().DiscardDraftAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.NotFoundMessage));
+        });
+    }
+
+    [Test]
+    public async Task DiscardDraftAsync_CurrentDraftIsPublished_IsNoOp()
+    {
+        var nodeId = await CreatePublishedAsync();
+
+        var result = await NewStore().DiscardDraftAsync(nodeId);
+
+        await using var ctx = NewContext();
+        var versions = await ctx.Set<ContentVersion>().Where(v => v.NodeId == nodeId).ToListAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(versions, Has.Count.EqualTo(1));
+            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Published));
+            Assert.That(versions[0].IsCurrentDraft, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task DiscardDraftAsync_EditedPublishedItem_RevertsToPublished()
+    {
+        var nodeId = await CreatePublishedAsync("Live");
+        var store = NewStore();
+        var edit = await store.GetCurrentDraftAsync(nodeId);
+        edit!.Content = "edited";
+        await store.SaveDraftAsync(edit, null);
+
+        var result = await NewStore().DiscardDraftAsync(nodeId);
+
+        await using var ctx = NewContext();
+        var versions = await ctx.Set<ContentVersion>().Where(v => v.NodeId == nodeId).ToListAsync();
+        var current = await NewStore(ctx).GetCurrentDraftAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(versions, Has.Count.EqualTo(1));
+            Assert.That(current!.Content, Is.EqualTo("c"));
+            Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Published));
+            Assert.That(result.VersionId, Is.EqualTo(current.VersionId));
+        });
+    }
+
+    [Test]
+    public async Task DiscardDraftAsync_NeverPublished_DeletesNode()
+    {
+        var store = NewStore();
+        var dto = NewBlock();
+        await store.SaveDraftAsync(dto, null);
+        var nodeId = dto.Version.Node!.Id;
+
+        var result = await NewStore().DiscardDraftAsync(nodeId);
+
+        await using var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.VersionId, Is.EqualTo(Guid.Empty));
+            Assert.That(ctx.Set<ContentNode>().Any(n => n.Id == nodeId), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DiscardDraftAsync_NoPublishedVersion_FallsBackToNewestEarlierVersion()
+    {
+        var nodeId = await CreatePublishedAsync("Live");
+        var store = NewStore();
+        var edit = await store.GetCurrentDraftAsync(nodeId);
+        edit!.Content = "edited";
+        await store.SaveDraftAsync(edit, null);
+        await NewStore().UnpublishAsync(nodeId); // archives the published version, keeps the draft
+
+        var result = await NewStore().DiscardDraftAsync(nodeId);
+
+        await using var ctx = NewContext();
+        var current = await NewStore(ctx).GetCurrentDraftAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(current!.Content, Is.EqualTo("c"));
+            Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Archived));
+        });
+    }
 }

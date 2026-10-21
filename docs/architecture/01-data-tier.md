@@ -339,6 +339,7 @@ predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship
 | `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
 | `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node. |
 | `DeleteVersionAsync(versionId)` | Removes a single version row + its type row — **but refuses to delete the highest-numbered version** for the node, matching the admin UI which hides Delete on the latest version. A node's single version is its max, so it can never be removed this way. |
+| `DiscardDraftAsync(nodeId)` | Throws away an unpublished current draft (change-set kind `Discard`). A current draft that is itself `Published` is a no-op. Otherwise the draft row is removed and the `Published` version — or, if none, the newest earlier version — becomes the current draft again (two `SaveChanges`, so the `IsCurrentDraft` unique index never sees two). A node whose only version is the draft is hard-deleted (`VersionId` empty in the result). |
 
 **Concurrency:** the unique index `UX_ContentVersion_Number` is the backstop; `ContentStore<T>` catches
 `DbUpdateException` and maps it to the same stale-version message, so a true race degrades to the
@@ -396,9 +397,25 @@ CRUD surface — `UpsertAsync`/`DeleteAsync` — alongside the reads):
 ## 7. `IContentZoneService`
 
 `ContentZoneService` handles zone assignments, item resolution, and item writes (zones and items are
-versioned through `IContentStore<T>`). Zone and item **reads** are read-context aware; zone **items**
-auto-publish on write (there is no separate publish surface for items), which preserves the inline
-editor's immediately-visible behaviour while still producing version history.
+versioned through `IContentStore<T>`). Zone and item **reads** are read-context aware.
+
+**Draft rule.** Items in a zone that belongs to a page — directly, or through nested zones
+(`GetParentPageNodeForZoneAsync` resolves to a page) — are **drafts until the page is published**:
+`AddItemAsync`, `UpdateItemAsync` and `ReorderItemsAsync` save drafts without publishing, and
+`RemoveItemAsync` saves an `IsActive=false` draft for an item that was ever published (a never-published
+item is hard-deleted). Items in global/name-based zones have no page to publish them, so they still
+auto-publish on write. The rule lives in the service, so it applies to every caller (zone editor API,
+admin child CRUD, MCP).
+
+**Page draft lifecycle:**
+
+| Method | Behaviour |
+|---|---|
+| `GetZoneTreeNodeIdsForPageAsync(pageNodeId)` | Every zone under a page: its assigned zones, then nested child zones, breadth-first (visited set guards cycles) |
+| `GetPendingItemNodeIdsAsync(zoneNodeIds)` | Item nodes in those zones whose current draft is not `Published` (never published, or edited since) |
+| `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a pending item anywhere in their zone tree (Pages list "Pending" tag) |
+| `PublishPageZonesAsync(pageNodeId)` | Publishes every pending item under the page; returns `PageZonePublishResult(Published, Errors)` so the caller (`PageModel`) can register widget routes for what went live. Joins the caller's ambient change set |
+| `DiscardPageZoneDraftsAsync(pageNodeId)` | `DiscardDraftAsync` on every pending item; sweeps route rows of items the discard deleted |
 
 | Method | Behaviour |
 |---|---|
