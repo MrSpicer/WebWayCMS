@@ -345,7 +345,7 @@ public class ContentReadContextTests
         ctx.User = user ?? new ClaimsPrincipal(new ClaimsIdentity());
         ctx.Request.Cookies = previewCookie == null
             ? Substitute.For<IRequestCookieCollection>()
-            : Cookies(new Dictionary<string, string> { [PreviewConstants.CookieName] = previewCookie });
+            : Cookies(new Dictionary<string, string> { ["wwcms_preview"] = previewCookie });
         return ctx;
     }
 
@@ -450,14 +450,6 @@ public class ContentReadContextTests
     }
 
     [Test]
-    public void PreviewAwareReadContext_AdminWithWrongCookie_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"), previewCookie: "0")));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
     public void PreviewAwareReadContext_AdminWithDraftRequestFlag_ReturnsDraft()
     {
         var ctx = Context(Principal("Admin"));
@@ -485,19 +477,28 @@ public class ContentReadContextTests
     }
 
     [Test]
-    public void PreviewAwareReadContext_AdminWithValidCookie_ReturnsDraft()
+    public void PreviewAwareReadContext_EditorWithDraftRequestFlag_ReturnsDraft()
     {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"), previewCookie: PreviewConstants.CookieValue)));
+        var ctx = Context(Principal("Editor"));
+        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
 
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Draft));
+        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Draft));
     }
 
     [Test]
-    public void PreviewAwareReadContext_EditorWithValidCookie_ReturnsDraft()
+    public void PreviewAwareReadContext_AdminWithLegacyPreviewCookie_ReturnsPublished()
     {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Editor"), previewCookie: PreviewConstants.CookieValue)));
+        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"), previewCookie: "1")));
 
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Draft));
+        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_EditorWithLegacyPreviewCookie_ReturnsPublished()
+    {
+        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Editor"), previewCookie: "1")));
+
+        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
     }
 
     [Test]

@@ -193,7 +193,7 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 |--------|-------|--------|
 | POST | `/wadmin/{contentType}/publish/{nodeId:guid}` | `Publish` — optional `returnUrl` form field: redirects back there when it is a local URL, else to the index |
 | POST | `/wadmin/{contentType}/unpublish/{nodeId:guid}` | `Unpublish` — same `returnUrl` handling |
-| GET | `/wadmin/{contentType}/preview/{nodeId:guid}` | `Preview` — sets the preview cookie and redirects to `/_preview/{nodeId}` (gated on `SupportsPreview`) |
+| GET | `/wadmin/{contentType}/preview/{nodeId:guid}` | `Preview` — redirects to `/_preview/{nodeId}` (no cookie; the route transformer marks that request as a draft read) (gated on `SupportsPreview`) |
 
 **Child CRUD:**
 
@@ -269,8 +269,8 @@ widgets are editable inline as usual. The request sets `PreviewConstants.DraftRe
 - **Toolbar** — status tag (Not published / Pending changes / Up to date), **Publish** and
   **Unpublish** (post to the existing `AdminContentController` actions with `returnUrl` = the editor),
   **Discard changes** (only when zone drafts are pending; confirm first), **Edit page**, **Back to Pages**.
-- **Tabs** — *Edit zones* (default) and *Preview*, an iframe of `/wadmin/pages/preview/{id}` (refreshes
-  the preview cookie, then `/_preview/{id}`), reloaded each time the tab opens. The active tab is kept
+- **Tabs** — *Edit zones* (default) and *Preview*, an iframe of `/wadmin/pages/preview/{id}` (redirects
+  to `/_preview/{id}`, which alone reads drafts — the live site is unaffected), reloaded each time the tab opens. The active tab is kept
   in the URL hash (`#preview`) so the reload after every zone edit keeps it.
 - **Empty page** — slots are created lazily by the page template, so with none yet the editor loads the
   preview in the background and reloads once (sessionStorage guard) to show the slots it created.

@@ -263,7 +263,7 @@ UseSerilogRequestLogging()     — (conditional) one summary line per request, o
 UseStaticFiles()               — serve wwwroot and _content assets
 UseAuthentication()            — populate HttpContext.User BEFORE UseRouting: the route transformer
                                  resolves the draft-vs-published read context from the user's role
-                                 + preview cookie during endpoint matching (inside UseRouting)
+                                 + the /_preview draft-read mark during endpoint matching (inside UseRouting)
 UseRouting()                   — match routes
 UseRateLimiter()               — per-IP throttling on the Identity auth endpoints
 UseAuthorization()

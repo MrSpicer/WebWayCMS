@@ -89,11 +89,14 @@ its draft (a route row only exists after Publish). When the path matches `/_prev
 3. **Resolve the controller** — `IPageControllerRegistry.GetByName(page.ControllerName)`, then
    populate `CMS:PageData` / `CMS:PageConfig` exactly as the normal path does, plus a synthetic
    `CMS:RouteData` (`Pattern = "/_preview/{nodeId}"`)
-4. **Dispatch** — return `{ controller = page.ControllerName, action = "Index" }`
+4. **Mark the request as a draft read** — `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true`,
+   so `PreviewAwareReadContext` serves drafts for the content zones and widgets rendered *inside* the
+   previewed page. Set only once steps 1–3 succeed
+5. **Dispatch** — return `{ controller = page.ControllerName, action = "Index" }`
 
-`AdminContentController.Preview` sets the `wwcms_preview` cookie and redirects to
-`/_preview/{nodeId}`; the cookie is what makes `PreviewAwareReadContext` serve drafts for the content
-zones and widgets rendered *inside* the previewed page. `/_preview` responses are the only ones that may
+`AdminContentController.Preview` gates on `SupportsPreview` and redirects to `/_preview/{nodeId}`; it
+sets no cookie. Draft reads are scoped to that one request: there is no site-wide preview mode, and a
+link clicked inside a preview leads to the published site. `/_preview` responses are the only ones that may
 be framed (same origin only) — the admin page zone editor shows the draft preview in an iframe tab.
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`

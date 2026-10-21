@@ -32,11 +32,11 @@ Version selection is driven by `IContentReadContext`, registered **per mode**:
 
 - `AddWebWayCmsRendering` registers a sealed `PublishedContentReadContext` that hard-codes
   `ContentReadMode.Published`. A rendering-only host is therefore **physically incapable of serving a
-  draft** — there is no preview cookie and no code path to a draft read.
+  draft** — there is no code path to a draft read.
 - `AddWebWayCmsAdmin` replaces it with `PreviewAwareReadContext`, which serves `Draft` only when the
-  user is authenticated as `Admin`/`Editor` **and** the request either carries a valid `wwcms_preview`
-  cookie or was marked as a draft read by an admin action (`PreviewConstants.DraftRequestItemKey` in
-  `HttpContext.Items` — the page zone editor).
+  user is authenticated as `Admin`/`Editor` **and** the request was marked as a draft read
+  (`PreviewConstants.DraftRequestItemKey` in `HttpContext.Items` — set by `CMSRouteTransformer` for
+  `/_preview/{nodeId}` and by the page zone editor). The mark is per request; there is no preview cookie.
 
 This is the same DI boundary described in §5: the rendering path resolves a context that can only ever
 return published rows.

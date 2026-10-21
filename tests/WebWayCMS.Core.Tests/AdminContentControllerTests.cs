@@ -278,6 +278,16 @@ public class AdminContentControllerTests
         Assert.That(result!.Url, Is.EqualTo($"/_preview/{nodeId}"));
     }
 
+    [Test]
+    public async Task Preview_SupportsPreviewTrue_DoesNotSetCookie()
+    {
+        _handler.SupportsPreview.Returns(true);
+
+        await _controller.Preview("ct", Guid.NewGuid(), default);
+
+        Assert.That(_controller.Response.Headers.ContainsKey("Set-Cookie"), Is.False);
+    }
+
     // --- Child actions ---
 
     private void WireChild() => _handler.ChildHandler.Returns(_child);

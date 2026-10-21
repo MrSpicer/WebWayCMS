@@ -155,6 +155,9 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         if (StashPageControllerContext(httpContext, page) == null)
             return null;
 
+        // Drafts for the zones/widgets rendered inside this page — this request only, never site-wide.
+        httpContext.Items[PreviewConstants.DraftRequestItemKey] = true;
+
         httpContext.Items["CMS:RouteData"] = new CMSRouteDTO
         {
             Pattern = $"/_preview/{nodeId}",

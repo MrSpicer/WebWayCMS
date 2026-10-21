@@ -6,8 +6,9 @@ namespace WebWayCMS.Startup;
 
 /// <summary>
 /// The admin read context. Serves drafts only when the user is authenticated as an Admin/Editor
-/// <em>and</em> the request either carries a valid preview cookie or was marked as a draft read by an
-/// admin action (<see cref="PreviewConstants.DraftRequestItemKey"/>); otherwise it serves published content.
+/// <em>and</em> the request was marked as a draft read (<see cref="PreviewConstants.DraftRequestItemKey"/>) —
+/// by the <c>/_preview</c> route resolution or an admin action; otherwise it serves published content.
+/// The mark is per request, so previewing one page never leaks drafts onto the live site.
 /// </summary>
 internal sealed class PreviewAwareReadContext : IContentReadContext
 {
@@ -22,18 +23,15 @@ internal sealed class PreviewAwareReadContext : IContentReadContext
 
     public string Segment => string.Empty;
 
-    public ContentReadMode Mode => IsPreviewRequest() ? ContentReadMode.Draft : ContentReadMode.Published;
+    public ContentReadMode Mode => IsDraftRequest() ? ContentReadMode.Draft : ContentReadMode.Published;
 
-    private bool IsPreviewRequest()
+    private bool IsDraftRequest()
     {
         var ctx = _httpContextAccessor.HttpContext;
         if (ctx?.User?.Identity?.IsAuthenticated != true)
             return false;
         if (!(ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Editor")))
             return false;
-        if (ctx.Items.TryGetValue(PreviewConstants.DraftRequestItemKey, out var flag) && flag is true)
-            return true;
-        return ctx.Request.Cookies.TryGetValue(PreviewConstants.CookieName, out var value)
-            && value == PreviewConstants.CookieValue;
+        return ctx.Items.TryGetValue(PreviewConstants.DraftRequestItemKey, out var flag) && flag is true;
     }
 }

@@ -836,6 +836,37 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
+    public async Task TransformAsync_Preview_Resolved_SetsDraftRequestFlag()
+    {
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Editor");
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageDTO { ControllerName = "MyPage", ConfigurationJson = "{}" });
+        _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
+
+        await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(context.Items[PreviewConstants.DraftRequestItemKey], Is.EqualTo(true));
+    }
+
+    [TestCase(null)]
+    [TestCase("Viewer")]
+    [TestCase("Admin")]
+    public async Task TransformAsync_Preview_Rejected_DoesNotSetDraftRequestFlag(string? role)
+    {
+        var nodeId = Guid.NewGuid();
+        var context = role == null
+            ? CreateHttpContext($"/_preview/{nodeId}")
+            : CreatePreviewHttpContext($"/_preview/{nodeId}", role);
+        // The Admin case is authorized but has no draft to preview.
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
+
+        await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(context.Items.ContainsKey(PreviewConstants.DraftRequestItemKey), Is.False);
+    }
+
+    [Test]
     public async Task TransformAsync_Preview_Unauthenticated_ReturnsNull()
     {
         var nodeId = Guid.NewGuid();

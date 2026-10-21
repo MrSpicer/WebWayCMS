@@ -168,6 +168,10 @@ public class AdminContentController : Controller
             ? LocalRedirect(returnUrl)
             : RedirectToAction(nameof(Index), new { contentType });
 
+    /// <summary>
+    /// Gates the draft preview on the content type, then redirects to <c>/_preview/{nodeId}</c>. Sets no
+    /// cookie: the route transformer marks that one request as a draft read, so drafts never leak site-wide.
+    /// </summary>
     [HttpGet("{contentType}/preview/{nodeId:guid}")]
     [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> Preview(string contentType, Guid nodeId, CancellationToken ct)
@@ -176,15 +180,7 @@ public class AdminContentController : Controller
         if (handler == null) return HandlerNotFound(contentType);
         if (!handler.SupportsPreview) return NotFound();
 
-        Response.Cookies.Append(PreviewConstants.CookieName, PreviewConstants.CookieValue, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = Request.IsHttps,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTimeOffset.UtcNow.AddMinutes(5)
-        });
-
-        return Redirect($"/_preview/{nodeId}");
+        return Redirect($"{PreviewConstants.PathPrefix}/{nodeId}");
     }
 
     // ─── API list endpoints ────────────────────────────────────────────────────

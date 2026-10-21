@@ -72,9 +72,10 @@
   in place. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
 - **Read context is a mode boundary:** `IContentReadContext { Mode (Published|Draft), Culture, Segment }`.
   Rendering-only hosts register a sealed `PublishedContentReadContext` (can never serve a draft); admin hosts
-  register `PreviewAwareReadContext` (Draft only for an Admin/Editor that has a `wwcms_preview` cookie
-  **or** whose request an admin action marked with `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true`
-  — the page zone editor does this so it reads drafts without the site-wide cookie).
+  register `PreviewAwareReadContext` (Draft only for an Admin/Editor whose request is marked with
+  `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true` — set by `CMSRouteTransformer` for a
+  resolved `/_preview/{nodeId}` and by the page zone editor action). Draft reads are **per request**; there is
+  no preview cookie, so previewing a page never puts the live site into draft mode.
   Version selection lives in one place: `ContentQueryExtensions.AtReadContext`.
 - **Edits are drafts until an explicit Publish.** Routes are written by Publish (never Save) via
   `ICMSRouteService`; a draft slug change doesn't touch the route table until published.
@@ -86,11 +87,12 @@
   the publish-time slug-collision check (`PageModel.IsSlugAvailableAsync`) and the admin tree both
   derive nested URLs from it.
 - **Preview renders the current draft with no route row.** `GET /wadmin/{contentType}/preview/{nodeId}`
-  (gated on `IAdminCrudHandler.SupportsPreview`, `true` only for `PageModel`) sets the `wwcms_preview`
-  cookie and redirects to `/_preview/{nodeId}`. `CMSRouteTransformer` special-cases that path: it
-  requires an authenticated Admin/Editor, loads the draft via `IContentStore<PageDTO>.GetCurrentDraftAsync`,
-  and dispatches to the page's controller — so a never-published page can preview. The cookie is what
-  makes `PreviewAwareReadContext` serve drafts for the zones/widgets rendered inside the previewed page.
+  (gated on `IAdminCrudHandler.SupportsPreview`, `true` only for `PageModel`) only redirects to
+  `/_preview/{nodeId}`. `CMSRouteTransformer` special-cases that path: it requires an authenticated
+  Admin/Editor, loads the draft via `IContentStore<PageDTO>.GetCurrentDraftAsync`, marks the request with
+  `PreviewConstants.DraftRequestItemKey` (so the zones/widgets rendered inside read drafts), and dispatches to
+  the page's controller — so a never-published page can preview. Links clicked inside a preview go to the
+  published site. `PreviewConstants` lives in `WebWayCMS.Routing` (namespace `WebWayCMS`).
 - Zone **items in a page's zones** (directly or via nested zones — `GetParentPageNodeForZoneAsync`
   resolves to a page) are **drafts until the page is published**, whichever path wrote them (zone editor,
   child CRUD, MCP). Delete of a once-published item saves an `IsActive=false` draft; a never-published
