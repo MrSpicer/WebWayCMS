@@ -105,15 +105,15 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel> GetOrCreateViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel> GetOrCreateViewModelByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
     {
-        var (zone, _) = await _service.GetOrCreateByZoneSlotAsync(parentZoneNodeId, slotName, ct);
+        var (zone, _) = await _service.GetOrCreateByItemSlotAsync(parentItemNodeId, slotName, ct);
         return await MapToViewModelAsync(zone, ct);
     }
 
-    public async Task<ContentZoneViewModel?> GetViewModelByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default)
+    public async Task<ContentZoneViewModel?> GetViewModelByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _service.GetByZoneSlotAsync(parentZoneNodeId, slotName, ct);
+        var assignment = await _service.GetByItemSlotAsync(parentItemNodeId, slotName, ct);
         if (assignment == null)
             return null;
 
@@ -135,6 +135,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
             .Select(a => new PageZoneSlot(a.SlotName, a.ContentZoneNodeId))
             .ToList();
     }
+
+    public Task<Guid?> GetParentPageNodeForZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
 
     public async Task<ContentZoneDTO?> GetByIdAsync(Guid nodeId, CancellationToken ct = default)
     {
@@ -158,7 +161,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
     {
-        await _service.DeleteZoneTreeAsync(nodeId, ct);
+        await _service.DeleteZoneAsync(nodeId, ct);
         return true;
     }
 
@@ -173,6 +176,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public async Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default)
         => await _service.ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder, ct);
+
+    public async Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default)
+        => await _service.MoveItemAsync(itemNodeId, targetZoneNodeId, position, ct);
 
     public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemNodeId, CancellationToken ct = default)
         => await _itemStore.GetAllVersionsAsync(itemNodeId, ct);
@@ -367,9 +373,13 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
                     obj.Metadata.DisplayMode = WidgetDisplayMode.Single;
 
                 // Attach the metadata to the configuration so widget view resolution can pick up
-                // the item's display mode (single vs. list).
+                // the item's display mode (single vs. list), and the item id so nested zones the
+                // widget renders are owned by it.
                 if (obj.ComponentProperties is WidgetConfiguration widgetConfig)
+                {
                     widgetConfig.Metadata = obj.Metadata;
+                    widgetConfig.ZoneItemNodeId = obj.Id;
+                }
 
                 return obj;
             })
@@ -594,6 +604,15 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         if (!Guid.TryParse(parentKey, out var zoneNodeId))
             return false;
         return await _model.ReorderItemsAsync(zoneNodeId, orderedIds, ct);
+    }
+
+    public bool SupportsMove => true;
+
+    public async Task<(bool Success, string? ErrorMessage)> MoveAsync(Guid childId, string targetParentKey, int position, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(targetParentKey, out var targetZoneNodeId))
+            return (false, "The target parent key must be a content zone id.");
+        return await _model.MoveItemAsync(childId, targetZoneNodeId, position, ct);
     }
 
     public bool SupportsVersionHistory => true;

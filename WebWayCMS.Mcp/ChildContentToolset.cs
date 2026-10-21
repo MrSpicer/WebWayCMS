@@ -144,6 +144,25 @@ public sealed class ChildContentToolset
         return new McpReorderResult(await child.ReorderAsync(parentKey, orderedIds, ct));
     }
 
+    [McpServerTool(Name = "move_child", Destructive = false, OpenWorld = false)]
+    [Description("Moves a child to a position under a (possibly different) parent. Only valid for child types that support moving (e.g. content zone items, which can move between the zones of one page; the move is a draft until the page is published).")]
+    public async Task<McpMoveResult> MoveChild(
+        [Description("The parent content type.")] string contentType,
+        [Description("The child type.")] string childType,
+        [Description("The id of the child to move.")] Guid childId,
+        [Description("The key of the parent to move the child under (for content zone items, the target zone's node id; its current zone to reorder).")] string targetParentKey,
+        [Description("The 0-based position among the target parent's children, excluding the moved child. Out-of-range values are clamped.")] int position,
+        CancellationToken ct = default)
+    {
+        var child = Resolve(contentType, childType);
+        if (!child.SupportsMove)
+            throw new McpException($"Child type '{childType}' does not support moving.");
+        var (success, errorMessage) = await child.MoveAsync(childId, targetParentKey, position, ct);
+        if (!success)
+            throw new McpException(errorMessage ?? "The move failed.");
+        return new McpMoveResult(true);
+    }
+
     [McpServerTool(Name = "list_child_versions", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the version history for a child entity, identified by its masterId.")]
     public async Task<VersionHistoryViewModel> ListChildVersions(

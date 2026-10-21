@@ -56,4 +56,12 @@ public abstract class WidgetConfiguration
     /// </summary>
     [JsonIgnore]
     public WidgetMetadata Metadata { get; set; } = new();
+
+    /// <summary>
+    /// The node id of the zone item this configuration belongs to, attached at render time by the zone
+    /// mapper. <c>WidgetViewComponent</c> passes it down to any nested zone the widget renders (e.g. a
+    /// Layout's columns), so the nested zone is owned by this item whichever ContentZone view rendered it.
+    /// </summary>
+    [JsonIgnore]
+    public Guid? ZoneItemNodeId { get; set; }
 }

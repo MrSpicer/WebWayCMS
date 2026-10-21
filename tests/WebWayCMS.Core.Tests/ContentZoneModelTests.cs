@@ -213,6 +213,7 @@ public class ContentZoneModelTests
             var goodConfig = good.ComponentProperties as SampleWidgetConfig;
             Assert.That(goodConfig, Is.Not.Null);
             Assert.That(goodConfig!.Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.List), "metadata must be attached to the config");
+            Assert.That(goodConfig.ZoneItemNodeId, Is.EqualTo(good.Id), "the item id must be attached to the config");
 
             // Malformed / null / "{}" all degrade to an empty metadata document.
             Assert.That(objs.First(o => o.Ordinal == 2).Metadata.DisplayMode, Is.EqualTo(WidgetDisplayMode.Single));
@@ -259,13 +260,13 @@ public class ContentZoneModelTests
         var zone = Zone();
         _service.GetOrCreateByNameAsync("G", Arg.Any<CancellationToken>()).Returns(zone);
         _service.GetOrCreateByPageSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
-        _service.GetOrCreateByZoneSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+        _service.GetOrCreateByItemSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _model.GetOrCreateViewModelAsync("G"), Is.Not.Null);
             Assert.That(await _model.GetOrCreateViewModelByPageSlotAsync(Guid.NewGuid(), "S"), Is.Not.Null);
-            Assert.That(await _model.GetOrCreateViewModelByZoneSlotAsync(Guid.NewGuid(), "S"), Is.Not.Null);
+            Assert.That(await _model.GetOrCreateViewModelByItemSlotAsync(Guid.NewGuid(), "S"), Is.Not.Null);
         });
     }
 
@@ -300,16 +301,16 @@ public class ContentZoneModelTests
     }
 
     [Test]
-    public async Task GetViewModelByZoneSlot_NullAssignment_AndFound()
+    public async Task GetViewModelByItemSlot_NullAssignment_AndFound()
     {
         var parent = Guid.NewGuid();
-        _service.GetByZoneSlotAsync(parent, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
-        Assert.That(await _model.GetViewModelByZoneSlotAsync(parent, "none"), Is.Null);
+        _service.GetByItemSlotAsync(parent, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
+        Assert.That(await _model.GetViewModelByItemSlotAsync(parent, "none"), Is.Null);
 
         var assignment = new ContentZoneAssignmentDTO { ContentZoneNodeId = Guid.NewGuid() };
-        _service.GetByZoneSlotAsync(parent, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
+        _service.GetByItemSlotAsync(parent, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
         _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns(Zone());
-        Assert.That(await _model.GetViewModelByZoneSlotAsync(parent, "slot"), Is.Not.Null);
+        Assert.That(await _model.GetViewModelByItemSlotAsync(parent, "slot"), Is.Not.Null);
     }
 
     [Test]
@@ -522,6 +523,33 @@ public class ContentZoneModelTests
             Assert.That(await child.ReorderAsync(zoneId.ToString(), ids), Is.True);
         });
         await _service.Received(1).ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_Move_DelegatesToService()
+    {
+        var child = _model.ChildHandler!;
+        var itemId = Guid.NewGuid();
+        var zoneId = Guid.NewGuid();
+        _service.MoveItemAsync(itemId, zoneId, 2, Arg.Any<CancellationToken>()).Returns((true, (string?)null));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(child.SupportsMove, Is.True);
+            Assert.That(await child.MoveAsync(itemId, "not-a-guid", 2), Is.EqualTo((false, "The target parent key must be a content zone id.")));
+            Assert.That(await child.MoveAsync(itemId, zoneId.ToString(), 2), Is.EqualTo((true, (string?)null)));
+        });
+        await _service.Received(1).MoveItemAsync(itemId, zoneId, 2, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task GetParentPageNodeForZoneAsync_DelegatesToService()
+    {
+        var zoneId = Guid.NewGuid();
+        var pageId = Guid.NewGuid();
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(pageId);
+
+        Assert.That(await _model.GetParentPageNodeForZoneAsync(zoneId), Is.EqualTo(pageId));
     }
 
     [Test]

@@ -192,8 +192,10 @@ site styles however the host prefers.
 `npx sass` over `Views/Shared/Components/ContentZone/edit.scss`, plus a `CopyViewScripts` target
 that copies view-adjacent JS into `wwwroot/js/`. That is a CMS build concern, not a host one.
 
-**JS conventions:** No jQuery. Vanilla JS only. `admin.js` handles inline zone editing
-(drag-to-reorder, add/remove widgets, CKEditor initialization for RichText fields) and reads the
+**JS conventions:** No jQuery. Vanilla JS only. The zone editor's widget CRUD lives in
+`content-zone-edit.js` and its drag-and-drop/keyboard moves in `content-zone-drag.js` (Pointer Events,
+both copied from `Views/Shared/Components/ContentZone/`); `admin.js` handles CKEditor initialization for
+RichText fields and reads the
 CKEditor license key from the `ckeditor-license-key` meta tag rather than an inline `<script>`, so
 the CSP `script-src` needs no `'unsafe-inline'`.
 

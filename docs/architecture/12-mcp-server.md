@@ -99,7 +99,7 @@ may still be holding an `Mcp-Session-Id`. Against the stateless endpoint that se
 not a server bug.
 
 The tools carry accurate annotation hints for MCP clients: the 14 pure-read tools are `ReadOnly`, the
-recoverable writes (`create_*`/`reorder_children`/`restore_*`) are marked non-destructive, and the
+recoverable writes (`create_*`/`reorder_children`/`move_child`/`restore_*`) are marked non-destructive, and the
 overwriting or irreversible `update_*`/`delete_*`/`publish_content`/`unpublish_content` tools keep the
 `Destructive` default (with `publish_content` additionally `Idempotent`).
 
@@ -135,8 +135,14 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 DTO-level restore), `delete_version`.
 
 **`ChildContentToolset`** — `list_children`, `get_child`, `get_child_version`, `create_child`,
-`update_child`, `delete_child`, `reorder_children`, `list_child_versions`, `restore_child_version`,
-`delete_child_version`.
+`update_child`, `delete_child`, `reorder_children`, `move_child`, `list_child_versions`,
+`restore_child_version`, `delete_child_version`.
+
+`move_child(contentType, childType, childId, targetParentKey, position)` moves a child to a 0-based
+position (clamped) under a possibly different parent. It is gated on the optional
+`IAdminCrudChildHandler.SupportsMove` (default `false`, like `SupportsReorder`); `contentzones` items
+support it, with the target zone's node id as `targetParentKey`. Zone items can move only between
+zones of one page (and never into their own nested zones); a refused move throws with the reason.
 
 Child writes on `contentzones` items follow the zone draft rule: in a zone that belongs to a page they
 create **drafts** that go live only when the page is published (`publish_content("pages", nodeId)`
@@ -145,7 +151,7 @@ publishes the page and every pending zone item under it); in a global zone they 
 The `publish_*`/`unpublish_*`/`restore_*` tools run with effective admin authority — the bearer token
 is the security boundary — so an agent can publish. Their tool descriptions state this plainly. The
 tool annotations reflect the same line: the read tools (`list_*`/`get_*`/`describe_content_type`/
-`get_content_state`) are flagged `ReadOnly`; `create_*`/`reorder_children`/`restore_*` are flagged
+`get_content_state`) are flagged `ReadOnly`; `create_*`/`reorder_children`/`move_child`/`restore_*` are flagged
 non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_content` keep the
 `Destructive` default, with `publish_content` additionally `Idempotent`.
 

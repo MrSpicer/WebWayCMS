@@ -74,6 +74,76 @@
             background: rgba(248, 113, 113, 0.15);
         }
     }
+
+    .zone-drag-handle {
+        color: var(--admin-text-muted, #64748b);
+        cursor: grab;
+        // Touch drags move the widget instead of scrolling the page.
+        touch-action: none;
+
+        &:hover {
+            color: var(--admin-primary, #4f46e5);
+            background: var(--admin-primary-light, #eef2ff);
+        }
+    }
+}
+
+// ── Drag and drop (content-zone-drag.js) ─────────────────────────────────────
+
+.zone-object-edit.is-drag-source {
+    display: none !important;
+}
+
+.zone-drop-placeholder {
+    min-height: 2.5rem;
+    margin-bottom: 0.5rem;
+    border: 2px dashed var(--admin-primary, #4f46e5);
+    border-radius: var(--admin-radius-sm, 4px);
+    background: var(--admin-primary-light, #eef2ff);
+    opacity: 0.6;
+}
+
+.zone-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    max-width: 320px;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--admin-primary, #4f46e5);
+    border-radius: var(--admin-radius-sm, 4px);
+    background: var(--admin-surface-raised, #fff);
+    box-shadow: var(--admin-shadow-sm, 0 4px 12px rgba(15, 23, 42, 0.2));
+    color: var(--admin-text, #1e293b);
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+.content-zone-edit.cz-drop-target {
+    border-color: var(--admin-primary, #4f46e5);
+    border-style: solid;
+}
+
+.content-zone-edit.cz-drop-invalid {
+    border-color: var(--admin-danger, #dc2626);
+    cursor: no-drop;
+}
+
+body.cz-dragging {
+    cursor: grabbing;
+    user-select: none;
+
+    .zone-drag-handle {
+        cursor: grabbing;
+    }
+}
+
+body.cz-saving {
+    cursor: progress;
 }
 
 .zone-object-label {

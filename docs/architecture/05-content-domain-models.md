@@ -124,7 +124,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - Manages both zones (parent) and zone items (child, `ChildType = "items"`) via `ContentZoneChildHandler`
 - Exposes `IContentZoneModel` which is consumed by `ContentZoneViewComponent`
 - Exposes `IAdminRegistryHandler` via `ContentZoneRegistryHandler`, backed by `IWidgetRegistry`
-- Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByZoneSlotAsync`, `GetViewModelByIdAsync`
+- Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByItemSlotAsync`, `GetViewModelByIdAsync`, `MoveItemAsync`
 - Also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when a zone item is added, so placing a routable widget (e.g. `Article`) registers its sub-routes
 
 ### `WidgetRegistrationModel`

@@ -174,6 +174,41 @@ public class ChildContentToolsetTests
     }
 
     [Test]
+    public async Task MoveChild_WhenSupported_ReturnsResult()
+    {
+        var childId = Guid.NewGuid();
+        _child.SupportsMove.Returns(true);
+        _child.MoveAsync(childId, "zone", 1, Arg.Any<CancellationToken>()).Returns((true, (string?)null));
+
+        Assert.That((await _tools.MoveChild("articles", "items", childId, "zone", 1)).Moved, Is.True);
+    }
+
+    [Test]
+    public void MoveChild_WhenUnsupported_Throws()
+    {
+        _child.SupportsMove.Returns(false);
+
+        Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
+            Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public void MoveChild_WhenRejected_ThrowsWithTheReason()
+    {
+        _child.SupportsMove.Returns(true);
+        _child.MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns((false, "nope"), (false, (string?)null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("nope"));
+            Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("The move failed."));
+        });
+    }
+
+    [Test]
     public void ChildVersionTools_WhenUnsupported_Throw()
     {
         _child.SupportsVersionHistory.Returns(false);

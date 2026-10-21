@@ -6,6 +6,9 @@
 
 @foreach(var obj in Model.ZoneObjects)
 {
+	// Nested zones rendered by this item (e.g. a Layout's columns) are owned by it. WidgetViewComponent
+	// also sets this from the item's config; this covers widgets that don't derive from it.
+	ViewData["ContentZone:ParentItemId"] = obj.Id;
 	<div class="zone-object mb-5">
 		@await Component.InvokeAsync(obj.ComponentName, obj.ComponentProperties)
 	</div>

@@ -35,7 +35,7 @@
     <link rel="stylesheet" href="~/_content/WebWayCMS.Admin/css/content-zone-edit.css" />
 }
 
-<div class="content-zone content-zone-edit" id="@containerId" data-zone-name="@Model.Name" data-modal-id="@modalId" data-settings-modal-id="@settingsModalId">
+<div class="content-zone content-zone-edit" id="@containerId" data-zone-name="@Model.Name" data-modal-id="@modalId" data-settings-modal-id="@settingsModalId" data-page-node-id="@(Model.OwnerPageNodeId?.ToString() ?? "")">
     @* Hidden zone ID - never displayed to users *@
     <input type="hidden" class="zone-id-field" value="@Model.Id" />
 
@@ -47,8 +47,17 @@
             // The item's metadata (cog editor) overrides the toolbar label and adds a note.
             var toolbarLabel = string.IsNullOrWhiteSpace(obj.Metadata.AdminLabel) ? obj.ComponentName : obj.Metadata.AdminLabel;
             var adminNote = string.IsNullOrWhiteSpace(obj.Metadata.AdminNote) ? null : obj.Metadata.AdminNote;
+            // Nested zones rendered by this item (e.g. a Layout's columns) are owned by it. WidgetViewComponent
+            // also sets this from the item's config; this covers widgets that don't derive from it.
+            ViewData["ContentZone:ParentItemId"] = obj.Id;
             <div class="zone-object zone-object-edit" data-item-id="@obj.Id" data-component-name="@obj.ComponentName" data-ordinal="@obj.Ordinal" data-zone-id="@obj.ZoneId">
                 <div class="zone-object-toolbar">
+                    @* Drag to move within or between this page's zones; arrow keys reorder (content-zone-drag.js). *@
+                    <button type="button" class="zone-drag-handle" title="Drag to move · ↑/↓ to reorder" aria-label="Move @toolbarLabel">
+                        <span class="icon">
+                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+                        </span>
+                    </button>
                     @* Razor encodes attribute values and drops title when adminNote is null. *@
                     <span class="zone-object-label" title="@adminNote">
                         @toolbarLabel
@@ -191,4 +200,5 @@
 {
     Context.Items["ContentZoneEditJsLoaded"] = true;
     <script src="~/_content/WebWayCMS.Admin/js/content-zone-edit.js"></script>
+    <script src="~/_content/WebWayCMS.Admin/js/content-zone-drag.js"></script>
 }

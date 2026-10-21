@@ -19,8 +19,10 @@ public interface IContentZoneService
     // assignment management
     Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
     Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
-    Task<ContentZoneAssignmentDTO?> GetByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default);
-    Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByZoneSlotAsync(Guid parentZoneNodeId, string slotName, CancellationToken ct = default);
+    // nested zones are owned by the zone item (e.g. a Layout widget) that renders them, so they move
+    // with it
+    Task<ContentZoneAssignmentDTO?> GetByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
+    Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
     Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default);
     Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageNodeId, CancellationToken ct = default);
@@ -38,6 +40,13 @@ public interface IContentZoneService
     Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default);
     Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default);
 
+    // MoveItemAsync's error message when the item doesn't exist or has been removed (inactive)
+    const string ItemNotFoundMessage = "Item not found.";
+
+    // moves an item to a position (0-based, clamped) among the target zone's active items. Cross-zone
+    // moves are limited to one page's zone tree and are drafts until the page is published.
+    Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default);
+
     // page draft lifecycle. Items in a page's zones (nested included) are drafts until the page is
     // published; these list, publish, and discard those drafts for one page.
     Task<List<Guid>> GetZoneTreeNodeIdsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
@@ -46,12 +55,9 @@ public interface IContentZoneService
     Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<(bool Success, string? ErrorMessage)> DiscardPageZoneDraftsAsync(Guid pageNodeId, CancellationToken ct = default);
 
-    // zone deletion (items + assignments + zone)
+    // zone deletion: the zone's assignments, its items, and the nested zones those items own (at any
+    // depth). A nested zone still referenced by another assignment keeps its node.
     Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
-
-    // zone deletion plus orphaned nested child zones (a zone node is deleted exactly when nothing
-    // references it any more)
-    Task DeleteZoneTreeAsync(Guid zoneNodeId, CancellationToken ct = default);
 
     // page deletion cleanup (removes the page's assigned zones and their nested child zones)
     Task DeletePageZonesAsync(Guid pageNodeId, CancellationToken ct = default);

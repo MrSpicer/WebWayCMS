@@ -108,6 +108,10 @@ public interface IAdminCrudChildHandler
     bool SupportsReorder { get; }
     Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default);
 
+    // optional: move a child to a 0-based position under another parent (MCP move_child)
+    bool SupportsMove => false;
+    Task<(bool Success, string? ErrorMessage)> MoveAsync(Guid childId, string targetParentKey, int position, CancellationToken ct = default);
+
     bool SupportsVersionHistory => false;
     Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default);
     Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default);
@@ -263,7 +267,10 @@ Handles the admin inline zone editing views. Delegates to `IContentZoneModel` fo
 **Page zone editor.** Opened from the **Edit Zones** button on each Pages list row. It lists the page's
 zone assignments (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in
 the unchanged `ContentZone` editor (`editMode: true`), one box per slot; nested zones inside Layout
-widgets are editable inline as usual. The request sets `PreviewConstants.DraftRequestItemKey`, so
+widgets are editable inline as usual. Widgets can be dragged (grip handle; mouse or touch) within a zone
+and between any of the page's zones, nested columns included, or moved with ArrowUp/ArrowDown on a
+focused handle — each move is a draft via `POST /api/contentzones/items/{id}/move` (see
+[04 → Moving Items](04-content-zone-framework.md#8a-moving-items-drag-and-drop)). The request sets `PreviewConstants.DraftRequestItemKey`, so
 `PreviewAwareReadContext` serves drafts for it alone. Above the zones:
 
 - **Toolbar** — status tag (Not published / Pending changes / Up to date), **Publish** and

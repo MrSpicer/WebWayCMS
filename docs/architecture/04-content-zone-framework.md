@@ -25,7 +25,8 @@ Content zones are named database-backed slots that appear in Razor views. Each z
 
 Zones can be:
 - **Page-scoped** — tied to a specific page via `ContentZoneAssignments (ParentPageNodeId, SlotName)`
-- **Nested** — tied to a parent zone via `ContentZoneAssignments (ParentZoneNodeId, SlotName)`
+- **Nested** — owned by the zone *item* that renders it (e.g. a Layout widget's columns) via
+  `ContentZoneAssignments (ParentItemNodeId, SlotName)`, so the nested content moves with the item
 - **Global** — looked up by name only, shared across all pages
 
 Widgets are ViewComponents decorated with `[ContentZoneComponent]`. They receive their stored JSON configuration deserialized into a typed object.
@@ -66,7 +67,7 @@ add-widget dropdown.
 `ContentZoneViewComponent.InvokeAsync` resolves zones in this order:
 
 1. **Direct ID lookup** — if `zoneId` is provided, call `_model.GetViewModelByIdAsync(zoneId)` and skip all other steps
-2. **Nested zone** — if `ViewData["ContentZone:ParentZoneId"]` is set (a parent zone is rendering), call `_model.GetOrCreateViewModelByZoneSlotAsync(parentZoneId, zoneName)`
+2. **Nested zone** — if `ViewData["ContentZone:ParentItemId"]` is set (a zone item is rendering), call `_model.GetOrCreateViewModelByItemSlotAsync(parentItemId, zoneName)`. If it is *not* set but the invocation is inside a zone render (`ViewData["ContentZone:RenderMode"]` present) and `IsGlobal = false`, the zone renders nothing and logs a warning: falling through to steps 3–4 could resolve the enclosing zone itself and recurse forever
 3. **Page-scoped zone** — if `HttpContext.Items["CMS:PageData"]` is a `PageDTO` and `IsGlobal = false`, call `_model.GetOrCreateViewModelByPageSlotAsync(pageNodeId, zoneName)`
 4. **Global zone** — otherwise, call `_model.GetOrCreateViewModelAsync(zoneName)`
 
@@ -91,7 +92,7 @@ Zones are created on demand. The first time a page is rendered in admin edit mod
 This means zones do not need to be seeded or pre-created. They appear in the database only when an
 admin first visits a page in edit mode. The same pattern applies to global zones
 (`GetOrCreateByNameAsync`, which also uses a draft-aware name lookup) and nested zones
-(`GetOrCreateByZoneSlotAsync`).
+(`GetOrCreateByItemSlotAsync`).
 
 ---
 
@@ -197,13 +198,64 @@ Widget ViewComponents receive the deserialized configuration as a parameter name
 
 ## 8. Nested Zones
 
-Zones can contain other zones by having a widget render its own `ContentZone` component invocations. The parent zone ID is threaded through `ViewData`:
+Zones can contain other zones by having a widget render its own `ContentZone` component invocations.
+A nested zone is **owned by the zone item** that renders it, and the item's node ID is threaded through
+`ViewData`:
 
-1. `ContentZoneViewComponent` stores `ViewData["ContentZone:ParentZoneId"] = vm.Id` after resolving the zone
-2. When a widget renders `@await Component.InvokeAsync("ContentZone", new { zoneName = "Inner" })`, the `ViewData` is in scope
-3. The inner invocation detects `ContentZone:ParentZoneId` and calls `GetOrCreateViewModelByZoneSlotAsync(parentZoneId, "Inner")`
+1. `ContentZoneModel` attaches the item's node id to its configuration
+   (`WidgetConfiguration.ZoneItemNodeId`, `[JsonIgnore]`), and `WidgetViewComponent.ModeView` copies it into
+   `ViewData["ContentZone:ParentItemId"]` before rendering. This works whichever ContentZone view rendered
+   the item, including a host override. The shipped zone views (`Default`, `list`, admin `edit`) also set
+   `ViewData["ContentZone:ParentItemId"] = obj.Id` per item, which covers container widgets that don't
+   derive from `WidgetViewComponent`
+2. When the widget renders `@await Component.InvokeAsync("ContentZone", new { zoneName = "Inner" })`, that `ViewData` is in scope
+3. The inner invocation detects `ContentZone:ParentItemId` and calls `GetOrCreateViewModelByItemSlotAsync(parentItemId, "Inner")`
+
+Keying by the item (not the zone it sits in) means two Layout widgets in one zone each get their own
+columns, and moving a Layout to another zone (drag-and-drop) carries its columns' content with it.
+A nested zone's "parent zone" is derived: the zone its owning item's current draft sits in
+(`GetAllByParentZoneAsync`, `GetZoneNodeIdsWithChildrenAsync`, `GetParentPageNodeForZoneAsync`).
+
+Hard-deleting a container item (never published, or in a global zone) deletes its nested zones and
+their items with it; a zone still referenced by another assignment survives. Deleting a published
+container in a page zone is a soft `IsActive=false` draft, so its nested zones stay until publish and
+Discard brings everything back.
 
 Nesting depth is unlimited, but each level adds a database query. Avoid deep nesting for performance-sensitive pages.
+
+---
+
+## 8a. Moving Items (drag-and-drop)
+
+`IContentZoneService.MoveItemAsync(itemNodeId, targetZoneNodeId, position)` moves an item to a 0-based
+position (clamped) among the target zone's active items, returning `(bool Success, string? ErrorMessage)`.
+Removed (inactive) items in the target zone are renumbered in place along with the live ones, so ordinals
+stay unique if a removal is later discarded:
+
+- **Same zone** — a reorder; a global zone auto-publishes, a page zone saves draft ordinals.
+- **Another zone** — allowed only when both zones resolve to the **same page**
+  (`GetParentPageNodeForZoneAsync`), since a global zone auto-publishes and another page publishes on its
+  own schedule. A container can't be moved into one of its own nested zones (at any depth).
+- `ContentZoneNodeId` is a versioned column, so a move is an ordinary draft: the live site keeps the
+  published zone until the page is published, the preview and editor show the draft zone, and Discard
+  moves it back. Widget routes are owned by the item node, so a move never touches the route table.
+- Discard runs once-published items first, so a live widget dragged into a never-published container
+  returns home before that container is deleted; `DeleteZoneAsync` likewise sends an item whose
+  published version lives in another zone back instead of deleting it.
+
+Surfaces: `POST /api/contentzones/items/{itemId}/move` (`{ targetZoneId, position }`, used by the zone
+editor) and the generic MCP `move_child` tool (`IAdminCrudChildHandler.SupportsMove`/`MoveAsync`).
+
+**Zone editor UI** (`ContentZone/drag.js` → `wwwroot/js/content-zone-drag.js`, loaded once by the edit
+view after `content-zone-edit.js`): each item's toolbar starts with a grip handle. Dragging it uses
+Pointer Events (mouse, touch, pen; `touch-action: none` on the handle); a slim placeholder marks the drop
+point and the hovered zone is outlined (red when it can't take the drop). The client only offers drops
+into the source zone or another saved zone with the same `data-page-node-id` (the owning page, resolved
+by `ContentZoneViewComponent` in edit mode and inherited by nested zones via
+`ViewData["ContentZone:OwnerPageId"]`, where a null owner — a global zone — is inherited too rather than
+looked up again); the server enforces the same rules. The window auto-scrolls near
+its edges, Escape cancels, and every drop saves and reloads like other zone edits. On a focused handle,
+ArrowUp/ArrowDown move the item one step within its zone and focus returns to the handle after the reload.
 
 ---
 

@@ -135,6 +135,29 @@ public class WidgetViewComponentTests
     }
 
     [Test]
+    public void ModeView_ConfigWithZoneItem_OwnsNestedZones()
+    {
+        var component = Component(out var widget);
+        widget.Hit("TestWidget", WidgetRenderMode.View, "default", "view.default");
+        var itemNodeId = Guid.NewGuid();
+
+        component.Render(new LayoutConfig { ZoneItemNodeId = itemNodeId });
+
+        Assert.That(component.ViewComponentContext.ViewData["ContentZone:ParentItemId"], Is.EqualTo(itemNodeId));
+    }
+
+    [Test]
+    public void ModeView_ConfigWithoutZoneItem_LeavesParentItemAlone()
+    {
+        var component = Component(out var widget);
+        widget.Hit("TestWidget", WidgetRenderMode.View, "default", "view.default");
+
+        component.Render(new LayoutConfig());
+
+        Assert.That(component.ViewComponentContext.ViewData.ContainsKey("ContentZone:ParentItemId"), Is.False);
+    }
+
+    [Test]
     public void ModeView_ViewMode_ResolvesConfiguredViewWithModel()
     {
         var component = Component(out var widget);

@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20261020160915_InitialCreate")]
+    [Migration("20261021184928_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -543,10 +543,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<Guid>("ContentZoneNodeId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ParentPageNodeId")
+                    b.Property<Guid?>("ParentItemNodeId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ParentZoneNodeId")
+                    b.Property<Guid?>("ParentPageNodeId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SlotName")
@@ -558,19 +558,19 @@ namespace WebWayCMS.Data.Migrations
 
                     b.HasIndex("ContentZoneNodeId");
 
+                    b.HasIndex("ParentItemNodeId", "SlotName")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ContentZoneAssignments_ItemSlot")
+                        .HasFilter("\"ParentItemNodeId\" IS NOT NULL");
+
                     b.HasIndex("ParentPageNodeId", "SlotName")
                         .IsUnique()
                         .HasDatabaseName("IX_ContentZoneAssignments_PageSlot")
                         .HasFilter("\"ParentPageNodeId\" IS NOT NULL");
 
-                    b.HasIndex("ParentZoneNodeId", "SlotName")
-                        .IsUnique()
-                        .HasDatabaseName("IX_ContentZoneAssignments_ZoneSlot")
-                        .HasFilter("\"ParentZoneNodeId\" IS NOT NULL");
-
                     b.ToTable("ContentZoneAssignments", null, t =>
                         {
-                            t.HasCheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentZoneNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentZoneNodeId\" IS NOT NULL)");
+                            t.HasCheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentItemNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentItemNodeId\" IS NOT NULL)");
                         });
                 });
 
@@ -1106,14 +1106,14 @@ namespace WebWayCMS.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("WebWayCMS.Data.Models.ContentNode", "ParentZoneNode")
+                    b.HasOne("WebWayCMS.Data.Models.ContentNode", "ParentItemNode")
                         .WithMany()
-                        .HasForeignKey("ParentZoneNodeId")
+                        .HasForeignKey("ParentItemNodeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("ContentZoneNode");
 
-                    b.Navigation("ParentZoneNode");
+                    b.Navigation("ParentItemNode");
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneDTO", b =>

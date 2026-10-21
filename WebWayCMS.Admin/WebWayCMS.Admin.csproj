@@ -20,6 +20,8 @@
   <Target Name="CopyViewScripts" BeforeTargets="Build">
     <Copy SourceFiles="Views/Shared/Components/ContentZone/edit.js"
           DestinationFiles="wwwroot/js/content-zone-edit.js" />
+    <Copy SourceFiles="Views/Shared/Components/ContentZone/drag.js"
+          DestinationFiles="wwwroot/js/content-zone-drag.js" />
     <Copy SourceFiles="Views/AdminPage/PageUpsert.js"
           DestinationFiles="wwwroot/js/page-upsert.js" />
     <Copy SourceFiles="Views/AdminContentZone/PageZonesEdit.js"

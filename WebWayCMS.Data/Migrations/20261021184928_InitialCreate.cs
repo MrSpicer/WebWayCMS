@@ -342,12 +342,12 @@ namespace WebWayCMS.Data.Migrations
                     SlotName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ContentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
                     ParentPageNodeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    ParentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: true)
+                    ParentItemNodeId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_ContentZoneAssignments", x => x.Id);
-                    table.CheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentZoneNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentZoneNodeId\" IS NOT NULL)");
+                    table.CheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentItemNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentItemNodeId\" IS NOT NULL)");
                     table.ForeignKey(
                         name: "FK_ContentZoneAssignments_ContentNodes_ContentZoneNodeId",
                         column: x => x.ContentZoneNodeId,
@@ -355,8 +355,8 @@ namespace WebWayCMS.Data.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_ContentZoneAssignments_ContentNodes_ParentZoneNodeId",
-                        column: x => x.ParentZoneNodeId,
+                        name: "FK_ContentZoneAssignments_ContentNodes_ParentItemNodeId",
+                        column: x => x.ParentItemNodeId,
                         principalTable: "ContentNodes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -680,18 +680,18 @@ namespace WebWayCMS.Data.Migrations
                 column: "ContentZoneNodeId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_ContentZoneAssignments_ItemSlot",
+                table: "ContentZoneAssignments",
+                columns: new[] { "ParentItemNodeId", "SlotName" },
+                unique: true,
+                filter: "\"ParentItemNodeId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ContentZoneAssignments_PageSlot",
                 table: "ContentZoneAssignments",
                 columns: new[] { "ParentPageNodeId", "SlotName" },
                 unique: true,
                 filter: "\"ParentPageNodeId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneAssignments_ZoneSlot",
-                table: "ContentZoneAssignments",
-                columns: new[] { "ParentZoneNodeId", "SlotName" },
-                unique: true,
-                filter: "\"ParentZoneNodeId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentZoneItems_ContentZoneNodeId_Ordinal",

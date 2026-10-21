@@ -50,6 +50,13 @@ public interface IAdminCrudChildHandler
 
     Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default);
 
+    /// <summary>Whether a child can be moved to another parent (e.g. a zone item to another zone).</summary>
+    bool SupportsMove => false;
+
+    /// <summary>Moves a child under <paramref name="targetParentKey"/> at a 0-based position.</summary>
+    Task<(bool Success, string? ErrorMessage)> MoveAsync(Guid childId, string targetParentKey, int position, CancellationToken ct = default)
+        => Task.FromResult<(bool Success, string? ErrorMessage)>((false, "Move is not supported for this child type."));
+
     bool SupportsVersionHistory => false;
 
     Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid masterId, CancellationToken ct = default)

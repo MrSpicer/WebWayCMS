@@ -40,7 +40,7 @@ consume the whole thing as a NuGet package.
 - **Generic admin CRUD framework** — a single controller drives list/edit/version-history/
   drag-reorder for every content type automatically, including types you add yourself.
 - **Database-backed content zones** — named slots in views hold ordered widget instances with
-  inline add/remove/reorder editing.
+  inline add/remove editing and drag-and-drop moves within and between a page's zones.
 - **Built-in content versioning** — every content type gets version history and a draft/publish workflow for free (identity split from version; edits are drafts until published).
 - **Two deployment modes from one codebase** — full admin, or a rendering-only mode for a public
   front end with no admin surface.

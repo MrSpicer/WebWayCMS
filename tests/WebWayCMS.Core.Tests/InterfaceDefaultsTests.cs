@@ -156,6 +156,8 @@ public class InterfaceDefaultsTests
             Assert.That(await child.GetChildVersionHistoryViewModelAsync("k", Guid.NewGuid()), Is.Null);
             Assert.That(await child.GetChildRestoreVersionViewModelAsync("k", Guid.NewGuid()), Is.Null);
             Assert.That(await child.DeleteChildVersionAsync(Guid.NewGuid()), Is.False);
+            Assert.That(child.SupportsMove, Is.False);
+            Assert.That(await child.MoveAsync(Guid.NewGuid(), "k", 0), Is.EqualTo((false, "Move is not supported for this child type.")));
         });
     }
 

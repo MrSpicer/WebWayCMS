@@ -182,6 +182,41 @@ public class ContentZoneApiController : ControllerBase
     }
 
     /// <summary>
+    /// Moves an item to a 0-based position in a zone: a reorder within its own zone, or a move to
+    /// another zone of the same page (a draft until the page is published). Used by the zone editor's
+    /// drag-and-drop and keyboard reordering.
+    /// </summary>
+    [HttpPost("items/{itemId:guid}/move")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> MoveItem(Guid itemId, [FromBody] MoveItemRequest request, CancellationToken ct)
+    {
+        if (request == null)
+            return BadRequest(new { error = "Request body is required." });
+
+        if (request.TargetZoneId == Guid.Empty)
+            return BadRequest(new { error = "Target zone is required." });
+
+        try
+        {
+            var (success, errorMessage) = await _service.MoveItemAsync(itemId, request.TargetZoneId, request.Position, ct);
+            if (!success)
+            {
+                if (errorMessage == IContentZoneService.ItemNotFoundMessage)
+                    return NotFound(new { error = errorMessage });
+
+                return BadRequest(new { error = errorMessage ?? "Failed to move item." });
+            }
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to move content zone item.");
+            return StatusCode(500, new { error = "Failed to move item." });
+        }
+    }
+
+    /// <summary>
     /// Get a specific item for editing.
     /// </summary>
     [HttpGet("items/{itemId:guid}")]
@@ -329,4 +364,20 @@ public class UpdateItemMetadataRequest
     /// JSON-serialized <c>WidgetMetadata</c> (the display mode plus the admin presentation fields).
     /// </summary>
     public string? MetadataJson { get; set; }
+}
+
+/// <summary>
+/// Request model for moving a content zone item.
+/// </summary>
+public class MoveItemRequest
+{
+    /// <summary>
+    /// The node id of the zone to move the item into (its own zone for a reorder).
+    /// </summary>
+    public Guid TargetZoneId { get; set; }
+
+    /// <summary>
+    /// The 0-based position among the target zone's items, excluding the moved item. Clamped.
+    /// </summary>
+    public int Position { get; set; }
 }

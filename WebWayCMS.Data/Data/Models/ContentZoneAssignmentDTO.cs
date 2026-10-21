@@ -1,8 +1,9 @@
 namespace WebWayCMS.Data.Models;
 
 /// <summary>
-/// Join record linking a content zone to its parent (page or zone) via a named slot.
-/// Exactly one of <see cref="ParentPageNodeId"/> or <see cref="ParentZoneNodeId"/> must be non-null.
+/// Join record linking a content zone to its parent (a page, or the zone item that hosts it) via a
+/// named slot. Exactly one of <see cref="ParentPageNodeId"/> or <see cref="ParentItemNodeId"/> must be
+/// non-null.
 /// </summary>
 public record ContentZoneAssignmentDTO
 {
@@ -17,10 +18,13 @@ public record ContentZoneAssignmentDTO
     /// <summary>Non-null when the parent is a page (references ContentNode.Id).</summary>
     public Guid? ParentPageNodeId { get; set; }
 
-    /// <summary>Non-null when the parent is another content zone (FK to ContentNode.Id).</summary>
-    public Guid? ParentZoneNodeId { get; set; }
+    /// <summary>
+    /// Non-null for a nested zone: the node id of the zone item (e.g. a Layout widget) that renders
+    /// it. Keying by the item rather than its zone means the nested content moves with the item.
+    /// </summary>
+    public Guid? ParentItemNodeId { get; set; }
 
     public ContentNode ContentZoneNode { get; set; } = null!;
 
-    public ContentNode? ParentZoneNode { get; set; }
+    public ContentNode? ParentItemNode { get; set; }
 }

@@ -32,6 +32,9 @@ public sealed record McpDeleteResult(bool Deleted);
 /// <summary>Result of a reorder operation.</summary>
 public sealed record McpReorderResult(bool Reordered);
 
+/// <summary>Result of a move operation.</summary>
+public sealed record McpMoveResult(bool Moved);
+
 /// <summary>One stored media blob, as reported by <c>list_media</c>.</summary>
 public sealed record McpMediaInfo(
     string Hash,

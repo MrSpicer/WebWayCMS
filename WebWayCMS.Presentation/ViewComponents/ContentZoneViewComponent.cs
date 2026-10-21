@@ -16,6 +16,8 @@ namespace WebWayCMS.ViewComponents;
 /// </summary>
 public class ContentZoneViewComponent : ViewComponent
 {
+    private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<ContentZoneViewComponent>();
+
     private readonly IContentZoneModel _model;
     private readonly IWidgetRegistry _registry;
 
@@ -50,6 +52,11 @@ public class ContentZoneViewComponent : ViewComponent
 
         Guid? pageNodeIdForVm = null;
 
+        // The page whose zone tree this zone belongs to (edit mode only): lets the zone editor tell
+        // which zones a widget may be dragged between. Unknown until resolved below.
+        Guid? ownerPageNodeId = null;
+        var ownerResolved = false;
+
         if (zoneId.HasValue)
         {
             // Direct lookup by zone node id - bypasses name/page resolution
@@ -60,23 +67,48 @@ public class ContentZoneViewComponent : ViewComponent
             if (string.IsNullOrWhiteSpace(zoneName))
                 return Content(string.Empty);
 
-            var parentZoneNodeId = ViewData["ContentZone:ParentZoneId"] as Guid?;
+            // Set for each rendered item by WidgetViewComponent (from the item's configuration) and by
+            // the shipped zone views.
+            var parentItemNodeId = ViewData["ContentZone:ParentItemId"] as Guid?;
 
-            if (!IsGlobal && parentZoneNodeId.HasValue)
+            // Rendered inside a zone (the enclosing zone set the render mode) but with no owning item:
+            // falling back to the page slot or zone name could resolve the enclosing zone itself and
+            // recurse forever, so render nothing.
+            if (!IsGlobal && !parentItemNodeId.HasValue && ViewData.ContainsKey("ContentZone:RenderMode"))
             {
-                // Nested zone inside another zone - works with or without page context.
-                vm = await _model.GetOrCreateViewModelByZoneSlotAsync(parentZoneNodeId.Value, zoneName, ct);
+                _logger.Warning(
+                    "Nested content zone '{ZoneName}' has no owning zone item; it is not rendered. A widget that renders nested zones must derive from WidgetViewComponent, or its zone view must set ViewData[\"ContentZone:ParentItemId\"].",
+                    zoneName);
+                return Content(string.Empty);
+            }
+
+            if (!IsGlobal && parentItemNodeId.HasValue)
+            {
+                // Nested zone owned by the zone item (e.g. a Layout widget) rendering it, so the
+                // nested content moves with the item.
+                vm = await _model.GetOrCreateViewModelByItemSlotAsync(parentItemNodeId.Value, zoneName, ct);
+
+                // An enclosing edit-mode zone already resolved the owning page; null (a global zone)
+                // is a resolved answer too, so it is inherited rather than looked up again.
+                if (ViewData.ContainsKey("ContentZone:OwnerPageId"))
+                {
+                    ownerPageNodeId = ViewData["ContentZone:OwnerPageId"] as Guid?;
+                    ownerResolved = true;
+                }
             }
             else if (!IsGlobal && HttpContext.Items["CMS:PageData"] is PageDTO pageData)
             {
                 // Top-level page zone: resolve via assignment
                 pageNodeIdForVm = pageData.Version.Node.Id;
+                ownerPageNodeId = pageNodeIdForVm;
+                ownerResolved = true;
                 vm = await _model.GetOrCreateViewModelByPageSlotAsync(pageData.Version.Node.Id, zoneName, ct);
             }
             else
             {
                 // Global or layout zone: get or create by name
                 vm = await _model.GetOrCreateViewModelAsync(zoneName, ct);
+                ownerResolved = IsGlobal;
             }
         }
 
@@ -99,16 +131,17 @@ public class ContentZoneViewComponent : ViewComponent
             vm.ParentPageNodeId = pageNodeIdForVm;
         }
 
-        // Store this zone's node ID in ViewData so nested zones can use it as their parent
-        if (vm.Id != Guid.Empty)
-            ViewData["ContentZone:ParentZoneId"] = vm.Id;
-
         // Thread the render mode down so widgets and nested zones (e.g. inside a Layout widget)
         // resolve the correct view mode. Edit in the zone editor, View everywhere else.
         ViewData["ContentZone:RenderMode"] = editMode ? WidgetRenderMode.Edit : WidgetRenderMode.View;
 
         if (editMode)
         {
+            if (!ownerResolved && vm.Id != Guid.Empty)
+                ownerPageNodeId = await _model.GetParentPageNodeForZoneAsync(vm.Id, ct);
+            vm.OwnerPageNodeId = ownerPageNodeId;
+            ViewData["ContentZone:OwnerPageId"] = ownerPageNodeId;
+
             ViewData["ComponentsByCategory"] = _registry.GetComponentsByCategory();
             return View("Edit", vm);
         }

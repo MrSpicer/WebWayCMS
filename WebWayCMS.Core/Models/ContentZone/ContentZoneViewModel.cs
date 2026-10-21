@@ -28,6 +28,12 @@ public class ContentZoneViewModel
     public Guid? ParentPageNodeId { get; set; }
 
     /// <summary>
+    /// The page whose zone tree contains this zone (nested zones included), or null for a global
+    /// zone. Set in edit mode only; the zone editor allows drag-moves only between zones of one page.
+    /// </summary>
+    public Guid? OwnerPageNodeId { get; set; }
+
+    /// <summary>
     /// Indicates whether the current user can edit this zone.
     /// </summary>
     public bool CanEdit { get; set; } = false;

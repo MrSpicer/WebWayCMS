@@ -32,6 +32,7 @@ namespace WebWayCMS.ViewComponents;
 public abstract class WidgetViewComponent : ViewComponent
 {
     private const string RenderModeViewDataKey = "ContentZone:RenderMode";
+    private const string ParentItemViewDataKey = "ContentZone:ParentItemId";
 
     private IWidgetViewResolver? _viewResolver;
 
@@ -53,6 +54,12 @@ public abstract class WidgetViewComponent : ViewComponent
     /// <param name="model">The model to pass to the resolved view.</param>
     protected IViewComponentResult ModeView<TModel>(WidgetConfiguration? config, TModel model)
     {
+        // Nested zones in the rendered view (e.g. a Layout's columns) are owned by this zone item. Set
+        // here rather than relying on each ContentZone view, so a host override of those views can't
+        // drop it.
+        if (config?.ZoneItemNodeId is Guid itemNodeId)
+            ViewData[ParentItemViewDataKey] = itemNodeId;
+
         var mode = GetContextMode(config);
         var resolution = ViewResolver.Resolve(ComponentName, mode, config);
 

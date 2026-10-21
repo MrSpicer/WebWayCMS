@@ -13,6 +13,9 @@
             // Razor encodes attribute values and drops an attribute whose value is null.
             var metaClass = string.IsNullOrWhiteSpace(obj.Metadata.CssClass) ? null : obj.Metadata.CssClass.Trim();
             var anchorId = string.IsNullOrWhiteSpace(obj.Metadata.AnchorId) ? null : obj.Metadata.AnchorId;
+            // Nested zones rendered by this item (e.g. a Layout's columns) are owned by it. WidgetViewComponent
+            // also sets this from the item's config; this covers widgets that don't derive from it.
+            ViewData["ContentZone:ParentItemId"] = obj.Id;
             <div class="zone-object @metaClass" id="@anchorId" data-ordinal="@obj.Ordinal">
                 @await Component.InvokeAsync(obj.ComponentName, obj.ComponentProperties)
             </div>

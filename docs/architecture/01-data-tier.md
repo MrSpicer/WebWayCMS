@@ -254,7 +254,12 @@ depends on the read context, so items are resolved through `IContentZoneService.
 Join record scoping a zone node to a page slot or a nested zone slot:
 - `Id`, `SlotName`
 - `ContentZoneNodeId` — FK to `ContentNode.Id`
-- `ParentPageNodeId?` / `ParentZoneNodeId?` — exactly one non-null (check constraint)
+- `ParentPageNodeId?` / `ParentItemNodeId?` — exactly one non-null (check constraint). A nested zone
+  is owned by the zone *item* that renders it (e.g. a Layout widget), so it moves with the item.
+  `ParentItemNodeId` is an FK to `ContentNode.Id` with **restrict** delete: the service deletes an item's
+  nested zone tree explicitly before hard-deleting it, and a hard delete that skips that step fails
+  instead of silently orphaning the nested zones, their items, and their routes. Unique filtered indexes on
+  `(ParentPageNodeId, SlotName)` and `(ParentItemNodeId, SlotName)`.
 
 ---
 
@@ -411,27 +416,27 @@ admin child CRUD, MCP).
 
 | Method | Behaviour |
 |---|---|
-| `GetZoneTreeNodeIdsForPageAsync(pageNodeId)` | Every zone under a page: its assigned zones, then nested child zones, breadth-first (visited set guards cycles) |
+| `GetZoneTreeNodeIdsForPageAsync(pageNodeId)` | Every zone under a page: its assigned zones, then the zones owned by their items (matched on any item version, so a moved item's draft and published zones both count), breadth-first (visited set guards cycles). Each level queries only the current frontier's zones, so the cost follows the page's tree, not the whole zone table |
 | `GetPendingItemNodeIdsAsync(zoneNodeIds)` | Item nodes in those zones whose current draft is not `Published` (never published, or edited since) |
-| `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a pending item anywhere in their zone tree (Pages list "Pending" tag) |
+| `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a pending item anywhere in their zone tree (Pages list "Pending" tag). One breadth-first walk covers all the pages at once |
 | `PublishPageZonesAsync(pageNodeId)` | Publishes every pending item under the page; returns `PageZonePublishResult(Published, Errors)` so the caller (`PageModel`) can register widget routes for what went live. Joins the caller's ambient change set |
-| `DiscardPageZoneDraftsAsync(pageNodeId)` | `DiscardDraftAsync` on every pending item; sweeps route rows of items the discard deleted |
+| `DiscardPageZoneDraftsAsync(pageNodeId)` | `DiscardDraftAsync` on every pending item — once-published items first, so a live widget dragged into a never-published container returns home before the container (and its nested zones) is deleted. A container's nested zones are deleted only when the discard will delete the container itself (its draft is its sole version); one with an earlier version falls back to it and keeps its columns. Items already removed with a deleted container are skipped. Sweeps route rows of items the discard deleted |
 
 | Method | Behaviour |
 |---|---|
 | `GetItemsAsync(zoneNodeId)` | The zone's active items at the read context, ordered by `Ordinal` |
 | `GetZoneByNodeAsync(nodeId)` / `GetZoneByNameAsync(name)` | Zone at the read context |
 | `GetByPageSlotAsync` / `GetOrCreateByPageSlotAsync` | Page-slot assignment (transactional create) |
-| `GetByZoneSlotAsync` / `GetOrCreateByZoneSlotAsync` | Nested zone-slot assignment |
+| `GetByItemSlotAsync` / `GetOrCreateByItemSlotAsync` | Nested zone assignment, keyed by the owning item's node id + slot |
 | `GetOrCreateByNameAsync(name)` | Global zone by name |
-| `GetAllAssignmentsForPageAsync` / `GetAllByPageAsync` / `GetAllByParentZoneAsync` | Assignment/queries |
+| `GetAllAssignmentsForPageAsync` / `GetAllByPageAsync` / `GetAllByParentZoneAsync` | Assignment/queries (a nested zone's parent zone is the zone its owning item's current draft sits in) |
 | `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators |
-| `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks assignments to the owning page node |
+| `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks zone → assignment → page, or → owning item → that item's zone …, to the owning page node (null for global, orphaned, or cyclic zones) |
 | `GetItemByNodeIdAsync` / `AddItemAsync` / `UpdateItemAsync` / `RemoveItemAsync` | Item CRUD (node-keyed) |
 | `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Validates up front that every id resolves and belongs to `zoneNodeId`, then writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation). A missing/foreign id or a failed save returns `false` with no partial reorder. |
-| `DeleteZoneAsync(zoneNodeId)` | Removes assignments + items + the zone, first sweeping each item's widget routes (`CMSRouteDTO` rows keyed to the item node) so a deleted routable widget never leaves a dangling route. |
-| `DeleteZoneTreeAsync(zoneNodeId)` | `DeleteZoneAsync` plus a guarded recursion into child zones assigned via `ParentZoneNodeId`: after the parent is deleted, each child is re-queried and deleted only when nothing references it any more (a `visited` set prevents cycles). |
-| `DeletePageZonesAsync(pageNodeId)` | Removes the page's own assignment rows, then for each distinct zone node re-queries the remaining assignment count and calls `DeleteZoneTreeAsync` when it is `0`. A zone node is deleted exactly when nothing references it any more — whether it is shared with another page or parent, or assigned to two of the same page's slots. This is what stops page deletion from orphaning `ContentZoneAssignments` rows or zone nodes. |
+| `MoveItemAsync(itemNodeId, targetZoneNodeId, position)` | Moves an item to a 0-based (clamped) position among the target's active items, in one ChangeSet. Removed (inactive) items in the target are renumbered in place too, so no two items share an ordinal if a removal is later discarded. A missing or inactive item returns `IContentZoneService.ItemNotFoundMessage` (the API maps it to 404). Same zone = reorder; another zone only within the same page's zone tree, never into the item's own nested zones. Returns `(Success, ErrorMessage)`. A draft until the page is published (global zones auto-publish). See [04 → Moving Items](04-content-zone-framework.md#8a-moving-items-drag-and-drop). |
+| `DeleteZoneAsync(zoneNodeId)` | Removes the zone's assignments, its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back via `DiscardDraftAsync` and only its versions in this zone are dropped. Nested zones hang off items, so deleting a zone's items recurses into them (the zone's own assignment rows go first, so a cycle can't lead back); nested zones still referenced elsewhere survive. |
+| `DeletePageZonesAsync(pageNodeId)` | Removes the page's own assignment rows, then for each distinct zone node re-queries the remaining assignment count and calls `DeleteZoneAsync` when it is `0`. A zone node is deleted exactly when nothing references it any more — whether it is shared with another page or parent, or assigned to two of the same page's slots. This is what stops page deletion from orphaning `ContentZoneAssignments` rows or zone nodes. |
 
 ---
 

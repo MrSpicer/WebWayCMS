@@ -112,6 +112,20 @@
   Publish/Unpublish post to the existing actions with a `returnUrl` (local URLs only). Discard is
   `POST /wadmin/contentzones/page/{pageNodeId}/discard` → `DiscardPageZoneDraftsAsync`. Slots are created
   lazily by the page template, so an empty page loads the preview in the background and reloads once.
+- **Nested zones are owned by items:** `ContentZoneAssignments.ParentItemNodeId` (page XOR item) keys a
+  nested zone (e.g. a Layout's columns) to the zone item rendering it — `WidgetViewComponent.ModeView` sets
+  `ViewData["ContentZone:ParentItemId"]` from `WidgetConfiguration.ZoneItemNodeId` (attached by
+  `ContentZoneModel`; the shipped zone views also set it per item), and `GetOrCreateByItemSlotAsync`
+  resolves it. A zone rendered inside a zone with no owning item renders nothing (it would otherwise alias
+  the enclosing zone and recurse). A container therefore moves with its content; hard-deleting one deletes
+  its nested zone tree first — the `ParentItemNodeId` FK is `Restrict`, so a delete that skips that fails.
+- **Moving items:** `IContentZoneService.MoveItemAsync(item, targetZone, position)` (API
+  `POST /api/contentzones/items/{id}/move`, MCP `move_child` via optional `IAdminCrudChildHandler.SupportsMove`).
+  Same zone = reorder; cross-zone only within one page's zone tree and never into the item's own nested
+  zones; a draft until the page publishes. The zone editor's `ContentZone/drag.js` (→
+  `content-zone-drag.js`) drives it with Pointer Events (grip handle, mouse/touch) plus ArrowUp/ArrowDown
+  on a focused handle; the edit view's `data-page-node-id` (owner page, `ViewData["ContentZone:OwnerPageId"]`)
+  tells the client which zones accept a drop.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
 
 ## Widget Render Modes

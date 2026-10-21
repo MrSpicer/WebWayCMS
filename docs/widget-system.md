@@ -63,7 +63,7 @@ In normal (non-admin) mode the component renders nothing if the zone has no item
 
 Each row of the admin Pages list has an **Edit Zones** button that opens the page zone editor
 (`/wadmin/contentzones/page/{pageNodeId}`): every zone assigned to the page, stacked on one screen in
-the normal zone editor (Add Widget, edit, cog settings, delete; nested Layout zones inline). A toolbar
+the normal zone editor (Add Widget, edit, cog settings, delete, drag to move; nested Layout zones inline). A toolbar
 shows the draft status with **Publish**, **Discard changes**, **Unpublish**, **Edit page**, and **Back**;
 a **Preview** tab shows the draft page in an iframe.
 
@@ -76,8 +76,12 @@ a **Preview** tab shows the draft page in an iframe.
   set. The Pages list shows **Pending** while zone drafts exist.
 - **Discard changes** reverts every pending zone item to its published version (never-published items
   are deleted). Page field edits are not touched.
+- **Drag and drop.** Each widget's toolbar has a grip handle: drag it (mouse or touch) to reorder within
+  a zone or move the widget to any other zone of the same page, including a Layout's columns. A Layout
+  takes its columns' content with it; it can't be dropped into its own columns. With the handle focused,
+  ArrowUp/ArrowDown move the widget one step; Escape cancels a drag. Moves are drafts like any other edit.
 - **Global zones** (`IsGlobal = true`, e.g. a site footer) belong to no page, so their edits still go
-  live immediately.
+  live immediately. Their widgets can be reordered by dragging, but not moved to another zone.
 - A page's slots are created the first time its template renders. The editor handles a brand-new page by
   rendering the preview in the background and reloading once.
 
@@ -423,7 +427,7 @@ properties as nullable (`int?`) and apply the fallback in the widget.
 The `ContentZoneViewComponent` resolves zones via the `ContentZoneAssignments` table rather than path strings:
 
 - **Page-scoped zones** look up by `(ParentPageNodeId, SlotName)` in `ContentZoneAssignments`. If no assignment exists and the user is an admin, a `ContentZoneDTO` + `ContentZoneAssignment` record are created automatically.
-- **Nested zones** (zones rendered inside another zone's layout component) look up by `(ParentZoneNodeId, SlotName)` using the parent zone's ID stored in render context.
+- **Nested zones** (zones rendered inside a zone item, e.g. a Layout widget's columns) look up by `(ParentItemNodeId, SlotName)` using the rendering item's node ID stored in render context (`ViewData["ContentZone:ParentItemId"]`, set by `WidgetViewComponent` from the item's configuration and by the shipped zone views). They belong to the item, so they move with it. A container widget that renders nested zones should derive from `WidgetViewComponent`; a nested zone with no owning item renders nothing.
 - **Global zones** (`IsGlobal = true`) bypass assignment lookup and use name-based lookup on `ContentZoneDTO.Name`.
 
 The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Main"`, `"Sidebar"`) rather than an opaque path. Zone identity is determined by the assignment record, not the name.

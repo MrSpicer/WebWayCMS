@@ -369,6 +369,54 @@ public class ContentZoneApiControllerTests
     }
 
     [Test]
+    public async Task MoveItem_ValidatesRequest()
+    {
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _controller.MoveItem(Guid.NewGuid(), null!, default), Is.InstanceOf<BadRequestObjectResult>());
+            Assert.That(await _controller.MoveItem(Guid.NewGuid(), new MoveItemRequest(), default), Is.InstanceOf<BadRequestObjectResult>());
+        });
+        await _service.DidNotReceive().MoveItemAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task MoveItem_ItemNotFound_Returns404()
+    {
+        _service.MoveItemAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns((false, IContentZoneService.ItemNotFoundMessage));
+
+        var result = await _controller.MoveItem(Guid.NewGuid(), new MoveItemRequest { TargetZoneId = Guid.NewGuid() }, default);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public async Task MoveItem_Success_Rejected_Exception()
+    {
+        var itemNodeId = Guid.NewGuid();
+        var zoneId = Guid.NewGuid();
+        var request = new MoveItemRequest { TargetZoneId = zoneId, Position = 3 };
+        _service.MoveItemAsync(itemNodeId, zoneId, 3, Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, "nope"), (false, (string?)null));
+
+        var ok = await _controller.MoveItem(itemNodeId, request, default);
+        var rejected = (BadRequestObjectResult)await _controller.MoveItem(itemNodeId, request, default);
+        var rejectedNoMessage = (BadRequestObjectResult)await _controller.MoveItem(itemNodeId, request, default);
+
+        _service.MoveItemAsync(itemNodeId, zoneId, 3, Arg.Any<CancellationToken>())
+            .Returns<(bool, string?)>(_ => throw new InvalidOperationException());
+        var failed = (ObjectResult)await _controller.MoveItem(itemNodeId, request, default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.InstanceOf<OkObjectResult>());
+            Assert.That(ValueOf(rejected.Value, "error"), Is.EqualTo("nope"));
+            Assert.That(ValueOf(rejectedNoMessage.Value, "error"), Is.EqualTo("Failed to move item."));
+            Assert.That(failed.StatusCode, Is.EqualTo(500));
+        });
+    }
+
+    [Test]
     public async Task GetItem_FoundAndNotFound()
     {
         var nodeId = Guid.NewGuid();
