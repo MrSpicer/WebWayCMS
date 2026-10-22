@@ -57,6 +57,28 @@ public class ContentStoreTests
             => throw new DbUpdateException("conflict", (Exception?)null);
     }
 
+    // Lets the first saves through and throws a DbUpdateException on save number failOnSave.
+    private sealed class FailingNthSaveStore<T> : ContentStore<T> where T : class, IVersionedContent
+    {
+        private readonly int _failOnSave;
+        private int _saves;
+
+        public FailingNthSaveStore(CmsDbContext ctx, int failOnSave) : base(
+            ctx,
+            new TestReadContext(ContentReadMode.Published),
+            new ChangeSetScope(ctx, new DefaultContentUserContext()),
+            new DefaultContentUserContext(),
+            "contentblocks")
+        {
+            _failOnSave = failOnSave;
+        }
+
+        protected override Task<int> SaveChangesAsync(CancellationToken ct)
+            => ++_saves == _failOnSave
+                ? throw new DbUpdateException("conflict", (Exception?)null)
+                : base.SaveChangesAsync(ct);
+    }
+
     // ─── constructor ──────────────────────────────────────────────────────────
 
     [Test]
@@ -895,6 +917,83 @@ public class ContentStoreTests
             Assert.That(result.Success, Is.True);
             Assert.That(current!.Content, Is.EqualTo("c"));
             Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Archived));
+        });
+    }
+
+    [Test]
+    public async Task PublishAsync_AmbientChangeSetScope_IsJoinedRatherThanMinted()
+    {
+        // Mirrors the page publish cascade: an ambient Publish change set (opened for the page) must
+        // cover the zone items' own PublishAsync calls, so the composite save reads back as one
+        // history entry instead of one change set per item.
+        var ctx = NewContext();
+        var scope = new ChangeSetScope(ctx, new DefaultContentUserContext());
+        var store = new ContentStore<ContentBlockDTO>(
+            ctx, new TestReadContext(ContentReadMode.Published), scope, new DefaultContentUserContext(), "contentblocks");
+
+        var standalone = NewBlock("Standalone");
+        await store.SaveDraftAsync(standalone, null);
+        await store.PublishAsync(standalone.Version.Node!.Id);
+
+        var cascaded = NewBlock("Cascaded");
+        await store.SaveDraftAsync(cascaded, null);
+
+        Guid ambientId;
+        var pageNodeId = Guid.NewGuid();
+        using (scope.Begin(ChangeSetKind.Publish, pageNodeId, null))
+        {
+            ambientId = scope.Current;
+            await store.PublishAsync(cascaded.Version.Node!.Id);
+        }
+
+        await using var verify = NewContext();
+        var changeSets = verify.Set<ChangeSet>().ToList();
+        var cascadedVersion = verify.Set<ContentVersion>().Single(v => v.NodeId == cascaded.Version.Node!.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(cascadedVersion.ChangeSetId, Is.EqualTo(ambientId));
+            Assert.That(changeSets.Any(cs => cs.Kind == ChangeSetKind.Publish && cs.RootNodeId == cascaded.Version.Node!.Id),
+                Is.False, "the ambient page change set covers the item publish");
+        });
+    }
+
+    [Test]
+    public async Task DiscardDraftAsync_DbConflict_MapsToFriendlyMessage()
+    {
+        var nodeId = await CreatePublishedAsync("Live");
+        var store = NewStore();
+        var edit = await store.GetCurrentDraftAsync(nodeId);
+        edit!.Content = "edited";
+        await store.SaveDraftAsync(edit, null);
+
+        var result = await new ThrowingStore<ContentBlockDTO>(NewContext()).DiscardDraftAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
+        });
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task DiscardDraftAsync_DbConflict_LeavesNoPendingChangesOnTheSharedContext(int failOnSave)
+    {
+        // Save 1 removes the draft, save 2 promotes the fallback. Whichever fails, nothing it queued
+        // may linger on the scoped context for the next unrelated SaveChanges to replay.
+        var nodeId = await CreatePublishedAsync("Live");
+        var store = NewStore();
+        var edit = await store.GetCurrentDraftAsync(nodeId);
+        edit!.Content = "edited";
+        await store.SaveDraftAsync(edit, null);
+
+        var ctx = NewContext();
+        var result = await new FailingNthSaveStore<ContentBlockDTO>(ctx, failOnSave).DiscardDraftAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
+            Assert.That(ctx.ChangeTracker.Entries().Where(e => e.State != EntityState.Unchanged), Is.Empty);
         });
     }
 }

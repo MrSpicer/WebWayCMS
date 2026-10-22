@@ -119,7 +119,8 @@
     </div>
 
     <div id="page-zones-panel-preview" class="page-zones-panel" role="tabpanel" aria-labelledby="page-zones-tab-preview" hidden>
-        @* The preview action refreshes the preview cookie, then redirects to /_preview/{id}. *@
+        @* The preview action only redirects to /_preview/{id}; the route transformer marks that one
+           request as a draft read, so drafts never leak site-wide. *@
         <iframe class="page-zones-preview mt-4"
                 title="Draft preview of @Model.PageTitle"
                 data-src="@Url.Action("Preview", "AdminContent", new { contentType = "pages", nodeId = Model.PageNodeId })"

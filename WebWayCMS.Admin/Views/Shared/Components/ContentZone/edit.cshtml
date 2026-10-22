@@ -50,7 +50,7 @@
             // Nested zones rendered by this item (e.g. a Layout's columns) are owned by it. WidgetViewComponent
             // also sets this from the item's config; this covers widgets that don't derive from it.
             ViewData["ContentZone:ParentItemId"] = obj.Id;
-            <div class="zone-object zone-object-edit" data-item-id="@obj.Id" data-component-name="@obj.ComponentName" data-ordinal="@obj.Ordinal" data-zone-id="@obj.ZoneId">
+            <div class="zone-object zone-object-edit" data-item-id="@obj.Id" data-component-name="@obj.ComponentName" data-ordinal="@obj.Ordinal" data-zone-id="@obj.ZoneId" data-version="@obj.VersionNumber">
                 <div class="zone-object-toolbar">
                     @* Drag to move within or between this page's zones; arrow keys reorder (content-zone-drag.js). *@
                     <button type="button" class="zone-drag-handle" title="Drag to move · ↑/↓ to reorder" aria-label="Move @toolbarLabel">

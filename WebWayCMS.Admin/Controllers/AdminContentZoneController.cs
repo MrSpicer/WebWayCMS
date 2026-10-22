@@ -29,9 +29,16 @@ public class AdminContentZoneController : Controller
         _zoneService = zoneService ?? throw new ArgumentNullException(nameof(zoneService));
     }
 
+    /// <summary>
+    /// Edits one zone. The editor writes current drafts (and checks each write against the version it
+    /// rendered), so it reads drafts too — a page-owned zone's pending items would otherwise render
+    /// their published version and every save would be rejected as stale.
+    /// </summary>
     [HttpGet("zone-edit/{id:guid}")]
     public async Task<IActionResult> ZoneEdit(Guid id, CancellationToken ct)
     {
+        PreviewConstants.MarkDraftRequest(HttpContext);
+
         var zone = await _model.GetViewModelByIdAsync(id, ct);
         if (zone == null) return NotFound();
 
@@ -49,7 +56,7 @@ public class AdminContentZoneController : Controller
         var page = await _pageStore.GetCurrentDraftAsync(pageNodeId, ct);
         if (page == null) return NotFound();
 
-        HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true;
+        PreviewConstants.MarkDraftRequest(HttpContext);
 
         var versions = await _pageStore.GetAllVersionsAsync(pageNodeId, ct);
         var isPublished = versions.Any(v => v.Version.State == ContentVersionState.Published);

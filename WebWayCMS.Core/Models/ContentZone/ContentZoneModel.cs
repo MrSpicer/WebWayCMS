@@ -362,6 +362,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
                     Id = i.Version.Node.Id,
                     Ordinal = i.Ordinal,
                     ZoneId = i.ContentZoneNodeId,
+                    VersionNumber = i.Version.VersionNumber,
                     ComponentName = i.ComponentName,
                     ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson),
                     Metadata = WidgetMetadataJson.Parse(i.MetadataJson)
@@ -599,11 +600,13 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 
     public bool SupportsReorder => true;
 
-    public async Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
+    public async Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
     {
         if (!Guid.TryParse(parentKey, out var zoneNodeId))
-            return false;
-        return await _model.ReorderItemsAsync(zoneNodeId, orderedIds, ct);
+            return (false, "The parent key must be a content zone id.");
+        return await _model.ReorderItemsAsync(zoneNodeId, orderedIds, ct)
+            ? (true, null)
+            : (false, "Failed to reorder the items.");
     }
 
     public bool SupportsMove => true;

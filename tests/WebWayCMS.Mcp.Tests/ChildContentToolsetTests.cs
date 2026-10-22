@@ -159,9 +159,11 @@ public class ChildContentToolsetTests
     public async Task ReorderChildren_WhenSupported_ReturnsResult()
     {
         var ids = new List<Guid> { Guid.NewGuid() };
-        _child.ReorderAsync("parent", ids, Arg.Any<CancellationToken>()).Returns(true);
+        _child.ReorderAsync("parent", ids, Arg.Any<CancellationToken>()).Returns((true, (string?)null), (false, "boom"));
 
         Assert.That((await _tools.ReorderChildren("articles", "items", "parent", ids)).Reordered, Is.True);
+        Assert.That(async () => await _tools.ReorderChildren("articles", "items", "parent", ids),
+            Throws.TypeOf<McpException>().With.Message.EqualTo("boom"));
     }
 
     [Test]

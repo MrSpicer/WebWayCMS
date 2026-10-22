@@ -171,9 +171,10 @@ public class AdminContentController : Controller
     /// <summary>
     /// Gates the draft preview on the content type, then redirects to <c>/_preview/{nodeId}</c>. Sets no
     /// cookie: the route transformer marks that one request as a draft read, so drafts never leak site-wide.
+    /// Only Admins reach this action (the controller requires the Admin role), but the transformer itself
+    /// also admits Editors, so an Editor can preview via the <c>/_preview/{nodeId}</c> URL directly.
     /// </summary>
     [HttpGet("{contentType}/preview/{nodeId:guid}")]
-    [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> Preview(string contentType, Guid nodeId, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
@@ -453,8 +454,10 @@ public class AdminContentController : Controller
         if (!HasWriteAccess(child.WriteRoles)) return Forbid();
         if (!child.SupportsReorder) return BadRequest(new { error = "Reorder is not supported for this content type." });
 
-        var success = await child.ReorderAsync(parentKey, orderedIds, ct);
-        return success ? Ok() : StatusCode(500);
+        var (success, errorMessage) = await child.ReorderAsync(parentKey, orderedIds, ct);
+        return success
+            ? Ok()
+            : StatusCode(500, new { error = errorMessage ?? "Failed to reorder the items." });
     }
 
     // ─── Child Version History ─────────────────────────────────────────────────

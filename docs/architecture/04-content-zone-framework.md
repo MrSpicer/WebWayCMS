@@ -227,10 +227,14 @@ Nesting depth is unlimited, but each level adds a database query. Avoid deep nes
 
 ## 8a. Moving Items (drag-and-drop)
 
-`IContentZoneService.MoveItemAsync(itemNodeId, targetZoneNodeId, position)` moves an item to a 0-based
+`IContentZoneService.MoveItemAsync(itemNodeId, targetZoneNodeId, position, expectedVersionNumber)` moves an item to a 0-based
 position (clamped) among the target zone's active items, returning `(bool Success, string? ErrorMessage)`.
 Removed (inactive) items in the target zone are renumbered in place along with the live ones, so ordinals
-stay unique if a removal is later discarded:
+stay unique if a removal is later discarded; a cross-zone move also renumbers the source zone's remaining
+items. `expectedVersionNumber` (the moved item's version as the client rendered it, `data-version` on the
+edit view) rejects the move with the shared stale-version message when the widget changed since the page
+loaded, and every sibling the reorder rewrites carries the version it was read with, so a concurrent edit
+fails the move instead of being silently reverted:
 
 - **Same zone** — a reorder; a global zone auto-publishes, a page zone saves draft ordinals.
 - **Another zone** — allowed only when both zones resolve to the **same page**
@@ -243,7 +247,7 @@ stay unique if a removal is later discarded:
   returns home before that container is deleted; `DeleteZoneAsync` likewise sends an item whose
   published version lives in another zone back instead of deleting it.
 
-Surfaces: `POST /api/contentzones/items/{itemId}/move` (`{ targetZoneId, position }`, used by the zone
+Surfaces: `POST /api/contentzones/items/{itemId}/move` (`{ targetZoneId, position, expectedVersionNumber }`; a stale version answers 409, used by the zone
 editor) and the generic MCP `move_child` tool (`IAdminCrudChildHandler.SupportsMove`/`MoveAsync`).
 
 **Zone editor UI** (`ContentZone/drag.js` → `wwwroot/js/content-zone-drag.js`, loaded once by the edit

@@ -58,6 +58,7 @@ internal static class CmsMiddlewarePipeline
             context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
             if (csp.Length > 0)
                 context.Response.Headers[cspHeaderName] = csp;
+
             await next();
         });
 
@@ -65,8 +66,9 @@ internal static class CmsMiddlewarePipeline
 
         // Authentication runs BEFORE UseRouting so that HttpContext.User is populated when the
         // DynamicRouteValueTransformer (CMSRouteTransformer) runs. The admin preview-aware read
-        // context resolves drafts based on the authenticated user's role + preview cookie, and the
-        // transformer calls into it during endpoint matching — which happens inside UseRouting.
+        // context resolves drafts for requests marked as draft reads (the /_preview route resolution
+        // marks them), and the transformer calls into it during endpoint matching — which happens
+        // inside UseRouting.
         app.UseAuthentication();
 
         app.UseRouting();

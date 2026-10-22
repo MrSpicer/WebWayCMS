@@ -392,7 +392,7 @@ public class ArticleListModelTests
             Assert.That((await child.SaveChildUpsertAsync("list", valid())).Success, Is.True);
             Assert.That((await child.SaveChildUpsertAsync("list", valid())).Success, Is.False);
             Assert.That(await child.DeleteChildAsync(Guid.NewGuid()), Is.True);
-            Assert.That(await child.ReorderAsync("list", new List<Guid>()), Is.False);
+            Assert.That(await child.ReorderAsync("list", new List<Guid>()), Is.EqualTo((false, (string?)null)));
             Assert.That(await child.DeleteChildVersionAsync(Guid.NewGuid()), Is.True);
         });
     }

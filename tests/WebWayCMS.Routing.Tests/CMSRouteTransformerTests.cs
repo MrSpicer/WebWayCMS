@@ -23,13 +23,15 @@ public class CMSRouteTransformerTests
     private IContentStore<PageDTO> _pageStore = null!;
     private CMSRouteTransformer _transformer = null!;
 
+    private static readonly CmsDeploymentOptions AdminMode = new() { IsAdminMode = true };
+
     [SetUp]
     public void SetUp()
     {
         _routeService = Substitute.For<ICMSRouteService>();
         _registry = Substitute.For<IPageControllerRegistry>();
         _pageStore = Substitute.For<IContentStore<PageDTO>>();
-        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore);
+        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, AdminMode);
     }
 
     private static HttpContext CreateHttpContext(string path = "/test")
@@ -659,7 +661,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRouteService_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(null!, _registry, _pageStore));
+            new CMSRouteTransformer(null!, _registry, _pageStore, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("routeService"));
     }
 
@@ -667,7 +669,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRegistry_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, null!, _pageStore));
+            new CMSRouteTransformer(_routeService, null!, _pageStore, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("registry"));
     }
 
@@ -675,8 +677,16 @@ public class CMSRouteTransformerTests
     public void Constructor_NullPageStore_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, _registry, null!));
+            new CMSRouteTransformer(_routeService, _registry, null!, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("pageStore"));
+    }
+
+    [Test]
+    public void Constructor_NullDeploymentOptions_ThrowsArgumentNullException()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            new CMSRouteTransformer(_routeService, _registry, _pageStore, null!));
+        Assert.That(ex!.ParamName, Is.EqualTo("deploymentOptions"));
     }
 
     [Test]
@@ -875,6 +885,38 @@ public class CMSRouteTransformerTests
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
         Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_RenderingOnlyMode_ReturnsNull()
+    {
+        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore,
+            new CmsDeploymentOptions { IsAdminMode = false });
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+
+        var result = await transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+        await _pageStore.DidNotReceive().GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        Assert.That(context.Items.ContainsKey(PreviewConstants.DraftRequestItemKey), Is.False);
+    }
+
+    [Test]
+    public async Task TransformAsync_Preview_AdminModeExplicit_Resolves()
+    {
+        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore,
+            new CmsDeploymentOptions { IsAdminMode = true });
+        var nodeId = Guid.NewGuid();
+        var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
+        _pageStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageDTO { ControllerName = "MyPage", ConfigurationJson = "{}" });
+        _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
+
+        var result = await transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!["controller"], Is.EqualTo("MyPage"));
     }
 
     [Test]

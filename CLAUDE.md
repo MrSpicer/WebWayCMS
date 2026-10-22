@@ -65,7 +65,9 @@
   Writes are `SaveDraftAsync(entity, expectedVersionNumber)`, `PublishAsync`, `UnpublishAsync`,
   `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync`, `DiscardDraftAsync` and return `ContentWriteResult`.
   `DiscardDraftAsync` throws away an unpublished current draft: the published version (else the newest
-  earlier one) becomes current again; a node whose only version is the draft is hard-deleted.
+  earlier one) becomes current again; a node whose only version is the draft is hard-deleted. The
+  discard's delete + fallback-promotion run in one DB transaction, and a conflicting write maps to the
+  shared `StaleVersionMessage` like every other write path.
 - **Two invariants** (enforced in code; filtered unique indexes are the DB backstop): exactly one
   `IsCurrentDraft` per (NodeId, Culture, Segment), and at most one `Published` per variant.
   `SaveDraftAsync` mints a new version only when editing a published item; repeated edits of a draft update
@@ -88,11 +90,20 @@
   derive nested URLs from it.
 - **Preview renders the current draft with no route row.** `GET /wadmin/{contentType}/preview/{nodeId}`
   (gated on `IAdminCrudHandler.SupportsPreview`, `true` only for `PageModel`) only redirects to
-  `/_preview/{nodeId}`. `CMSRouteTransformer` special-cases that path: it requires an authenticated
-  Admin/Editor, loads the draft via `IContentStore<PageDTO>.GetCurrentDraftAsync`, marks the request with
+  `/_preview/{nodeId}` — Admins only, since the controller requires the Admin role; an **Editor**
+  previews via the `/_preview/{nodeId}` URL directly. `CMSRouteTransformer` special-cases that path: it
+  requires an authenticated Admin/Editor, loads the draft via
+  `IContentStore<PageDTO>.GetCurrentDraftAsync`, marks the request with
   `PreviewConstants.DraftRequestItemKey` (so the zones/widgets rendered inside read drafts), and dispatches to
   the page's controller — so a never-published page can preview. Links clicked inside a preview go to the
-  published site. `PreviewConstants` lives in `WebWayCMS.Routing` (namespace `WebWayCMS`).
+  published site. Preview is **admin-mode only** (`CmsDeploymentOptions.IsAdminMode`, set by
+  `AddWebWayCmsAdmin`; a required `CMSRouteTransformer` dependency, so an unregistered mode fails closed;
+  a rendering-only host never resolves `/_preview`). Every draft-read mark goes through
+  `PreviewConstants.MarkDraftRequest(HttpContext)`, which also sends `Cache-Control: no-store` — the
+  only gate is the per-request role check, so a cached draft could otherwise be replayed without it.
+  The single-zone editor (`/wadmin/contentzones/zone-edit/{id}`) marks its request too, so it renders
+  (and version-checks against) current drafts like the page zone editor. `PreviewConstants` and the `AdminRole`/`EditorRole` constants live in
+  `WebWayCMS.Routing` (namespace `WebWayCMS`).
 - Zone **items in a page's zones** (directly or via nested zones — `GetParentPageNodeForZoneAsync`
   resolves to a page) are **drafts until the page is published**, whichever path wrote them (zone editor,
   child CRUD, MCP). Delete of a once-published item saves an `IsActive=false` draft; a never-published
@@ -119,13 +130,24 @@
   resolves it. A zone rendered inside a zone with no owning item renders nothing (it would otherwise alias
   the enclosing zone and recurse). A container therefore moves with its content; hard-deleting one deletes
   its nested zone tree first — the `ParentItemNodeId` FK is `Restrict`, so a delete that skips that fails.
-- **Moving items:** `IContentZoneService.MoveItemAsync(item, targetZone, position)` (API
+- **Moving items:** `IContentZoneService.MoveItemAsync(item, targetZone, position, expectedVersionNumber)` (API
   `POST /api/contentzones/items/{id}/move`, MCP `move_child` via optional `IAdminCrudChildHandler.SupportsMove`).
   Same zone = reorder; cross-zone only within one page's zone tree and never into the item's own nested
-  zones; a draft until the page publishes. The zone editor's `ContentZone/drag.js` (→
+  zones (a cross-zone move also renumbers the source zone's remaining ordinals); a draft until the page
+  publishes. `expectedVersionNumber` (the moved item's version as the client rendered it, `data-version` on
+  the edit view) rejects the move with `StaleVersionMessage` when the widget changed since the page loaded;
+  every sibling the reorder rewrites carries the version it was read with, so a concurrent edit fails the
+  move (409 from the API) instead of being silently reverted. A reorder or move commits in one DB
+  transaction (both zones of a cross-zone move together), and a failure clears the scoped change tracker. The zone editor's `ContentZone/drag.js` (→
   `content-zone-drag.js`) drives it with Pointer Events (grip handle, mouse/touch) plus ArrowUp/ArrowDown
   on a focused handle; the edit view's `data-page-node-id` (owner page, `ViewData["ContentZone:OwnerPageId"]`)
   tells the client which zones accept a drop.
+- **Zone-item writes carry an expected version.** `UpdateItemAsync(item, expectedVersionNumber)` backs the
+  config save (`POST /api/contentzones/items`) and the metadata save (`PUT .../metadata`); the controllers
+  pre-check the version against the loaded item and answer 409 with `StaleVersionMessage` when it mismatched
+  (or when the store's own check rejects a write that raced past the pre-check). The edit view renders
+  `data-version`; `content-zone-edit.js`/`content-zone-drag.js` read it via `czItemVersion` and send it as
+  `expectedVersionNumber` on the config save, the metadata save and the move.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
 
 ## Widget Render Modes
@@ -347,6 +369,9 @@
 - Test naming: `MethodName_Scenario_ExpectedBehavior`, NUnit constraint model (`Assert.That(...)`)
 - Import order: System > Microsoft > Third-party > Project
 - Configuration form fields use `[FormProperty]` attribute with `EditorType` enum
+- Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageUpsert,form-components}.js`
+  sources and the `wwwroot/js/*` copies the `CopyViewScripts` MSBuild target generates on every build.
+  Edit only the `Views/**` source — a hand-edit to a `wwwroot` copy is silently reverted by the next build.
 
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes

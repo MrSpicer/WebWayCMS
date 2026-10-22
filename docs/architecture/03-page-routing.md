@@ -82,22 +82,30 @@ When `TransformAsync` returns `null!`, routing falls through to the conventional
 Preview never touches `CMSRoutes` — it exists precisely so a **never-published** page can render
 its draft (a route row only exists after Publish). When the path matches `/_preview/{nodeId:guid}`:
 
-1. **Authorize** — `httpContext.User` must be authenticated and in `Admin` or `Editor`, otherwise
+1. **Admin mode only** — `CmsDeploymentOptions.IsAdminMode` must be true (set by `AddWebWayCmsAdmin`; the
+   options are a required constructor dependency, so a host that never registered them fails closed);
+   a rendering-only host has no admin pipeline around the mixed draft/published render, so the path
+   resolves to 404 there
+2. **Authorize** — `httpContext.User` must be authenticated and in `Admin` or `Editor`, otherwise
    `return null!` (404, no information leak)
-2. **Load the draft** — `IContentStore<PageDTO>.GetCurrentDraftAsync(nodeId)` (draft, not
+3. **Load the draft** — `IContentStore<PageDTO>.GetCurrentDraftAsync(nodeId)` (draft, not
    read-context aware)
-3. **Resolve the controller** — `IPageControllerRegistry.GetByName(page.ControllerName)`, then
+4. **Resolve the controller** — `IPageControllerRegistry.GetByName(page.ControllerName)`, then
    populate `CMS:PageData` / `CMS:PageConfig` exactly as the normal path does, plus a synthetic
    `CMS:RouteData` (`Pattern = "/_preview/{nodeId}"`)
-4. **Mark the request as a draft read** — `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true`,
-   so `PreviewAwareReadContext` serves drafts for the content zones and widgets rendered *inside* the
-   previewed page. Set only once steps 1–3 succeed
-5. **Dispatch** — return `{ controller = page.ControllerName, action = "Index" }`
+5. **Mark the request as a draft read** — `PreviewConstants.MarkDraftRequest(httpContext)` sets
+   `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true` (and `Cache-Control: no-store`), so `PreviewAwareReadContext` serves drafts for the content zones and widgets rendered *inside* the
+   previewed page. Set only once steps 2–4 succeed
+6. **Dispatch** — return `{ controller = page.ControllerName, action = "Index" }`
 
 `AdminContentController.Preview` gates on `SupportsPreview` and redirects to `/_preview/{nodeId}`; it
 sets no cookie. Draft reads are scoped to that one request: there is no site-wide preview mode, and a
-link clicked inside a preview leads to the published site. `/_preview` responses are the only ones that may
-be framed (same origin only) — the admin page zone editor shows the draft preview in an iframe tab.
+link clicked inside a preview leads to the published site. Any response whose request carries the draft
+mark is sent `Cache-Control: no-store` (`MarkDraftRequest` sets both, so the transformer, the page zone
+editor and the single-zone editor can never mark one without the other) — the only
+gate on draft content is the per-request role check, so a cached draft response could otherwise be
+replayed later without it. `/_preview` responses are the only ones that may be framed (same origin
+only) — the admin page zone editor shows the draft preview in an iframe tab.
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
 > **before** the dynamic route, so real controller routes such as `AdminContentController`'s

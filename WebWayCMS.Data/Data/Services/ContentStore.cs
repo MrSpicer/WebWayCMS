@@ -13,7 +13,7 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public class ContentStore<T> : IContentStore<T> where T : class, IVersionedContent
 {
-    internal const string StaleVersionMessage = "This item was changed by someone else since you opened it.";
+    public const string StaleVersionMessage = "This item was changed by someone else since you opened it.";
     internal const string NotFoundMessage = "Content item not found.";
 
     private readonly CmsDbContext _context;
@@ -376,13 +376,33 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         }
 
         // Remove the draft in its own SaveChanges before promoting the fallback, so the filtered
-        // unique index on IsCurrentDraft never sees two current drafts at once.
-        _set.Remove(currentDraft);
-        _versions.Remove(currentDraft.Version);
-        await SaveChangesAsync(ct);
+        // unique index on IsCurrentDraft never sees two current drafts at once. Both saves run in
+        // one transaction so a crash — or a concurrent RestoreAsync promoting itself in the window —
+        // can never leave the node without a current draft (absence has no index backstop).
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            _set.Remove(currentDraft);
+            _versions.Remove(currentDraft.Version);
+            await SaveChangesAsync(ct);
 
-        fallback.IsCurrentDraft = true;
-        await SaveChangesAsync(ct);
+            fallback.IsCurrentDraft = true;
+            await SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            await transaction.RollbackAsync(ct);
+            // The rollback restores the rows but not the change tracker, which may still hold the
+            // draft's removal or the fallback's promotion. The context is scoped and shared, so the
+            // next SaveChanges (e.g. the next item of a page discard) would otherwise replay them
+            // outside any transaction.
+            _context.Entry(currentDraft).State = EntityState.Detached;
+            _context.Entry(currentDraft.Version).State = EntityState.Detached;
+            _context.Entry(fallback).State = EntityState.Detached;
+            return new ContentWriteResult(false, StaleVersionMessage);
+        }
+
         return new ContentWriteResult(true, VersionId: fallback.Id, NodeId: nodeId);
     }
 

@@ -12,6 +12,14 @@ function getAntiForgeryToken() {
     return tokenInput ? tokenInput.value : '';
 }
 
+// The version a zone item was rendered with (its data-version), sent as expectedVersionNumber so the
+// API rejects a write when the item changed since the page loaded. null means "don't check".
+// Shared with content-zone-drag.js.
+function czItemVersion(zoneObject) {
+    const parsed = parseInt(zoneObject ? zoneObject.dataset.version : '', 10);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
 function initContentZones() {
     document.querySelectorAll('.content-zone-edit').forEach(function (container) {
         if (container.dataset.czInitialized) return;
@@ -33,6 +41,9 @@ function initContentZones() {
             : [];
 
         let editingItemId = null;
+        // The edited item's version as the page rendered it, sent with the save so a concurrent
+        // edit fails with the "changed by someone else" message instead of being overwritten.
+        let editingItemVersion = null;
         // 'Single' or 'List'. Only list-capable widgets can be List; set from the toggle when adding
         // and from the item's metadata when editing (where the settings dialog owns the choice).
         let displayMode = 'Single';
@@ -100,6 +111,7 @@ function initContentZones() {
             btn.addEventListener('click', function () {
                 form.reset();
                 editingItemId = null;
+                editingItemVersion = null;
                 baseProps = {};
                 setDisplayMode('Single');
                 updateDisplayModeField();
@@ -120,6 +132,7 @@ function initContentZones() {
         function closeModal() {
             modal.classList.remove('is-active');
             editingItemId = null;
+            editingItemVersion = null;
             componentSelector.disabled = false;
         }
 
@@ -180,6 +193,7 @@ function initContentZones() {
                     const data = await response.json();
 
                     editingItemId = itemId;
+                    editingItemVersion = czItemVersion(zoneObject);
                     setDisplayMode(parseDisplayMode(data.metadataJson));
                     baseProps = parseProps(data.componentPropertiesJson);
                     componentSelector.value = data.componentName;
@@ -280,6 +294,7 @@ function initContentZones() {
             const settingsTitle = settingsModal.querySelector('.modal-card-title');
             let settingsItemId = null;
             let settingsComponentName = null;
+            let settingsItemVersion = null;
 
             function showSettingsError(message) {
                 settingsError.textContent = message;
@@ -295,6 +310,7 @@ function initContentZones() {
                 settingsModal.classList.remove('is-active');
                 settingsItemId = null;
                 settingsComponentName = null;
+                settingsItemVersion = null;
             }
 
             settingsModal.querySelector('.modal-background').addEventListener('click', closeSettings);
@@ -309,6 +325,7 @@ function initContentZones() {
                     const zoneObject = this.closest('.zone-object-edit');
                     settingsItemId = zoneObject.dataset.itemId;
                     settingsComponentName = zoneObject.dataset.componentName || 'widget';
+                    settingsItemVersion = czItemVersion(zoneObject);
 
                     if (!settingsItemId || settingsItemId === '00000000-0000-0000-0000-000000000000') {
                         alert('Cannot open settings: item ID not found.');
@@ -363,7 +380,7 @@ function initContentZones() {
                             'Content-Type': 'application/json',
                             'RequestVerificationToken': getAntiForgeryToken()
                         },
-                        body: JSON.stringify({ metadataJson: metadataJson })
+                        body: JSON.stringify({ metadataJson: metadataJson, expectedVersionNumber: settingsItemVersion })
                     });
 
                     if (!response.ok) {
@@ -411,6 +428,9 @@ function initContentZones() {
                         itemId: editingItemId,
                         componentName: componentName,
                         componentPropertiesJson: propertiesJson,
+                        // Updates carry the version the page rendered so a concurrent edit is
+                        // rejected instead of overwritten.
+                        expectedVersionNumber: editingItemId ? editingItemVersion : null,
                         // New items carry the Single/List choice; updates keep the stored metadata.
                         metadataJson: !editingItemId && selectedSupportsList()
                             ? JSON.stringify({ DisplayMode: displayMode })

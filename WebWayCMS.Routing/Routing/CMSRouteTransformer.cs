@@ -19,14 +19,20 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
     private readonly IPageControllerRegistry _registry;
     private readonly IContentStore<PageDTO> _pageStore;
 
+    private readonly CmsDeploymentOptions _deploymentOptions;
+
     public CMSRouteTransformer(
         ICMSRouteService routeService,
         IPageControllerRegistry registry,
-        IContentStore<PageDTO> pageStore)
+        IContentStore<PageDTO> pageStore,
+        CmsDeploymentOptions deploymentOptions)
     {
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
+        // Required, so a host that never registered the deployment mode fails at resolution
+        // instead of silently serving drafts.
+        _deploymentOptions = deploymentOptions ?? throw new ArgumentNullException(nameof(deploymentOptions));
     }
 
     public override async ValueTask<RouteValueDictionary> TransformAsync(
@@ -141,11 +147,16 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
 
     private async Task<RouteValueDictionary?> ResolvePreviewAsync(HttpContext httpContext, Guid nodeId)
     {
+        // Preview is an admin-mode feature: a rendering-only host never seeds the Admin/Editor roles
+        // and has no admin pipeline around the mixed draft/published render it would produce.
+        if (!_deploymentOptions.IsAdminMode)
+            return null;
+
         var user = httpContext.User;
         if (user?.Identity?.IsAuthenticated != true)
             return null;
 
-        if (!user.IsInRole("Admin") && !user.IsInRole("Editor"))
+        if (!user.IsInRole(PreviewConstants.AdminRole) && !user.IsInRole(PreviewConstants.EditorRole))
             return null;
 
         var page = await _pageStore.GetCurrentDraftAsync(nodeId);
@@ -156,7 +167,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
             return null;
 
         // Drafts for the zones/widgets rendered inside this page — this request only, never site-wide.
-        httpContext.Items[PreviewConstants.DraftRequestItemKey] = true;
+        PreviewConstants.MarkDraftRequest(httpContext);
 
         httpContext.Items["CMS:RouteData"] = new CMSRouteDTO
         {

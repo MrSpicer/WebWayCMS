@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
         services.Configure<MediaOptions>(configuration.GetSection(MediaOptions.SectionName));
+        services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = false });
         return services;
     }
 
@@ -43,6 +44,8 @@ public static class ServiceCollectionExtensions
         AddWebWayCmsRendering(services, configuration, configure);
         CmsAdminRegistration.MapAdminTypes(services, configuration);
         services.AddWebWayCmsMcp(configuration);
+        // Last registration wins: the admin surface enables the draft preview (/_preview).
+        services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = true });
         return services;
     }
 
@@ -61,6 +64,7 @@ public static class ServiceCollectionExtensions
         CmsIdentityRegistration.ConfigureAuthorization(services, new ConfigurationBuilder().Build());
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
         CmsAdminRegistration.MapAdminTypes(services, new ConfigurationBuilder().Build());
+        services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = true });
         return services;
     }
 

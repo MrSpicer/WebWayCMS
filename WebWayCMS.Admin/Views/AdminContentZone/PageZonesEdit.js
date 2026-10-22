@@ -12,8 +12,8 @@
     const isEmpty = zonesPanel.dataset.empty === 'true';
     const reloadGuardKey = 'wwcms:page-zones-discovery:' + window.location.pathname;
 
-    // (Re)load the draft preview. Always via the admin preview action, which refreshes the
-    // short-lived preview cookie before redirecting to /_preview/{id}.
+    // (Re)load the draft preview. Always via the admin preview action, which redirects to
+    // /_preview/{id}; the route transformer marks that one request as a draft read.
     function loadPreview() {
         if (iframe) iframe.src = iframe.dataset.src;
     }

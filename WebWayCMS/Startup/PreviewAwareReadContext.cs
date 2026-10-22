@@ -30,7 +30,7 @@ internal sealed class PreviewAwareReadContext : IContentReadContext
         var ctx = _httpContextAccessor.HttpContext;
         if (ctx?.User?.Identity?.IsAuthenticated != true)
             return false;
-        if (!(ctx.User.IsInRole("Admin") || ctx.User.IsInRole("Editor")))
+        if (!(ctx.User.IsInRole(PreviewConstants.AdminRole) || ctx.User.IsInRole(PreviewConstants.EditorRole)))
             return false;
         return ctx.Items.TryGetValue(PreviewConstants.DraftRequestItemKey, out var flag) && flag is true;
     }

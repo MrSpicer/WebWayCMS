@@ -96,6 +96,15 @@ public class ContentZoneApiController : ControllerBase
             // Create or update the item
             if (request.ItemId.HasValue && request.ItemId.Value != Guid.Empty)
             {
+                var existingItem = await _service.GetItemByNodeIdAsync(request.ItemId.Value, ct);
+                if (existingItem == null)
+                    return NotFound(new { error = "Item not found." });
+
+                // Reject up front so the client gets the friendly message, not "item not found".
+                if (request.ExpectedVersionNumber.HasValue
+                    && existingItem.Version.VersionNumber != request.ExpectedVersionNumber.Value)
+                    return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
+
                 // Update existing item — service preserves Ordinal and ContentZoneNodeId from existing record
                 var item = new ContentZoneItemDTO
                 {
@@ -106,18 +115,14 @@ public class ContentZoneApiController : ControllerBase
                     IsActive = true
                 };
 
-                var updated = await _service.UpdateItemAsync(item, ct);
+                var updated = await _service.UpdateItemAsync(item, ct, request.ExpectedVersionNumber);
                 if (!updated)
-                    return NotFound(new { error = "Item not found." });
+                    return ItemWriteFailed(request.ExpectedVersionNumber);
 
-                var existingItem = await _service.GetItemByNodeIdAsync(request.ItemId.Value, ct);
-                if (existingItem != null)
-                {
-                    var routeError = await RegisterGlobalWidgetRoutesAsync(
-                        item.ComponentName, existingItem.Version.Node.Id, zoneNodeId, request.ParentPageNodeId, item.IsActive, ct);
-                    if (routeError != null)
-                        return routeError;
-                }
+                var routeError = await RegisterGlobalWidgetRoutesAsync(
+                    item.ComponentName, existingItem.Version.Node.Id, zoneNodeId, request.ParentPageNodeId, item.IsActive, ct);
+                if (routeError != null)
+                    return routeError;
 
                 return Ok(new { success = true, itemId = request.ItemId.Value, zoneId = zoneNodeId });
             }
@@ -198,11 +203,14 @@ public class ContentZoneApiController : ControllerBase
 
         try
         {
-            var (success, errorMessage) = await _service.MoveItemAsync(itemId, request.TargetZoneId, request.Position, ct);
+            var (success, errorMessage) = await _service.MoveItemAsync(itemId, request.TargetZoneId, request.Position, ct, request.ExpectedVersionNumber);
             if (!success)
             {
                 if (errorMessage == IContentZoneService.ItemNotFoundMessage)
                     return NotFound(new { error = errorMessage });
+
+                if (errorMessage == ContentStore<ContentZoneItemDTO>.StaleVersionMessage)
+                    return Conflict(new { error = errorMessage });
 
                 return BadRequest(new { error = errorMessage ?? "Failed to move item." });
             }
@@ -251,31 +259,33 @@ public class ContentZoneApiController : ControllerBase
         if (request == null)
             return BadRequest(new { error = "Request body is required." });
 
-        // The dialog always saves the whole document, so an empty body clears the metadata.
-        string? metadataJson = "{}";
-
         try
         {
             var existing = await _service.GetItemByNodeIdAsync(itemId, ct);
             if (existing == null)
                 return NotFound(new { error = "Item not found." });
 
-            if (!string.IsNullOrWhiteSpace(request.MetadataJson))
-            {
-                var validation = WidgetMetadataJson.Normalize(
-                    request.MetadataJson,
-                    _widgetRegistry.GetByName(existing.ComponentName),
-                    WidgetMetadataJson.StoresList(existing.MetadataJson),
-                    out metadataJson);
-                if (validation != null)
-                    return BadRequest(new { error = validation.ErrorMessage });
-            }
+            // Reject up front so the client gets the friendly message, not "item not found".
+            if (request.ExpectedVersionNumber.HasValue && existing.Version.VersionNumber != request.ExpectedVersionNumber.Value)
+                return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
+
+            // The dialog always saves the whole document, so an empty body clears the metadata. It
+            // still goes through Normalize, so clearing keeps a grandfathered List (the dialog of a
+            // widget that lost list support hides the field and may serialize nothing at all).
+            var source = string.IsNullOrWhiteSpace(request.MetadataJson) ? "{}" : request.MetadataJson;
+            var validation = WidgetMetadataJson.Normalize(
+                source,
+                _widgetRegistry.GetByName(existing.ComponentName),
+                WidgetMetadataJson.StoresList(existing.MetadataJson),
+                out var metadataJson);
+            if (validation != null)
+                return BadRequest(new { error = validation.ErrorMessage });
 
             // Only the metadata column changes; everything else is preserved from the existing item.
             var updated = existing with { MetadataJson = metadataJson };
-            var ok = await _service.UpdateItemAsync(updated, ct);
+            var ok = await _service.UpdateItemAsync(updated, ct, request.ExpectedVersionNumber);
             if (!ok)
-                return NotFound(new { error = "Item not found." });
+                return ItemWriteFailed(request.ExpectedVersionNumber);
 
             return Ok(new { success = true });
         }
@@ -285,6 +295,17 @@ public class ContentZoneApiController : ControllerBase
             return StatusCode(500, new { error = "Failed to update metadata." });
         }
     }
+
+    /// <summary>
+    /// The response for an item update the service rejected after the controller's own version
+    /// pre-check passed. With an expected version, that is a concurrent write landing between the
+    /// pre-check and the save (the store re-checks the version), so it gets the same 409 as the
+    /// pre-check rather than a misleading "not found".
+    /// </summary>
+    private IActionResult ItemWriteFailed(int? expectedVersionNumber)
+        => expectedVersionNumber.HasValue
+            ? Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage })
+            : NotFound(new { error = "Item not found." });
 
     /// <summary>
     /// Registers a widget's routes for an item in a global zone. An item in a page's zone is a draft
@@ -353,6 +374,12 @@ public class SaveItemRequest
     /// mode). Ignored on update.
     /// </summary>
     public string? MetadataJson { get; set; }
+
+    /// <summary>
+    /// The item's version number as the client last saw it (updates only). A mismatch fails the
+    /// save with the "changed by someone else" message instead of silently overwriting the edit.
+    /// </summary>
+    public int? ExpectedVersionNumber { get; set; }
 }
 
 /// <summary>
@@ -364,6 +391,12 @@ public class UpdateItemMetadataRequest
     /// JSON-serialized <c>WidgetMetadata</c> (the display mode plus the admin presentation fields).
     /// </summary>
     public string? MetadataJson { get; set; }
+
+    /// <summary>
+    /// The item's version number as the client last saw it. A mismatch fails the save with the
+    /// "changed by someone else" message instead of silently overwriting the edit.
+    /// </summary>
+    public int? ExpectedVersionNumber { get; set; }
 }
 
 /// <summary>
@@ -380,4 +413,10 @@ public class MoveItemRequest
     /// The 0-based position among the target zone's items, excluding the moved item. Clamped.
     /// </summary>
     public int Position { get; set; }
+
+    /// <summary>
+    /// The moved item's version number as the client last saw it. A mismatch fails the move with
+    /// the "changed by someone else" message instead of silently overwriting a concurrent edit.
+    /// </summary>
+    public int? ExpectedVersionNumber { get; set; }
 }

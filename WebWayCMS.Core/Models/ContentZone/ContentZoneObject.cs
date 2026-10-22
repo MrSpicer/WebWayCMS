@@ -13,6 +13,12 @@ public class ContentZoneObject : IContentZoneObject
     public int Ordinal { get; set; } = 0;
     public Guid ZoneId { get; set; }
 
+    /// <summary>
+    /// The version number of the row this object was mapped from, rendered as a data attribute so
+    /// the zone editor's saves can carry it as the expected version (concurrency check).
+    /// </summary>
+    public int VersionNumber { get; set; }
+
     public string ComponentName { get; set; } = string.Empty;
     public object ComponentProperties { get; set; } = default!;
 

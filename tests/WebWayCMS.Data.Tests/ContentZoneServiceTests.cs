@@ -838,7 +838,7 @@ public class ContentZoneServiceTests
 
         var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
         itemStore.GetCurrentDraftAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(zoneNodeId, itemNodeId, 0, ordinal: 1));
-        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(false, "boom"));
 
         var service = NewService(ctx, itemStore: itemStore);
@@ -1204,7 +1204,7 @@ public class ContentZoneServiceTests
 
         var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
         itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
-        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(false, "boom"));
 
         var ok = await NewService(itemStore: itemStore).RemoveItemAsync(item.Version.Node.Id);
@@ -1623,12 +1623,153 @@ public class ContentZoneServiceTests
         var itemNodeId = Guid.NewGuid();
         var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
         itemStore.GetCurrentDraftAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(zone, itemNodeId, ordinal: 4));
-        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), null, Arg.Any<CancellationToken>())
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(false, "boom"));
 
         var result = await NewService(ctx, itemStore: itemStore).MoveItemAsync(itemNodeId, zone, 0);
 
         Assert.That(result, Is.EqualTo((false, "Failed to move the widget.")));
+    }
+
+    [Test]
+    public async Task MoveItemAsync_StaleVersionNumber_ReturnsStaleMessage()
+    {
+        var zone = await SeedPageZoneAsync(Guid.NewGuid());
+        var item = Item(zone, ordinal: 1);
+        await SeedItemsAsync(item);
+
+        var result = await NewService().MoveItemAsync(item.Version.Node.Id, zone, 0, expectedVersionNumber: 99);
+
+        Assert.That(result, Is.EqualTo((false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage)));
+    }
+
+    [Test]
+    public async Task MoveItemAsync_CrossZone_RenumbersSourceZoneOrdinals()
+    {
+        var page = Guid.NewGuid();
+        var main = await SeedPageZoneAsync(page, "Main");
+        var side = await SeedPageZoneAsync(page, "Side");
+        var a = Item(main, ordinal: 1);
+        var moved = Item(main, ordinal: 2);
+        await SeedItemsAsync(a, moved);
+
+        var (success, _) = await NewService().MoveItemAsync(moved.Version.Node.Id, side, 0);
+
+        await using var verify = NewContext();
+        var store = ItemStore(verify);
+        var remaining = await store.GetCurrentDraftAsync(a.Version.Node.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.True);
+            Assert.That(remaining!.Ordinal, Is.EqualTo(1), "the source zone's gap is closed");
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_CrossZone_SourceRenumberFails_ReturnsError()
+    {
+        var page = Guid.NewGuid();
+        var main = await SeedPageZoneAsync(page, "Main");
+        var side = await SeedPageZoneAsync(page, "Side");
+        var moved = Item(main, ordinal: 1);
+        var stays = Item(main, ordinal: 3); // the gap the moved item leaves behind
+        await SeedItemsAsync(moved, stays);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(moved.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(moved);
+        // The moved item's save (into Side) succeeds; renumbering what stayed in Main fails.
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.ContentZoneNodeId == side), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true));
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.ContentZoneNodeId != side), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "boom"));
+
+        var result = await NewService(itemStore: itemStore).MoveItemAsync(moved.Version.Node.Id, side, 0);
+
+        Assert.That(result, Is.EqualTo((false, "Failed to move the widget.")));
+    }
+
+    [Test]
+    public async Task MoveItemAsync_CrossZone_StaleSiblingInSource_ReturnsStaleMessageAndDiscardsTrackedWrites()
+    {
+        var page = Guid.NewGuid();
+        var main = await SeedPageZoneAsync(page, "Main");
+        var side = await SeedPageZoneAsync(page, "Side");
+        var moved = Item(main, ordinal: 1);
+        var stays = Item(main, ordinal: 3);
+        await SeedItemsAsync(moved, stays);
+
+        var ctx = NewContext();
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(moved.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(moved);
+        // The target save "succeeds" and leaves a tracked row behind, like the real store would;
+        // the source renumber then hits a concurrently edited sibling.
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.ContentZoneNodeId == side), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                ctx.Attach(new ContentNode { Id = Guid.NewGuid(), ContentTypeKey = "contentzoneitems" });
+                return new ContentWriteResult(true);
+            });
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.ContentZoneNodeId != side), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage));
+
+        var result = await NewService(ctx, itemStore: itemStore).MoveItemAsync(moved.Version.Node.Id, side, 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.EqualTo((false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage)));
+            Assert.That(ctx.ChangeTracker.Entries(), Is.Empty, "the rolled-back writes are not left on the shared context");
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_StaleSiblingPartway_ReturnsFalseAndDiscardsTrackedWrites()
+    {
+        var ctx = NewContext();
+        var zoneNodeId = Guid.NewGuid();
+        var a = Item(zoneNodeId, ordinal: 2);
+        var b = Item(zoneNodeId, ordinal: 1);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(a.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(a);
+        itemStore.GetCurrentDraftAsync(b.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(b);
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.Version.NodeId == a.Version.Node.Id), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                ctx.Attach(new ContentNode { Id = Guid.NewGuid(), ContentTypeKey = "contentzoneitems" });
+                return new ContentWriteResult(true);
+            });
+        itemStore.SaveDraftAsync(Arg.Is<ContentZoneItemDTO>(i => i.Version.NodeId == b.Version.Node.Id), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage));
+
+        var ok = await NewService(ctx, itemStore: itemStore).ReorderItemsAsync(zoneNodeId, [a.Version.Node.Id, b.Version.Node.Id]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.False);
+            Assert.That(ctx.ChangeTracker.Entries(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task ReorderItemsAsync_SaveThrows_RethrowsAndDiscardsTrackedWrites()
+    {
+        var ctx = NewContext();
+        var zoneNodeId = Guid.NewGuid();
+        var a = Item(zoneNodeId, ordinal: 2);
+
+        var itemStore = Substitute.For<IContentStore<ContentZoneItemDTO>>();
+        itemStore.GetCurrentDraftAsync(a.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(a);
+        itemStore.SaveDraftAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns<ContentWriteResult>(_ =>
+            {
+                ctx.Attach(new ContentNode { Id = Guid.NewGuid(), ContentTypeKey = "contentzoneitems" });
+                throw new InvalidOperationException("boom");
+            });
+
+        var service = NewService(ctx, itemStore: itemStore);
+
+        Assert.That(async () => await service.ReorderItemsAsync(zoneNodeId, [a.Version.Node.Id]), Throws.InvalidOperationException);
+        Assert.That(ctx.ChangeTracker.Entries(), Is.Empty);
     }
 
     // ─── nested zones owned by items ──────────────────────────────────────────
@@ -1848,6 +1989,85 @@ public class ContentZoneServiceTests
         {
             Assert.That(verify.Set<ContentZoneItemDTO>().Select(i => i.VersionId), Is.EqualTo(new[] { current.VersionId }));
             Assert.That(verify.Set<ContentZoneDTO>().Any(z => z.Version.NodeId == oldZone), Is.False);
+        });
+    }
+
+    // ─── metadata + concurrency on item updates ───────────────────────────────
+
+    [Test]
+    public async Task UpdateItemAsync_MissingMetadataJson_KeepsExisting()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var seeded = Item(zoneNodeId, itemNodeId);
+        seeded.MetadataJson = "{\"x\":1}";
+        await SeedItemsAsync(seeded);
+
+        var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        });
+
+        var current = await ItemStore(NewContext()).GetCurrentDraftAsync(itemNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(current!.MetadataJson, Is.EqualTo("{\"x\":1}"), "a config save must not wipe the metadata dialog's values");
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_BlankMetadataJson_NormalizesToEmptyDocument()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var seeded = Item(zoneNodeId, itemNodeId);
+        seeded.MetadataJson = null; // e.g. a row that predates the metadata column
+        await SeedItemsAsync(seeded);
+
+        var ok = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            MetadataJson = "  ",
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        });
+
+        var current = await ItemStore(NewContext()).GetCurrentDraftAsync(itemNodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(current!.MetadataJson, Is.EqualTo("{}"));
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemAsync_StaleVersionNumber_ReturnsFalse()
+    {
+        var zoneNodeId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        await SeedItemsAsync(Item(zoneNodeId, itemNodeId));
+
+        var stale = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "New",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        }, expectedVersionNumber: 99);
+
+        var fresh = await NewService().UpdateItemAsync(new ContentZoneItemDTO
+        {
+            ComponentName = "Newer",
+            IsActive = true,
+            Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
+        }, expectedVersionNumber: 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stale, Is.False);
+            Assert.That(fresh, Is.True);
         });
     }
 }

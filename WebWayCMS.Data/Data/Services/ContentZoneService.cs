@@ -293,7 +293,7 @@ public sealed class ContentZoneService : IContentZoneService
         return item;
     }
 
-    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default)
+    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null)
     {
         if (item == null) throw new ArgumentNullException(nameof(item));
 
@@ -310,15 +310,16 @@ public sealed class ContentZoneService : IContentZoneService
             ComponentName = item.ComponentName,
             ComponentPropertiesJson = item.ComponentPropertiesJson,
             // Null metadata means "not supplied": a content-config save must never wipe the
-            // per-item metadata edited through the zone editor's metadata dialog.
-            MetadataJson = string.IsNullOrWhiteSpace(item.MetadataJson) ? existing.MetadataJson : item.MetadataJson,
+            // per-item metadata edited through the zone editor's metadata dialog. A blank supplied
+            // document still normalizes to "{}" so the column never holds null on a write.
+            MetadataJson = string.IsNullOrWhiteSpace(item.MetadataJson) ? existing.MetadataJson ?? "{}" : item.MetadataJson,
             IsActive = item.IsActive
             // Ordinal and ContentZoneNodeId are preserved from the existing record.
         };
 
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, nodeId, null);
 
-        var save = await _itemStore.SaveDraftAsync(updated, null, ct);
+        var save = await _itemStore.SaveDraftAsync(updated, expectedVersionNumber, ct);
         if (!save.Success)
             return false;
 
@@ -337,7 +338,9 @@ public sealed class ContentZoneService : IContentZoneService
             && await HasPublishedVersionAsync(itemNodeId, ct))
         {
             using var _ = _changeSetScope.Begin(ChangeSetKind.Save, itemNodeId, null);
-            var save = await _itemStore.SaveDraftAsync(current with { IsActive = false }, null, ct);
+            // Expected = the version just read, so a concurrent edit between the read and this write
+            // fails instead of being overwritten by the inactive copy.
+            var save = await _itemStore.SaveDraftAsync(current with { IsActive = false }, current.Version.VersionNumber, ct);
             return save.Success;
         }
 
@@ -364,14 +367,24 @@ public sealed class ContentZoneService : IContentZoneService
 
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
 
-        return await SaveZoneOrderAsync(zoneNodeId, resolved, publish, skipUnchanged: false, ct);
+        // Each save is version-checked, so a concurrent edit can still fail the loop partway: the
+        // transaction keeps that from leaving half-rewritten (duplicate) ordinals behind.
+        var result = await RunAtomicallyAsync(
+            () => SaveZoneOrderAsync(zoneNodeId, resolved, publish, skipUnchanged: false, ct), ct);
+        return result.Success;
     }
 
-    public async Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default)
+    public async Task<(bool Success, string? ErrorMessage)> MoveItemAsync(
+        Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default, int? expectedVersionNumber = null)
     {
         var item = await _itemStore.GetCurrentDraftAsync(itemNodeId, ct);
         if (item == null || !item.IsActive)
             return (false, IContentZoneService.ItemNotFoundMessage);
+
+        // The caller's view of the widget: reject the move when it was edited since the page loaded,
+        // so a drop can never silently overwrite a concurrent edit.
+        if (expectedVersionNumber.HasValue && item.Version.VersionNumber != expectedVersionNumber.Value)
+            return (false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage);
 
         if (await _zoneStore.GetCurrentDraftAsync(targetZoneNodeId, ct) == null)
             return (false, "Target zone not found.");
@@ -408,18 +421,70 @@ public sealed class ContentZoneService : IContentZoneService
 
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, targetZoneNodeId, null);
 
-        return await SaveZoneOrderAsync(targetZoneNodeId, siblings, publish: !targetPageNodeId.HasValue, skipUnchanged: true, ct)
-            ? (true, null)
-            : (false, "Failed to move the widget.");
+        // Both zones' renumbering commits together or not at all, so a stale sibling in the source
+        // zone can never leave the widget moved while the API reports the move as failed.
+        return await RunAtomicallyAsync(async () =>
+        {
+            var target = await SaveZoneOrderAsync(targetZoneNodeId, siblings, publish: !targetPageNodeId.HasValue, skipUnchanged: true, ct);
+            if (!target.Success)
+                return target;
+
+            // A cross-zone move leaves an ordinal gap in the source zone: renumber what remains, in
+            // place. The moved item's draft already sits in the target zone, so the query finds only
+            // what stayed behind. Both zones belong to the same page (validated above), so there is
+            // nothing to publish here.
+            if (sourceZoneNodeId == targetZoneNodeId)
+                return target;
+
+            var remaining = await CurrentDraftItems()
+                .Where(i => i.ContentZoneNodeId == sourceZoneNodeId)
+                .OrderBy(i => i.Ordinal)
+                .ToListAsync(ct);
+            return await SaveZoneOrderAsync(sourceZoneNodeId, remaining, publish: false, skipUnchanged: true, ct);
+        }, ct);
+    }
+
+    /// <summary>
+    /// Runs a multi-save write in one DB transaction, committing only when it succeeds. On failure the
+    /// rollback restores the rows, and the change tracker is cleared too: the earlier saves left it
+    /// holding values the database no longer has, which the scoped context would otherwise serve back
+    /// (identity resolution) or replay on its next SaveChanges.
+    /// </summary>
+    private async Task<(bool Success, string? ErrorMessage)> RunAtomicallyAsync(
+        Func<Task<(bool Success, string? ErrorMessage)>> write, CancellationToken ct)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var result = await write();
+            if (result.Success)
+            {
+                await transaction.CommitAsync(ct);
+                return result;
+            }
+
+            await transaction.RollbackAsync(ct);
+            _context.ChangeTracker.Clear();
+            return result;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            _context.ChangeTracker.Clear();
+            throw;
+        }
     }
 
     /// <summary>
     /// Writes ordinals 1..n for <paramref name="itemsInOrder"/>, all placed in <paramref name="zoneNodeId"/>
     /// (which is how a moved item changes zone). With <paramref name="skipUnchanged"/>, an item already
     /// in the zone at its ordinal is left alone so a move mints no needless drafts of its siblings.
-    /// The caller owns the change-set scope.
+    /// Every save carries the version the item was read with, so a concurrent edit to a sibling fails
+    /// the whole reorder instead of being overwritten by a stale copy (reported with the store's
+    /// "changed by someone else" message). Earlier saves are not undone here: the caller owns the
+    /// change-set scope and runs this inside <see cref="RunAtomicallyAsync"/>.
     /// </summary>
-    private async Task<bool> SaveZoneOrderAsync(
+    private async Task<(bool Success, string? ErrorMessage)> SaveZoneOrderAsync(
         Guid zoneNodeId, List<ContentZoneItemDTO> itemsInOrder, bool publish, bool skipUnchanged, CancellationToken ct)
     {
         for (int i = 0; i < itemsInOrder.Count; i++)
@@ -428,15 +493,19 @@ public sealed class ContentZoneService : IContentZoneService
             if (skipUnchanged && current.ContentZoneNodeId == zoneNodeId && current.Ordinal == i + 1)
                 continue;
 
-            var save = await _itemStore.SaveDraftAsync(current with { ContentZoneNodeId = zoneNodeId, Ordinal = i + 1 }, null, ct);
+            var save = await _itemStore.SaveDraftAsync(
+                current with { ContentZoneNodeId = zoneNodeId, Ordinal = i + 1 },
+                current.Version.VersionNumber, ct);
             if (!save.Success)
-                return false;
+                return (false, save.ErrorMessage == ContentStore<ContentZoneItemDTO>.StaleVersionMessage
+                    ? save.ErrorMessage
+                    : "Failed to move the widget.");
 
             if (publish)
                 await _itemStore.PublishAsync(current.Version.NodeId, ct);
         }
 
-        return true;
+        return (true, null);
     }
 
     // ─── page draft lifecycle ─────────────────────────────────────────────────
@@ -583,7 +652,12 @@ public sealed class ContentZoneService : IContentZoneService
                      && i.Version.Segment == string.Empty
                      && !i.Version.Node.IsDeleted);
 
-    /// <summary>The zone an item's current draft sits in, or null when the item no longer exists.</summary>
+    /// <summary>
+    /// The zone an item's current draft sits in, or null when the item no longer exists. Resolving
+    /// from the draft (rather than the read-context-appropriate version) is safe for every caller:
+    /// <see cref="MoveItemAsync"/> forbids cross-page moves, so an item's draft and published
+    /// placements always resolve to the same owning page.
+    /// </summary>
     private async Task<Guid?> GetItemZoneAsync(Guid itemNodeId, CancellationToken ct)
         => await CurrentDraftItems()
             .Where(i => i.Version.NodeId == itemNodeId)

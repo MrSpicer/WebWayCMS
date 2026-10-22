@@ -260,7 +260,7 @@ Handles the admin inline zone editing views. Delegates to `IContentZoneModel` fo
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/wadmin/contentzones/zone-edit/{id:guid}` | `ZoneEdit` — one zone (`~/Views/AdminContentZone/ZoneEdit.cshtml`) |
+| GET | `/wadmin/contentzones/zone-edit/{id:guid}` | `ZoneEdit` — one zone (`~/Views/AdminContentZone/ZoneEdit.cshtml`); a draft read (`PreviewConstants.MarkDraftRequest`), so page-owned items render their current draft and version |
 | GET | `/wadmin/contentzones/page/{pageNodeId:guid}` | `PageZones` — the **page zone editor** (`PageZonesEdit.cshtml`); 404 for an unknown page |
 | POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `DiscardPageZoneDraftsAsync`, then back to the editor |
 

@@ -377,9 +377,11 @@ public class AdminContentControllerTests
         Assert.That(await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default), Is.InstanceOf<BadRequestObjectResult>());
 
         _child.SupportsReorder.Returns(true);
-        _child.ReorderAsync("p", Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _child.ReorderAsync("p", Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, (string?)null));
         Assert.That(await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default), Is.InstanceOf<OkResult>());
-        Assert.That(((StatusCodeResult)await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default)).StatusCode, Is.EqualTo(500));
+        var failed = (ObjectResult)await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default);
+        Assert.That(failed.StatusCode, Is.EqualTo(500));
     }
 
     [Test]

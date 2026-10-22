@@ -144,6 +144,9 @@ position (clamped) under a possibly different parent. It is gated on the optiona
 support it, with the target zone's node id as `targetParentKey`. Zone items can move only between
 zones of one page (and never into their own nested zones); a refused move throws with the reason.
 
+`reorder_children` and `move_child` both surface a handler failure as a thrown `McpException` carrying
+the handler's message (a bad parent key, a rejected reorder), never as a bare `false` result.
+
 Child writes on `contentzones` items follow the zone draft rule: in a zone that belongs to a page they
 create **drafts** that go live only when the page is published (`publish_content("pages", nodeId)`
 publishes the page and every pending zone item under it); in a global zone they go live immediately.

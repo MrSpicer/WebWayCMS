@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
+
 namespace WebWayCMS;
 
 /// <summary>
@@ -16,4 +19,25 @@ public static class PreviewConstants
     /// that one request (the <c>/_preview</c> path and the page zone editor).
     /// </summary>
     public const string DraftRequestItemKey = "WebWayCMS:ReadDrafts";
+
+    /// <summary>Role allowed to read drafts (see <see cref="DraftRequestItemKey"/>).</summary>
+    public const string AdminRole = "Admin";
+
+    /// <summary>Second role allowed to read drafts (see <see cref="DraftRequestItemKey"/>).</summary>
+    public const string EditorRole = "Editor";
+
+    /// <summary><c>Cache-Control</c> sent on every draft-read response (see <see cref="MarkDraftRequest"/>).</summary>
+    public const string DraftCacheControl = "no-store, max-age=0";
+
+    /// <summary>
+    /// Marks this request as a draft read and makes its response uncacheable. The only gate on a draft
+    /// is this request's role check, so a cached draft response could otherwise be replayed without it.
+    /// Every draft-read mark goes through here so the two never drift apart.
+    /// </summary>
+    public static void MarkDraftRequest(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        httpContext.Items[DraftRequestItemKey] = true;
+        httpContext.Response.Headers[HeaderNames.CacheControl] = DraftCacheControl;
+    }
 }

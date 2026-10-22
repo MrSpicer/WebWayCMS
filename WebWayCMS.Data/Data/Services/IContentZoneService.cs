@@ -33,10 +33,11 @@ public interface IContentZoneService
     // parent resolution
     Task<Guid?> GetParentPageNodeForZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
 
-    // item writes
+    // item writes. expectedVersionNumber detects concurrent edits (the "changed by someone else"
+    // check SaveDraftAsync performs); null keeps the read-then-write behaviour.
     Task<ContentZoneItemDTO?> GetItemByNodeIdAsync(Guid itemNodeId, CancellationToken ct = default);
     Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default);
-    Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default);
+    Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null);
     Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default);
     Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default);
 
@@ -45,7 +46,9 @@ public interface IContentZoneService
 
     // moves an item to a position (0-based, clamped) among the target zone's active items. Cross-zone
     // moves are limited to one page's zone tree and are drafts until the page is published.
-    Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default);
+    // expectedVersionNumber is the moved item's version as the caller last saw it; a mismatch (someone
+    // edited the widget since the page loaded) fails the move instead of silently overwriting.
+    Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default, int? expectedVersionNumber = null);
 
     // page draft lifecycle. Items in a page's zones (nested included) are drafts until the page is
     // published; these list, publish, and discard those drafts for one page.

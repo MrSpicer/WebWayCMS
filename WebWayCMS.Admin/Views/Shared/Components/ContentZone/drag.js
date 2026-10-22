@@ -1,7 +1,7 @@
 // Content Zone Drag - move widgets within a zone and between the zones of one page.
 // Pointer events (mouse, touch, pen) on each item's drag handle, plus ArrowUp/ArrowDown on the
 // focused handle. Every move is saved through the move API and the page reloads, like every other
-// zone edit. Loaded after content-zone-edit.js (uses getAntiForgeryToken). No jQuery, no inline script.
+// zone edit. Loaded after content-zone-edit.js (uses getAntiForgeryToken, czItemVersion). No jQuery, no inline script.
 (function () {
     'use strict';
 
@@ -49,7 +49,8 @@
         return !!owner && owner === drag.sourceZone.dataset.pageNodeId;
     }
 
-    async function moveItem(itemId, zoneId, position) {
+    async function moveItem(item, zoneId, position) {
+        const itemId = item.dataset.itemId;
         if (saving) return;
         saving = true;
         document.body.classList.add('cz-saving');
@@ -60,7 +61,13 @@
                     'Content-Type': 'application/json',
                     'RequestVerificationToken': getAntiForgeryToken()
                 },
-                body: JSON.stringify({ targetZoneId: zoneId, position: position })
+                // The version the page rendered the item with; the API rejects the move when the
+                // item changed since.
+                body: JSON.stringify({
+                    targetZoneId: zoneId,
+                    position: position,
+                    expectedVersionNumber: czItemVersion(item)
+                })
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(function () { return {}; });
@@ -69,6 +76,8 @@
         } catch (error) {
             console.error('Error moving widget:', error);
             alert('Failed to move widget: ' + error.message);
+        } finally {
+            saving = false;
         }
         // Reload either way so the editor (and the page's Pending status) matches what was saved.
         window.location.reload();
@@ -165,6 +174,13 @@
         current.ghost.remove();
 
         const zone = current.placeholder.parentNode;
+        if (!zone) {
+            // The placeholder's zone disappeared mid-drag (a nested re-render, another tab): put
+            // the item back where it started instead of crashing on the drop.
+            current.placeholder.remove();
+            current.item.classList.remove('is-drag-source');
+            return;
+        }
         const position = indexAmongItems(zone, current.placeholder, current.item);
         const changed = zone !== current.sourceZone || position !== current.startIndex;
 
@@ -173,7 +189,7 @@
         current.placeholder.remove();
         current.item.classList.remove('is-drag-source');
 
-        if (commit && changed) moveItem(current.item.dataset.itemId, zoneIdOf(zone), position);
+        if (commit && changed) moveItem(current.item, zoneIdOf(zone), position);
     }
 
     function onPointerMove(e) {
@@ -252,7 +268,7 @@
         if (target < 0 || target >= ownItems(zone, item).length + 1) return;
 
         try { sessionStorage.setItem(FOCUS_KEY, item.dataset.itemId); } catch (err) { /* focus restore is a convenience */ }
-        moveItem(item.dataset.itemId, zoneIdOf(zone), target);
+        moveItem(item, zoneIdOf(zone), target);
     });
 
     // After a keyboard move reloads the page, put focus back on the moved item's handle.

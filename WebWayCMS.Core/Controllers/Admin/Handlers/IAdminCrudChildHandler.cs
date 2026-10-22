@@ -48,7 +48,7 @@ public interface IAdminCrudChildHandler
 
     bool SupportsReorder { get; }
 
-    Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default);
+    Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default);
 
     /// <summary>Whether a child can be moved to another parent (e.g. a zone item to another zone).</summary>
     bool SupportsMove => false;

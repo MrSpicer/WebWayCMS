@@ -251,8 +251,8 @@ internal sealed class ArticleChildHandler : IAdminCrudChildHandler
 
     public bool SupportsReorder => false;
 
-    public Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
-        => Task.FromResult(false);
+    public Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
+        => Task.FromResult((false, (string?)null));
 
     public bool SupportsVersionHistory => true;
 

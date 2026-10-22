@@ -519,8 +519,9 @@ public class ContentZoneModelTests
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await child.ReorderAsync("not-a-guid", ids), Is.False);
-            Assert.That(await child.ReorderAsync(zoneId.ToString(), ids), Is.True);
+            Assert.That(await child.ReorderAsync("not-a-guid", ids),
+                Is.EqualTo((false, (string?)"The parent key must be a content zone id.")));
+            Assert.That(await child.ReorderAsync(zoneId.ToString(), ids), Is.EqualTo((true, (string?)null)));
         });
         await _service.Received(1).ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>());
     }
@@ -828,7 +829,7 @@ public class ContentZoneModelTests
         _itemStore.DeleteVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(true);
         Assert.That(await child.DeleteChildVersionAsync(item.VersionId), Is.True);
 
-        Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.False);
+        Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.EqualTo((false, (string?)"The parent key must be a content zone id.")));
     }
 
     // --- Registry handler ---

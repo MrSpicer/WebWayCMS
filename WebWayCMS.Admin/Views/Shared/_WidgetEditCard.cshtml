@@ -8,7 +8,7 @@
     <div class="media">
         <div class="media-left">
             <span class="icon has-text-grey">
-                <i class="@Model?.IconClass @(Model != null ? "fas" : "fa fa-cube")" aria-hidden="true"></i>
+                <i class="@(Model != null ? $"fas {Model.IconClass ?? string.Empty}".TrimEnd() : "fa fa-cube")" aria-hidden="true"></i>
             </span>
         </div>
         <div class="media-content">

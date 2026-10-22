@@ -54,6 +54,24 @@ public class AdminContentZoneControllerTests
             Assert.That(await controller.ZoneEdit(Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
         });
     }
+
+    [Test]
+    public async Task ZoneEdit_MarksRequestAsUncachedDraftRead()
+    {
+        var model = Substitute.For<IContentZoneModel>();
+        var controller = new AdminContentZoneController(model, Substitute.For<IWidgetRegistry>(),
+            Substitute.For<IContentStore<PageDTO>>(), Substitute.For<IContentZoneService>());
+        new MvcHarness().Configure(controller, new[] { "Admin" });
+        model.GetViewModelByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentZoneViewModel());
+
+        await controller.ZoneEdit(Guid.NewGuid(), default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(controller.HttpContext.Items[WebWayCMS.PreviewConstants.DraftRequestItemKey], Is.EqualTo(true));
+            Assert.That(controller.Response.Headers.CacheControl.ToString(), Is.EqualTo(WebWayCMS.PreviewConstants.DraftCacheControl));
+        });
+    }
 }
 
 [TestFixture]
@@ -282,6 +300,8 @@ public class ContentZoneApiControllerTests
         var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } } };
         _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
+        _service.GetItemByNodeIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentZoneItemDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } } });
 
         var req = new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageNodeId = pageNodeId, SlotName = "Main", ItemId = Guid.NewGuid() };
 
@@ -289,6 +309,51 @@ public class ContentZoneApiControllerTests
         {
             Assert.That(await _controller.SaveItem(req, default), Is.InstanceOf<OkObjectResult>());
             Assert.That(await _controller.SaveItem(req, default), Is.InstanceOf<NotFoundObjectResult>());
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_UpdateItem_StaleVersion_ReturnsConflictWithoutSaving()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, zoneId);
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+
+        var result = await _controller.SaveItem(
+            new SaveItemRequest { ZoneId = zoneId, ItemId = itemNodeId, ComponentName = "X", ZoneName = "Z", ExpectedVersionNumber = 4 },
+            default);
+
+        var objectResult = (ObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(objectResult.StatusCode, Is.EqualTo(409));
+            Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
+        });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task SaveItem_UpdateItem_PassesExpectedVersionToService()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, zoneId);
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5)).Returns(true);
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(Guid.NewGuid());
+
+        var result = await _controller.SaveItem(
+            new SaveItemRequest { ZoneId = zoneId, ItemId = itemNodeId, ComponentName = "X", ZoneName = "Z", ExpectedVersionNumber = 5 },
+            default);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            await _service.Received(1).UpdateItemAsync(
+                Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5));
         });
     }
 
@@ -388,6 +453,30 @@ public class ContentZoneApiControllerTests
         var result = await _controller.MoveItem(Guid.NewGuid(), new MoveItemRequest { TargetZoneId = Guid.NewGuid() }, default);
 
         Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public async Task MoveItem_PassesExpectedVersionToService_AndSurfacesStaleMessage()
+    {
+        var itemNodeId = Guid.NewGuid();
+        var zoneId = Guid.NewGuid();
+        const string staleMessage = "This item was changed by someone else since you opened it.";
+
+        _service.MoveItemAsync(itemNodeId, zoneId, 3, Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 7))
+            .Returns((false, staleMessage), (true, (string?)null));
+
+        var request = new MoveItemRequest { TargetZoneId = zoneId, Position = 3, ExpectedVersionNumber = 7 };
+        var stale = await _controller.MoveItem(itemNodeId, request, default);
+        var ok = await _controller.MoveItem(itemNodeId, request, default);
+
+        Assert.Multiple(() =>
+        {
+            var staleResult = (ObjectResult)stale;
+            Assert.That(staleResult.StatusCode, Is.EqualTo(409));
+            Assert.That(ValueOf(staleResult.Value, "error"), Is.EqualTo(staleMessage));
+            Assert.That(ok, Is.InstanceOf<OkObjectResult>());
+        });
+        await _service.Received(2).MoveItemAsync(itemNodeId, zoneId, 3, Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 7));
     }
 
     [Test]
@@ -504,6 +593,149 @@ public class ContentZoneApiControllerTests
         });
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
             Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_NotFound_Returns404()
+    {
+        var result = await _controller.UpdateItemMetadata(Guid.NewGuid(), new UpdateItemMetadataRequest(), default);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_StaleVersion_ReturnsConflictWithoutSaving()
+    {
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, Guid.NewGuid());
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+
+        var result = await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest
+        {
+            MetadataJson = "{}",
+            ExpectedVersionNumber = 4
+        }, default);
+
+        var objectResult = (ObjectResult)result;
+        Assert.Multiple(() =>
+        {
+            Assert.That(objectResult.StatusCode, Is.EqualTo(409));
+            Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
+        });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_SavesWithExpectedVersion()
+    {
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, Guid.NewGuid());
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5)).Returns(true);
+
+        var result = await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest
+        {
+            MetadataJson = "{}",
+            ExpectedVersionNumber = 5
+        }, default);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            await _service.Received(1).UpdateItemAsync(
+                Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5));
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_BlankBody_KeepsStoredListForWidgetWithoutListSupport()
+    {
+        // A widget that lost list support hides the display-mode field, so its dialog can save an
+        // empty document; that must not downgrade the grandfathered List to Single.
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, Guid.NewGuid()) with { MetadataJson = "{\"DisplayMode\":\"List\"}" };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        ContentZoneItemDTO? saved = null;
+        _service.UpdateItemAsync(Arg.Do<ContentZoneItemDTO>(i => saved = i), Arg.Any<CancellationToken>(), Arg.Any<int?>())
+            .Returns(true);
+
+        var result = await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest { MetadataJson = " " }, default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(WidgetMetadataJson.StoresList(saved!.MetadataJson), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_InvalidJson_ReturnsBadRequestWithoutSaving()
+    {
+        var itemNodeId = Guid.NewGuid();
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(itemNodeId, Guid.NewGuid()));
+
+        var result = await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest { MetadataJson = "[1]" }, default);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_ConcurrentWriteAfterPreCheck_ReturnsConflict()
+    {
+        // Both requests pass the pre-check at version 5; the store's own check rejects the loser.
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, Guid.NewGuid());
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(false);
+
+        var result = (ObjectResult)await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest
+        {
+            MetadataJson = "{}",
+            ExpectedVersionNumber = 5
+        }, default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.StatusCode, Is.EqualTo(409));
+            Assert.That(ValueOf(result.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
+        });
+    }
+
+    [Test]
+    public async Task UpdateItemMetadata_UpdateFailsWithoutExpectedVersion_ReturnsNotFound()
+    {
+        var itemNodeId = Guid.NewGuid();
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(itemNodeId, Guid.NewGuid()));
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(false);
+
+        var result = await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest { MetadataJson = "{}" }, default);
+
+        Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
+    }
+
+    [Test]
+    public async Task SaveItem_UpdateItem_ConcurrentWriteAfterPreCheck_ReturnsConflict()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, zoneId);
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(false);
+
+        var result = (ObjectResult)await _controller.SaveItem(
+            new SaveItemRequest { ZoneId = zoneId, ItemId = itemNodeId, ComponentName = "X", ZoneName = "Z", ExpectedVersionNumber = 5 },
+            default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.StatusCode, Is.EqualTo(409));
+            Assert.That(ValueOf(result.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
+        });
     }
 
     [Test]

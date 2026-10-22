@@ -141,7 +141,10 @@ public sealed class ChildContentToolset
         var child = Resolve(contentType, childType);
         if (!child.SupportsReorder)
             throw new McpException($"Child type '{childType}' does not support reordering.");
-        return new McpReorderResult(await child.ReorderAsync(parentKey, orderedIds, ct));
+        var (success, errorMessage) = await child.ReorderAsync(parentKey, orderedIds, ct);
+        if (!success)
+            throw new McpException(errorMessage ?? "The reorder failed.");
+        return new McpReorderResult(true);
     }
 
     [McpServerTool(Name = "move_child", Destructive = false, OpenWorld = false)]

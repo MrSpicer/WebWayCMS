@@ -51,7 +51,8 @@ internal sealed class MinimalChild : IAdminCrudChildHandler
     public Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default) => Task.FromResult(new AdminSaveResult(true));
     public Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
     public bool SupportsReorder => false;
-    public Task<bool> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default) => Task.FromResult(false);
+    public Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
+        => Task.FromResult((false, (string?)null));
 }
 
 /// <summary>

@@ -156,6 +156,82 @@ public class WidgetMetadataJsonTests
     }
 
     [Test]
+    public void Normalize_ListAlreadyStored_ModeOmitted_KeepsList()
+    {
+        // The settings dialog of a widget that no longer supports lists hides the display-mode
+        // field; saving the label must not silently downgrade the stored List to Single.
+        var component = new WidgetRegistrationInfo { Name = "Layout", SupportsList = false };
+
+        var error = WidgetMetadataJson.Normalize("{\"adminLabel\":\"X\"}", component, listAlreadyStored: true, out var normalized);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(WidgetMetadataJson.StoresList(normalized), Is.True);
+        });
+    }
+
+    [Test]
+    public void Normalize_ListAlreadyStored_ExplicitSingle_Downgrades()
+    {
+        var component = new WidgetRegistrationInfo { Name = "Layout", SupportsList = false };
+
+        var error = WidgetMetadataJson.Normalize("{\"displayMode\":\"Single\"}", component, listAlreadyStored: true, out var normalized);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(WidgetMetadataJson.StoresList(normalized), Is.False);
+        });
+    }
+
+    [Test]
+    public void Normalize_ListAlreadyStored_ExplicitPascalCaseSingle_Downgrades()
+    {
+        var component = new WidgetRegistrationInfo { Name = "Layout", SupportsList = false };
+
+        var error = WidgetMetadataJson.Normalize("{\"DisplayMode\":\"Single\"}", component, listAlreadyStored: true, out var normalized);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(WidgetMetadataJson.StoresList(normalized), Is.False);
+        });
+    }
+
+    [TestCase("{\"displaymode\":\"Single\"}")]
+    [TestCase("{\"DISPLAYMODE\":\"Single\"}")]
+    public void Normalize_ListAlreadyStored_ExplicitSingleInOtherCasing_Downgrades(string json)
+    {
+        // Deserialization is case-insensitive, so an explicit mode in any casing is a real choice.
+        var component = new WidgetRegistrationInfo { Name = "Layout", SupportsList = false };
+
+        var error = WidgetMetadataJson.Normalize(json, component, listAlreadyStored: true, out var normalized);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(WidgetMetadataJson.StoresList(normalized), Is.False);
+        });
+    }
+
+    [Test]
+    public void Normalize_ListNotStored_ModeOmitted_StaysSingle()
+    {
+        // The omission rule only protects a stored List; a widget that supports lists still gets
+        // its default when the caller omits the mode.
+        var component = new WidgetRegistrationInfo { Name = "Faq", SupportsList = true };
+
+        var error = WidgetMetadataJson.Normalize("{\"adminLabel\":\"X\"}", component, listAlreadyStored: false, out var normalized);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(WidgetMetadataJson.StoresList(normalized), Is.False);
+        });
+    }
+
+    [Test]
     public void StoresList_TrueOnlyForStoredListMode()
     {
         Assert.Multiple(() =>
