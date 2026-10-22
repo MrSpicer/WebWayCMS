@@ -159,15 +159,14 @@ non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_c
 `Destructive` default, with `publish_content` additionally `Idempotent`.
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
-are exactly the admin URL segments: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`,
-`pagetypes`, `formcomponents`, `cmsroutes`.
+are exactly the admin URL segments: `pages`, `contentblocks`, `images`, `articlelists`, `articles`,
+`contentzones`, `widgets`, `pagetypes`, `formcomponents`, `cmsroutes`.
 
-The `articles` type is asymmetric by design: `list_content("articles")` returns the individual
-*articles* (an `EntityType = "Article"` picker resolves to that list via `EntityPickerEndpoint`), while the
-article *lists* an agent creates live behind the secondary list
-`list_secondary_content("articles", "articlelists")`. `list_content_types` advertises this via
-`secondaryApiListKeys`, so an agent that just ran `create_content("articles")` knows to read the
-lists back from the secondary list, not from `list_content`.
+Articles and article lists are two ordinary top-level types: create a list with
+`create_content("articlelists", …)`, then an article with `create_content("articles", …)` whose `fields`
+include `articleListId` (the list's node id — required; an empty or unknown id is rejected on that field),
+and `publish_content` each. Articles have no child tools; zone items (`contentzones` / `items`) are the only
+child type.
 
 ---
 

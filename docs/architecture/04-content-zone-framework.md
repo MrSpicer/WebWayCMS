@@ -305,9 +305,9 @@ map. Resolution order:
 1. a handler whose `ContentType` equals the entity type → `GET /wadmin/{contentType}/api/list`
    (e.g. host `faqs`);
 2. a handler whose `ContentType` is the plural (`ContentBlock` → `contentblocks`, `Image` → `images`,
-   `Article` → `articles`, `ContentZone` → `contentzones`);
-3. a handler secondary list key equal to the entity type or its plural
-   (`ArticleList` → `GET /wadmin/articles/api/articlelists`).
+   `Article` → `articles`, `ArticleList` → `articlelists`, `ContentZone` → `contentzones`);
+3. a handler secondary list key equal to the entity type or its plural (for a handler that serves a
+   second list under its own URL: `GET /wadmin/{contentType}/api/{key}`).
 
 A host content type can therefore be an `EntityPicker` target by setting
 `EntityType = "<contentTypeKey>"` — no JS edit required. With no match (or on a rendering-only host,
@@ -325,19 +325,19 @@ Building a full end-to-end widget test surfaced these gaps. None are silently pa
    and never calls `IWidgetRegistry.ValidateConfiguration` — which is dead code, nothing in the
    product calls it. So `IsRequired` / `Min` / `Max` / `MaxLength` / `Pattern` on a widget config are
    declared and never enforced, and a `RichText` config property is stored raw.
-2. **`_widget` in a widget route's `DefaultsJson` never reaches `RouteData`.** `CMSRouteTransformer`
-   forwards only `controller` and `action` from defaults, plus the captured route values. The `_widget`
-   default that `ArticleViewComponent.GenerateRoutesAsync` sets is dead metadata. Widgets therefore
-   discriminate on their captured parameter names (`slug` vs `topic`), not on `_widget`.
+2. **A widget route's `DefaultsJson` never reaches `RouteData`.** `CMSRouteTransformer` forwards only
+   `controller` and `action` from defaults, plus the captured route values — and every CMS request also
+   carries the host catch-all's `slug` (the page path on a plain page request). Widgets therefore decide
+   whether a route value is theirs from the matched route (`HttpContext.Items["CMS:RouteData"]`) via
+   `WidgetViewComponent.IsOwnWidgetRoute` / `IsWidgetRouteRequest`, not from route-value names.
 3. **`NormalizePattern` lowercases whole widget patterns**, so an uppercase-bearing inline regex
    constraint in a widget route silently stops matching.
-4. **`RouteRegistrationService` defaults `OwningContentType ??= "ArticleWidget"`** — an
-   Article-specific fallback applied to every widget route. Routable widgets should set
-   `OwningContentType` explicitly.
+4. **`RouteRegistrationService` defaults `OwningContentType ??= "{ComponentName}Widget"`** for a widget
+   route that leaves it unset (it was once hard-coded to `"ArticleWidget"`).
 5. **`CMSRouteDTO.ConstraintsJson` is write-only.** `CMSRouteService.TryMatchPattern` parses
    constraints out of the *pattern text* (`ParseParameter` → `ApplyConstraint`, supporting `int`,
    `guid`, `bool` and `regex(...)`); nothing in the product ever reads `ConstraintsJson`. It is
-   written by `MappingProfile`, `CmsRouteSeeder` and `ArticleViewComponent.GenerateRoutesAsync`, and
+   written by `MappingProfile` and `CmsRouteSeeder`, and
    consumed by nobody — so a constraint declared there is silently unenforced. Routable widgets must
    put constraints **inline**: `Pattern = "{slug:regex(^[a-z0-9-]+$)}"`, not
    `ConstraintsJson = {"slug":"regex(...)"}`.

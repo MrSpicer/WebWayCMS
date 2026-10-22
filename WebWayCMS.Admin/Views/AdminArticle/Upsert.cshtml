@@ -3,26 +3,33 @@
 @{
     var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Article" : "New Article";
-    var slug = ViewData["ArticleListSlug"] as string ?? "";
-    var listTitle = ViewData["ArticleListTitle"] as string ?? "Article List";
+    var listId = Model?.ArticleListId is { } id && id != Guid.Empty ? id : (Guid?)null;
 }
 
 <div class="admin-page-header">
     <div class="container">
         <nav class="breadcrumb" aria-label="breadcrumbs">
             <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles">Article Lists</a></li>
-                <li><a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@slug" asp-route-childType="articles">@listTitle</a></li>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@listId">Articles</a></li>
                 <li class="is-active"><a aria-current="page">@ViewData["Title"]</a></li>
             </ul>
         </nav>
-        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+        <div class="admin-page-title-row">
+            <div>
+                <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+                @if (isEdit)
+                {
+                    <p class="subtitle is-6 has-text-grey"><code class="is-size-7" title="@Model?.NodeId">@Model?.NodeId</code></p>
+                }
+            </div>
+        </div>
     </div>
 </div>
 
 <section class="section">
 <div class="container">
-        <form asp-action="ChildEdit" asp-controller="AdminContent" asp-route-contentType="articles" asp-route-parentKey="@slug" asp-route-childType="articles" method="post" novalidate>
+        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articles" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
                 @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
@@ -33,8 +40,21 @@
                 </div>
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">
-                        <button type="submit" class="button is-primary mr-3">Save</button>
-                        <a asp-action="ChildIndex" asp-controller="AdminContent" asp-route-contentType="articles" asp-route-parentKey="@slug" asp-route-childType="articles" class="button">Cancel</a>
+                        <button type="submit" class="button is-primary mr-3">Save as Draft</button>
+                        @if (Model != null)
+                        {
+                            @if (Model.IsPublished)
+                            {
+                                <button type="submit" class="button is-warning mr-3"
+                                        asp-controller="AdminContent" asp-action="Unpublish"
+                                        asp-route-contentType="articles" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+                            }
+                            else
+                            {
+                                <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
+                            }
+                        }
+                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articles" asp-route-list="@listId" class="button">Cancel</a>
                     </div>
                 </footer>
             </div>

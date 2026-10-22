@@ -223,6 +223,41 @@ public class ContentStoreTests
     }
 
     [Test]
+    public async Task FindAsync_FiltersAtTheReadContext()
+    {
+        var published = await CreatePublishedAsync("Live");
+        await CreatePublishedAsync("Other");
+        await NewStore().SaveDraftAsync(NewBlock("Draft only"), null);
+
+        var found = await NewStore().FindAsync(b => b.Version.Title != "Other");
+
+        Assert.That(found.Select(b => b.Version.Node.Id), Is.EqualTo(new[] { published }));
+    }
+
+    [Test]
+    public async Task FindCurrentDraftsAsync_FiltersCurrentDrafts()
+    {
+        await CreatePublishedAsync("Live");
+        await NewStore().SaveDraftAsync(NewBlock("Draft only"), null);
+
+        var found = await NewStore().FindCurrentDraftsAsync(b => b.Version.Title == "Draft only");
+
+        Assert.That(found.Select(b => b.Version.Title), Is.EqualTo(new[] { "Draft only" }));
+    }
+
+    [Test]
+    public async Task CountCurrentDraftsByAsync_GroupsByTheKey()
+    {
+        await NewStore().SaveDraftAsync(NewBlock("A"), null);
+        await NewStore().SaveDraftAsync(NewBlock("A"), null);
+        await NewStore().SaveDraftAsync(NewBlock("B"), null);
+
+        var counts = await NewStore().CountCurrentDraftsByAsync(b => b.Version.Title!);
+
+        Assert.That(counts, Is.EquivalentTo(new Dictionary<string, int> { ["A"] = 2, ["B"] = 1 }));
+    }
+
+    [Test]
     public async Task GetCurrentDraftBySlugAsync_HitMissAndBlank()
     {
         var store = NewStore();

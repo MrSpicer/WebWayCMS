@@ -9,6 +9,7 @@ using NUnit.Framework;
 
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
+using WebWayCMS.Data.Models;
 using WebWayCMS.Services;
 using WebWayCMS.ViewComponents;
 
@@ -28,6 +29,10 @@ public class WidgetViewComponentTests
         public WidgetRenderMode Mode(WidgetConfiguration? config) => RenderModeFor(config);
 
         public static WidgetDisplayMode Display(WidgetConfiguration? config) => DisplayModeFor(config);
+
+        public bool OwnsRoute(WidgetConfiguration? config) => IsOwnWidgetRoute(config);
+
+        public bool OnWidgetRoute() => IsWidgetRouteRequest();
     }
 
     // Type name without the suffix keeps its full name as ComponentName.
@@ -278,5 +283,53 @@ public class WidgetViewComponentTests
     // Minimal concrete configuration for the component tests.
     private sealed class LayoutConfig : WidgetConfiguration
     {
+    }
+
+    [Test]
+    public void IsOwnWidgetRoute_TrueOnlyForARouteThisItemOwns()
+    {
+        var component = Component(out _);
+        var itemId = Guid.NewGuid();
+        var config = new LayoutConfig { ZoneItemNodeId = itemId };
+
+        var noRoute = component.OwnsRoute(config);
+        component.HttpContext.Items["CMS:RouteData"] = new CMSRouteDTO { OwningContentNodeId = Guid.NewGuid() };
+        var otherOwner = component.OwnsRoute(config);
+        component.HttpContext.Items["CMS:RouteData"] = new CMSRouteDTO { OwningContentNodeId = null };
+        var noOwner = component.OwnsRoute(config);
+        component.HttpContext.Items["CMS:RouteData"] = new CMSRouteDTO { OwningContentNodeId = itemId };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noRoute, Is.False);
+            Assert.That(otherOwner, Is.False);
+            Assert.That(noOwner, Is.False);
+            Assert.That(component.OwnsRoute(config), Is.True);
+            Assert.That(component.OwnsRoute(new LayoutConfig()), Is.False, "no zone item attached");
+            Assert.That(component.OwnsRoute(null), Is.False);
+        });
+    }
+
+    [TestCase(null, false)]
+    [TestCase("", false)]
+    [TestCase("{}", false)]
+    [TestCase("{\"RouteContentType\":\"Page\"}", false)]
+    [TestCase("not json", false)]
+    [TestCase("null", false)]
+    [TestCase("{\"ParentPageNodeId\":\"6f1d3a1e-0000-0000-0000-000000000001\"}", true)]
+    public void IsWidgetRouteRequest_TrueForRoutesCarryingTheParentPageToken(string? dataTokens, bool expected)
+    {
+        var component = Component(out _);
+        component.HttpContext.Items["CMS:RouteData"] = new CMSRouteDTO { DataTokensJson = dataTokens! };
+
+        Assert.That(component.OnWidgetRoute(), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void IsWidgetRouteRequest_NoMatchedRoute_IsFalse()
+    {
+        var component = Component(out _);
+
+        Assert.That(component.OnWidgetRoute(), Is.False);
     }
 }

@@ -38,7 +38,7 @@ There are three ways a row gets into `CMSRoutes`:
 | Source | `OwningContentType` | Written by |
 |---|---|---|
 | A page, from its Slug | `"Page"` | `PageModel` → `IRouteRegistrationService.RegisterContentRoutesAsync` on publish |
-| A routable widget placed in a zone | e.g. `"ArticleWidget"` | `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when the zone item is created |
+| A routable widget placed in a zone | e.g. `"ArticleWidget"` | `IRouteRegistrationService.TryRegisterWidgetRoutesAsync`, from the page publish cascade |
 | A `[CmsRoute]`-decorated controller | `"CodeBased"` | `CmsRouteSeeder.EnsureCodeBasedRoutesSeeded` at startup |
 
 Rows are also editable directly through the admin UI at `/wadmin/cmsroutes` (the `cmsroutes`
@@ -400,7 +400,7 @@ bare success).
 | `RegisterContentRoutesAsync(content, routePattern, controllerName, contentNodeId, navigationName, ct)` | Writes the owning content's route with `Defaults = {controller, action}`, `DataTokens = {RouteContentType}`, and the supplied `NavigationName`, truncated to `CMSRouteDTO.NavigationNameMaxLength` (a title allows 500 characters, the column stores 256; an over-long value would fail the insert, which `UpsertAsync` can only report as a route-pattern collision). `PageModel.PublishPageAsync` supplies it: a publish replaces the row wholesale, so when `previousRoutes` is non-empty it carries that row's `NavigationName` forward **as-is**, and only a page with no prior route row at all (its first publish) seeds one from the draft's `Title`. An admin edit therefore survives a republish — and so does a deliberate *clear*, which is what takes the page out of the navigation widgets — at the cost of a later title rename no longer propagating |
 | `UnregisterContentRoutesAsync(contentNodeId, ct)` | Hard-deletes all routes owned by that content |
 | `RegisterWidgetRoutesAsync(...)` | First sweeps the owner's existing routes (a widget's route set is fully recomputed, so a rename/reparent drops stale patterns), then prefixes a widget's pattern with its parent page route, merges the parent's defaults, and injects `DataTokens["ParentPageNodeId"]`; each generated route is upserted by its own `(owner, pattern)`, so a multi-route widget keeps every route |
-| `TryRegisterWidgetRoutesAsync(componentName, contentZoneItemNodeId, parentPageNodeId, isActive, ct)` | Looks the component up among the registered `IRoutableViewComponent`s and registers its routes if it is one; returns `(bool Success, string? ErrorMessage)` — the inactive/no-parent/no-widget/no-page-route early-outs are benign no-ops reported as success, and a real `UpsertAsync` collision propagates as failure |
+| `TryRegisterWidgetRoutesAsync(componentName, contentZoneItemNodeId, parentPageNodeId, isActive, metadataJson, ct)` | Looks the component up among the registered `IRoutableViewComponent`s and registers its routes if it is one, passing the item's effective display mode (`List` only when `metadataJson` selects it and the widget's registration `SupportsList`); returns `(bool Success, string? ErrorMessage)` — the inactive/no-parent/no-widget/no-page-route early-outs are benign no-ops reported as success, and a real `UpsertAsync` collision propagates as failure |
 
 Two interfaces opt content into this:
 
@@ -415,13 +415,14 @@ public interface IRoutableViewComponent
 {
     string ComponentName { get; }
     Task<IReadOnlyList<CMSRouteDTO>> GenerateRoutesAsync(
-        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct);
+        string parentRoute, Guid contentZoneItemNodeId, WidgetDisplayMode displayMode, CancellationToken ct);
 }
 ```
 
 `PageModel` implements `IRoutableContent` (`RouteContentType => "Page"`). `ArticleViewComponent`
-implements `IRoutableViewComponent` — dropping an Article widget onto a page registers a
-`{slug}` sub-route beneath that page's URL, which is how article detail URLs work. That replaces
+implements `IRoutableViewComponent` — an Article widget on a page (Single or List mode) registers a
+`{slug:regex(^[a-z0-9-]+$)}` sub-route beneath that page's URL, which is how article detail URLs work. A
+List-mode `Faq` (TestHost) registers none: route generation receives the item's display mode. That replaces
 the old `ISubRouteContent` resolver mechanism, which no longer exists.
 
 ---

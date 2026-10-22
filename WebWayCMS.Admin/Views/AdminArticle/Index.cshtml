@@ -9,7 +9,7 @@
     <div class="container">
         <div class="admin-page-title-row">
             <h1 class="title is-4">Article Lists</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" class="button is-primary">
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articlelists" class="button is-primary">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
                 <span>New Article List</span>
             </a>
@@ -29,7 +29,7 @@
                     </span>
                     <p class="title is-5">No article lists yet</p>
                     <p class="subtitle is-6 has-text-grey">Create your first article list to get started.</p>
-                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" class="button is-primary mt-2">New Article List</a>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articlelists" class="button is-primary mt-2">New Article List</a>
                 </div>
             </div>
         }
@@ -53,17 +53,17 @@
                         {
                             <tr>
                                 <td class="admin-list-main">
-                                    <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@list.Slug" asp-route-childType="articles" class="admin-list-title">@list.Title</a>
+                                    <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@list.NodeId" class="admin-list-title">@list.Title</a>
                                 </td>
                                 <td class="is-hidden-mobile">@list.Slug</td>
-                                <td>@list.ArticleCount</td>
+                                <td><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@list.NodeId" aria-label="@list.ArticleCount article(s) in @list.Title">@list.ArticleCount</a></td>
                                 <td><partial name="_StatusBadge" model="(list.IsPublished, false)" /></td>
                                 <td class="is-hidden-mobile">@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="admin-row-actions">
                                         @if (!list.IsPublished)
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post">
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" method="post">
                                                 <button type="submit" class="button is-small is-success">
                                                     <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
                                                     <span>Publish</span>
@@ -72,14 +72,14 @@
                                         }
                                         else
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post">
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" method="post">
                                                 <button type="submit" class="button is-small is-warning is-light">
                                                     <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
                                                     <span>Unpublish</span>
                                                 </button>
                                             </form>
                                         }
-                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@list.Slug" asp-route-childType="articles" class="button is-small">
+                                        <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@list.NodeId" class="button is-small">
                                             <span class="icon"><i class="fas fa-newspaper" aria-hidden="true"></i></span>
                                             <span>Articles</span>
                                         </a>
@@ -93,19 +93,19 @@
                                             </div>
                                             <div class="dropdown-menu" id="row-menu-@list.NodeId" role="menu">
                                                 <div class="dropdown-content">
-                                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articles" asp-route-id="@list.NodeId" class="dropdown-item" role="menuitem">
+                                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articlelists" asp-route-id="@list.NodeId" class="dropdown-item" role="menuitem">
                                                         <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
                                                         <span>Settings</span>
                                                     </a>
-                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" class="dropdown-item" role="menuitem">
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" class="dropdown-item" role="menuitem">
                                                         <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
                                                         <span>Version history</span>
                                                     </a>
                                                     <hr class="dropdown-divider" />
                                                     <button type="button" class="dropdown-item is-danger" role="menuitem"
                                                             data-delete-trigger
-                                                            data-delete-name="@list.Title"
-                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articles", id = list.NodeId })">
+                                                            data-delete-name="@list.Title and its @list.ArticleCount article(s)"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articlelists", id = list.NodeId })">
                                                         <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                                         <span>Delete</span>
                                                     </button>

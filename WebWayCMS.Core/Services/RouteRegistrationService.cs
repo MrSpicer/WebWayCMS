@@ -1,8 +1,11 @@
 using System.Text.Json;
 
+using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Interfaces;
+using WebWayCMS.Models.ContentZone;
 
 namespace WebWayCMS.Services;
 
@@ -10,13 +13,16 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 {
     private readonly ICMSRouteService _routeService;
     private readonly IEnumerable<IRoutableViewComponent> _routableWidgets;
+    private readonly IWidgetRegistry _widgetRegistry;
 
     public RouteRegistrationService(
         ICMSRouteService routeService,
-        IEnumerable<IRoutableViewComponent> routableWidgets)
+        IEnumerable<IRoutableViewComponent> routableWidgets,
+        IWidgetRegistry widgetRegistry)
     {
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _routableWidgets = routableWidgets ?? throw new ArgumentNullException(nameof(routableWidgets));
+        _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
     }
 
     public async Task<(bool Success, string? ErrorMessage)> RegisterContentRoutesAsync(
@@ -64,9 +70,9 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
     public async Task<(bool Success, string? ErrorMessage)> RegisterWidgetRoutesAsync(
         IRoutableViewComponent widget, Guid contentZoneItemNodeId, string parentRoute,
-        string parentDefaultsJson, Guid parentPageNodeId, CancellationToken ct = default)
+        string parentDefaultsJson, Guid parentPageNodeId, WidgetDisplayMode displayMode, CancellationToken ct = default)
     {
-        var widgetRoutes = await widget.GenerateRoutesAsync(parentRoute, contentZoneItemNodeId, ct);
+        var widgetRoutes = await widget.GenerateRoutesAsync(parentRoute, contentZoneItemNodeId, displayMode, ct);
 
         // A widget's route set is fully recomputed on each registration, so sweep the owner's existing
         // rows first — otherwise a rename/reparent leaves stale patterns behind.
@@ -92,7 +98,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             widgetRoute.DataTokensJson = JsonSerializer.Serialize(dataTokens);
 
             widgetRoute.OwningContentNodeId = contentZoneItemNodeId;
-            widgetRoute.OwningContentType ??= "ArticleWidget";
+            widgetRoute.OwningContentType ??= widget.ComponentName + "Widget";
 
             var result = await _routeService.UpsertAsync(widgetRoute, ct);
             if (!result.Success)
@@ -104,7 +110,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
     public async Task<(bool Success, string? ErrorMessage)> TryRegisterWidgetRoutesAsync(
         string componentName, Guid contentZoneItemNodeId, Guid? parentPageNodeId,
-        bool isActive, CancellationToken ct = default)
+        bool isActive, string? metadataJson, CancellationToken ct = default)
     {
         if (!isActive)
         {
@@ -127,8 +133,17 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
 
         return await RegisterWidgetRoutesAsync(
             widget, contentZoneItemNodeId, pageRoute.Pattern, pageRoute.DefaultsJson,
-            parentPageNodeId.Value, ct);
+            parentPageNodeId.Value, EffectiveDisplayMode(componentName, metadataJson), ct);
     }
+
+    /// <summary>
+    /// The display mode the item renders in: a stored List counts only when the widget supports lists
+    /// (a grandfathered List on a widget that dropped support renders, and so routes, as Single).
+    /// </summary>
+    private WidgetDisplayMode EffectiveDisplayMode(string componentName, string? metadataJson)
+        => WidgetMetadataJson.StoresList(metadataJson) && _widgetRegistry.GetByName(componentName)?.SupportsList == true
+            ? WidgetDisplayMode.List
+            : WidgetDisplayMode.Single;
 
     private static string NormalizeWidgetPattern(string parentRoute, string widgetPattern)
     {

@@ -1,0 +1,42 @@
+@model object
+@using WebWayCMS.Models.Article
+@*
+    Edit-mode view for both display modes: a compact card naming the article (Single) or the list and
+    its article count (List), so the widget reads correctly inside the admin zone editor.
+*@
+@switch (Model)
+{
+    case ArticleListViewModel list when list.ArticleListId != Guid.Empty:
+        <div class="box">
+            <p class="has-text-weight-semibold">
+                <span class="icon"><i class="fas fa-list" aria-hidden="true"></i></span>
+                @list.ArticleListTitle
+            </p>
+            <p class="is-size-7 has-text-grey">@list.Articles.Count article(s)</p>
+        </div>
+        break;
+    case ArticleViewModel article when article.NodeId is { } id && id != Guid.Empty:
+        <div class="box">
+            <p class="has-text-weight-semibold">
+                <span class="icon"><i class="fas fa-newspaper" aria-hidden="true"></i></span>
+                @article.Title
+            </p>
+            @if (!string.IsNullOrWhiteSpace(article.Summary))
+            {
+                <p class="is-size-7 has-text-grey">@article.Summary</p>
+            }
+        </div>
+        break;
+    case ArticleListViewModel:
+        <div class="notification is-light has-text-grey">
+            <span class="icon"><i class="fas fa-list" aria-hidden="true"></i></span>
+            No article list chosen.
+        </div>
+        break;
+    default:
+        <div class="notification is-light has-text-grey">
+            <span class="icon"><i class="fas fa-newspaper" aria-hidden="true"></i></span>
+            Shows the article named in the URL, or the configured article.
+        </div>
+        break;
+}

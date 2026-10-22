@@ -1,0 +1,18 @@
+@model WebWayCMS.Models.Article.ArticleViewModel
+
+<div class="column is-full">
+	<div class="card">
+		<div class="card-content">
+			<p class="title">@Model.Title</p>
+			<p class="subtitle">
+				@((Model.PublicationDate ?? Model.CreationDate)?.ToString("MMMM dd, yyyy"))
+				@if (!string.IsNullOrWhiteSpace(Model.AuthorName))
+				{
+					<span> · @Model.AuthorName</span>
+				}
+			</p>
+			<hr />
+			@Html.Raw(Model.Body)
+		</div>
+	</div>
+</div>

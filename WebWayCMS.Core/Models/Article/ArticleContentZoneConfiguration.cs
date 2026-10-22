@@ -1,51 +1,58 @@
 using WebWayCMS.Attributes;
+using WebWayCMS.ContentZones;
 
 namespace WebWayCMS.Models.Article;
 
-public class ArticleContentZoneConfiguration
+/// <summary>
+/// Configuration for the Article widget. The item's display mode picks the configurator:
+/// <b>Single</b> renders the article named by the URL slug (on the widget's own route) or
+/// <see cref="ArticleId"/>; <b>List</b> renders the articles of <see cref="ArticleListId"/>.
+/// The view variants come from the inherited <see cref="WidgetConfiguration"/> pickers.
+/// </summary>
+public class ArticleContentZoneConfiguration : WidgetConfiguration
 {
     [FormProperty(
-        Label = "Mode",
-        HelpText = "Choose whether to display a single article or a list of articles.",
-        EditorType = EditorType.Dropdown,
-        DropdownOptions = "Single:Single Article,List:Article List",
-        Order = 0,
-        FormComponent = "Dropdown"
+        Label = "Article",
+        HelpText = "The article to show when the URL does not name one. Leave empty to show only articles opened from a list.",
+        EditorType = EditorType.Guid,
+        EntityType = "Article",
+        DisplayModes = WidgetDisplayMode.Single,
+        Order = 1,
+        FormComponent = "EntityPicker"
     )]
-    public string? Mode { get; set; }
+    public Guid? ArticleId { get; set; }
 
     [FormProperty(
         Label = "Article List",
-        HelpText = "Select an article list to display.",
+        HelpText = "The article list to display. Nothing renders until one is chosen.",
         EditorType = EditorType.Guid,
         EntityType = "ArticleList",
+        DisplayModes = WidgetDisplayMode.List,
         Order = 1,
         FormComponent = "EntityPicker"
     )]
     public Guid? ArticleListId { get; set; }
 
     [FormProperty(
-        Label = "Article",
-        HelpText = "Select a specific article to display.",
-        EditorType = EditorType.Guid,
-        EntityType = "Article",
+        Label = "Max Items",
+        HelpText = "The most articles to show. Leave empty (or 0) to show them all.",
+        EditorType = EditorType.Number,
+        Min = 0,
+        DisplayModes = WidgetDisplayMode.List,
         Order = 2,
-        FormComponent = "EntityPicker"
+        FormComponent = "Number"
     )]
-    public Guid? Id { get; set; }
+    // Nullable: the admin form serializer writes null for an empty number field (form-components.js),
+    // which a non-nullable int would reject, dropping the whole saved configuration.
+    public int? MaxItems { get; set; }
 
     [FormProperty(
-        Label = "View Name",
-        HelpText = "The view template to use. Leave empty for default behavior.",
-        Placeholder = "e.g., Article, List, Summary",
-        EditorType = EditorType.ViewPicker,
-        ViewComponentName = "Article",
+        Label = "Sort Order",
+        EditorType = EditorType.Dropdown,
+        DropdownOptions = ArticleSortOrder.Newest + ":Newest first," + ArticleSortOrder.Oldest + ":Oldest first," + ArticleSortOrder.Title + ":Title",
+        DisplayModes = WidgetDisplayMode.List,
         Order = 3,
-        FormComponent = "ViewPicker"
+        FormComponent = "Dropdown"
     )]
-    public string? ViewName { get; set; }
-
-    public ArticleViewModel? Article { get; set; }
-
-    public ArticleUpsertViewModel? UpsertModel { get; set; }
+    public string? SortOrder { get; set; }
 }

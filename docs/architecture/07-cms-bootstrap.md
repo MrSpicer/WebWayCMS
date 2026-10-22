@@ -73,7 +73,8 @@ Runs in this order:
 | `ContentZoneModel` / `IContentZoneModel` | scoped |
 | `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel` | scoped |
 | `ArticleViewComponent` / `IRoutableViewComponent` | scoped |
-| `IArticleModel` → `ArticleModel` | scoped |
+| `ArticleModel` / `IArticleModel` | scoped |
+| `ICmsTransaction` → `CmsTransaction` | scoped (runs multi-store writes, e.g. an article list delete, in one transaction) |
 | `IMapper` from `new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()))` | singleton |
 
 Note the models are registered here, in the *rendering* path, under their domain interfaces only.
@@ -102,8 +103,8 @@ It calls `AddWebWayCmsRendering` first, then:
 **`MapAdminTypes`:**
 - Route constraint `"notreserved"` → `NotReservedConstraint`
 - `IAdminHandlerRegistry` → `AdminHandlerRegistry` (scoped)
-- Eight `IAdminCrudHandler` forwards, each resolving the already-registered scoped model:
-  `ContentBlockModel`, `PageModel`, `ArticleListModel`, `ContentZoneModel`,
+- Ten `IAdminCrudHandler` forwards, each resolving the already-registered scoped model:
+  `ContentBlockModel`, `ImageModel`, `PageModel`, `ArticleListModel`, `ArticleModel`, `ContentZoneModel`,
   `WidgetRegistrationModel`, `PageControllerRegistrationModel`, `CMSRouteModel`,
   `FormComponentRegistrationModel`
 - `AssemblyPart(WebWayCMS.Admin)` + `CompiledRazorAssemblyPart(WebWayCMS.Admin)`

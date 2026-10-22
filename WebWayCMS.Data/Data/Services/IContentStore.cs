@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Services;
@@ -15,6 +17,9 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<List<T>> GetChildrenAsync(Guid parentNodeId, CancellationToken ct = default);
     Task<List<T>> GetRootsAsync(CancellationToken ct = default);
 
+    /// <summary>The items at the read context that match <paramref name="predicate"/>, newest first.</summary>
+    Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default);
+
     // version-explicit (admin/history)
     Task<T?> GetVersionAsync(Guid versionId, CancellationToken ct = default);
     Task<List<T>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct = default);
@@ -25,6 +30,13 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default);
     Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default);
     Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default);
+
+    /// <summary>The current drafts that match <paramref name="predicate"/>, newest first.</summary>
+    Task<List<T>> FindCurrentDraftsAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default);
+
+    /// <summary>Counts the current drafts grouped by <paramref name="keySelector"/> (e.g. a parent FK).</summary>
+    Task<Dictionary<TKey, int>> CountCurrentDraftsByAsync<TKey>(Expression<Func<T, TKey>> keySelector, CancellationToken ct = default)
+        where TKey : notnull;
 
     // writes
     Task<ContentWriteResult> SaveDraftAsync(T entity, int? expectedVersionNumber, CancellationToken ct = default);

@@ -1,25 +1,48 @@
 @using WebWayCMS.Models.Article
-@model ArticleListViewModel
+@model ArticleIndexViewModel
 
 @{
-    ViewData["Title"] = Model.ArticleListTitle + " - Articles";
+    var filtered = Model.SelectedListId.HasValue;
+    var listTitle = Model.SelectedListTitle ?? "Unknown list";
+    ViewData["Title"] = filtered ? listTitle + " - Articles" : "Articles";
+    // Publish/unpublish come back here (filter included); the controller only follows local URLs.
+    var returnUrl = Context.Request.Path + Context.Request.QueryString;
 }
 
 <div class="admin-page-header">
     <div class="container">
         <nav class="breadcrumb" aria-label="breadcrumbs">
             <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles">Article Lists</a></li>
-                <li class="is-active"><a aria-current="page">@Model.ArticleListTitle</a></li>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
+                <li class="is-active"><a aria-current="page">@(filtered ? listTitle : "All articles")</a></li>
             </ul>
         </nav>
         <div class="admin-page-title-row">
-            <h1 class="title is-4">@Model.ArticleListTitle — Articles</h1>
-            <a asp-controller="AdminContent" asp-action="ChildCreate" asp-route-contentType="articles" asp-route-parentKey="@Model.ArticleListSlug" asp-route-childType="articles" class="button is-primary">
+            <h1 class="title is-4">@(filtered ? listTitle + " — Articles" : "Articles")</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-list="@Model.SelectedListId" class="button is-primary">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
                 <span>New Article</span>
             </a>
         </div>
+        <form method="get" asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" class="mt-3">
+            <div class="field has-addons">
+                <div class="control">
+                    <label class="is-sr-only" for="article-list-filter">Article list</label>
+                    <div class="select is-small">
+                        <select id="article-list-filter" name="list">
+                            <option value="">All lists</option>
+                            @foreach (var list in Model.ArticleLists)
+                            {
+                                <option value="@list.NodeId" selected="@(list.NodeId == Model.SelectedListId)">@list.Title</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="control">
+                    <button type="submit" class="button is-small">Filter</button>
+                </div>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -34,8 +57,8 @@
                         <i class="fas fa-newspaper fa-3x" aria-hidden="true"></i>
                     </span>
                     <p class="title is-5">No articles yet</p>
-                    <p class="subtitle is-6 has-text-grey">Create your first article in this list.</p>
-                    <a asp-controller="AdminContent" asp-action="ChildCreate" asp-route-contentType="articles" asp-route-parentKey="@Model.ArticleListSlug" asp-route-childType="articles" class="button is-primary mt-2">New Article</a>
+                    <p class="subtitle is-6 has-text-grey">@(filtered ? "Create the first article in this list." : "Create your first article.")</p>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-list="@Model.SelectedListId" class="button is-primary mt-2">New Article</a>
                 </div>
             </div>
         }
@@ -43,12 +66,16 @@
         {
             <div class="table-container admin-list-container">
                 <table class="table is-fullwidth is-hoverable admin-list-table">
-                    <caption class="is-sr-only">Articles in @Model.ArticleListTitle</caption>
+                    <caption class="is-sr-only">@(filtered ? "Articles in " + listTitle : "All articles")</caption>
                     <thead>
                         <tr>
                             <th scope="col">Title</th>
+                            @if (!filtered)
+                            {
+                                <th scope="col">List</th>
+                            }
                             <th scope="col" class="is-hidden-mobile">Slug</th>
-                            <th scope="col" class="is-hidden-mobile">Created</th>
+                            <th scope="col">Status</th>
                             <th scope="col" class="is-hidden-mobile">Modified</th>
                             <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
@@ -58,14 +85,38 @@
                         {
                             <tr>
                                 <td class="admin-list-main">
-                                    <a asp-controller="AdminContent" asp-action="ChildEdit" asp-route-contentType="articles" asp-route-parentKey="@Model.ArticleListSlug" asp-route-childType="articles" asp-route-id="@article.NodeId" class="admin-list-title">@article.Title</a>
+                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articles" asp-route-id="@article.NodeId" class="admin-list-title">@article.Title</a>
                                 </td>
+                                @if (!filtered)
+                                {
+                                    <td><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@article.ArticleListId">@article.ArticleListTitle</a></td>
+                                }
                                 <td class="is-hidden-mobile">@article.Slug</td>
-                                <td class="is-hidden-mobile">@article.CreationDate?.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td class="is-hidden-mobile">@article.ModificationDate?.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td><partial name="_StatusBadge" model="(article.IsPublished, false)" /></td>
+                                <td class="is-hidden-mobile">@article.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="admin-row-actions">
-                                        <a asp-controller="AdminContent" asp-action="ChildEdit" asp-route-contentType="articles" asp-route-parentKey="@Model.ArticleListSlug" asp-route-childType="articles" asp-route-id="@article.NodeId" class="button is-small">
+                                        @if (!article.IsPublished)
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articles" asp-route-nodeId="@article.NodeId" method="post">
+                                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                                <button type="submit" class="button is-small is-success">
+                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                                    <span>Publish</span>
+                                                </button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articles" asp-route-nodeId="@article.NodeId" method="post">
+                                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                                <button type="submit" class="button is-small is-warning is-light">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
+                                            </form>
+                                        }
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articles" asp-route-id="@article.NodeId" class="button is-small">
                                             <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
                                             <span>Edit</span>
                                         </a>
@@ -79,18 +130,15 @@
                                             </div>
                                             <div class="dropdown-menu" id="row-menu-@article.NodeId" role="menu">
                                                 <div class="dropdown-content">
-                                                    @if (article.NodeId.HasValue)
-                                                    {
-                                                        <a asp-controller="AdminContent" asp-action="ChildVersionHistory" asp-route-contentType="articles" asp-route-parentKey="@Model.ArticleListSlug" asp-route-childType="articles" asp-route-nodeId="@article.NodeId" class="dropdown-item" role="menuitem">
-                                                            <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
-                                                            <span>Version history</span>
-                                                        </a>
-                                                    }
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articles" asp-route-nodeId="@article.NodeId" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                                        <span>Version history</span>
+                                                    </a>
                                                     <hr class="dropdown-divider" />
                                                     <button type="button" class="dropdown-item is-danger" role="menuitem"
                                                             data-delete-trigger
                                                             data-delete-name="@article.Title"
-                                                            data-delete-url="@Url.Action("ChildDelete", "AdminContent", new { contentType = "articles", parentKey = Model.ArticleListSlug, childType = "articles", id = article.NodeId })">
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articles", id = article.NodeId })">
                                                         <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                                         <span>Delete</span>
                                                     </button>

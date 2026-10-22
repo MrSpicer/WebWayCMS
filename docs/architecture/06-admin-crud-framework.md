@@ -27,7 +27,7 @@ The admin CRUD framework handles all content management HTTP routes through a si
 
 `AdminHandlerRegistry` is the dispatch table: a dictionary keyed on `ContentType` string (case-insensitive), built from all `IAdminCrudHandler` instances in the DI container.
 
-Seven handlers ship in the box: `pages`, `contentblocks`, `articles`, `contentzones`, `widgets`, `pagetypes`, `cmsroutes`.
+Ten handlers ship in the box: `pages`, `contentblocks`, `images`, `articlelists`, `articles`, `contentzones`, `widgets`, `pagetypes`, `cmsroutes`, `formcomponents`.
 
 **The same registry backs the MCP server.** `WebWayCMS.Mcp`'s toolsets resolve
 `IAdminHandlerRegistry` and drive the identical handler methods, so any content type reachable in
@@ -81,7 +81,8 @@ public interface IAdminCrudHandler
 - `CreateEmptyUpsertViewModel()` — returns a fresh ViewModel instance for `TryUpdateModelAsync` binding; must match the type `SaveUpsertAsync` expects
 - `SaveUpsertAsync` — receives the model-bound ViewModel; returns `AdminSaveResult(true)` on success or `AdminSaveResult(false, message, field?)` on failure
 - `GetApiListAsync` — returns `[ { id, title } ]` used by GUID entity pickers in admin forms
-- `HasSecondaryApiList` / `GetSecondaryApiListAsync(key)` — extension for handlers needing multiple named lists (e.g., `ArticleListModel` exposes `"articlelists"`)
+- `HasSecondaryApiList` / `GetSecondaryApiListAsync(key)` — extension for handlers needing multiple named lists (none of the built-in handlers uses it; prefer a separate content type with its own `GetApiListAsync`)
+- `GetIndexViewModelAsync(IQueryCollection query)` — a default-implemented overload the controller calls with the request query; a handler re-implements it (explicitly, re-listing `IAdminCrudHandler`) to filter its index — e.g. `ArticleModel` honours `?list={nodeId}`, `ContentZoneModel` `?pageId=`/`?zoneId=`
 
 ---
 
@@ -92,7 +93,7 @@ Manages entities that belong to a parent. The parent handler exposes `ChildHandl
 ```csharp
 public interface IAdminCrudChildHandler
 {
-    string ChildType { get; }            // URL segment, e.g. "articles"
+    string ChildType { get; }            // URL segment, e.g. "items"
     string ChildDisplayName { get; }
     string[]? WriteRoles { get; }
     string ChildIndexViewPath { get; }
@@ -119,7 +120,7 @@ public interface IAdminCrudChildHandler
 }
 ```
 
-`parentKey` is a slug (for articles) or Guid string (for zone items) — determined by the child handler's own interpretation.
+`parentKey` is interpreted by the child handler (zone items, the only shipped child handler, use the zone's Guid string). Prefer a stable id: a slug changes when the parent is renamed.
 
 `SetChildUpsertViewDataAsync` is called before rendering the upsert view to allow async data loading into `ViewData` (e.g., fetching the parent's title for breadcrumb display).
 
@@ -248,9 +249,9 @@ Child resources follow the same pattern with `ChildVersionHistory*` routes.
 The `{parentKey}` segment carries the parent identifier (slug or Guid string). The `notreserved` constraint prevents ambiguity with reserved action names (`edit`, `delete`, `create`, `registry`, `api`, `reorder`, `versions`). See [Area 3](03-page-routing.md#11-notreservedconstraint) for the constraint definition.
 
 Example URLs:
-- `/wadmin/articles/my-blog/articles` — list articles in the "my-blog" article list
-- `/wadmin/articles/my-blog/articles/create` — create article
-- `/wadmin/articles/my-blog/articles/reorder` — reorder (POST, JSON body)
+- `/wadmin/contentzones/{zoneId}/items` — list the items of a zone
+- `/wadmin/contentzones/{zoneId}/items/create` — create an item
+- `/wadmin/contentzones/{zoneId}/items/reorder` — reorder (POST, JSON body)
 
 ---
 
@@ -299,7 +300,7 @@ JSON-only API for the inline zone edit mode. Authenticated but not form-POST (no
 
 This differs from admin CRUD routes: it accepts and returns JSON, no model binding to ViewModels, and no redirect-after-post.
 
-Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync`, so placing a routable widget (one implementing `IRoutableViewComponent`, e.g. `Article`) registers its sub-routes beneath the host page's URL. See [Area 3](03-page-routing.md#10-irouteregistrationservice-and-routable-widgets).
+Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync`, so a routable widget (one implementing `IRoutableViewComponent`, e.g. `Article`) in a global zone has its routes kept in step; items in a page's zones register their sub-routes beneath the page's URL when the page is published. See [Area 3](03-page-routing.md#10-irouteregistrationservice-and-routable-widgets).
 
 ---
 
@@ -333,7 +334,7 @@ Every admin list (Pages, Content Blocks, Images, Zones, Articles, Routes, the re
 styled by the "Admin List Pattern" section of `WebWayCMS.Admin/wwwroot/css/admin.css`:
 
 - **Title cell** (`td.admin-list-main`): the title is an `a.admin-list-title` linking to the item's main editing
-  screen (a page → its zone editor, a zone → the zone editor, an article list → its articles, everything else → Edit).
+  screen (a page → its zone editor, a zone → the zone editor, an article list → the Articles page filtered to it, everything else → Edit).
   Secondary text goes in `span.admin-list-sub` (add `admin-list-path` for monospace paths).
 - **Status**: `<partial name="_StatusBadge" model="(isPublished, hasPendingChanges)" />` renders
   Draft / Live / Live · Changes pending.

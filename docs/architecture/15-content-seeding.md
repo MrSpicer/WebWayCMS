@@ -40,7 +40,7 @@ writing on publish for free.
 | Identity | Each item carries a stable Guid `id` that is a *seed key*, mapped through a ledger table to a CMS-generated `ContentNode.Id`. `ContentStore` is not modified. |
 | Update rule | Re-apply an item only when its content hash differs from the hash recorded last time — so edits made in `/wadmin` survive reboots, but shipping new content in a package release takes effect |
 | Deployment mode | **Admin mode only** (`UseWebWayCmsAdmin`). `IAdminHandlerRegistry` does not exist in a rendering-only host. |
-| Scope | Top-level content items only — no nested child entities (articles, zone items) in v1 |
+| Scope | Top-level content items only — no nested child entities (zone items) in v1. Articles are top-level: seed an `articlelists` item and an `articles` item whose `articleListId` is `@seed:{listSeedId}` |
 | Config | `ContentSeedOptions` bound from a `"ContentSeed"` section, plus a `WEBWAYCMS_SKIP_CONTENTSEED` env var |
 
 ## 3. File Format

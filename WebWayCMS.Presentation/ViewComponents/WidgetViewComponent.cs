@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
+using WebWayCMS.Data.Models;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.ViewComponents;
@@ -33,6 +35,8 @@ public abstract class WidgetViewComponent : ViewComponent
 {
     private const string RenderModeViewDataKey = "ContentZone:RenderMode";
     private const string ParentItemViewDataKey = "ContentZone:ParentItemId";
+    private const string RouteDataItemKey = "CMS:RouteData";
+    private const string ParentPageNodeIdToken = "ParentPageNodeId";
 
     private IWidgetViewResolver? _viewResolver;
 
@@ -77,6 +81,41 @@ public abstract class WidgetViewComponent : ViewComponent
     /// "not found" state in the zone editor.
     /// </summary>
     protected WidgetRenderMode RenderModeFor(WidgetConfiguration? config) => GetContextMode(config);
+
+    /// <summary>
+    /// True when the request matched a route owned by this zone item (one it registered through
+    /// <c>IRoutableViewComponent</c>), i.e. the URL's route values — such as <c>slug</c> — are addressed to
+    /// this widget. Every CMS request carries a <c>slug</c> value from the host's <c>{**slug}</c> catch-all
+    /// (the whole path on a plain page request), so a widget must not read one without this check.
+    /// </summary>
+    protected bool IsOwnWidgetRoute(WidgetConfiguration? config)
+        => config?.ZoneItemNodeId is Guid itemNodeId
+           && MatchedRoute?.OwningContentNodeId == itemNodeId;
+
+    /// <summary>
+    /// True when the request matched a widget route (any zone item's, on the page being rendered) rather
+    /// than the page's own route — e.g. <c>/blog/my-post</c> rather than <c>/blog</c>. A list widget
+    /// yields on such a request so the single-item widget that owns the route takes the page over.
+    /// </summary>
+    protected bool IsWidgetRouteRequest()
+    {
+        var tokensJson = MatchedRoute?.DataTokensJson;
+        if (string.IsNullOrWhiteSpace(tokensJson))
+            return false;
+
+        try
+        {
+            var tokens = JsonSerializer.Deserialize<Dictionary<string, string>>(tokensJson);
+            return tokens?.ContainsKey(ParentPageNodeIdToken) == true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The CMS route the request matched (stashed by the route transformer), if any.</summary>
+    private CMSRouteDTO? MatchedRoute => HttpContext.Items[RouteDataItemKey] as CMSRouteDTO;
 
     /// <summary>
     /// The item's display mode (single vs. list), from the metadata the zone attached to

@@ -337,8 +337,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         if (pageNodeId.HasValue)
             return;
 
+        // Global-zone items have no page route to register under; this only clears an inactive item's rows.
         await _routeRegistration.TryRegisterWidgetRoutesAsync(
-            componentName, itemNodeId, null, isActive, ct);
+            componentName, itemNodeId, null, isActive, metadataJson: null, ct);
     }
 
     private async Task<ContentZoneViewModel> MapToViewModelAsync(ContentZoneDTO zone, CancellationToken ct)

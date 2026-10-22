@@ -169,7 +169,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         foreach (var item in zones.Published)
         {
             var routes = await _routeRegistration.TryRegisterWidgetRoutesAsync(
-                item.ComponentName, item.Version.Node.Id, pageNodeId, item.IsActive, ct);
+                item.ComponentName, item.Version.Node.Id, pageNodeId, item.IsActive, item.MetadataJson, ct);
             if (!routes.Success)
                 errors.Add(routes.ErrorMessage ?? $"Failed to register routes for widget '{item.ComponentName}'.");
         }

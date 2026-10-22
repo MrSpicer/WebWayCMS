@@ -99,17 +99,19 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 ### `ArticleListModel`
 
-- **ContentType:** `"articles"`
+- **ContentType:** `"articlelists"`
 - **DisplayName:** `"Article List"`
-- **Handler:** Full `IAdminCrudHandler` for the parent (article list); exposes `ChildHandler` via `ArticleChildHandler` for individual articles
-- **Domain methods:** `GetArticleListIndexAsync`, `GetArticleListUpsertAsync`, `SaveArticleListUpsertAsync`, `DeleteArticleListAsync` (cascades delete to all articles in the list), `GetArticlesForListAsync`, `GetArticlesForListBySlugAsync`
-- **Secondary API list:** `HasSecondaryApiList = true`; `GetSecondaryApiListAsync("articlelists")` returns all article lists for GUID entity pickers
+- **Handler:** Full `IAdminCrudHandler`; no child handler. Its index (the admin entry point for articles) shows each list's article count (`IContentStore.CountCurrentDraftsByAsync`) and links to `/wadmin/articles?list={nodeId}`
+- **Domain methods:** `GetArticleListIndexAsync`, `GetArticleListUpsertAsync`, `SaveArticleListUpsertAsync`, `DeleteArticleListAsync` — deletes the list's articles, then the list, in one transaction (`ICmsTransaction`)
+- **API list:** `GetApiListAsync` returns the lists, so an `EntityType = "ArticleList"` picker resolves to `/wadmin/articlelists/api/list`
 
 ### `ArticleModel`
 
-- **Not a top-level handler** — registered as `IArticleModel` only, not `IAdminCrudHandler`
-- Used exclusively via `ArticleChildHandler` which delegates to it
-- Domain methods: `GetUpsertViewModelAsync`, `SaveUpsertAsync`, `DeleteAsync`, version history methods
+- **ContentType:** `"articles"`, **DisplayName:** `"Article"`, `WriteRoles = ["Admin", "Editor"]`
+- **Handler:** Full `IAdminCrudHandler` (draft → publish, version history, restore from the base class); also registered as `IArticleModel` for the widget's public reads
+- **List membership:** the required `ArticleListId` field (an `EntityPicker`) maps to the `ArticleListNodeId` FK. The save path rejects an empty or unknown list and a slug another article's current draft already uses
+- **Admin index** honours `?list={nodeId}` (`ListQueryKey`) through the query-aware `IAdminCrudHandler.GetIndexViewModelAsync` overload; create preselects the same list
+- **Public reads** (`IArticleModel`): `GetViewModelAsync`, `GetBySlugAsync`, `GetListAsync(listNodeId, maxItems, sortOrder)` — each returns nothing unless the article's list is visible in the current read context
 
 ### `ContentBlockModel`
 
@@ -125,7 +127,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - Exposes `IContentZoneModel` which is consumed by `ContentZoneViewComponent`
 - Exposes `IAdminRegistryHandler` via `ContentZoneRegistryHandler`, backed by `IWidgetRegistry`
 - Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByItemSlotAsync`, `GetViewModelByIdAsync`, `MoveItemAsync`
-- Also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` when a zone item is added, so placing a routable widget (e.g. `Article`) registers its sub-routes
+- Also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` for zone-item writes; routes for items in a page's zones are registered by the page publish cascade (see [03-page-routing.md](03-page-routing.md))
 
 ### `WidgetRegistrationModel`
 
@@ -157,7 +159,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 **Child** resources live under a parent (`/wadmin/{contentType}/{parentKey}/{childType}/`). They do **not** extend `AdminCrudModel<TDto>`; instead their parent's model creates an inner class implementing `IAdminCrudChildHandler` and exposes it via `ChildHandler`. The child handler itself is not registered in DI — it is created as part of the parent model.
 
-Example: `ArticleChildHandler` is a private sealed class inside `ArticleListModel.cs`, instantiated in `ArticleListModel`'s constructor and returned via `override IAdminCrudChildHandler? ChildHandler => _childHandler`.
+Example: `ContentZoneChildHandler` is an internal sealed class inside `ContentZoneModel.cs`, instantiated in `ContentZoneModel`'s constructor and returned via `override IAdminCrudChildHandler? ChildHandler => _childHandler`. It is the only child handler: articles used to be children of article lists but are now a top-level type that references its list through an ordinary FK field.
 
 ---
 
@@ -169,7 +171,7 @@ Each built-in content type that can contain zones (as a page, a layout region, e
 |-------|---------|
 | `PageContentZoneConfiguration` | `PageViewComponent` — page-navigation filters (`ShowDraftPages`, `ShowHiddenPages`, `AdminPages`) plus `ViewName` |
 | `RouteNavigationConfiguration` | `RouteNavigationViewComponent` — route-navigation filters (`AdminRoutes`, `IncludeReserved`) plus `ViewName` |
-| `ArticleContentZoneConfiguration` | Zone slots within article detail views |
+| `ArticleContentZoneConfiguration` | `ArticleViewComponent` — `ArticleId` (Single), `ArticleListId`/`MaxItems`/`SortOrder` (List) plus the inherited view pickers |
 | `ContentBlockContentZoneConfiguration` | Zone slots within content block views |
 | `LayoutContentZoneConfiguration` | Zone slots in the shared layout |
 

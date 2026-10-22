@@ -86,6 +86,7 @@ internal static class CmsRenderingRegistration
         services.TryAddScoped<IMediaBlobStore, MediaBlobStore>();
         services.AddScoped<IMediaLibrary, MediaLibrary>();
 
+        services.AddScoped<ICmsTransaction, CmsTransaction>();
         services.AddScoped<IContentZoneService, ContentZoneService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
         services.AddScoped<IPageControllerRegistrationService, PageControllerRegistrationService>();
@@ -137,7 +138,8 @@ internal static class CmsRenderingRegistration
         services.AddScoped<ArticleViewComponent>();
         services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<ArticleViewComponent>());
 
-        services.AddScoped<IArticleModel, ArticleModel>();
+        services.AddScoped<ArticleModel>();
+        services.AddScoped<IArticleModel>(sp => sp.GetRequiredService<ArticleModel>());
 
         var mapperConfig = new MapperConfiguration(cfg =>
         {

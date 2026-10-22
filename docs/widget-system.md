@@ -179,11 +179,25 @@ Render modes are a hard break — there is no compatibility shim:
 - Metadata keys from the first render-mode iteration (`EditViewName`, `SummaryViewName`,
   `AdminViewName`) and the `Summary` mode are gone; stored keys are ignored on parse.
 
-### Known exception
+### Built-in list-capable widget: Article
 
-`ArticleViewComponent` (the blog widget) predates render modes and still calls `View(...)` directly
-with un-prefixed view names (`Article`, `List`, `UpsertForm`); it renders its public views in every
-mode. Migrating it to the scheme is a known follow-up.
+`ArticleViewComponent` is the core's list-capable, routable widget (`SupportsList = true`):
+
+- **Single** renders the article named by the URL slug when the request matched the item's own
+  `{slug}` route, else the configured `ArticleId`, else nothing. A lookup that was attempted and failed
+  renders `_NotFound` (the underscore keeps it out of the view picker); the zone editor always renders
+  `edit.default`.
+- **List** renders the articles of `ArticleListId`, sorted by `SortOrder` (`newest` — publication date,
+  falling back to creation date — `oldest`, or `title`) and capped by `MaxItems`. Its cards link to
+  `{page}/{slug}` (`ArticleListViewModel.DetailBaseUrl`, computed by the widget; in a draft preview it
+  is the *published* page URL, or null — no links — for a never-published page). The List item **owns
+  that `{slug}` route** itself and renders the article there (only an article of its own list, else
+  `_NotFound`) through a Single-mode copy of its configuration, so the `view.*` views are used. It yields
+  (renders nothing) on another item's widget route. A List and a Single Article widget on one page both
+  claim `/{page}/{slug}`, so the page publish reports a route collision — use one per page.
+- An article (single or listed) is only visible while its article list is visible in the same read
+  context. Views: `view.default`, `list.default`, `_NotFound`, and `edit.default` (one edit view for
+  both modes; it receives an `ArticleViewModel` or an `ArticleListViewModel`).
 
 ---
 
@@ -340,9 +354,19 @@ Two consequences worth knowing:
 
 A widget can own **routes**: it implements `IRoutableViewComponent` and declares the route patterns
 (`CMSRouteDTO`) it wants registered. When a request matches one of those patterns, the CMS dispatches
-to the parent page's controller, which renders the page's `Main` zone — so the routing widget renders
-in the same zone as everything else and discriminates on the route values it captured (e.g. `slug`
-vs `topic`).
+to the parent page's controller, which renders the page's zones — so the routing widget renders
+in the same zone as everything else.
+
+**Read route values only on your own route.** The host maps the CMS with a `{**slug}` catch-all, so
+*every* CMS request carries a `slug` route value — on a plain page request it is the page path itself
+(`about` on `/about`). A widget that reads `slug` unconditionally will look up the page path. Use the
+`WidgetViewComponent` helpers instead:
+
+- `IsOwnWidgetRoute(config)` — the matched route (`HttpContext.Items["CMS:RouteData"]`) is owned by this
+  zone item (`OwningContentNodeId == config.ZoneItemNodeId`), so its route values are addressed to it.
+- `IsWidgetRouteRequest()` — the matched route is *some* widget route (it carries the `ParentPageNodeId`
+  data token `RouteRegistrationService` stamps on widget routes) rather than the page's own route. A list
+  widget returns nothing on such a request so the single-item widget that owns the route takes over.
 
 ### The interface
 
@@ -354,16 +378,24 @@ public interface IRoutableViewComponent
     string ComponentName { get; }
 
     Task<IReadOnlyList<CMSRouteDTO>> GenerateRoutesAsync(
-        string parentRoute, Guid contentZoneItemNodeId, CancellationToken ct);
+        string parentRoute, Guid contentZoneItemNodeId, WidgetDisplayMode displayMode, CancellationToken ct);
 }
 ```
 
 - `ComponentName` — the widget's ViewComponent name (without the `ViewComponent` suffix).
 - `GenerateRoutesAsync` — returns the route(s) the widget wants, given the parent page's route
-  pattern and the content-zone item node id. Set `OwningContentNodeId` to the item node id and give
-  each route an explicit `OwningContentType` (the fallback default is `"ArticleWidget"`, which is
-  Article-specific). `Pattern` is a **relative** pattern (e.g. `"{slug}"` or `topics/{topic}`) — the
-  CMS prefixes it with the parent page's route.
+  pattern, the content-zone item node id and the item's **effective display mode**. Set
+  `OwningContentNodeId` to the item node id; `OwningContentType` defaults to `"{ComponentName}Widget"`
+  when left null. `Pattern` is a **relative** pattern (e.g. `"{slug:regex(^[a-z0-9-]+$)}"` or
+  `topics/{topic}`) — the CMS prefixes it with the parent page's route. Put constraints **inline** in the
+  pattern: `CMSRouteService` never reads `ConstraintsJson`.
+- `displayMode` is computed by `RouteRegistrationService` from the item's stored `MetadataJson`: `List`
+  only when the metadata selects it **and** the widget's registration `SupportsList` (a grandfathered
+  List on a widget that dropped list support routes as `Single`). A list-capable widget decides what a
+  list owns: the TestHost `Faq` registers nothing for `List` (its detail lives in a separate Single
+  item), while `Article` registers the same `{slug}` route so a lone list can open its articles. Owning
+  `{slug}` means the page answers any matching unknown sub-URL with the widget's not-found state (200)
+  rather than a 404. A widget without list support can ignore the parameter.
 
 ### Required DI registration
 
@@ -385,8 +417,9 @@ Route rows follow what is **live**, so when they change depends on the zone:
 - **Page zones** (the usual case — a routable widget's routes are prefixed with its page's route): an
   item is a draft until the page is published, so its routes are (re)registered by the **page publish
   cascade** (`PageModel.PublishPageAsync` → `TryRegisterWidgetRoutesAsync` for each item that went live,
-  with `isActive = false` for a published removal, which deletes the owner's routes). Saving or deleting
-  a draft never touches the route table.
+  passing the item's `MetadataJson`, with `isActive = false` for a published removal, which deletes the
+  owner's routes). Registration sweeps the owner's existing rows first, so switching an item from Single
+  to List and publishing removes its route. Saving or deleting a draft never touches the route table.
 - **Global zones** — items publish on write, so `ContentZoneApiController` (and the admin child handler)
   call `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` on **add**, **edit** (re-registers,
   sweeping the owner's stale routes first), and **delete / deactivate** (`isActive = false`).

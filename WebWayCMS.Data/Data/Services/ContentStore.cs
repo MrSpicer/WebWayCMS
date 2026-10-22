@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
@@ -79,6 +81,13 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                .OrderByDescending(e => e.Version.CreatedUtc)
                .ToListAsync(ct);
 
+    public Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
+        => _set.AsNoTracking()
+               .AtReadContext(_readContext)
+               .Where(predicate)
+               .OrderByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
     // ─── version-explicit ─────────────────────────────────────────────────────
 
     public Task<T?> GetVersionAsync(Guid versionId, CancellationToken ct = default)
@@ -113,13 +122,31 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     }
 
     public Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default)
+        => CurrentDrafts()
+               .OrderByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
+    public Task<List<T>> FindCurrentDraftsAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
+        => CurrentDrafts()
+               .Where(predicate)
+               .OrderByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
+    public Task<Dictionary<TKey, int>> CountCurrentDraftsByAsync<TKey>(
+        Expression<Func<T, TKey>> keySelector, CancellationToken ct = default)
+        where TKey : notnull
+        => CurrentDrafts()
+               .GroupBy(keySelector)
+               .Select(g => new { g.Key, Count = g.Count() })
+               .ToDictionaryAsync(g => g.Key, g => g.Count, ct);
+
+    /// <summary>The invariant-culture, live (not deleted) current draft of every node.</summary>
+    private IQueryable<T> CurrentDrafts()
         => _set.AsNoTracking()
                .Where(e => e.Version.Culture == string.Empty
                         && e.Version.Segment == string.Empty
                         && e.Version.IsCurrentDraft
-                        && !e.Version.Node.IsDeleted)
-               .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
+                        && !e.Version.Node.IsDeleted);
 
     public Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default)
         => _set.AsNoTracking()

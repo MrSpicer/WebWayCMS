@@ -213,9 +213,43 @@
 - **Hard break, no compat shim:** un-prefixed view files are ignored (a host override not renamed to
   `view.*` silently stops overriding), list rendering reads `ListViewName`, not a legacy `ViewName`,
   and old metadata keys (`EditViewName`/`SummaryViewName`/`AdminViewName`) are ignored on parse.
-- **Known exception:** `ArticleViewComponent` predates render modes and still calls `View(...)`
-  with un-prefixed names (`Article`/`List`/`UpsertForm`); migrating it is a known follow-up.
+- **Routable widgets and display mode:** `IRoutableViewComponent.GenerateRoutesAsync(parentRoute,
+  itemNodeId, displayMode, ct)` receives the item's *effective* display mode (a stored `List` counts only
+  when the registration `SupportsList`; `RouteRegistrationService` computes it from the item's
+  `MetadataJson`), so a widget can give its list items different routes (the TestHost `Faq` registers
+  none for a list; the Article widget registers the same `{slug}` in both modes). Every CMS request carries a `slug` route value (the `{**slug}` catch-all puts the page
+  path there), so a widget reads route values only via `WidgetViewComponent.IsOwnWidgetRoute(config)`
+  (the matched `CMS:RouteData` route is owned by this item), and a list yields to another item's route
+  with `IsWidgetRouteRequest()` (the matched route is a widget route, marked by its `ParentPageNodeId`
+  data token). `ArticleViewComponent` (core) and the TestHost `Faq` are the reference implementations.
 - See [docs/widget-system.md](docs/widget-system.md) → Render Modes.
+
+## Articles
+
+- **Articles are a top-level content type** (`ArticleModel : AdminCrudModel<ArticleDTO>`, key `articles`,
+  draft → publish like everything else; `WriteRoles` Admin + Editor). Each belongs to exactly one
+  **article list** (`ArticleListModel`, key `articlelists`) through the required `ArticleDTO.ArticleListNodeId`
+  FK, chosen with an ordinary `EntityPicker` (`EntityType = "ArticleList"`). There is no article child
+  handler — content zones are the only `IAdminCrudChildHandler`.
+- The save path rejects an empty/unknown list (field error on `ArticleListId`, never an FK violation) and a
+  slug another article's current draft already uses (slugs are global: the widget resolves `/{page}/{slug}`
+  across every list).
+- Admin entry point is **Article Lists** (`/wadmin/articlelists`, the navbar "Articles" item); a list links
+  to `/wadmin/articles?list={nodeId}` (`ArticleModel.ListQueryKey`), which filters the Articles index and
+  preselects the list on **New Article**. Deleting a list deletes its articles in one transaction
+  (`ICmsTransaction`).
+- **Public visibility follows the list:** `IArticleModel` (the widget's reads) returns an article only
+  while its list is visible in the same read context, so unpublishing a list hides its articles.
+- The **Article widget** is list-capable: **Single** = the article named by the URL slug on the item's own
+  `{slug:regex(^[a-z0-9-]+$)}` route, else the configured `ArticleId`, else nothing (`_NotFound` when a
+  lookup was attempted and failed); **List** = the configured list (`ArticleListId`, `MaxItems`,
+  `SortOrder` newest/oldest/title). A List item **owns the same `{slug}` route** and, on it, renders that
+  article (only one from its own list; else `_NotFound`) with the `view.*` views — so a lone List widget's
+  card links (`ArticleListViewModel.DetailBaseUrl` + `/{slug}`) work. It yields on another item's widget
+  route. A List and a Single Article on one page claim the same pattern, so the page publish reports a
+  route collision; use one per page. In a draft preview the cards link to the published page URL (no link
+  if the page was never published). Views: `view.default`, `list.default`, `_NotFound` (Presentation),
+  `edit.default` (Admin).
 
 ## Content Seeding (JSON)
 
@@ -326,12 +360,12 @@
 
 - **Rich-text sanitization:** CKEditor HTML is sanitized server-side on save (`RichTextSanitizer` in
   `WebWayCMS.Core`, using `HtmlSanitizer`/`Ganss.Xss`). It runs generically at the top-level save choke
-  point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`) and at the article child-entity save
-  path (`ArticleModel.SaveUpsertAsync`), covering both the admin UI and the MCP tools, on every `string`
+  point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
+  MCP tools, on every `string`
   property marked `[FormProperty(EditorType = EditorType.RichText)]`.
   Stored content is therefore safe to render with `@Html.Raw`. **Required-field validation**
   (`ModelValidator`, also `WebWayCMS.Core/Security/`) joins sanitization at
-  `AdminCrudModel.SaveUpsertAsync` (plus the CMS-route, article-child, and zone-item save paths), so a
+  `AdminCrudModel.SaveUpsertAsync` (plus the CMS-route and zone-item save paths), so a
   field `describe_content_type` advertises as `required` is actually enforced on MCP writes.
 - **Form attribute encoding:** all HTML input attributes are built by `FormAttributeBuilder`
   (`WebWayCMS.Forms/Forms/FormAttributeBuilder.cs`), which encodes every value exactly once via

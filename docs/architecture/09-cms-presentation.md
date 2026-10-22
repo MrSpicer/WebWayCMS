@@ -47,7 +47,7 @@ and so on.
 | File | Purpose |
 |------|---------|
 | `Views/Shared/_AdminLayout.cshtml` | Root admin layout: navbar, Bulma + FontAwesome from CDN, the CSRF and CKEditor-license meta tags, and optional CKEditor sections |
-| `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`). The hand-written links (Pages, Content Blocks, Articles, the Advanced dropdown) point at admin controller actions; ahead of them it renders `RouteNavigation` with `AdminRoutes = true`, so any published `/wadmin`-prefixed route with a `NavigationName` appears automatically |
+| `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`). The hand-written links (Pages, Content Blocks, Articles → the Article Lists page `/wadmin/articlelists`, highlighted for every `/wadmin/article*` path, the Advanced dropdown) point at admin controller actions; ahead of them it renders `RouteNavigation` with `AdminRoutes = true`, so any published `/wadmin`-prefixed route with a `NavigationName` appears automatically |
 | `Views/Shared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal, rendered once by the layout |
 | `Views/AdminShared/VersionHistory.cshtml` | Shared version history list view used by all content types |
 
@@ -156,9 +156,9 @@ for how that host re-skins the view for Bootstrap.
 @await Component.InvokeAsync("Article", new { config = myConfig })
 ```
 
-**Purpose:** Renders an article list or a specific article. Fetches from `IArticleListModel` and `IArticleModel`.
+**Purpose:** List-capable, routable `WidgetViewComponent`. **Single** renders the article named by the URL slug (on the item's own `{slug}` route) or the configured article; **List** renders the articles of a list (sorted, capped), owns the same `{slug}` route and renders its own list's article there, and yields on another item's widget route. Reads through `IArticleModel`, which hides an article whose list is not visible. See [widget-system.md](../widget-system.md) → *Built-in list-capable widget: Article*.
 
-**Parameter:** `ArticleContentZoneConfiguration config` — contains the article list reference and display options (list view vs detail view).
+**Parameter:** `ArticleContentZoneConfiguration config` — `ArticleId` (Single); `ArticleListId`, `MaxItems`, `SortOrder` (List); plus the inherited `ViewName`/`ListViewName` pickers. Views: `view.default`, `list.default`, `_NotFound`, `edit.default`.
 
 ---
 

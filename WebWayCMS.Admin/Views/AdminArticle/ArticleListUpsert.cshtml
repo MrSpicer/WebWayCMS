@@ -9,7 +9,7 @@
     <div class="container">
         <nav class="breadcrumb" aria-label="breadcrumbs">
             <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles">Article Lists</a></li>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
                 <li class="is-active"><a aria-current="page">@ViewData["Title"]</a></li>
             </ul>
         </nav>
@@ -19,7 +19,7 @@
 
 <section class="section">
 <div class="container">
-        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articles" method="post" novalidate>
+        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articlelists" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
                 @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
@@ -37,14 +37,14 @@
                             {
                                 <button type="submit" class="button is-warning mr-3"
                                         asp-controller="AdminContent" asp-action="Unpublish"
-                                        asp-route-contentType="articles" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+                                        asp-route-contentType="articlelists" asp-route-nodeId="@Model.NodeId">Unpublish</button>
                             }
                             else
                             {
                                 <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
                             }
                         }
-                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articles" class="button">Cancel</a>
+                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articlelists" class="button">Cancel</a>
                     </div>
                 </footer>
             </div>

@@ -320,7 +320,7 @@ public class ContentZoneApiController : ControllerBase
             return null;
 
         var routeResult = await _routeRegistration.TryRegisterWidgetRoutesAsync(
-            componentName, itemNodeId, null, isActive, ct);
+            componentName, itemNodeId, null, isActive, metadataJson: null, ct);
         return routeResult.Success
             ? null
             : StatusCode(500, new { error = routeResult.ErrorMessage ?? "Failed to register widget route." });

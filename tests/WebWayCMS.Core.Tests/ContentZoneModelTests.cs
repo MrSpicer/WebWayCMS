@@ -1068,7 +1068,7 @@ public class ContentZoneModelTests
 
         Assert.That(created.Success, Is.True);
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
-            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -1089,6 +1089,6 @@ public class ContentZoneModelTests
         await child.SaveChildUpsertAsync(zoneId.ToString(),
             new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
 
-        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("ContentBlock", itemNodeId, null, true, Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("ContentBlock", itemNodeId, null, true, null, Arg.Any<CancellationToken>());
     }
 }

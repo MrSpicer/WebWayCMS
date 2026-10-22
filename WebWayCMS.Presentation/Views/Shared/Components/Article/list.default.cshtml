@@ -1,0 +1,35 @@
+@model WebWayCMS.Models.Article.ArticleListViewModel
+
+@* Each card links to {DetailBaseUrl}/{slug} — the list item's own route, where it renders the article.
+   DetailBaseUrl is null when there is no public URL (a never-published page in draft preview). *@
+<section class="section">
+	<div class="container">
+		<div class="columns is-multiline">
+			@foreach (var article in Model.Articles)
+			{
+				var articleSlug = System.Net.WebUtility.UrlDecode(article.Slug ?? "").TrimStart('/');
+				<div class="column is-full">
+					<div class="card">
+						<div class="card-content">
+							<p class="title">
+								@if (Model.DetailBaseUrl != null)
+								{
+									<a href="@($"{Model.DetailBaseUrl}/{articleSlug}")">@article.Title</a>
+								}
+								else
+								{
+									@article.Title
+								}
+							</p>
+							<p class="subtitle">@((article.PublicationDate ?? article.CreationDate)?.ToString("MMMM dd, yyyy"))</p>
+							@if (!string.IsNullOrWhiteSpace(article.Summary))
+							{
+								<p>@article.Summary</p>
+							}
+						</div>
+					</div>
+				</div>
+			}
+		</div>
+	</div>
+</section>

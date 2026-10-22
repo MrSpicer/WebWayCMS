@@ -200,7 +200,7 @@ public class ContentZoneApiControllerTests
         _controller = new ContentZoneApiController(_service, _routeRegistration, _widgetRegistry);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
         _routeRegistration.TryRegisterWidgetRoutesAsync(
-            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((true, null));
     }
 
@@ -534,7 +534,7 @@ public class ContentZoneApiControllerTests
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
             .Returns(Item(itemNodeId, zoneId));
         _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, true, Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, true, null, Arg.Any<CancellationToken>())
             .Returns((false, "boom"));
 
         var result = await _controller.SaveItem(new SaveItemRequest { ZoneId = zoneId, ComponentName = "X", ZoneName = "Z" }, default);
@@ -556,7 +556,7 @@ public class ContentZoneApiControllerTests
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
         _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(itemNodeId, zoneId));
         _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, true, Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, true, null, Arg.Any<CancellationToken>())
             .Returns((false, null));
 
         var result = await _controller.SaveItem(new SaveItemRequest { ZoneId = zoneId, ItemId = itemNodeId, ComponentName = "X", ZoneName = "Z" }, default);
@@ -592,7 +592,7 @@ public class ContentZoneApiControllerTests
             Assert.That(updated, Is.InstanceOf<OkObjectResult>());
         });
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
-            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -746,7 +746,7 @@ public class ContentZoneApiControllerTests
 
         _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(itemNodeId, zoneId));
         _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, false, Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync("X", itemNodeId, null, false, null, Arg.Any<CancellationToken>())
             .Returns((false, "boom"));
 
         var result = await _controller.DeleteItem(itemNodeId, default);
@@ -774,7 +774,7 @@ public class ContentZoneApiControllerTests
 
         Assert.That(result, Is.InstanceOf<OkObjectResult>());
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
-            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -815,7 +815,7 @@ public class ContentZoneApiControllerTests
 
         Assert.That(result, Is.InstanceOf<NotFoundObjectResult>());
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
-            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 }
 

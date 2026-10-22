@@ -39,11 +39,11 @@ VersionedModel<TDto>  (abstract)
     └── AdminCrudModel<TDto>  (abstract, also implements IAdminCrudHandler)
             ├── ContentBlockModel
             ├── ArticleListModel
+            ├── ArticleModel
             ├── PageModel
             ├── ContentZoneModel
             ├── WidgetRegistrationModel
             └── PageControllerRegistrationModel
-        ArticleModel  (extends VersionedModel<ArticleDTO> directly — child resource, no standalone admin handler)
 
 IAdminCrudHandler  (interface)
     ├── implemented by each AdminCrudModel subclass
@@ -54,7 +54,7 @@ IAdminCrudHandler  (interface)
 
 **Top-level vs child model types:**
 - **Top-level** types extend `AdminCrudModel<TDto>`. They get their own admin list/edit UI and are registered as `IAdminCrudHandler` so `AdminHandlerRegistry` picks them up automatically.
-- **Child** types (like `ArticleModel`) extend `VersionedModel<TDto>` directly and are managed through a parent model's inner child handler (`IAdminCrudChildHandler`). They do not register as `IAdminCrudHandler` and have no standalone admin UI.
+- **Child** resources are managed through a parent model's inner child handler (`IAdminCrudChildHandler`). They do not register as `IAdminCrudHandler` and have no standalone admin UI. Zone items (`ContentZoneChildHandler`) are the only child resource; a type that merely belongs to another — an article to its list — is top-level with an ordinary FK field instead.
 
 When adding a new standalone content type, extend `AdminCrudModel<TDto>`.
 
@@ -62,15 +62,16 @@ When adding a new standalone content type, extend `AdminCrudModel<TDto>`.
 
 ## Built-in Content Types
 
-Eight top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
+Ten top-level types are registered as `IAdminCrudHandler`s. The `ContentType` string is both the
 admin URL segment (`/wadmin/{ContentType}`) and the key MCP tools use.
 
 | Content Type | ContentType | DTO | Model |
 |---|---|---|---|
 | Page | `pages` | `PageDTO` | `PageModel` |
 | Content Block | `contentblocks` | `ContentBlockDTO` | `ContentBlockModel` |
-| Article List | `articles` | `ArticleListDTO` | `ArticleListModel` |
-| Article (child) | child type `articles` under `articles` | `ArticleDTO` | `ArticleModel` |
+| Image | `images` | `ImageDTO` | `ImageModel` |
+| Article List | `articlelists` | `ArticleListDTO` | `ArticleListModel` |
+| Article | `articles` | `ArticleDTO` | `ArticleModel` |
 | Content Zone | `contentzones` | `ContentZoneDTO` | `ContentZoneModel` |
 | Zone Item (child) | child type `items` under `contentzones` | `ContentZoneItemDTO` | *(handled by `ContentZoneModel`)* |
 | Widget Registration | `widgets` | `WidgetRegistrationDTO` | `WidgetRegistrationModel` |
@@ -84,7 +85,7 @@ Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Refere
 
 ### Article / ArticleList
 
-`ArticleListDTO` is the parent container (its own versioned content type). `ArticleDTO` is a child and holds `ArticleListNodeId` as a FK, alongside `Body`, `AuthorName`, and `Summary`. `ArticleListModel` exposes an inner `ArticleChildHandler` that implements `IAdminCrudChildHandler`. Note the parent's `ContentType` is `articles`, so article URLs look like `/wadmin/articles/{listSlug}/articles`.
+`ArticleListDTO` is a named grouping (its own versioned content type, no extra fields). `ArticleDTO` is a top-level type holding the required `ArticleListNodeId` FK (picked with an `EntityPicker` on the article form), alongside `Body`, `AuthorName`, and `Summary`. Articles publish on their own, but one is publicly visible only while its list is also visible. The admin entry point is `/wadmin/articlelists`; each list links to `/wadmin/articles?list={nodeId}`. Deleting a list deletes its articles in the same transaction.
 
 ### Page
 

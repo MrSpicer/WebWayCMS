@@ -121,8 +121,10 @@ public sealed class MappingProfile : Profile
             Title = s.Version.Title ?? string.Empty,
             Slug = s.Version.Slug ?? string.Empty,
             Body = s.Body ?? string.Empty,
+            Summary = s.Summary ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
             ArticleListId = s.ArticleListNodeId,
+            IsPublished = s.Version.State == ContentVersionState.Published,
             PublicationDate = s.Version.PublishStartUtc,
             PublicationEndDate = s.Version.PublishEndUtc,
             IsHidden = s.Version.Node.IsHidden,
@@ -140,9 +142,22 @@ public sealed class MappingProfile : Profile
             Summary = s.Summary ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
             ArticleListId = s.ArticleListNodeId,
+            IsPublished = s.Version.State == ContentVersionState.Published,
             PublicationDate = s.Version.PublishStartUtc,
             PublicationEndDate = s.Version.PublishEndUtc,
             IsHidden = s.Version.Node.IsHidden,
+            CreationDate = s.Version.Node.CreatedUtc,
+            ModificationDate = s.Version.CreatedUtc
+        });
+
+        CreateMap<ArticleDTO, ArticleItemViewModel>(s => new ArticleItemViewModel
+        {
+            NodeId = s.Version.Node.Id,
+            Title = s.Version.Title ?? string.Empty,
+            Slug = s.Version.Slug ?? string.Empty,
+            AuthorName = s.AuthorName ?? string.Empty,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            ArticleListId = s.ArticleListNodeId,
             CreationDate = s.Version.Node.CreatedUtc,
             ModificationDate = s.Version.CreatedUtc
         });

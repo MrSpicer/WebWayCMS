@@ -1271,14 +1271,14 @@ public class PageModelTests
         var active = ZoneItem("Faq");
         var removed = ZoneItem("Faq", active: false);
         _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([active, removed], []));
-        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((true, null));
 
         var result = await _model.PublishPageAsync(nodeId);
 
         Assert.That(result.Success, Is.True);
-        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", active.Version.Node.Id, nodeId, true, Arg.Any<CancellationToken>());
-        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", removed.Version.Node.Id, nodeId, false, Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", active.Version.Node.Id, nodeId, true, active.MetadataJson, Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("Faq", removed.Version.Node.Id, nodeId, false, removed.MetadataJson, Arg.Any<CancellationToken>());
         _changeSetScope.Received(1).Begin(ChangeSetKind.Publish, nodeId, null);
     }
 
@@ -1290,9 +1290,9 @@ public class PageModelTests
         var withoutMessage = ZoneItem("B");
         _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new PageZonePublishResult([withMessage, withoutMessage], ["item failed."]));
-        _routeRegistration.TryRegisterWidgetRoutesAsync("A", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync("A", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((false, "route taken."));
-        _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((false, null));
 
         var (success, error) = await _model.PublishPageAsync(nodeId);
