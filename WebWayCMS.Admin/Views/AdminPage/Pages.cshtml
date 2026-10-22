@@ -43,15 +43,15 @@
         }
         else
         {
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of pages</caption>
                     <thead>
                         <tr>
-                            <th scope="col">Path</th>
-                            <th scope="col">Title</th>
-                            <th scope="col">Published</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col">Page</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Modified</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -69,83 +69,116 @@
     {
         foreach (var node in nodes)
         {
+            var menuId = $"page-menu-{node.PageNodeId ?? Guid.NewGuid()}";
             <tr>
-                <td>
-                    <span style="padding-left: @(depth * 1.5)rem;">
-                        @if (depth > 0)
-                        {
-                            <span class="has-text-grey-light" aria-hidden="true">└─ </span>
-                        }
-                        @node.Path
-                        <a asp-controller="AdminContent"
-                           asp-action="Create"
-                           asp-route-contentType="pages"
-                           asp-route-parentRoute="@node.Path"
-                           class="has-text-grey-light ml-2"
-                           title="Create child page under @node.Path"
-                           aria-label="Create child page under @node.Path">
-                            <i class="fas fa-plus-circle" aria-hidden="true"></i>
-                        </a>
-                    </span>
-                </td>
-                <td>
-                    @if (node.PageNodeId.HasValue)
-                    {
-                        @node.Title
-                    }
-                    else
-                    {
-                        <span class="has-text-grey-light is-italic">—</span>
-                    }
-                </td>
-                <td>
-                    @if (node.PageNodeId.HasValue)
-                    {
-                        if (node.IsPublished)
-                        {
-                            <span class="tag is-success">Yes</span>
-                            @if (node.HasPendingChanges)
+                <td class="admin-list-main">
+                    <div style="margin-left: @((depth > 0 ? (depth - 1) * 1.25 : 0).ToString(System.Globalization.CultureInfo.InvariantCulture))rem;">
+                        <div class="@(depth > 0 ? "admin-tree-indent" : "")">
+                            @if (node.PageNodeId.HasValue)
                             {
-                                <span class="tag is-warning ml-1">Pending</span>
+                                <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@node.PageNodeId"
+                                   class="admin-list-title">@node.Title</a>
+                                <span class="admin-list-sub admin-list-path">@node.Path</span>
                             }
-                        }
-                        else
-                        {
-                            <span class="tag is-warning">No</span>
-                        }
-                    }
+                            else
+                            {
+                                <span class="admin-list-sub admin-list-path">@node.Path</span>
+                                <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" asp-route-parentRoute="@node.Path"
+                                   class="is-size-7">
+                                    <span class="icon is-small"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                                    Add page here
+                                </a>
+                            }
+                        </div>
+                    </div>
                 </td>
                 <td>
                     @if (node.PageNodeId.HasValue)
                     {
-                        <div class="buttons are-small">
-                            <a href="@node.Path" target="_blank" class="button is-small is-light" rel="noopener">View</a>
-                            <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info is-light">Versions</a>
-                            <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@node.PageNodeId"
-                               class="button is-small is-info is-light">Edit Zones</a>
-                            <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageNodeId" class="button is-small">Edit</a>
-                            <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="button is-small is-info">Preview</a>
+                        <partial name="_StatusBadge" model="(node.IsPublished, node.HasPendingChanges)" />
+                    }
+                </td>
+                <td class="is-hidden-mobile">@node.ModificationDate?.ToString("yyyy-MM-dd HH:mm")</td>
+                <td>
+                    @if (node.PageNodeId.HasValue)
+                    {
+                        <div class="admin-row-actions">
+                            @if (node.IsPublished)
+                            {
+                                <a href="@node.Path" target="_blank" rel="noopener" class="button is-small is-light">
+                                    <span class="icon"><i class="fas fa-external-link-alt" aria-hidden="true"></i></span>
+                                    <span>View</span>
+                                </a>
+                            }
+                            @* One publish button: Publish while anything is pending, otherwise Unpublish. *@
                             @if (!node.IsPublished || node.HasPendingChanges)
                             {
-                                <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post" class="is-inline-block">
-                                    @Html.AntiForgeryToken()
-                                    <button type="submit" class="button is-small is-success">Publish</button>
+                                <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
+                                    <button type="submit" class="button is-small is-success">
+                                        <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                        <span>Publish</span>
+                                    </button>
                                 </form>
                             }
                             else
                             {
-                                <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post" class="is-inline-block">
-                                    @Html.AntiForgeryToken()
-                                    <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
+                                    <button type="submit" class="button is-small is-warning is-light">
+                                        <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                        <span>Unpublish</span>
+                                    </button>
                                 </form>
                             }
-                            <button type="button" class="button is-small is-danger is-light"
-                                    data-delete-trigger
-                                    data-delete-name="@node.Title"
-                                    data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageNodeId })">
-                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                <span>Delete</span>
-                            </button>
+                            <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@node.PageNodeId" class="button is-small">
+                                <span class="icon"><i class="fas fa-th-large" aria-hidden="true"></i></span>
+                                <span>Edit zones</span>
+                            </a>
+                            <div class="dropdown is-right admin-row-menu">
+                                <div class="dropdown-trigger">
+                                    <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                            aria-haspopup="true" aria-expanded="false" aria-controls="@menuId"
+                                            aria-label="More actions for @node.Title">
+                                        <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                    </button>
+                                </div>
+                                <div class="dropdown-menu" id="@menuId" role="menu">
+                                    <div class="dropdown-content">
+                                        <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="dropdown-item" role="menuitem">
+                                            <span class="icon"><i class="fas fa-eye" aria-hidden="true"></i></span>
+                                            <span>Preview draft</span>
+                                        </a>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@node.PageNodeId" class="dropdown-item" role="menuitem">
+                                            <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
+                                            <span>Page settings</span>
+                                        </a>
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="dropdown-item" role="menuitem">
+                                            <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                            <span>Version history</span>
+                                        </a>
+                                        <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" asp-route-parentRoute="@node.Path" class="dropdown-item" role="menuitem">
+                                            <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                                            <span>Add child page</span>
+                                        </a>
+                                        <hr class="dropdown-divider" />
+                                        @if (node.IsPublished && node.HasPendingChanges)
+                                        {
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
+                                                <button type="submit" class="dropdown-item" role="menuitem">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
+                                            </form>
+                                        }
+                                        <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                data-delete-trigger
+                                                data-delete-name="@node.Title"
+                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageNodeId })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     }
                 </td>

@@ -36,34 +36,34 @@
         }
         else
         {
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of form component registrations</caption>
                     <thead>
                         <tr>
                             <th scope="col">Display Name</th>
-                            <th scope="col">Component</th>
-                            <th scope="col">View Component</th>
-                            <th scope="col">Category</th>
+                            <th scope="col" class="is-hidden-mobile">Component</th>
+                            <th scope="col" class="is-hidden-mobile">View Component</th>
+                            <th scope="col" class="is-hidden-mobile">Category</th>
                             <th scope="col">Default</th>
                             <th scope="col">Active</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var f in Model.Registrations)
                         {
                             <tr>
-                                <td>
-                                    @f.DisplayName
+                                <td class="admin-list-main">
+                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="formcomponents" asp-route-id="@f.Id" class="admin-list-title">@f.DisplayName</a>
                                     @if (!string.IsNullOrEmpty(f.Description))
                                     {
-                                        <br /><small class="has-text-grey">@f.Description</small>
+                                        <span class="admin-list-sub">@f.Description</span>
                                     }
                                 </td>
-                                <td><code>@f.ComponentName</code></td>
-                                <td><code>@f.ViewComponentName</code></td>
-                                <td><span class="tag is-info is-light">@f.Category</span></td>
+                                <td class="is-hidden-mobile"><code>@f.ComponentName</code></td>
+                                <td class="is-hidden-mobile"><code>@f.ViewComponentName</code></td>
+                                <td class="is-hidden-mobile"><span class="tag is-info is-light">@f.Category</span></td>
                                 <td>
                                     @if (f.IsDefaultForType)
                                     {
@@ -81,15 +81,31 @@
                                     }
                                 </td>
                                 <td>
-                                    <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="formcomponents" asp-route-id="@f.Id" class="button is-small">Edit</a>
-                                        <button type="button" class="button is-small is-danger is-light"
-                                                data-delete-trigger
-                                                data-delete-name="@f.DisplayName"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "formcomponents", id = f.Id })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
+                                    <div class="admin-row-actions">
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="formcomponents" asp-route-id="@f.Id" class="button is-small">
+                                            <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                            <span>Edit</span>
+                                        </a>
+                                        <div class="dropdown is-right admin-row-menu">
+                                            <div class="dropdown-trigger">
+                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@f.Id"
+                                                        aria-label="More actions for @f.DisplayName">
+                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                            <div class="dropdown-menu" id="row-menu-@f.Id" role="menu">
+                                                <div class="dropdown-content">
+                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                            data-delete-trigger
+                                                            data-delete-name="@f.DisplayName"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "formcomponents", id = f.Id })">
+                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

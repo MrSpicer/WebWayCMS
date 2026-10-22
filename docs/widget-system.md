@@ -61,7 +61,7 @@ In normal (non-admin) mode the component renders nothing if the zone has no item
 
 ## Editing and Publishing a Page's Zones
 
-Each row of the admin Pages list has an **Edit Zones** button that opens the page zone editor
+Clicking a page's title in the admin Pages list (or its **Edit zones** button) opens the page zone editor
 (`/wadmin/contentzones/page/{pageNodeId}`): every zone assigned to the page, stacked on one screen in
 the normal zone editor (Add Widget, edit, cog settings, delete, drag to move; nested Layout zones inline). A toolbar
 shows the draft status with **Publish**, **Discard changes**, **Unpublish**, **Edit page**, and **Back**;
@@ -73,7 +73,7 @@ a **Preview** tab shows the draft page in an iframe.
   This applies to every write path — this editor, the single-zone editor, the Advanced item pages, MCP.
 - **Publishing the page publishes its zones.** Any page publish (this toolbar, the Pages list, the page
   form, MCP `publish_content`) publishes the page and every pending zone item under it in one change
-  set. The Pages list shows **Pending** while zone drafts exist.
+  set. The Pages list shows **Live · Changes pending** while zone drafts exist.
 - **Discard changes** reverts every pending zone item to its published version (never-published items
   are deleted). Page field edits are not touched.
 - **Drag and drop.** Each widget's toolbar has a grip handle: drag it (mouse or touch) to reorder within

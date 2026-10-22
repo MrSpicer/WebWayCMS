@@ -134,6 +134,32 @@ public class PageModelTests
     }
 
     [Test]
+    public async Task GetPageIndexAsync_PageNodes_CarryVersionModificationDate()
+    {
+        var root = Page(title: "Home");
+        var leaf = Page(title: "Leaf");
+        root.Version.CreatedUtc = new DateTime(2026, 1, 2, 3, 4, 0, DateTimeKind.Utc);
+        leaf.Version.CreatedUtc = new DateTime(2026, 5, 6, 7, 8, 0, DateTimeKind.Utc);
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { root, leaf });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(root.Version.Node.Id, "/"),
+            RouteFor(leaf.Version.Node.Id, "/a/b"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+        var a = vm.Pages.Single(p => p.Path == "/a");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.Pages.Single(p => p.Path == "/").ModificationDate, Is.EqualTo(root.Version.CreatedUtc));
+            Assert.That(a.ModificationDate, Is.Null, "placeholder node has no date");
+            Assert.That(a.Children.Single().ModificationDate, Is.EqualTo(leaf.Version.CreatedUtc));
+        });
+    }
+
+    [Test]
     public async Task GetPageIndexAsync_DuplicateRootUpdatesExistingNode()
     {
         var first = Page(title: "First");

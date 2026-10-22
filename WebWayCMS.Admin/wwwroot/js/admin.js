@@ -43,6 +43,86 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ── List row "⋯" menus ────────────────────────────────────
+    // One open at a time; closes on outside click / Escape; arrow keys move between items.
+    (function () {
+        let openMenu = null;
+
+        function menuItems(dropdown) {
+            return Array.from(dropdown.querySelectorAll('.dropdown-item'));
+        }
+
+        function closeMenu(returnFocus) {
+            if (!openMenu) return;
+            const trigger = openMenu.querySelector('[data-row-menu-trigger]');
+            openMenu.classList.remove('is-active');
+            trigger.setAttribute('aria-expanded', 'false');
+            if (returnFocus) trigger.focus();
+            openMenu = null;
+        }
+
+        function openRowMenu(dropdown, focusFirst) {
+            closeMenu(false);
+            dropdown.classList.add('is-active');
+            dropdown.querySelector('[data-row-menu-trigger]').setAttribute('aria-expanded', 'true');
+            openMenu = dropdown;
+            // Flip upward when the menu would run past the bottom of the viewport and fits above.
+            dropdown.classList.remove('is-up');
+            const rect = dropdown.querySelector('.dropdown-menu').getBoundingClientRect();
+            const triggerTop = dropdown.getBoundingClientRect().top;
+            if (rect.bottom > window.innerHeight && triggerTop > rect.height) {
+                dropdown.classList.add('is-up');
+            }
+            if (focusFirst) {
+                const items = menuItems(dropdown);
+                if (items[0]) items[0].focus();
+            }
+        }
+
+        document.addEventListener('click', function (e) {
+            const trigger = e.target.closest('[data-row-menu-trigger]');
+            if (trigger) {
+                e.preventDefault();
+                const dropdown = trigger.closest('.dropdown');
+                if (dropdown === openMenu) {
+                    closeMenu(false);
+                } else {
+                    openRowMenu(dropdown, false);
+                }
+                return;
+            }
+            if (openMenu && !openMenu.contains(e.target)) {
+                closeMenu(false);
+            } else if (openMenu && e.target.closest('.dropdown-item')) {
+                // Refocus the trigger first so the delete modal (registered below) restores focus to it.
+                closeMenu(true);
+            }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            const trigger = e.target.closest && e.target.closest('[data-row-menu-trigger]');
+            if (trigger && e.key === 'ArrowDown') {
+                e.preventDefault();
+                openRowMenu(trigger.closest('.dropdown'), true);
+                return;
+            }
+            if (!openMenu) return;
+            if (e.key === 'Escape') {
+                closeMenu(true);
+                return;
+            }
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            const items = menuItems(openMenu);
+            const index = items.indexOf(document.activeElement);
+            if (index === -1) return;
+            e.preventDefault();
+            const next = e.key === 'ArrowDown'
+                ? items[(index + 1) % items.length]
+                : items[(index - 1 + items.length) % items.length];
+            next.focus();
+        });
+    })();
+
     // ── Delete Confirmation Modal ──────────────────────────────
     (function () {
         const modal = document.getElementById('deleteConfirmModal');

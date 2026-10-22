@@ -36,49 +36,77 @@
         }
         else
         {
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of content blocks</caption>
                     <thead>
                         <tr>
                             <th scope="col">Title</th>
-                            <th scope="col">Slug</th>
-                            <th scope="col">Modified</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col" class="is-hidden-mobile">Slug</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Modified</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var cb in Model.ContentBlocks)
                         {
                             <tr>
-                                <td>@cb.Title</td>
-                                <td>@cb.Slug</td>
-                                <td>@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="admin-list-main">
+                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="contentblocks" asp-route-id="@cb.NodeId" class="admin-list-title">@cb.Title</a>
+                                </td>
+                                <td class="is-hidden-mobile">@cb.Slug</td>
+                                <td><partial name="_StatusBadge" model="(cb.IsPublished, false)" /></td>
+                                <td class="is-hidden-mobile">@cb.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
-                                    <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" class="button is-small is-info is-light">Versions</a>
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="contentblocks" asp-route-id="@cb.NodeId" class="button is-small">Edit</a>
-                                        @if (!(cb.IsPublished))
+                                    <div class="admin-row-actions">
+                                        @if (!cb.IsPublished)
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" method="post">
+                                                <button type="submit" class="button is-small is-success">
+                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                                    <span>Publish</span>
+                                                </button>
                                             </form>
                                         }
                                         else
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" method="post">
+                                                <button type="submit" class="button is-small is-warning is-light">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
                                             </form>
                                         }
-                                        <button type="button" class="button is-small is-danger is-light"
-                                                data-delete-trigger
-                                                data-delete-name="@cb.Title"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentblocks", id = cb.NodeId })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="contentblocks" asp-route-id="@cb.NodeId" class="button is-small">
+                                            <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                            <span>Edit</span>
+                                        </a>
+                                        <div class="dropdown is-right admin-row-menu">
+                                            <div class="dropdown-trigger">
+                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@cb.NodeId"
+                                                        aria-label="More actions for @cb.Title">
+                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                            <div class="dropdown-menu" id="row-menu-@cb.NodeId" role="menu">
+                                                <div class="dropdown-content">
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="contentblocks" asp-route-nodeId="@cb.NodeId" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                                        <span>Version history</span>
+                                                    </a>
+                                                    <hr class="dropdown-divider" />
+                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                            data-delete-trigger
+                                                            data-delete-name="@cb.Title"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentblocks", id = cb.NodeId })">
+                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

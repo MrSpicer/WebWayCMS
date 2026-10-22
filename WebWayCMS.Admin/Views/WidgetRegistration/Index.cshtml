@@ -37,32 +37,33 @@
         }
         else
         {
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of widget registrations</caption>
                     <thead>
                         <tr>
                             <th scope="col">Display Name</th>
-                            <th scope="col">Component</th>
-                            <th scope="col">Category</th>
+                            <th scope="col" class="is-hidden-mobile">Component</th>
+                            <th scope="col" class="is-hidden-mobile">Category</th>
                             <th scope="col">Active</th>
-                            <th scope="col">Version</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Version</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var w in Model.Registrations)
                         {
                             <tr>
-                                <td>
-                                    @w.DisplayName
+                                <td class="admin-list-main">
+                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.Version.Node.Id" class="admin-list-title">@w.DisplayName</a>
                                     @if (!string.IsNullOrEmpty(w.Description))
                                     {
-                                        <br /><small class="has-text-grey">@w.Description</small>
+                                        <span class="admin-list-sub">@w.Description</span>
                                     }
                                 </td>
-                                <td><code>@w.ComponentName</code></td>
-                                <td><span class="tag is-info is-light">@w.Category</span></td>
+                                <td class="is-hidden-mobile"><code>@w.ComponentName</code></td>
+                                <td class="is-hidden-mobile"><span class="tag is-info is-light">@w.Category</span></td>
                                 <td>
                                     @if (w.IsActive)
                                     {
@@ -73,32 +74,57 @@
                                         <span class="tag is-warning is-light">Inactive</span>
                                     }
                                 </td>
-                                <td><span class="tag is-light">v@(w.Version.VersionNumber)</span></td>
+                                <td><partial name="_StatusBadge" model="((w.Version.State == WebWayCMS.Data.Models.ContentVersionState.Published), false)" /></td>
+                                <td class="is-hidden-mobile"><span class="tag is-light">v@(w.Version.VersionNumber)</span></td>
                                 <td>
-                                    <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" class="button is-small is-info is-light">Versions</a>
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.Version.Node.Id" class="button is-small">Edit</a>
+                                    <div class="admin-row-actions">
                                         @if (!(w.Version.State == WebWayCMS.Data.Models.ContentVersionState.Published))
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post">
+                                                <button type="submit" class="button is-small is-success">
+                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                                    <span>Publish</span>
+                                                </button>
                                             </form>
                                         }
                                         else
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" method="post">
+                                                <button type="submit" class="button is-small is-warning is-light">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
                                             </form>
                                         }
-                                        <button type="button" class="button is-small is-danger is-light"
-                                                data-delete-trigger
-                                                data-delete-name="@w.DisplayName"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "widgets", id = w.Version.Node.Id })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="widgets" asp-route-id="@w.Version.Node.Id" class="button is-small">
+                                            <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                            <span>Edit</span>
+                                        </a>
+                                        <div class="dropdown is-right admin-row-menu">
+                                            <div class="dropdown-trigger">
+                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@w.Version.Node.Id"
+                                                        aria-label="More actions for @w.DisplayName">
+                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                            <div class="dropdown-menu" id="row-menu-@w.Version.Node.Id" role="menu">
+                                                <div class="dropdown-content">
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="widgets" asp-route-nodeId="@w.Version.Node.Id" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                                        <span>Version history</span>
+                                                    </a>
+                                                    <hr class="dropdown-divider" />
+                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                            data-delete-trigger
+                                                            data-delete-name="@w.DisplayName"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "widgets", id = w.Version.Node.Id })">
+                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

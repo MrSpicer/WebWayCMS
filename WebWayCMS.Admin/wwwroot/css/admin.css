@@ -564,3 +564,108 @@ hr {
 .tabs a { color: var(--admin-text-muted); border-bottom-color: var(--admin-border); }
 .tabs a:hover { color: var(--admin-text); border-bottom-color: var(--admin-text); }
 .tabs li.is-active a { color: var(--admin-primary); border-bottom-color: var(--admin-primary); }
+
+/* =============================================================
+   Admin List Pattern
+   Title link + status badge + [Publish?] [primary] [⋯ menu]
+   ============================================================= */
+/* Let row menus overflow the table instead of being clipped by it. */
+.table-container.admin-list-container { overflow: visible; }
+
+.admin-list-table td { vertical-align: middle; }
+
+.admin-list-title {
+  color: var(--admin-text);
+  font-weight: 600;
+}
+.admin-list-title:hover,
+.admin-list-title:focus { color: var(--admin-primary); }
+
+.admin-list-sub {
+  display: block;
+  color: var(--admin-text-muted);
+  font-size: 0.85rem;
+  margin-top: 0.1rem;
+}
+.admin-list-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+/* Nested page rows: a thin guide line per depth level. */
+.admin-tree-indent {
+  display: block;
+  border-left: 2px solid var(--admin-border);
+  padding-left: 0.85rem;
+}
+
+.admin-status { gap: 0.4rem; white-space: nowrap; }
+.status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.admin-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.admin-row-actions > form { display: inline-flex; }
+.admin-actions-col { width: 1%; }
+
+.admin-row-menu-trigger.button {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--admin-text-muted);
+}
+.admin-row-menu-trigger.button:hover,
+.admin-row-menu-trigger.button:focus,
+.dropdown.is-active .admin-row-menu-trigger.button {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--admin-text);
+}
+
+.admin-row-menu .dropdown-menu { min-width: 12rem; }
+.admin-row-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background-color: transparent;
+  color: var(--admin-text);
+}
+.admin-row-menu .dropdown-item:hover,
+.admin-row-menu .dropdown-item:focus {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--admin-text);
+}
+.admin-row-menu .dropdown-item .icon { color: var(--admin-text-muted); }
+.admin-row-menu .dropdown-item.is-danger,
+.admin-row-menu .dropdown-item.is-danger .icon { color: var(--admin-danger); }
+.admin-row-menu .dropdown-item.is-danger:hover { background-color: rgba(248, 113, 113, 0.15); }
+.admin-row-menu form { display: block; margin: 0; }
+
+/* Phones: stack each row — title on its own line, then status and actions. */
+@media screen and (max-width: 768px) {
+  .admin-list-table thead { display: none; }
+  .admin-list-table,
+  .admin-list-table tbody { display: block; width: 100%; }
+  .admin-list-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.75rem 0.5rem;
+    border-bottom: 1px solid var(--admin-border);
+  }
+  .admin-list-table td { display: block; border: 0; padding: 0; }
+  .admin-list-table td.admin-list-main { flex: 1 0 100%; }
+  .admin-list-table td:last-child { margin-left: auto; }
+  .admin-row-actions { flex-wrap: wrap; }
+}

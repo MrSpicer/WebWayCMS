@@ -57,42 +57,37 @@
         }
         else
         {
-            <div class="table-container mt-4">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container mt-4">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of content zones</caption>
                     <thead>
                         <tr>
                             <th scope="col">Name</th>
-                            <th scope="col">Description</th>
-                            <th scope="col">Published</th>
-                            <th scope="col">Modified</th>
-                            <th scope="col">Version</th>
-                            <th scope="col">Assignments</th>
-                            <th scope="col">Global</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Modified</th>
+                            <th scope="col" class="is-hidden-mobile">Version</th>
+                            <th scope="col" class="is-hidden-mobile">Assignments</th>
+                            <th scope="col" class="is-hidden-mobile">Global</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var zone in Model.Zones)
                         {
                             <tr>
-                                <td>@zone.Name</td>
-                                <td>@zone.Description</td>
-                                <td>
-                                    @if (zone.Version.State == ContentVersionState.Published)
+                                <td class="admin-list-main">
+                                    <a href="/wadmin/contentzones/zone-edit/@zone.Version.Node.Id" class="admin-list-title">@zone.Name</a>
+                                    @if (!string.IsNullOrEmpty(zone.Description))
                                     {
-                                        <span class="tag is-success">Yes</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="tag is-warning">No</span>
+                                        <span class="admin-list-sub">@zone.Description</span>
                                     }
                                 </td>
-                                <td>@zone.Version.CreatedUtc.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td><span class="tag is-light">v@(zone.Version.VersionNumber)</span></td>
-                                <td>@Model.AssignmentCountsByNodeId.GetValueOrDefault(zone.Version.Node.Id, 0)</td>
-                                <td>
-                                    @if (!Model.AssignmentCountsByNodeId.ContainsKey(zone.Version.Node.Id) || Model.AssignmentCountsByNodeId[zone.Version.Node.Id] == 0)
+                                <td><partial name="_StatusBadge" model="((zone.Version.State == ContentVersionState.Published), false)" /></td>
+                                <td class="is-hidden-mobile">@zone.Version.CreatedUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="is-hidden-mobile"><span class="tag is-light">v@(zone.Version.VersionNumber)</span></td>
+                                <td class="is-hidden-mobile">@Model.AssignmentCountsByNodeId.GetValueOrDefault(zone.Version.Node.Id, 0)</td>
+                                <td class="is-hidden-mobile">
+                                    @if (Model.AssignmentCountsByNodeId.GetValueOrDefault(zone.Version.Node.Id, 0) == 0)
                                     {
                                         <span class="tag is-success">Yes</span>
                                     }
@@ -102,43 +97,69 @@
                                     }
                                 </td>
                                 <td>
-                                    <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory"
-                                           asp-route-contentType="contentzones"
-                                           asp-route-nodeId="@zone.Version.Node.Id"
-                                           class="button is-small is-info is-light">Versions</a>
-                                        <a asp-controller="AdminContent" asp-action="Edit"
-                                           asp-route-contentType="contentzones"
-                                           asp-route-id="@zone.Version.Node.Id"
-                                           class="button is-small">Edit</a>
-                                        <a href="/wadmin/contentzones/zone-edit/@zone.Version.Node.Id" class="button is-small is-primary is-light">Edit Zone</a>
-                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.Version.Node.Id" asp-route-childType="items" class="button is-small is-info is-light">Advanced</a>
-                                        @if (Model.ZoneIdsWithChildren.Contains(zone.Version.Node.Id))
+                                    <div class="admin-row-actions">
+                                        @if (!(zone.Version.State == ContentVersionState.Published))
                                         {
-                                            <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?zoneId=@zone.Version.Node.Id"
-                                               class="button is-small is-info is-light">Child Zones</a>
-                                        }
-                                        @if (!(zone.Version.State == WebWayCMS.Data.Models.ContentVersionState.Published))
-                                        {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post">
+                                                <button type="submit" class="button is-small is-success">
+                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                                    <span>Publish</span>
+                                                </button>
                                             </form>
                                         }
                                         else
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" method="post">
+                                                <button type="submit" class="button is-small is-warning is-light">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
                                             </form>
                                         }
-                                        <button type="button" class="button is-small is-danger is-light"
-                                                data-delete-trigger
-                                                data-delete-name="@zone.Name"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentzones", id = zone.Version.Node.Id })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
+                                        <a href="/wadmin/contentzones/zone-edit/@zone.Version.Node.Id" class="button is-small">
+                                            <span class="icon"><i class="fas fa-th-large" aria-hidden="true"></i></span>
+                                            <span>Edit zone</span>
+                                        </a>
+                                        <div class="dropdown is-right admin-row-menu">
+                                            <div class="dropdown-trigger">
+                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@zone.Version.Node.Id"
+                                                        aria-label="More actions for @zone.Name">
+                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                            <div class="dropdown-menu" id="row-menu-@zone.Version.Node.Id" role="menu">
+                                                <div class="dropdown-content">
+                                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="contentzones" asp-route-id="@zone.Version.Node.Id" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
+                                                        <span>Settings</span>
+                                                    </a>
+                                                    @if (Model.ZoneIdsWithChildren.Contains(zone.Version.Node.Id))
+                                                    {
+                                                        <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })?zoneId=@zone.Version.Node.Id" class="dropdown-item" role="menuitem">
+                                                            <span class="icon"><i class="fas fa-sitemap" aria-hidden="true"></i></span>
+                                                            <span>Child zones</span>
+                                                        </a>
+                                                    }
+                                                    <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.Version.Node.Id" asp-route-childType="items" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-list" aria-hidden="true"></i></span>
+                                                        <span>Items (advanced)</span>
+                                                    </a>
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="contentzones" asp-route-nodeId="@zone.Version.Node.Id" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                                        <span>Version history</span>
+                                                    </a>
+                                                    <hr class="dropdown-divider" />
+                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                            data-delete-trigger
+                                                            data-delete-name="@zone.Name"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "contentzones", id = zone.Version.Node.Id })">
+                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

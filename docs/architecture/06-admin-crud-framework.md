@@ -264,7 +264,7 @@ Handles the admin inline zone editing views. Delegates to `IContentZoneModel` fo
 | GET | `/wadmin/contentzones/page/{pageNodeId:guid}` | `PageZones` — the **page zone editor** (`PageZonesEdit.cshtml`); 404 for an unknown page |
 | POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `DiscardPageZoneDraftsAsync`, then back to the editor |
 
-**Page zone editor.** Opened from the **Edit Zones** button on each Pages list row. It lists the page's
+**Page zone editor.** Opened from a page's title (or its **Edit zones** button) on the Pages list. It lists the page's
 zone assignments (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in
 the unchanged `ContentZone` editor (`editMode: true`), one box per slot; nested zones inside Layout
 widgets are editable inline as usual. Widgets can be dragged (grip handle; mouse or touch) within a zone
@@ -323,7 +323,30 @@ Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidg
    services.AddScoped<MyThingModel>();
    services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<MyThingModel>());
    ```
-3. Create Razor views at the paths returned by `IndexViewPath` and `UpsertViewPath`
+3. Create Razor views at the paths returned by `IndexViewPath` and `UpsertViewPath` (follow the
+   list page pattern below for the index view)
 4. The routes appear automatically; no controller changes required
+
+### List page pattern
+
+Every admin list (Pages, Content Blocks, Images, Zones, Articles, Routes, the registries) uses one row layout,
+styled by the "Admin List Pattern" section of `WebWayCMS.Admin/wwwroot/css/admin.css`:
+
+- **Title cell** (`td.admin-list-main`): the title is an `a.admin-list-title` linking to the item's main editing
+  screen (a page → its zone editor, a zone → the zone editor, an article list → its articles, everything else → Edit).
+  Secondary text goes in `span.admin-list-sub` (add `admin-list-path` for monospace paths).
+- **Status**: `<partial name="_StatusBadge" model="(isPublished, hasPendingChanges)" />` renders
+  Draft / Live / Live · Changes pending.
+- **Actions** (`div.admin-row-actions` in the last cell, header `th.admin-actions-col`): the frequent actions stay
+  visible — **View ↗** where the item has a public URL (live pages, literal non-reserved routes), exactly one of
+  **Publish** (draft or pending changes) / **Unpublish** (live, nothing pending) for publishable types, and the type's
+  primary button (**Edit zones** for pages, **Edit zone** for zones, **Articles** for article lists, **Edit** otherwise).
+  Then a `⋯` Bulma `dropdown is-right admin-row-menu` with a `[data-row-menu-trigger]` button holds the rest (Preview,
+  Settings, Version history, …), with Delete (`data-delete-trigger`) — and, for a page with pending changes, Unpublish —
+  after a `dropdown-divider`. `admin.js` wires every row menu: one open at
+  a time, outside click / Escape to close, arrow keys between items, and an upward flip near the viewport bottom.
+- Wrap the table in `div.table-container.admin-list-container` (overflow visible so menus aren't clipped) with
+  `table.admin-list-table`; mark secondary columns `is-hidden-mobile`. Below 769px rows stack (title, then
+  status + actions).
 
 *See also:* [docs/content-system.md](../content-system.md) for the full walkthrough.

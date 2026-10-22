@@ -35,54 +35,83 @@
         }
         else
         {
-            <div class="table-container">
-                <table class="table is-fullwidth is-striped">
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of article lists</caption>
                     <thead>
                         <tr>
                             <th scope="col">Title</th>
-                            <th scope="col">Slug</th>
+                            <th scope="col" class="is-hidden-mobile">Slug</th>
                             <th scope="col">Articles</th>
-                            <th scope="col">Created</th>
-                            <th scope="col">Modified</th>
-                            <th scope="col"><span class="is-sr-only">Actions</span></th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Modified</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var list in Model.ArticleLists)
                         {
                             <tr>
-                                <td>@list.Title</td>
-                                <td>@list.Slug</td>
+                                <td class="admin-list-main">
+                                    <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@list.Slug" asp-route-childType="articles" class="admin-list-title">@list.Title</a>
+                                </td>
+                                <td class="is-hidden-mobile">@list.Slug</td>
                                 <td>@list.ArticleCount</td>
-                                <td>@list.CreationDate.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td>@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td><partial name="_StatusBadge" model="(list.IsPublished, false)" /></td>
+                                <td class="is-hidden-mobile">@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
-                                    <div class="buttons are-small">
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" class="button is-small is-info is-light">Versions</a>
-                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@list.Slug" asp-route-childType="articles" class="button is-small is-info is-light">Articles</a>
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articles" asp-route-id="@list.NodeId" class="button is-small">Edit</a>
-                                        @if (!(list.IsPublished))
+                                    <div class="admin-row-actions">
+                                        @if (!list.IsPublished)
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-success">Publish</button>
+                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post">
+                                                <button type="submit" class="button is-small is-success">
+                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
+                                                    <span>Publish</span>
+                                                </button>
                                             </form>
                                         }
                                         else
                                         {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small is-warning">Unpublish</button>
+                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" method="post">
+                                                <button type="submit" class="button is-small is-warning is-light">
+                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
+                                                    <span>Unpublish</span>
+                                                </button>
                                             </form>
                                         }
-                                        <button type="button" class="button is-small is-danger is-light"
-                                                data-delete-trigger
-                                                data-delete-name="@list.Title"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articles", id = list.NodeId })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
+                                        <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="articles" asp-route-parentKey="@list.Slug" asp-route-childType="articles" class="button is-small">
+                                            <span class="icon"><i class="fas fa-newspaper" aria-hidden="true"></i></span>
+                                            <span>Articles</span>
+                                        </a>
+                                        <div class="dropdown is-right admin-row-menu">
+                                            <div class="dropdown-trigger">
+                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@list.NodeId"
+                                                        aria-label="More actions for @list.Title">
+                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                            <div class="dropdown-menu" id="row-menu-@list.NodeId" role="menu">
+                                                <div class="dropdown-content">
+                                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articles" asp-route-id="@list.NodeId" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
+                                                        <span>Settings</span>
+                                                    </a>
+                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articles" asp-route-nodeId="@list.NodeId" class="dropdown-item" role="menuitem">
+                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                                        <span>Version history</span>
+                                                    </a>
+                                                    <hr class="dropdown-divider" />
+                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                            data-delete-trigger
+                                                            data-delete-name="@list.Title"
+                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articles", id = list.NodeId })">
+                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

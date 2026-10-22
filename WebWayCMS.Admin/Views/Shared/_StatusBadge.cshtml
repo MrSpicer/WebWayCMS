@@ -1,0 +1,15 @@
+@* Single publish-status badge for admin lists: Draft / Live / Live · Changes pending. *@
+@model (bool IsPublished, bool HasPendingChanges)
+
+@if (!Model.IsPublished)
+{
+    <span class="tag is-light admin-status"><span class="status-dot" aria-hidden="true"></span>Draft</span>
+}
+else if (Model.HasPendingChanges)
+{
+    <span class="tag is-warning admin-status"><span class="status-dot" aria-hidden="true"></span>Live · Changes pending</span>
+}
+else
+{
+    <span class="tag is-success admin-status"><span class="status-dot" aria-hidden="true"></span>Live</span>
+}

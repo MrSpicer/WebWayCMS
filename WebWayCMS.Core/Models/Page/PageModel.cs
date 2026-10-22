@@ -320,7 +320,8 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         PageNodeId = page.Version.Node.Id,
                         IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds),
                         HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
-                        IsHidden = page.Version.Node.IsHidden
+                        IsHidden = page.Version.Node.IsHidden,
+                        ModificationDate = page.Version.CreatedUtc
                     };
                     nodeMap["/"] = rootNode;
                     roots.Insert(0, rootNode);
@@ -332,6 +333,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     rootNode.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
                     rootNode.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
                     rootNode.IsHidden = page.Version.Node.IsHidden;
+                    rootNode.ModificationDate = page.Version.CreatedUtc;
                 }
                 continue;
             }
@@ -353,7 +355,8 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         PageNodeId = isLeaf ? page.Version.Node.Id : null,
                         IsPublished = isLeaf && IsNodePublished(page.Version.Node.Id, publishedNodeIds),
                         HasPendingChanges = isLeaf && HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
-                        IsHidden = isLeaf && page.Version.Node.IsHidden
+                        IsHidden = isLeaf && page.Version.Node.IsHidden,
+                        ModificationDate = isLeaf ? page.Version.CreatedUtc : null
                     };
                     nodeMap[currentPath] = node;
 
@@ -377,6 +380,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     node.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
                     node.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
                     node.IsHidden = page.Version.Node.IsHidden;
+                    node.ModificationDate = page.Version.CreatedUtc;
                 }
             }
         }

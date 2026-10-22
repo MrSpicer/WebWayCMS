@@ -8,5 +8,7 @@ public class PageTreeNode
     public bool IsPublished { get; set; }
     public bool HasPendingChanges { get; set; }
     public bool IsHidden { get; set; }
+    /// <summary>When the page's current version was written; null for path-only placeholder nodes.</summary>
+    public DateTime? ModificationDate { get; set; }
     public List<PageTreeNode> Children { get; set; } = new();
 }

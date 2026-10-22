@@ -115,8 +115,8 @@
   Widget routes for page-zone items change **only** at publish (never on a draft save/delete);
   global-zone items register on write. A zone failure after the page went live returns
   `"Page published; some zone changes failed: …"` and those items stay pending. The Pages list
-  "Pending" tag includes pending zone drafts (`GetPagesWithPendingZoneChangesAsync`).
-- **Page zone editor:** `GET /wadmin/contentzones/page/{pageNodeId}` (Pages list → **Edit Zones**) stacks
+  "Live · Changes pending" status includes pending zone drafts (`GetPagesWithPendingZoneChangesAsync`).
+- **Page zone editor:** `GET /wadmin/contentzones/page/{pageNodeId}` (Pages list → page title or **Edit zones**) stacks
   every zone assigned to the page (`IContentZoneModel.GetPageZoneSlotsAsync`) in the unchanged zone
   editor, under a toolbar (status, Publish, Discard changes, Unpublish, Edit page, Back) and two tabs:
   Edit zones / Preview (an iframe of the existing preview action; `#preview` hash remembers the tab).
