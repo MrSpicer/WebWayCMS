@@ -150,6 +150,18 @@ ASP.NET Core's route parser, and it supports a deliberately small subset:
 Any constraint name the matcher does not recognise is treated as satisfied. A segment mixing a
 literal with more than one parameter is not supported and degrades to a plain string comparison.
 
+**Reserved parameter names.** `UpsertAsync` rejects a pattern whose parameter is named `action`, `area`,
+`controller`, `handler` or `page` (case-insensitive; `FindReservedParameter`). These are ASP.NET Core's
+reserved routing names: `CMSRouteTransformer` copies every matched value into the route values it
+returns, and a non-empty `page` (for example) makes endpoint selection look for a Razor Page, so the
+request 404s before the page controller runs. Use another name (`{pageNumber:int}`). Every route write
+goes through `UpsertAsync` (widget routes, code-based `[CmsRoute]` seeding, the admin route form), so a
+widget's rejected route surfaces as a publish error and a code route as a startup warning. That includes
+the rollback in `PageModel.PublishPageAsync`: when a republish's new route fails to register, the previous
+routes are re-upserted, and one that is now rejected (a legacy pattern stored before this check, which
+404'd anyway) is appended to the publish error ("The previous route could not be restored: …") rather than
+dropped silently.
+
 **Other members:** `GetActiveRoutesAsync`, `GetByOwningContentAsync`, `GetByIdAsync`,
 `IsPatternAvailableAsync(pattern, excludeNodeId, excludeRouteId)`, `UpsertAsync`, `DeleteAsync`,
 `DeleteByOwningContentAsync`.

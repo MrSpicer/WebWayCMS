@@ -1301,6 +1301,31 @@ public class ContentZoneServiceTests
     }
 
     [Test]
+    public async Task PublishPageZoneItemsAsync_PublishesOnlyTheListedPendingItems()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(pageNodeId);
+        var otherZone = await SeedPageZoneAsync(Guid.NewGuid());
+        var listed = Item(zone, state: ContentVersionState.Draft, component: "Listed");
+        var unlisted = Item(zone, state: ContentVersionState.Draft, component: "Unlisted");
+        var otherPage = Item(otherZone, state: ContentVersionState.Draft, component: "OtherPage");
+        await SeedItemsAsync(listed, unlisted, otherPage);
+
+        var result = await NewService().PublishPageZoneItemsAsync(
+            pageNodeId, [listed.Version.Node.Id, otherPage.Version.Node.Id]);
+
+        var store = ItemStore(NewContext());
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Errors, Is.Empty);
+            Assert.That(result.FailedItemNodeIds, Is.Empty);
+            Assert.That(result.Published.Select(i => i.ComponentName), Is.EqualTo(new[] { "Listed" }));
+            Assert.That(await store.GetAsync(unlisted.Version.Node.Id), Is.Null, "an unlisted draft stays a draft");
+            Assert.That(await store.GetAsync(otherPage.Version.Node.Id), Is.Null, "another page's item is not published");
+        });
+    }
+
+    [Test]
     public async Task PublishPageZonesAsync_Failures_AreCollectedPerItem()
     {
         var pageNodeId = Guid.NewGuid();
@@ -1324,6 +1349,7 @@ public class ContentZoneServiceTests
             Assert.That(result.Errors, Has.Count.EqualTo(3));
             Assert.That(result.Errors, Does.Contain("boom"));
             Assert.That(result.Errors, Does.Contain($"Content zone item {vanishes.Version.Node.Id} could not be published."));
+            Assert.That(result.FailedItemNodeIds, Is.EquivalentTo(new[] { failsWithMessage.Version.Node.Id, failsSilently.Version.Node.Id, vanishes.Version.Node.Id }));
         });
     }
 

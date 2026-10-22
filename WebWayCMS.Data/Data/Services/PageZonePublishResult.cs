@@ -8,4 +8,8 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed record PageZonePublishResult(
     IReadOnlyList<ContentZoneItemDTO> Published,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors)
+{
+    /// <summary>The node ids of the pending items that could not be published (one per entry in <see cref="Errors"/>).</summary>
+    public IReadOnlyList<Guid> FailedItemNodeIds { get; init; } = [];
+}

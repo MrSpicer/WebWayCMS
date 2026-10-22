@@ -420,6 +420,7 @@ admin child CRUD, MCP).
 | `GetPendingItemNodeIdsAsync(zoneNodeIds)` | Item nodes in those zones whose current draft is not `Published` (never published, or edited since) |
 | `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a pending item anywhere in their zone tree (Pages list "Pending" tag). One breadth-first walk covers all the pages at once |
 | `PublishPageZonesAsync(pageNodeId)` | Publishes every pending item under the page; returns `PageZonePublishResult(Published, Errors)` so the caller (`PageModel`) can register widget routes for what went live. Joins the caller's ambient change set |
+| `PublishPageZoneItemsAsync(pageNodeId, itemNodeIds)` | Publishes only the listed items among the page's pending drafts (others stay pending; a listed item that isn't pending is ignored). Same result shape, plus `FailedItemNodeIds`. Backs `IPageModel.PublishZoneItemsAsync`, which the content seeder uses on an already-live page instead of republishing it |
 | `DiscardPageZoneDraftsAsync(pageNodeId)` | `DiscardDraftAsync` on every pending item — once-published items first, so a live widget dragged into a never-published container returns home before the container (and its nested zones) is deleted. A container's nested zones are deleted only when the discard will delete the container itself (its draft is its sole version); one with an earlier version falls back to it and keeps its columns. Items already removed with a deleted container are skipped. Sweeps route rows of items the discard deleted |
 
 | Method | Behaviour |

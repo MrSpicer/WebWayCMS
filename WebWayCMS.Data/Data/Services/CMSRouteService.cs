@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
@@ -11,6 +13,16 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed class CMSRouteService : ICMSRouteService
 {
+    // ASP.NET Core's reserved routing names. A route value with one of these names drives endpoint
+    // selection itself (a non-empty "page" makes MVC look for a Razor Page), so the dynamic CMS route
+    // would 404 instead of reaching the page controller.
+    private static readonly HashSet<string> ReservedParameterNames =
+        new(StringComparer.OrdinalIgnoreCase) { "action", "area", "controller", "handler", "page" };
+
+    // The name of each {parameter} in a pattern: after any catch-all '*'s, up to a constraint,
+    // default or optional marker.
+    private static readonly Regex ParameterNamePattern = new(@"\{\**([^}:=?]+)", RegexOptions.Compiled);
+
     private readonly CmsDbContext _context;
     private readonly ICMSRouteRegistry _registry;
 
@@ -99,6 +111,14 @@ public sealed class CMSRouteService : ICMSRouteService
         if (route == null) throw new ArgumentNullException(nameof(route));
 
         route.Pattern = NormalizePattern(route.Pattern);
+
+        if (FindReservedParameter(route.Pattern) is { } reserved)
+        {
+            return (false,
+                $"Route pattern '{route.Pattern}' uses the parameter name '{reserved}', which ASP.NET Core reserves for routing " +
+                "(action, area, controller, handler, page); the request would 404. Rename the parameter, e.g. '{" + reserved + "Number}'.",
+                null);
+        }
 
         var pattern = route.Pattern;
         var owner = route.OwningContentNodeId;
@@ -189,6 +209,12 @@ public sealed class CMSRouteService : ICMSRouteService
         _registry.Invalidate();
         return true;
     }
+
+    /// <summary>The first route parameter in <paramref name="pattern"/> with a reserved name, or null.</summary>
+    internal static string? FindReservedParameter(string pattern) =>
+        ParameterNamePattern.Matches(pattern)
+            .Select(m => m.Groups[1].Value.Trim())
+            .FirstOrDefault(ReservedParameterNames.Contains);
 
     internal static string NormalizePattern(string pattern)
     {

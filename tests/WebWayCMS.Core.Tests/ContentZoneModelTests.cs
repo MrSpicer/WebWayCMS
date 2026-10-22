@@ -610,6 +610,73 @@ public class ContentZoneModelTests
     }
 
     [Test]
+    public async Task ChildHandler_SaveChildUpsert_StaleExpectedVersion_IsRejectedBeforeSaving()
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}");
+        item.Version.VersionNumber = 3;
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C", ExpectedVersionNumber = 2 });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentZoneItemDTO>.StaleVersionMessage));
+        });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_ExpectedVersion_IsPassedToTheStore()
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}");
+        item.Version.VersionNumber = 3;
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), 3).Returns(true, false);
+        var vm = new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C", ExpectedVersionNumber = 3 };
+
+        var saved = await child.SaveChildUpsertAsync("k", vm);
+        // A concurrent write the store's own version check caught.
+        var raced = await child.SaveChildUpsertAsync("k", vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved.Success, Is.True);
+            Assert.That(raced.Success, Is.False);
+            Assert.That(raced.ErrorMessage, Is.EqualTo(ContentStore<ContentZoneItemDTO>.StaleVersionMessage));
+        });
+    }
+
+    [Test]
+    public async Task ChildHandler_SaveChildUpsert_ReturnsItemNodeId_OnCreateAndUpdate()
+    {
+        var child = _model.ChildHandler!;
+        var zoneId = Guid.NewGuid();
+        var createdNodeId = Guid.NewGuid();
+        var item = Item("C", "{}");
+        _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
+        _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(c =>
+            {
+                var added = c.Arg<ContentZoneItemDTO>();
+                added.Version.Node = new ContentNode { Id = createdNodeId };
+                return added;
+            });
+
+        var created = await child.SaveChildUpsertAsync(zoneId.ToString(), new ContentZoneItemUpsertViewModel { ComponentName = "C" });
+        var updated = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.NodeId, Is.EqualTo(createdNodeId));
+            Assert.That(updated.NodeId, Is.EqualTo(item.Version.Node.Id));
+        });
+    }
+
+    [Test]
     public async Task ChildHandler_SaveChildUpsert_MissingComponentName_ReturnsValidationError()
     {
         var child = _model.ChildHandler!;

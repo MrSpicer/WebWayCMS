@@ -547,25 +547,35 @@ public sealed class ContentZoneService : IContentZoneService
     }
 
     public async Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default)
+        => await PublishItemsAsync(
+            await GetPendingItemNodeIdsAsync(await GetZoneTreeNodeIdsForPageAsync(pageNodeId, ct), ct), ct);
+
+    public async Task<PageZonePublishResult> PublishPageZoneItemsAsync(Guid pageNodeId, IReadOnlyCollection<Guid> itemNodeIds, CancellationToken ct = default)
     {
         var pendingIds = await GetPendingItemNodeIdsAsync(await GetZoneTreeNodeIdsForPageAsync(pageNodeId, ct), ct);
+        return await PublishItemsAsync(pendingIds.Where(itemNodeIds.Contains).ToList(), ct);
+    }
 
+    private async Task<PageZonePublishResult> PublishItemsAsync(List<Guid> itemNodeIds, CancellationToken ct)
+    {
         var published = new List<ContentZoneItemDTO>();
         var errors = new List<string>();
-        foreach (var itemNodeId in pendingIds)
+        var failed = new List<Guid>();
+        foreach (var itemNodeId in itemNodeIds)
         {
             var result = await _itemStore.PublishAsync(itemNodeId, ct);
             var item = result.Success ? await _itemStore.GetCurrentDraftAsync(itemNodeId, ct) : null;
             if (item == null)
             {
                 errors.Add(result.ErrorMessage ?? $"Content zone item {itemNodeId} could not be published.");
+                failed.Add(itemNodeId);
                 continue;
             }
 
             published.Add(item);
         }
 
-        return new PageZonePublishResult(published, errors);
+        return new PageZonePublishResult(published, errors) { FailedItemNodeIds = failed };
     }
 
     public async Task<(bool Success, string? ErrorMessage)> DiscardPageZoneDraftsAsync(Guid pageNodeId, CancellationToken ct = default)

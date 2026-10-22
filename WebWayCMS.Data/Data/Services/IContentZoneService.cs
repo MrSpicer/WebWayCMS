@@ -56,6 +56,9 @@ public interface IContentZoneService
     Task<List<Guid>> GetPendingItemNodeIdsAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default);
     Task<HashSet<Guid>> GetPagesWithPendingZoneChangesAsync(IEnumerable<Guid> pageNodeIds, CancellationToken ct = default);
     Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
+    // Publishes only the listed items among the page's pending zone drafts; every other draft stays pending.
+    // A listed item that is not pending (already live, or outside the page's zone tree) is left alone.
+    Task<PageZonePublishResult> PublishPageZoneItemsAsync(Guid pageNodeId, IReadOnlyCollection<Guid> itemNodeIds, CancellationToken ct = default);
     Task<(bool Success, string? ErrorMessage)> DiscardPageZoneDraftsAsync(Guid pageNodeId, CancellationToken ct = default);
 
     // zone deletion: the zone's assignments, its items, and the nested zones those items own (at any

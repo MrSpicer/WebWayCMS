@@ -168,8 +168,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default)
         => await _service.AddItemAsync(zoneNodeId, item, ct);
 
-    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default)
-        => await _service.UpdateItemAsync(item, ct);
+    public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null)
+        => await _service.UpdateItemAsync(item, ct, expectedVersionNumber);
 
     public async Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default)
         => await _service.RemoveItemAsync(itemNodeId, ct);
@@ -562,11 +562,15 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             await _model.RegisterWidgetRouteIfRoutableAsync(
                 createdItem.ComponentName, createdItem.Version.Node!.Id, zoneNodeId,
                 createdItem.IsActive, ct);
-            return new AdminSaveResult(true);
+            return new AdminSaveResult(true, NodeId: createdItem.Version.Node!.Id);
         }
 
         if (existing == null)
             return new AdminSaveResult(false, "Content zone item not found.");
+
+        // The caller's view of the item: an edit made since it was loaded is never silently overwritten.
+        if (vm.ExpectedVersionNumber.HasValue && existing.Version.VersionNumber != vm.ExpectedVersionNumber.Value)
+            return new AdminSaveResult(false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage);
 
         var updated = existing with
         {
@@ -577,14 +581,19 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             MetadataJson = metadataJson ?? existing.MetadataJson,
             IsActive = vm.IsActive,
         };
-        var ok = await _model.UpdateItemAsync(updated, ct);
-        if (ok)
+        var ok = await _model.UpdateItemAsync(updated, ct, vm.ExpectedVersionNumber);
+        if (!ok)
         {
-            await _model.RegisterWidgetRouteIfRoutableAsync(
-                updated.ComponentName, existing.Version.Node.Id, existing.ContentZoneNodeId,
-                updated.IsActive, ct);
+            // With an expected version, a rejection past the pre-check is a concurrent write the store caught.
+            return new AdminSaveResult(false, vm.ExpectedVersionNumber.HasValue
+                ? ContentStore<ContentZoneItemDTO>.StaleVersionMessage
+                : "Update failed.");
         }
-        return ok ? new AdminSaveResult(true) : new AdminSaveResult(false, "Update failed.");
+
+        await _model.RegisterWidgetRouteIfRoutableAsync(
+            updated.ComponentName, existing.Version.Node.Id, existing.ContentZoneNodeId,
+            updated.IsActive, ct);
+        return new AdminSaveResult(true, NodeId: existing.Version.Node.Id);
     }
 
     public async Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default)

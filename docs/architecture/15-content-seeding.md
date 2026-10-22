@@ -40,7 +40,7 @@ writing on publish for free.
 | Identity | Each item carries a stable Guid `id` that is a *seed key*, mapped through a ledger table to a CMS-generated `ContentNode.Id`. `ContentStore` is not modified. |
 | Update rule | Re-apply an item only when its content hash differs from the hash recorded last time — so edits made in `/wadmin` survive reboots, but shipping new content in a package release takes effect |
 | Deployment mode | **Admin mode only** (`UseWebWayCmsAdmin`). `IAdminHandlerRegistry` does not exist in a rendering-only host. |
-| Scope | Top-level content items only — no nested child entities (zone items) in v1. Articles are top-level: seed an `articlelists` item and an `articles` item whose `articleListId` is `@seed:{listSeedId}` |
+| Scope | Top-level content items, plus **zone items** placed by a `zone` locator (§10). Other child entities are not seeded. Articles are top-level: seed an `articlelists` item and an `articles` item whose `articleListId` is `@seed:{listSeedId}` |
 | Config | `ContentSeedOptions` bound from a `"ContentSeed"` section, plus a `WEBWAYCMS_SKIP_CONTENTSEED` env var |
 
 ## 3. File Format
@@ -221,6 +221,75 @@ An unversioned entity (modelled on `CMSRouteDTO`), keyed by the seed id:
 `WebWayCMS.Data` alongside the other plain-row services.
 
 ---
+
+## 10. Zone Items
+
+A seed item with a `zone` locator is a **zone item** (a widget placed in a content zone). It uses
+`"contentType": "contentzones"` and is saved through that handler's child dispatch
+(`IAdminCrudChildHandler.SaveChildUpsertAsync`), so it gets the same metadata normalization and
+widget-route registration as a zone item created in the zone editor or over MCP.
+
+```json
+{
+  "id": "44444444-0000-4000-8000-000000000002",
+  "contentType": "contentzones",
+  "zone": { "page": "@seed:22222222-0000-4000-8000-000000000001", "slot": "Main" },
+  "fields": {
+    "componentName": "Faq",
+    "componentPropertiesJson": "{\"ListViewName\":\"Accordion\",\"FeaturedFaqId\":\"@seed:11111111-0000-4000-8000-000000000001\"}",
+    "metadataJson": "{\"DisplayMode\":\"List\"}",
+    "isActive": true
+  }
+}
+```
+
+- **Locator** — exactly one of:
+  - `{ "page": …, "slot": "Main" }`: a zone the page's template renders;
+  - `{ "item": …, "slot": "Sidebar" }`: a nested zone owned by another zone item (e.g. a Layout column);
+  - `{ "name": "SiteFooter" }`: a global, name-based zone.
+
+  `page`/`item` take a node id or an `@seed:{guid}` reference, resolved (and deferred) like any other
+  reference. The zone is created when it does not exist yet (`IContentZoneService.GetOrCreateBy…Async`),
+  exactly as first rendering the page would, so a fresh database needs no page visit. An invalid locator
+  (none or several owners set, or no `slot` with `page`/`item`) is a warning and the item is skipped. So
+  is an owner that does not exist or is the wrong kind of node: `page` must be an existing, non-deleted
+  page (`IPageModel.GetVersionHistoryAsync`) and `item` an existing zone item. Nothing is created for it,
+  so a stale id never aborts the run with an FK error or attaches a zone to the wrong node.
+- **Fields** — `ContentZoneItemUpsertViewModel` in camelCase. `contentZoneNodeId` is stripped (placement
+  comes only from the locator). **Set `"isActive": true`**: the upsert model defaults it to `false`, and
+  the seeder adds no zone-specific defaults. `componentPropertiesJson` is the widget config as a JSON
+  string with PascalCase keys (the zone editor's format), and may carry `@seed:` tokens.
+- **Ordering** — top-level items and zone items share one deferred-retry loop, with every top-level item
+  ahead of every zone item in each pass, so pages, blocks, images and so on referenced by a locator or a
+  widget config resolve in the first pass (and a top-level item may reference a zone item: it resolves on
+  the next pass). Zone items apply in file order, each appended to its zone. When a zone item defers, every
+  later item naming the same zone (same raw locator) defers with it, so a zone's items are always added in
+  file order. Re-applying a changed item updates it in place and keeps its position.
+- **Changed locator** — an item whose locator now names another zone of the **same page** is moved there
+  (`MoveAsync`, to the end) *before* it is saved. A move to another page, or into or out of a global zone,
+  is not possible (zone moves stay within one page), and neither is a rejected move (e.g. into the item's
+  own nested zone): the item is left untouched — nothing saved, nothing recorded — and a warning repeats
+  every boot until the seed is fixed. To place content on another page, give it a new seed id.
+- **Publishing respects the page's own state.** The page is never (re)published by a zone item. After all
+  items apply, the `publish: true` items of each owning page are handled once per page:
+  - page **live** → just those items are published, through `IPageModel.PublishZoneItemsAsync` (one change
+    set; their widget routes are registered). The page's other pending drafts — an admin's unfinished
+    edits, and `publish: false` seed items — stay pending.
+  - page **not published** (seeded `publish: false`, unpublished in the admin, or its own publish failed)
+    → the items stay drafts and go live when the page is next published.
+
+  A `publish: false` page-zone item is saved as a draft and never published by the seeder. Global zones
+  have no drafts (their writes go live), so a `publish: false` item in a `name` zone is a warning and is
+  skipped — use `"isActive": false` to seed a hidden global item.
+- **Ledger** — a `publish: true` page-zone item is recorded with an **empty hash** as soon as it saves (so
+  a nested item's locator can reference it in the same run), then re-recorded with its real hash once it
+  publishes, or straight away when its page is not live. An item whose publish fails keeps the empty hash:
+  the next boot updates the same item (no duplicate) and retries. A widget-route failure on an item that
+  did go live is logged and recorded, since re-applying the same seed could not fix it.
+- **Hash stability** — `zone` is omitted from the hashed item when null, so adding the locator changed no
+  existing top-level item's hash.
+- A zone item deleted in the admin is re-created (appended) the next time its hash changes, like a
+  top-level item.
 
 ## Media references (`@media:{path}`)
 

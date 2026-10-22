@@ -136,7 +136,10 @@ DTO-level restore), `delete_version`.
 
 **`ChildContentToolset`** — `list_children`, `get_child`, `get_child_version`, `create_child`,
 `update_child`, `delete_child`, `reorder_children`, `move_child`, `list_child_versions`,
-`restore_child_version`, `delete_child_version`.
+`restore_child_version`, `delete_child_version`. A zone item's `create_child`/`update_child` result
+carries the item's `nodeId`, so an agent can address the new item without listing the zone. A zone item's
+`update_child` merges over the stored item, whose `expectedVersionNumber` is its current version; an agent
+that passes the version it read gets `StaleVersionMessage` instead of overwriting a newer edit.
 
 `move_child(contentType, childType, childId, targetParentKey, position)` moves a child to a 0-based
 position (clamped) under a possibly different parent. It is gated on the optional

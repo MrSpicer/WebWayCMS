@@ -1318,6 +1318,62 @@ public class PageModelTests
         Assert.That(result.Success, Is.False);
         await _contentZoneService.DidNotReceive().PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
+
+    [Test]
+    public async Task PublishZoneItemsAsync_PublishesOnlyTheListedItemsAndRegistersTheirRoutes()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var listed = ZoneItem("A");
+        var routeless = ZoneItem("B");
+        var failed = Guid.NewGuid();
+        IReadOnlyCollection<Guid> ids = [listed.Version.Node.Id, routeless.Version.Node.Id, failed];
+        _contentZoneService.PublishPageZoneItemsAsync(pageNodeId, ids, Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([listed, routeless], ["item failed."]) { FailedItemNodeIds = [failed] });
+        _routeRegistration.TryRegisterWidgetRoutesAsync("A", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((false, "route taken."));
+
+        var result = await _model.PublishZoneItemsAsync(pageNodeId, ids);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Published, Is.EqualTo(new[] { listed, routeless }));
+            Assert.That(result.Errors, Is.EqualTo(new[] { "item failed.", "route taken." }));
+            Assert.That(result.FailedItemNodeIds, Is.EqualTo(new[] { failed }));
+        });
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("A", listed.Version.Node.Id, pageNodeId, true, listed.MetadataJson, Arg.Any<CancellationToken>());
+        // The page itself is left alone.
+        await _store.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _contentZoneService.DidNotReceive().PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        _changeSetScope.Received(1).Begin(ChangeSetKind.Publish, pageNodeId, null);
+    }
+
+    [Test]
+    public async Task PublishPageAsync_RouteRegistrationFails_PreviousRouteRejected_ReportsIt()
+    {
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", nodeId: nodeId);
+        var withMessage = RouteFor(nodeId, "/blog/{page}");
+        var withoutMessage = RouteFor(nodeId, "/other");
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { withMessage, withoutMessage });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _cmsRouteService.UpsertAsync(withMessage, Arg.Any<CancellationToken>()).Returns((false, "reserved name.", (CMSRouteDTO?)null));
+        _cmsRouteService.UpsertAsync(withoutMessage, Arg.Any<CancellationToken>()).Returns((false, (string?)null, (CMSRouteDTO?)null));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, (string?)null));
+
+        var (success, error) = await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.StartWith("Failed to register the page route. The previous route could not be restored:"));
+            Assert.That(error, Does.Contain("reserved name."));
+            Assert.That(error, Does.Contain("Route '/other' could not be restored."));
+        });
+    }
 }
 
 public class SampleSaveConfig

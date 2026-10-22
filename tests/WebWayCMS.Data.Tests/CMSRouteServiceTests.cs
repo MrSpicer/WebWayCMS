@@ -310,6 +310,35 @@ public class CMSRouteServiceTests
         });
     }
 
+    [TestCase("/faq/topics/{topic}/page/{page:int}", "page")]
+    [TestCase("/x/{Controller}", "controller")]
+    [TestCase("/x/{action?}", "action")]
+    [TestCase("/x/{area=main}", "area")]
+    [TestCase("/x/{**handler}", "handler")]
+    public async Task UpsertAsync_ReservedParameterName_ReturnsFailureWithoutWriting(string pattern, string reserved)
+    {
+        var result = await NewService().UpsertAsync(new CMSRouteDTO { Pattern = pattern, OwningContentNodeId = Guid.NewGuid() });
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Route, Is.Null);
+            Assert.That(result.ErrorMessage, Does.Contain("'" + reserved + "'"));
+            Assert.That(await NewService().GetAllRoutesAsync(), Is.Empty);
+        });
+        _registry.DidNotReceive().Invalidate();
+    }
+
+    [TestCase("/faq/topics/{topic}/page/{pageNumber:int}")]
+    [TestCase("/x/{slug:regex(^[a-z]{2}$)}")]
+    [TestCase("/x/{**slug}")]
+    [TestCase("/x/pages/{id}")]
+    [TestCase("/static/page")]
+    public void FindReservedParameter_NonReservedNames_ReturnsNull(string pattern)
+    {
+        Assert.That(CMSRouteService.FindReservedParameter(pattern), Is.Null);
+    }
+
     [Test]
     public async Task UpsertAsync_ForeignOwnerCollision_ReturnsFailure()
     {

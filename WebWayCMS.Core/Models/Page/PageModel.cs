@@ -147,11 +147,21 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             // with no route (or with a stale route).
             await _store.UnpublishAsync(nodeId, ct);
 
-            // Restore the prior route(s) so a republish whose new route collides still resolves.
+            // Restore the prior route(s) so a republish whose new route collides still resolves. A restore
+            // can itself be rejected (e.g. a legacy pattern using a now-reserved parameter name), so its
+            // failure is reported rather than leaving the page silently routeless.
+            var restoreErrors = new List<string>();
             foreach (var previous in previousRoutes)
-                await _routeService.UpsertAsync(previous, ct);
+            {
+                var restored = await _routeService.UpsertAsync(previous, ct);
+                if (!restored.Success)
+                    restoreErrors.Add(restored.ErrorMessage ?? $"Route '{previous.Pattern}' could not be restored.");
+            }
 
-            return (false, registration.ErrorMessage ?? "Failed to register the page route.");
+            var error = registration.ErrorMessage ?? "Failed to register the page route.";
+            return restoreErrors.Count == 0
+                ? (false, error)
+                : (false, error + " The previous route could not be restored: " + string.Join(" ", restoreErrors));
         }
 
         return await PublishZoneDraftsAsync(nodeId, ct);
@@ -163,8 +173,28 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     /// </summary>
     private async Task<(bool Success, string? ErrorMessage)> PublishZoneDraftsAsync(Guid pageNodeId, CancellationToken ct)
     {
-        var zones = await _contentZoneService.PublishPageZonesAsync(pageNodeId, ct);
+        var errors = await RegisterPublishedZoneRoutesAsync(
+            pageNodeId, await _contentZoneService.PublishPageZonesAsync(pageNodeId, ct), ct);
 
+        return errors.Count == 0
+            ? (true, null)
+            : (false, "Page published; some zone changes failed: " + string.Join(" ", errors));
+    }
+
+    public async Task<PageZonePublishResult> PublishZoneItemsAsync(Guid pageNodeId, IReadOnlyCollection<Guid> itemNodeIds, CancellationToken ct = default)
+    {
+        using var _ = ChangeSetScope.Begin(ChangeSetKind.Publish, pageNodeId, null);
+
+        var zones = await _contentZoneService.PublishPageZoneItemsAsync(pageNodeId, itemNodeIds, ct);
+        var errors = await RegisterPublishedZoneRoutesAsync(pageNodeId, zones, ct);
+        return zones with { Errors = errors };
+    }
+
+    /// <summary>
+    /// Registers each published item's widget routes; returns the publish errors plus any route failures.
+    /// </summary>
+    private async Task<List<string>> RegisterPublishedZoneRoutesAsync(Guid pageNodeId, PageZonePublishResult zones, CancellationToken ct)
+    {
         var errors = zones.Errors.ToList();
         foreach (var item in zones.Published)
         {
@@ -174,9 +204,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 errors.Add(routes.ErrorMessage ?? $"Failed to register routes for widget '{item.ComponentName}'.");
         }
 
-        return errors.Count == 0
-            ? (true, null)
-            : (false, "Page published; some zone changes failed: " + string.Join(" ", errors));
+        return errors;
     }
 
     public async Task<(bool Success, string? ErrorMessage)> UnpublishPageAsync(Guid nodeId, CancellationToken ct = default)

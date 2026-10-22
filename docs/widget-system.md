@@ -440,6 +440,13 @@ Put constraints in the pattern itself — `Pattern = "{slug:regex(^[a-z0-9-]+$)}
 out of the pattern text and **never reads `ConstraintsJson`**, so a constraint declared there is
 silently unenforced. Supported inline constraints are `int`, `guid`, `bool` and `regex(...)`.
 
+### Reserved parameter names
+
+Don't name a route parameter `action`, `area`, `controller`, `handler` or `page`. ASP.NET Core reserves
+these for endpoint selection (a `page` value sends MVC looking for a Razor Page, and the request 404s),
+so `CMSRouteService.UpsertAsync` refuses the route and the page publish reports the error. The TestHost
+`FaqTopic` uses `topics/{topic}/page/{pageNumber:int}` for this reason.
+
 ### Lowercasing caveat
 
 `NormalizePattern` lowercases the **entire** pattern, including any inline regex constraint. Keep

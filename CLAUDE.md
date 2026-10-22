@@ -145,7 +145,8 @@
 - **Zone-item writes carry an expected version.** `UpdateItemAsync(item, expectedVersionNumber)` backs the
   config save (`POST /api/contentzones/items`) and the metadata save (`PUT .../metadata`); the controllers
   pre-check the version against the loaded item and answer 409 with `StaleVersionMessage` when it mismatched
-  (or when the store's own check rejects a write that raced past the pre-check). The edit view renders
+  (or when the store's own check rejects a write that raced past the pre-check). The child handler's update
+  (admin child form, MCP `update_child`, the seeder) does the same with `ExpectedVersionNumber`. The edit view renders
   `data-version`; `content-zone-edit.js`/`content-zone-drag.js` read it via `czItemVersion` and send it as
   `expectedVersionNumber` on the config save, the metadata save and the move.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
@@ -222,6 +223,9 @@
   (the matched `CMS:RouteData` route is owned by this item), and a list yields to another item's route
   with `IsWidgetRouteRequest()` (the matched route is a widget route, marked by its `ParentPageNodeId`
   data token). `ArticleViewComponent` (core) and the TestHost `Faq` are the reference implementations.
+  A route parameter may not use an ASP.NET reserved name (`action`/`area`/`controller`/`handler`/`page`):
+  the transformer passes matched values through as route values, so e.g. `{page}` makes MVC look for a
+  Razor Page and 404s. `CMSRouteService.UpsertAsync` rejects such patterns (use `{pageNumber}`).
 - See [docs/widget-system.md](docs/widget-system.md) → Render Modes.
 
 ## Articles
@@ -272,6 +276,15 @@
   another seeded item's generated node id via `@seed:{guid}`; `SeedReferenceResolver` resolves it through
   the ledger, and `SeedAsync` runs a deferred-retry pass so ordering never matters. Unresolved references
   (including cycles) are not saved or hash-recorded and retry next boot.
+- **Zone items** are seeded too: an item with a `zone` locator (`{ "page": "@seed:…", "slot": "Main" }`,
+  `{ "item": "@seed:…", "slot": "Left" }` for a nested zone, or `{ "name": "SiteFooter" }`) and
+  `contentType: "contentzones"` goes through the zone child handler into that zone (created on demand).
+  Zone items apply after all top-level items (one shared retry loop), in file order per zone. **The page's
+  own publish state is respected:** the seeder never publishes a page; on a live page only the
+  `publish: true` items are published (`IPageModel.PublishZoneItemsAsync`, so admin drafts stay pending),
+  on an unpublished page they stay drafts. A `publish: false` item in a global zone is skipped (global
+  writes go live). Owners are validated (existing page / zone item); a locator moved to another page is
+  skipped with a warning. Fixtures must set `"isActive": true`.
 - Gate it with `WEBWAYCMS_SKIP_CONTENTSEED=true` or `ContentSeed:Enabled=false`.
 - See [docs/architecture/15-content-seeding.md](docs/architecture/15-content-seeding.md).
 
