@@ -6,4 +6,5 @@ public readonly record struct ContentWriteResult(
     bool Success,
     string? ErrorMessage = null,
     Guid VersionId = default,
-    Guid NodeId = default);
+    Guid NodeId = default,
+    Guid DisplacedVersionId = default);

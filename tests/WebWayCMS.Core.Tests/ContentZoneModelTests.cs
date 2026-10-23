@@ -1158,4 +1158,26 @@ public class ContentZoneModelTests
 
         await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("ContentBlock", itemNodeId, null, true, null, Arg.Any<CancellationToken>());
     }
+
+    public sealed class SanitizeTestConfig
+    {
+        [FormProperty(Label = "Body", EditorType = EditorType.RichText)]
+        public string Body { get; set; } = string.Empty;
+    }
+
+    [Test]
+    public void SanitizeProperties_RegisteredComponentWithRichText_SanitizesHtml()
+    {
+        _registry.GetByName("SanitizeWidget").Returns(new WidgetRegistrationInfo
+        {
+            Name = "SanitizeWidget",
+            ConfigurationTypeName = typeof(SanitizeTestConfig).FullName
+        });
+
+        var result = _model.SanitizeProperties("SanitizeWidget",
+            """{"Body": "<p>Safe</p><script>alert('xss')</script>"}""");
+
+        Assert.That(result, Does.Contain("Safe"));
+        Assert.That(result, Does.Not.Contain("script"));
+    }
 }

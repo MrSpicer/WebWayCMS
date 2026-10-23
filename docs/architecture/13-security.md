@@ -50,6 +50,46 @@ Subclasses implement the abstract `SaveUpsertCoreAsync` and cannot bypass saniti
 both `AdminContentController` and the MCP toolsets call `SaveUpsertAsync`, **every write path is
 covered by construction** — including content types added later.
 
+### Render-time sanitization for raw head-tag fields (exception)
+
+Fields declared `EditorType.TextArea` deliberately bypass the save-time pipeline above (they are
+intended for plain text, code, or raw markup a site author controls), so the *"safe to render with
+`@Html.Raw`"* guarantee does **not** hold for them at save time. One model in the CMS uses such
+fields with `@Html.Raw` output: `GenericPageConfiguration.Meta` and `GenericPageConfiguration.Style`
+(Area 3). Both are injected into the page head by `GenericPage/Index.cshtml` and
+`GenericAdminPage/Index.cshtml` via `@Html.Raw`.
+
+To close the stored-XSS gap this creates, both controllers hand the view
+`GenericPageConfiguration.SanitizedForRender()`, a copy whose fields went through
+`HeadMarkupSanitizer` (`WebWayCMS.Core/Security/HeadMarkupSanitizer.cs`) **at render time**, so values
+stored earlier are covered too. The stored value is untouched. Each field gets rules for what it
+holds — `RichTextSanitizer`'s body-content allow-list would strip every `<meta>` and HTML-encode CSS:
+
+- **`Meta` → `SanitizeMeta`**: a dedicated `HtmlSanitizer` that keeps only `<meta>` and `<link>` with
+  descriptive attributes (`name`, `content`, `property`, `charset`, `itemprop`, `rel`, `href`,
+  `hreflang`, `type`, `sizes`, `media`, `title`). Scripts, other tags, event handlers, `http-equiv`
+  (a `refresh` can redirect) and non-http(s) `href`s are removed.
+- **`Style` → `SanitizeCss`**: the CSS is emitted verbatim inside `<style>` (raw text — entities are not
+  decoded, so HTML-encoding would corrupt `>` combinators and `&` in strings), except that `</` becomes
+  `<\/`, which CSS reads as the same characters but which cannot end the element.
+
+Any new content type that renders a `TextArea` field with `@Html.Raw` must apply the same kind of
+render-time neutralization — the save-time choke point will not cover it.
+
+### Widget configuration JSON
+
+Zone items store their widget configuration as JSON (`ComponentPropertiesJson`), outside the upsert
+view-model choke point, yet widgets render their `RichText` config fields with `@Html.Raw`. Every
+zone-item write therefore passes the payload through `WidgetConfigurationJson.Sanitize`
+(`WebWayCMS.Core/Models/ContentZone/`): the zone editor API (`POST /api/contentzones/items`, create and
+update) and `ContentZoneChildHandler` (admin child form, MCP `create_child`/`update_child`, the content
+seeder, version restore). It resolves the component's configuration type and rewrites **only** the
+values of its `RichText` string properties (matched case-insensitively, honouring `[JsonPropertyName]`)
+in place: keys the type doesn't declare are kept, a payload with nothing to clean is stored verbatim,
+and a rewritten one is serialized with relaxed escaping so markup isn't inflated to `\u003C` against
+the 4000-char column. An unregistered component (no type) is stored as-is; a payload that is not a
+readable JSON object (malformed, an array, duplicate keys) **fails closed** to `"{}"`.
+
 ## 2. Required-Field Validation (same choke point)
 
 `ModelValidator` (`WebWayCMS.Core/Security/ModelValidator.cs`) runs in the same save choke point,
@@ -238,9 +278,31 @@ regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
       `Csp:ReportOnly` first, then enforce
 - [ ] Serve over HTTPS — the auth cookie is `Secure=Always` and will not be sent otherwise, and
       WebAuthn passkey operations only work over a secure context
-- [ ] If terminating TLS at a proxy, confirm `X-Forwarded-For` / `X-Forwarded-Proto` reach the app,
-      or rate limiting will partition every request onto the proxy's IP
+- [ ] If terminating TLS at a proxy, configure which proxies are trusted (see
+      [Forwarded headers](#forwarded-headers) below) and confirm `X-Forwarded-For` / `X-Forwarded-Proto`
+      reach the app, or rate limiting will partition every request onto the proxy's IP
 - [ ] Consider running the public host in rendering-only mode — see [Area 11](11-deployment-modes.md)
+
+### Forwarded headers
+
+`X-Forwarded-For` / `X-Forwarded-Proto` are honoured only from trusted proxies
+(`CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders`). The default is the framework's
+**loopback-only** list, so a client cannot spoof its IP (and dodge the per-IP rate limits) or scheme.
+A host behind a proxy on another machine or container must opt in, from the `"ForwardedHeaders"`
+config section:
+
+| Key | Effect |
+|---|---|
+| `KnownProxies` | Array of proxy IP addresses; replaces the loopback default |
+| `KnownIPNetworks` | Array of CIDR ranges (e.g. `10.0.0.0/24`); replaces the loopback default |
+| `TrustAllProxies` | `true` accepts the headers from **any** source. Only safe when nothing but the proxy can reach the app |
+
+**Upgrading:** earlier versions trusted every source. A deployment behind a remote proxy that sets
+none of these keys now ignores the proxy's headers — `UseHttpsRedirection` sees `http` (redirect
+loops), OAuth `redirect_uri`s are generated as `http://`, and every client shares the proxy's
+rate-limit bucket. The shipped `docker-compose.yml` sets `ForwardedHeaders__TrustAllProxies=true`,
+since nginx runs in its own container with no fixed address and `web` only exposes port 8080 on the
+compose network.
 
 ### Passkey trust posture
 

@@ -620,6 +620,190 @@ public class ContentStoreTests
         });
     }
 
+    [Test]
+    public async Task PublishAsync_DemotesPreviousPublished_ReportsDisplacedVersion()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+        await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+
+        var result = await store.PublishAsync(nodeId);
+
+        Assert.That(result.DisplacedVersionId, Is.EqualTo(current.VersionId));
+    }
+
+    [Test]
+    public async Task PublishAsync_FirstPublish_ReportsNoDisplacedVersion()
+    {
+        var dto = NewBlock("T");
+        var store = NewStore();
+        await store.SaveDraftAsync(dto, null);
+
+        var result = await store.PublishAsync(dto.Version.Node!.Id);
+
+        Assert.That(result.DisplacedVersionId, Is.EqualTo(Guid.Empty));
+    }
+
+    // ─── RevertPublishAsync ───────────────────────────────────────────────────
+
+    // v0 published, v1 the current draft; returns the node and both version ids.
+    private async Task<(Guid NodeId, Guid V0, Guid V1)> CreatePublishedWithDraftAsync()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+        var save = await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+        return (nodeId, current.VersionId, save.VersionId);
+    }
+
+    private async Task<Dictionary<int, ContentVersion>> VersionsByNumberAsync(Guid nodeId)
+        => (await NewStore().GetAllVersionsAsync(nodeId)).ToDictionary(v => v.Version.VersionNumber, v => v.Version);
+
+    [Test]
+    public async Task RevertPublishAsync_UnknownVersion_ReturnsNotFound()
+    {
+        var nodeId = await CreatePublishedAsync("T");
+
+        var result = await NewStore().RevertPublishAsync(nodeId, Guid.NewGuid(), Guid.Empty);
+
+        Assert.That(result.Success, Is.False);
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_VersionNotPublished_IsNoOp()
+    {
+        var (nodeId, v0, v1) = await CreatePublishedWithDraftAsync();
+
+        var result = await NewStore().RevertPublishAsync(nodeId, v1, v0);
+
+        var versions = await VersionsByNumberAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.VersionId, Is.EqualTo(v1));
+            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Published));
+            Assert.That(versions[1].State, Is.EqualTo(ContentVersionState.Draft));
+        });
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_FirstPublish_ReturnsToDraft()
+    {
+        var dto = NewBlock("T");
+        var store = NewStore();
+        await store.SaveDraftAsync(dto, null);
+        var nodeId = dto.Version.Node!.Id;
+        var publish = await store.PublishAsync(nodeId);
+
+        var result = await NewStore().RevertPublishAsync(nodeId, publish.VersionId, publish.DisplacedVersionId);
+
+        var versions = await VersionsByNumberAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(versions.Single().Value.State, Is.EqualTo(ContentVersionState.Draft));
+            Assert.That(versions.Single().Value.IsCurrentDraft, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_Republish_RestoresDisplacedVersion()
+    {
+        var (nodeId, v0, v1) = await CreatePublishedWithDraftAsync();
+        var publish = await NewStore().PublishAsync(nodeId);
+
+        var result = await NewStore().RevertPublishAsync(nodeId, publish.VersionId, publish.DisplacedVersionId);
+
+        var versions = await VersionsByNumberAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.VersionId, Is.EqualTo(v0));
+            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Published));
+            Assert.That(versions[1].State, Is.EqualTo(ContentVersionState.Draft));
+            Assert.That(versions[1].IsCurrentDraft, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_PageWasUnpublished_DoesNotBringOldVersionBack()
+    {
+        var (nodeId, _, _) = await CreatePublishedWithDraftAsync();
+        await NewStore().UnpublishAsync(nodeId); // archives v0; the page is offline
+        var publish = await NewStore().PublishAsync(nodeId);
+
+        await NewStore().RevertPublishAsync(nodeId, publish.VersionId, publish.DisplacedVersionId);
+
+        var versions = await VersionsByNumberAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(publish.DisplacedVersionId, Is.EqualTo(Guid.Empty));
+            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Archived));
+            Assert.That(versions[1].State, Is.EqualTo(ContentVersionState.Draft));
+        });
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_DisplacedNoLongerArchived_IsNotPromoted()
+    {
+        var (nodeId, v0, v1) = await CreatePublishedWithDraftAsync();
+        await NewStore().PublishAsync(nodeId);
+        await using (var ctx = NewContext())
+        {
+            (await ctx.Set<ContentVersion>().SingleAsync(v => v.Id == v0)).State = ContentVersionState.Draft;
+            await ctx.SaveChangesAsync();
+        }
+
+        var result = await NewStore().RevertPublishAsync(nodeId, v1, v0);
+
+        var versions = await VersionsByNumberAsync(nodeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.VersionId, Is.EqualTo(v1));
+            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Draft));
+            Assert.That(versions[1].State, Is.EqualTo(ContentVersionState.Draft));
+        });
+    }
+
+    [TestCase(1, TestName = "RevertPublishAsync_DemoteFails_ReturnsStaleAndDetaches")]
+    [TestCase(2, TestName = "RevertPublishAsync_PromoteFails_ReturnsStaleAndDetaches")]
+    public async Task RevertPublishAsync_SaveFails_ReturnsStaleAndDetaches(int failOnSave)
+    {
+        var (nodeId, v0, _) = await CreatePublishedWithDraftAsync();
+        var publish = await NewStore().PublishAsync(nodeId);
+        var ctx = NewContext();
+        var store = new FailingNthSaveStore<ContentBlockDTO>(ctx, failOnSave);
+
+        var result = await store.RevertPublishAsync(nodeId, publish.VersionId, v0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
+            Assert.That(ctx.ChangeTracker.Entries<ContentVersion>(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task RevertPublishAsync_FirstPublishDemoteFails_ReturnsStale()
+    {
+        var dto = NewBlock("T");
+        var store = NewStore();
+        await store.SaveDraftAsync(dto, null);
+        var publish = await store.PublishAsync(dto.Version.Node!.Id);
+        var ctx = NewContext();
+
+        var result = await new ThrowingStore<ContentBlockDTO>(ctx)
+            .RevertPublishAsync(dto.Version.Node.Id, publish.VersionId, Guid.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(ctx.ChangeTracker.Entries<ContentVersion>(), Is.Empty);
+        });
+    }
+
     // ─── UnpublishAsync ───────────────────────────────────────────────────────
 
     [Test]

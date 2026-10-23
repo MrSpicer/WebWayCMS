@@ -220,7 +220,11 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         currentDraft.ChangeSetId = _changeSetScope.Current;
 
         await SaveChangesAsync(ct);
-        return new ContentWriteResult(true, VersionId: currentDraft.Id);
+
+        // Report the version this publish archived (at most one Published per variant), so a caller
+        // whose follow-up step fails can hand it to RevertPublishAsync.
+        return new ContentWriteResult(true, VersionId: currentDraft.Id,
+            DisplacedVersionId: otherPublished.Select(v => v.Id).FirstOrDefault());
     }
 
     public async Task<ContentWriteResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default)
@@ -254,6 +258,65 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         }
 
         return new ContentWriteResult(true, VersionId: currentDraft.Id);
+    }
+
+    /// <summary>
+    /// Rolls a failed publish attempt back to the pre-publish state, undoing only what that publish
+    /// changed: <paramref name="publishedVersionId"/> (the publish result's <c>VersionId</c>) returns to
+    /// Draft, and <paramref name="displacedVersionId"/> (its <c>DisplacedVersionId</c>; empty when the
+    /// publish archived nothing) is restored to Published. Unlike <see cref="UnpublishAsync"/>, this
+    /// never takes down a version that was live before the attempt, and never brings back one that
+    /// was not. A version that is no longer in the state the publish left it in is left alone.
+    /// </summary>
+    public async Task<ContentWriteResult> RevertPublishAsync(Guid nodeId, Guid publishedVersionId, Guid displacedVersionId, CancellationToken ct = default)
+    {
+        using var _ = EnsureScope(ChangeSetKind.Unpublish, nodeId);
+
+        var published = await _versions
+            .FirstOrDefaultAsync(v => v.Id == publishedVersionId && v.NodeId == nodeId, ct);
+        if (published == null)
+            return new ContentWriteResult(false, NotFoundMessage);
+
+        if (published.State != ContentVersionState.Published)
+            return new ContentWriteResult(true, VersionId: published.Id);
+
+        var displaced = displacedVersionId == Guid.Empty
+            ? null
+            : await _versions.FirstOrDefaultAsync(v => v.Id == displacedVersionId
+                                                    && v.NodeId == nodeId
+                                                    && v.State == ContentVersionState.Archived, ct);
+
+        // Demote in its own SaveChanges before promoting, so the filtered unique index
+        // UX_ContentVersion_PublishedVariant never sees two Published rows (EF Core does not order
+        // UPDATEs within one SaveChanges). One transaction keeps a failed promotion from leaving
+        // the node with nothing live.
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            published.State = ContentVersionState.Draft;
+            published.ChangeSetId = _changeSetScope.Current;
+            await SaveChangesAsync(ct);
+
+            if (displaced != null)
+            {
+                displaced.State = ContentVersionState.Published;
+                await SaveChangesAsync(ct);
+            }
+
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            await transaction.RollbackAsync(ct);
+            // The rollback restores the rows but not the change tracker; the context is scoped and
+            // shared, so the abandoned state flips are detached before the next SaveChanges replays them.
+            _context.Entry(published).State = EntityState.Detached;
+            if (displaced != null)
+                _context.Entry(displaced).State = EntityState.Detached;
+            return new ContentWriteResult(false, StaleVersionMessage);
+        }
+
+        return new ContentWriteResult(true, VersionId: displaced?.Id ?? published.Id);
     }
 
     public async Task<ContentWriteResult> RestoreAsync(Guid versionId, CancellationToken ct = default)

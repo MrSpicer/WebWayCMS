@@ -58,6 +58,10 @@ public class ContentZoneApiController : ControllerBase
                 return BadRequest(new { error = metadataError.ErrorMessage });
         }
 
+        // Rich-text config fields are rendered with @Html.Raw, so the payload is sanitized here like
+        // every other zone-item write path (the child handler does the same).
+        var propertiesJson = WidgetConfigurationJson.Sanitize(_widgetRegistry, request.ComponentName, request.ComponentPropertiesJson);
+
         try
         {
             // Get or create the zone
@@ -111,7 +115,7 @@ public class ContentZoneApiController : ControllerBase
                     Version = new ContentVersion { Node = new ContentNode { Id = request.ItemId.Value } },
                     ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
-                    ComponentPropertiesJson = request.ComponentPropertiesJson ?? "{}",
+                    ComponentPropertiesJson = propertiesJson,
                     IsActive = true
                 };
 
@@ -133,7 +137,7 @@ public class ContentZoneApiController : ControllerBase
                 {
                     ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
-                    ComponentPropertiesJson = request.ComponentPropertiesJson ?? "{}",
+                    ComponentPropertiesJson = propertiesJson,
                     MetadataJson = createMetadataJson,
                     IsActive = true
                 };

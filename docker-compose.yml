@@ -21,6 +21,10 @@ services:
       AdminUser__Email: ${ADMIN_EMAIL}
       AdminUser__Password: ${ADMIN_PASSWORD}
       CKEditor__LicenseKey: ${CKEDITOR_LICENSE_KEY}
+      # nginx terminates TLS in its own container, whose network address is not fixed, so the app
+      # must accept X-Forwarded-For/-Proto from any source. Safe here because "web" only exposes
+      # port 8080 on the compose network; drop this if the port is ever published to the host.
+      ForwardedHeaders__TrustAllProxies: "true"
     depends_on:
       db:
         condition: service_healthy

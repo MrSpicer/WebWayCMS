@@ -125,6 +125,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         var routePattern = await DeriveRoutePatternForPublishAsync(slug, nodeId, parentNodeId, ct);
 
+        var wasAlreadyPublished = draft.Version.State == ContentVersionState.Published;
         var result = await _store.PublishAsync(nodeId, ct);
         if (!result.Success) return (false, result.ErrorMessage);
 
@@ -144,8 +145,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (!registration.Success)
         {
             // Roll the state flip back so a failed registration never leaves a published page
-            // with no route (or with a stale route).
-            await _store.UnpublishAsync(nodeId, ct);
+            // with no route (or with a stale route). RevertPublishAsync undoes only what this publish
+            // changed: a republish failure leaves the previously published version live, a page
+            // that was offline stays offline, and a publish that changed nothing (the draft was
+            // already live, only zone drafts pending) is not reverted at all.
+            if (!wasAlreadyPublished)
+                await _store.RevertPublishAsync(nodeId, result.VersionId, result.DisplacedVersionId, ct);
 
             // Restore the prior route(s) so a republish whose new route collides still resolves. A restore
             // can itself be rejected (e.g. a legacy pattern using a now-reserved parameter name), so its

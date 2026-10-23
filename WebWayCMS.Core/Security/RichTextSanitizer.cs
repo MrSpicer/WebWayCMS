@@ -47,7 +47,8 @@ public static class RichTextSanitizer
     /// <returns>The sanitized HTML.</returns>
     public static string SanitizeHtml(string html) => Sanitizer.Sanitize(html);
 
-    private static PropertyInfo[] GetRichTextProperties(Type type)
+    /// <summary>The writable rich-text string properties of <paramref name="type"/> (cached).</summary>
+    internal static PropertyInfo[] GetRichTextProperties(Type type)
     {
         lock (CacheLock)
         {

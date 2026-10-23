@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers;
+using WebWayCMS.Security;
 
 namespace WebWayCMS.Controllers;
 
@@ -21,6 +22,17 @@ public class GenericPageConfiguration
         Order = 30,
         FormComponent = "TextArea")]
     public string Meta { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A copy safe to hand to the view, which injects both fields into the page head with
+    /// <c>@Html.Raw</c>. They are TextArea fields, outside the save-time rich-text pipeline, so they
+    /// are neutralized at render time (which also covers values stored before this existed).
+    /// </summary>
+    public GenericPageConfiguration SanitizedForRender() => new()
+    {
+        Style = HeadMarkupSanitizer.SanitizeCss(Style),
+        Meta = HeadMarkupSanitizer.SanitizeMeta(Meta)
+    };
 }
 
 /// <summary>
@@ -48,8 +60,8 @@ public class GenericPageController : PageControllerBase<GenericPageConfiguration
 
         var viewName = CurrentPage?.ViewName;
         if (!string.IsNullOrWhiteSpace(viewName) && !string.Equals(viewName, "Default", StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult<IActionResult>(View(viewName, PageConfig));
+            return Task.FromResult<IActionResult>(View(viewName, PageConfig.SanitizedForRender()));
 
-        return Task.FromResult<IActionResult>(View(PageConfig));
+        return Task.FromResult<IActionResult>(View(PageConfig.SanitizedForRender()));
     }
 }

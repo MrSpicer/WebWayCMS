@@ -46,8 +46,9 @@ Runs in this order:
 - `AddDatabaseDeveloperPageExceptionFilter()` in `DEBUG` builds only
 
 **Forwarded headers** (`ConfigureForwardedHeaders`):
-- Trusts `X-Forwarded-For` and `X-Forwarded-Proto`, clearing known networks/proxies for Docker
-  internal networking
+- Honours `X-Forwarded-For` and `X-Forwarded-Proto` from loopback only by default; a host widens the
+  trust list with `ForwardedHeaders:KnownProxies` / `KnownIPNetworks`, or `TrustAllProxies` (the
+  shipped docker-compose sets it). See [Area 13](13-security.md#forwarded-headers)
 
 **Core types** (`AddRenderingCoreTypes`):
 

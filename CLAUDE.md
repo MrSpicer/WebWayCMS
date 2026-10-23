@@ -67,7 +67,9 @@
   `DiscardDraftAsync` throws away an unpublished current draft: the published version (else the newest
   earlier one) becomes current again; a node whose only version is the draft is hard-deleted. The
   discard's delete + fallback-promotion run in one DB transaction, and a conflicting write maps to the
-  shared `StaleVersionMessage` like every other write path.
+  shared `StaleVersionMessage` like every other write path. `RevertPublishAsync(nodeId, publishedVersionId,
+  displacedVersionId)` undoes one publish (from `PublishAsync`'s `VersionId`/`DisplacedVersionId`) when a
+  follow-up step such as route registration fails; `PublishPageAsync` skips it when the page was already live.
 - **Two invariants** (enforced in code; filtered unique indexes are the DB backstop): exactly one
   `IsCurrentDraft` per (NodeId, Culture, Segment), and at most one `Published` per variant.
   `SaveDraftAsync` mints a new version only when editing a published item; repeated edits of a draft update
@@ -376,7 +378,13 @@
   point (`AdminCrudModel.SaveUpsertAsync` → `SaveUpsertCoreAsync`), covering both the admin UI and the
   MCP tools, on every `string`
   property marked `[FormProperty(EditorType = EditorType.RichText)]`.
-  Stored content is therefore safe to render with `@Html.Raw`. **Required-field validation**
+  Stored content is therefore safe to render with `@Html.Raw`. Zone-item widget config JSON is outside
+  that choke point, so every zone-item write (zone editor API + `ContentZoneChildHandler`) runs
+  `WidgetConfigurationJson.Sanitize`: it rewrites only the config type's RichText values in place
+  (other keys kept, unreadable JSON fails closed to `{}`). The raw page-head TextArea fields
+  (`GenericPageConfiguration.Meta`/`Style`) are neutralized at render time by `HeadMarkupSanitizer`
+  via `SanitizedForRender()` (`<meta>`/`<link>` allow-list; CSS verbatim except `</` → `<\/`).
+  **Required-field validation**
   (`ModelValidator`, also `WebWayCMS.Core/Security/`) joins sanitization at
   `AdminCrudModel.SaveUpsertAsync` (plus the CMS-route and zone-item save paths), so a
   field `describe_content_type` advertises as `required` is actually enforced on MCP writes.
@@ -394,6 +402,9 @@
   **except** responses under `/_preview` (`PreviewConstants.PathPrefix`), which send `SAMEORIGIN` /
   `frame-ancestors 'self'` (`CspPolicyBuilder.BuildForPreview`; a host `frame-ancestors` override still
   wins) so the page zone editor can embed the draft preview. The policy string is built by the unit-tested `CspPolicyBuilder`.
+- **Forwarded headers** are trusted from loopback only by default; a host behind a remote proxy sets
+  `ForwardedHeaders:KnownProxies`/`KnownIPNetworks`, or `TrustAllProxies` (the shipped
+  docker-compose sets it — nginx is a separate container).
 - **Auth rate limiting:** the Identity login/register/password-reset/external-login/passkey endpoints are
   throttled per client IP **and per endpoint family** (`AuthRateLimiting`, wired via
   `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.

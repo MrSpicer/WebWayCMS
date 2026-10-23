@@ -23,7 +23,7 @@ public static class ServiceCollectionExtensions
         configure?.Invoke(builder);
         builder.RegisterCatalogs();
 
-        CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
+        CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services, configuration);
         CmsRenderingRegistration.AddRenderingCoreTypes(services, builder.Profiles, builder.Assemblies);
         CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);

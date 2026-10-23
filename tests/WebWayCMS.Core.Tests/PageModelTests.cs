@@ -703,9 +703,10 @@ public class PageModelTests
     public async Task PublishPageAsync_RouteRegistrationFails_FirstPublish_NoRouteToRestore()
     {
         var nodeId = Guid.NewGuid();
-        var page = Page(title: "Test", nodeId: nodeId);
+        var versionId = Guid.NewGuid();
+        var page = Page(title: "Test", state: ContentVersionState.Draft, nodeId: nodeId);
         _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
-        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true, VersionId: versionId));
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
         _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
@@ -717,7 +718,7 @@ public class PageModelTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
         });
-        await _store.Received(1).UnpublishAsync(nodeId, Arg.Any<CancellationToken>());
+        await _store.Received(1).RevertPublishAsync(nodeId, versionId, Guid.Empty, Arg.Any<CancellationToken>());
         await _cmsRouteService.DidNotReceive().UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>());
     }
 
@@ -725,10 +726,13 @@ public class PageModelTests
     public async Task PublishPageAsync_RouteRegistrationFails_Republish_RestoresPreviousRoute()
     {
         var nodeId = Guid.NewGuid();
-        var page = Page(title: "Test", nodeId: nodeId);
+        var versionId = Guid.NewGuid();
+        var displacedId = Guid.NewGuid();
+        var page = Page(title: "Test", state: ContentVersionState.Draft, nodeId: nodeId);
         var existingRoute = RouteFor(nodeId, "/old-slug");
         _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
-        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true, VersionId: versionId, DisplacedVersionId: displacedId));
         _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { existingRoute });
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
         _cmsRouteService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
@@ -742,9 +746,34 @@ public class PageModelTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Is.EqualTo("collision"));
         });
-        await _store.Received(1).UnpublishAsync(nodeId, Arg.Any<CancellationToken>());
+        await _store.Received(1).RevertPublishAsync(nodeId, versionId, displacedId, Arg.Any<CancellationToken>());
         await _cmsRouteService.Received(1).UpsertAsync(
             Arg.Is<CMSRouteDTO>(r => r.Pattern == "/old-slug"), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_RouteRegistrationFails_AlreadyPublished_DoesNotRevertState()
+    {
+        // Only zone drafts were pending: the publish changed no page version, so there is nothing to
+        // revert — reverting would take the live version down.
+        var nodeId = Guid.NewGuid();
+        var page = Page(title: "Test", state: ContentVersionState.Published, nodeId: nodeId);
+        var existingRoute = RouteFor(nodeId, "/test");
+        _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true, VersionId: page.VersionId));
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { existingRoute });
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        _cmsRouteService.UpsertAsync(Arg.Any<CMSRouteDTO>(), Arg.Any<CancellationToken>())
+            .Returns(x => (true, null, x.Arg<CMSRouteDTO>()));
+        _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, "collision"));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.False);
+        await _store.DidNotReceiveWithAnyArgs().RevertPublishAsync(default, default, default, default);
+        await _store.DidNotReceiveWithAnyArgs().UnpublishAsync(default, default);
+        await _cmsRouteService.Received(1).UpsertAsync(
+            Arg.Is<CMSRouteDTO>(r => r.Pattern == "/test"), Arg.Any<CancellationToken>());
     }
 
     [Test]

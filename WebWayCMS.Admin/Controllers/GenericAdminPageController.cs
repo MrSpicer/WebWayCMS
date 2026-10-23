@@ -30,10 +30,12 @@ public class GenericAdminPageController : PageControllerBase<GenericPageConfigur
             CurrentPage?.Version.Node.Id,
             CurrentPage?.Version.Title);
 
+        var config = PageConfig.SanitizedForRender();
+
         var viewName = CurrentPage?.ViewName;
         if (!string.IsNullOrWhiteSpace(viewName))
-            return Task.FromResult<IActionResult>(View(viewName, PageConfig));
+            return Task.FromResult<IActionResult>(View(viewName, config));
 
-        return Task.FromResult<IActionResult>(View(PageConfig));
+        return Task.FromResult<IActionResult>(View(config));
     }
 }

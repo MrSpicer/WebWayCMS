@@ -390,6 +390,13 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     }
 
     /// <summary>
+    /// Sanitizes the rich-text properties of a zone item's configuration JSON before it is stored
+    /// (see <see cref="WidgetConfigurationJson.Sanitize"/>).
+    /// </summary>
+    internal string SanitizeProperties(string componentName, string? json)
+        => WidgetConfigurationJson.Sanitize(_registry, componentName, json);
+
+    /// <summary>
     /// Deserializes properties JSON into the actual configuration type for the component.
     /// Falls back to a dictionary if the component type is not registered.
     /// </summary>
@@ -405,19 +412,15 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
         try
         {
-            var componentInfo = _registry.GetByName(componentName);
-            if (!string.IsNullOrEmpty(componentInfo?.ConfigurationTypeName))
+            var configType = ResolveType(_registry.GetByName(componentName)?.ConfigurationTypeName);
+            if (configType != null)
             {
-                var configType = ResolveType(componentInfo.ConfigurationTypeName);
-                if (configType != null)
+                var config = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
                 {
-                    var config = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
-                    if (config != null)
-                        return config;
-                }
+                    PropertyNameCaseInsensitive = true
+                });
+                if (config != null)
+                    return config;
             }
 
             var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
@@ -429,24 +432,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         }
     }
 
-    private static Type? ResolveType(string typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return null;
-
-        var type = Type.GetType(typeName, throwOnError: false);
-        if (type != null)
-            return type;
-
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            type = asm.GetType(typeName, throwOnError: false);
-            if (type != null)
-                return type;
-        }
-
-        return null;
-    }
+    private static Type? ResolveType(string? typeName) => WidgetConfigurationJson.ResolveType(typeName);
 }
 
 /// <summary>Manages items within a content zone (child entities).</summary>
@@ -554,7 +540,7 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             {
                 ContentZoneNodeId = zoneNodeId,
                 ComponentName = vm.ComponentName,
-                ComponentPropertiesJson = string.IsNullOrWhiteSpace(vm.ComponentPropertiesJson) ? "{}" : vm.ComponentPropertiesJson,
+                ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, vm.ComponentPropertiesJson),
                 MetadataJson = metadataJson,
                 IsActive = vm.IsActive,
             };
@@ -575,7 +561,7 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         var updated = existing with
         {
             ComponentName = vm.ComponentName,
-            ComponentPropertiesJson = vm.ComponentPropertiesJson,
+            ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, vm.ComponentPropertiesJson),
             // Not supplied: keep the existing metadata so a content-config save never wipes the
             // per-item metadata dialog's values.
             MetadataJson = metadataJson ?? existing.MetadataJson,

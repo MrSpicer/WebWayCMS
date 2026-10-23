@@ -160,24 +160,32 @@ public sealed class CMSRouteService : ICMSRouteService
 
         existing = existing.GroupBy(r => r.Id).Select(g => g.First()).ToList();
 
-        if (existing.Count > 0)
-        {
-            _context.Set<CMSRouteDTO>().RemoveRange(existing);
-            await _context.SaveChangesAsync(ct);
-        }
-
+        // The replace must be atomic: if the new row's insert loses a race for the pattern, the
+        // delete of the old row(s) must roll back with it — otherwise the content's live route
+        // disappears and the item goes dark. Both writes therefore share one transaction.
         if (route.Id == Guid.Empty)
             route.Id = Guid.NewGuid();
 
-        _context.Set<CMSRouteDTO>().Add(route);
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
         try
         {
+            if (existing.Count > 0)
+                _context.Set<CMSRouteDTO>().RemoveRange(existing);
+
+            _context.Set<CMSRouteDTO>().Add(route);
             await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
         catch (DbUpdateException)
         {
             // Pattern is the only unique index on CMSRoutes; a concurrent insert that lost the race
             // to the same pattern surfaces here, even though the pre-check above saw no conflict.
+            // The rollback restores the rows but not the change tracker; the context is scoped and
+            // shared, so the abandoned changes are detached before the next SaveChanges replays them.
+            await transaction.RollbackAsync(ct);
+            foreach (var removed in existing)
+                _context.Entry(removed).State = EntityState.Detached;
+            _context.Entry(route).State = EntityState.Detached;
             return (false, "This route pattern is already in use by another content item.", null);
         }
         _registry.Invalidate();

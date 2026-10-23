@@ -42,6 +42,7 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<ContentWriteResult> SaveDraftAsync(T entity, int? expectedVersionNumber, CancellationToken ct = default);
     Task<ContentWriteResult> PublishAsync(Guid nodeId, CancellationToken ct = default);
     Task<ContentWriteResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default);
+    Task<ContentWriteResult> RevertPublishAsync(Guid nodeId, Guid publishedVersionId, Guid displacedVersionId, CancellationToken ct = default);
     Task<ContentWriteResult> RestoreAsync(Guid versionId, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid nodeId, bool softDelete, CancellationToken ct = default);
     Task<bool> DeleteVersionAsync(Guid versionId, CancellationToken ct = default);
