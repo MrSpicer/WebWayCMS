@@ -55,6 +55,7 @@ internal static class CmsRenderingRegistration
                 ? ActivatorUtilities.CreateInstance<ViewDiscoveryService>(sp)
                 : sp.GetRequiredService<ViewDiscoveryService>());
         services.AddScoped<IWidgetViewResolver, WidgetViewResolver>();
+        services.AddScoped<IFormFieldViewResolver, FormFieldViewResolver>();
 
         services.AddSingleton<IWidgetRegistry, WidgetRegistry>();
         services.AddSingleton<IFormComponentRegistry, FormComponentRegistry>();

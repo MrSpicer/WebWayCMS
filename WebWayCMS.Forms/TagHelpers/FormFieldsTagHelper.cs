@@ -42,7 +42,8 @@ public class FormFieldsTagHelper : TagHelper
     public object? For { get; set; }
 
     /// <summary>
-    /// Rendering mode: Write (edit) or Read (display). Default is Write.
+    /// Rendering mode: Write (edit) or Read (display). Default is Write. Together with the request
+    /// path (admin vs. public) it selects each field's <see cref="FormFieldRenderMode"/> view.
     /// </summary>
     [HtmlAttributeName("mode")]
     public FormFieldMode Mode { get; set; } = FormFieldMode.Write;
@@ -138,8 +139,7 @@ public class FormFieldsTagHelper : TagHelper
 
                     if (componentInfo != null)
                     {
-                        var viewName = ResolveViewName(componentInfo);
-                        var fieldContent = await vch.InvokeAsync(componentInfo.ViewComponentName, new { field = fieldContext, viewName });
+                        var fieldContent = await vch.InvokeAsync(componentInfo.ViewComponentName, new { field = fieldContext });
                         if (fieldContent is IHtmlContent hc)
                         {
                             using var writer = new StringWriter();
@@ -172,8 +172,7 @@ public class FormFieldsTagHelper : TagHelper
 
                 if (componentInfo != null)
                 {
-                    var viewName = ResolveViewName(componentInfo);
-                    var fieldContent = await vch.InvokeAsync(componentInfo.ViewComponentName, new { field = fieldContext, viewName });
+                    var fieldContent = await vch.InvokeAsync(componentInfo.ViewComponentName, new { field = fieldContext });
                     if (fieldContent is IHtmlContent hc)
                     {
                         using var writer = new StringWriter();
@@ -194,9 +193,6 @@ public class FormFieldsTagHelper : TagHelper
 
         output.Content.SetHtmlContent(sb.ToString());
     }
-
-    private string ResolveViewName(FormComponentInfo componentInfo)
-        => Mode == FormFieldMode.Read ? componentInfo.ReadViewName : componentInfo.WriteViewName;
 
     private FormFieldContext BuildFieldContext(FormPropertyInfo prop, object model, string componentName)
     {

@@ -87,6 +87,17 @@ public sealed class ViewDiscoveryService : IViewDiscoveryService
     /// caller's job, see <c>IWidgetViewResolver</c>).
     /// </summary>
     public bool TryResolveView(string componentName, WidgetRenderMode mode, string? variant, out string? viewName)
+        => TryResolveByPrefix(componentName, mode.ToFilePrefix(), variant, out viewName);
+
+    /// <summary>
+    /// The form component counterpart of the widget overload: resolves e.g.
+    /// <c>adminwrite.default</c> for a form field (falling back between modes is the caller's job,
+    /// see <c>IFormFieldViewResolver</c>).
+    /// </summary>
+    public bool TryResolveView(string componentName, FormFieldRenderMode mode, string? variant, out string? viewName)
+        => TryResolveByPrefix(componentName, mode.ToFilePrefix(), variant, out viewName);
+
+    private bool TryResolveByPrefix(string componentName, string prefix, string? variant, out string? viewName)
     {
         viewName = null;
         if (string.IsNullOrWhiteSpace(componentName))
@@ -96,7 +107,7 @@ public sealed class ViewDiscoveryService : IViewDiscoveryService
             ? "default"
             : variant;
 
-        var target = mode.ToFilePrefix() + "." + normalizedVariant;
+        var target = prefix + "." + normalizedVariant;
         return DiscoverViewFileNames(componentName).TryGetValue(target, out viewName);
     }
 

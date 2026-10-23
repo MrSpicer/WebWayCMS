@@ -19,11 +19,10 @@ public sealed class FormViewPicker : FormFieldViewComponentBase
         _viewDiscoveryService = viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService));
     }
 
-    public override IViewComponentResult Invoke(FormFieldContext field, string? viewName = null)
+    public override IViewComponentResult Invoke(FormFieldContext field)
     {
-        var name = viewName ?? (field.Mode == FormFieldMode.Read ? "Read" : "Write");
         if (field.Mode == FormFieldMode.Read)
-            return View(name, field);
+            return FieldView(field, field);
 
         // The picker lists only the field's render mode's views (e.g. view.* on the content config
         // form, edit.* in the metadata editor). The component name comes from the field's
@@ -61,6 +60,6 @@ public sealed class FormViewPicker : FormFieldViewComponentBase
             Options = options
         };
 
-        return View(name, viewModel);
+        return FieldView(field, viewModel);
     }
 }

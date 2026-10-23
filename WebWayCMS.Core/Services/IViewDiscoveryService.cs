@@ -35,6 +35,13 @@ public interface IViewDiscoveryService
     bool TryResolveView(string componentName, WidgetRenderMode mode, string? variant, out string? viewName);
 
     /// <summary>
+    /// Resolves a (form component, mode, variant) triple to the actual view file name to render
+    /// (e.g. <c>adminwrite.default</c>), with the same matching rules as the widget overload.
+    /// </summary>
+    /// <returns>True when a view file with that exact mode+variant exists.</returns>
+    bool TryResolveView(string componentName, FormFieldRenderMode mode, string? variant, out string? viewName);
+
+    /// <summary>
     /// Gets a list of available view names for the specified page controller.
     /// Scans Views/{controllerName}/ in the main project and sibling projects.
     /// </summary>

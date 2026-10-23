@@ -230,6 +230,26 @@
   Razor Page and 404s. `CMSRouteService.UpsertAsync` rejects such patterns (use `{pageNumber}`).
 - See [docs/widget-system.md](docs/widget-system.md) → Render Modes.
 
+## Form Field Render Modes
+
+- Form controls (`[CMSFormComponent]` view components) use the same `{mode}.{variant}.cshtml` convention
+  with four fixed modes (`FormFieldRenderMode`): `write.*`, `read.*`, `adminwrite.*`, `adminread.*`.
+  Read vs. write comes from `<form-fields mode>`; admin vs. public from the request path
+  (`AdminPathPrefix.Matches`). It is derived, never passed by the caller (the tag helper invokes a
+  control with just `field`).
+- The shipped controls ship only `adminwrite.default` / `adminread.default` (Bulma). A site styles public
+  forms by adding `write.default` / `read.default`. A field picks a variant with
+  `[FormProperty(FieldViewName = "…")]`, which is unrelated to the ViewPicker's `ViewComponentName`/`RenderMode`.
+- Fallback (`FormFieldViewResolver`, pure; each step tries `{mode}.{variant}` then `{mode}.default`):
+  write → adminwrite; read → write → adminread → adminwrite; adminwrite → write;
+  adminread → adminwrite → read → write. No view on the chain **throws** (a missing input would drop the
+  value on save).
+- `FormFieldViewComponentBase.FieldView(field, model)` is the render call for a control that builds its own
+  view model. The resolver comes from `HttpContext.RequestServices`, so constructors stay as they are.
+- **Hard break:** un-prefixed `Write.cshtml`/`Read.cshtml` are ignored, and the registry's
+  `WriteViewName`/`ReadViewName` (attribute, DTO, columns) are gone.
+- See [docs/form-control-system.md](docs/form-control-system.md) → Render Modes.
+
 ## Articles
 
 - **Articles are a top-level content type** (`ArticleModel : AdminCrudModel<ArticleDTO>`, key `articles`,

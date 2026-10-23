@@ -15,13 +15,11 @@ public sealed class FormEntityPicker : FormFieldViewComponentBase
     /// <summary>ViewData key carrying the resolved list endpoint (null when unresolvable).</summary>
     public const string EndpointViewDataKey = "EntityPicker:Endpoint";
 
-    public override IViewComponentResult Invoke(FormFieldContext field, string? viewName = null)
+    public override IViewComponentResult Invoke(FormFieldContext field)
     {
         // Optional: a rendering-only host has no admin handler registry, so the picker has no endpoint.
-        var registry = HttpContext.RequestServices?.GetService<IAdminHandlerRegistry>();
+        var registry = HttpContext.RequestServices.GetService<IAdminHandlerRegistry>();
         ViewData[EndpointViewDataKey] = EntityPickerEndpoint.Resolve(field.EntityType, registry);
-
-        var name = viewName ?? (field.Mode == FormFieldMode.Read ? "Read" : "Write");
-        return View(name, field);
+        return FieldView(field, field);
     }
 }

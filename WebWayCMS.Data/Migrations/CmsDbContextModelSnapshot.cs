@@ -672,18 +672,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
-                    b.Property<string>("ReadViewName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("ViewComponentName")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<string>("WriteViewName")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

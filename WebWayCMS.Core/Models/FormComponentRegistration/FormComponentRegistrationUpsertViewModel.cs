@@ -44,12 +44,6 @@ public sealed class FormComponentRegistrationUpsertViewModel
         HelpText = "Whether this is the default component for its DataTypes.", FormComponent = "Checkbox")]
     public bool IsDefaultForType { get; init; }
 
-    [FormProperty(Label = "Write View Name", EditorType = EditorType.Text, Order = 13, FormComponent = "Text")]
-    public string WriteViewName { get; init; } = "Write";
-
-    [FormProperty(Label = "Read View Name", EditorType = EditorType.Text, Order = 14, FormComponent = "Text")]
-    public string ReadViewName { get; init; } = "Read";
-
-    [FormProperty(Label = "Active", EditorType = EditorType.Checkbox, Order = 15, FormComponent = "Checkbox")]
+    [FormProperty(Label = "Active", EditorType = EditorType.Checkbox, Order = 13, FormComponent = "Checkbox")]
     public bool IsActive { get; init; } = true;
 }

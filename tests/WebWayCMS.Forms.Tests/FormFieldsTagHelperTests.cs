@@ -107,9 +107,7 @@ public class FormFieldsTagHelperTests
         var componentInfo = new FormComponentInfo
         {
             Name = "Text",
-            ViewComponentName = "Text",
-            WriteViewName = "Write",
-            ReadViewName = "Read"
+            ViewComponentName = "Text"
         };
         _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
         _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
@@ -126,9 +124,7 @@ public class FormFieldsTagHelperTests
         var componentInfo = new FormComponentInfo
         {
             Name = "Text",
-            ViewComponentName = "Text",
-            WriteViewName = "Write",
-            ReadViewName = "Read"
+            ViewComponentName = "Text"
         };
         _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
         _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
@@ -150,7 +146,7 @@ public class FormFieldsTagHelperTests
     // Renders DisplayModeModel and returns the names of the fields that were rendered.
     private async Task<List<string>> RenderedDisplayModeFieldsAsync(WidgetDisplayMode? displayMode = null)
     {
-        var componentInfo = new FormComponentInfo { Name = "Text", ViewComponentName = "Text", WriteViewName = "Write", ReadViewName = "Read" };
+        var componentInfo = new FormComponentInfo { Name = "Text", ViewComponentName = "Text" };
         var rendered = new List<string>();
         _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(x =>
         {
@@ -201,9 +197,7 @@ public class FormFieldsTagHelperTests
         var componentInfo = new FormComponentInfo
         {
             Name = "Text",
-            ViewComponentName = "Text",
-            WriteViewName = "Write",
-            ReadViewName = "Read"
+            ViewComponentName = "Text"
         };
         _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
         _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
@@ -214,14 +208,37 @@ public class FormFieldsTagHelperTests
     }
 
     [Test]
+    public async Task Process_PassesOnlyTheFieldContext_CarryingTheMode()
+    {
+        // The view (and its render mode) is resolved by the component itself, so the tag helper
+        // passes just the field: no view name.
+        var componentInfo = new FormComponentInfo { Name = "Text", ViewComponentName = "Text" };
+        var args = new List<object>();
+        _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
+        _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Do<object>(args.Add))
+            .Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));
+
+        await RenderAsync(new StyledFieldsModel(), mode: FormFieldMode.Read);
+
+        Assert.That(args, Is.Not.Empty);
+        foreach (var arg in args)
+        {
+            var props = arg.GetType().GetProperties();
+            Assert.Multiple(() =>
+            {
+                Assert.That(props.Select(pi => pi.Name), Is.EqualTo(new[] { "field" }));
+                Assert.That(((FormFieldContext)props[0].GetValue(arg)!).Mode, Is.EqualTo(FormFieldMode.Read));
+            });
+        }
+    }
+
+    [Test]
     public async Task Process_JsonBinding_RendersField()
     {
         var componentInfo = new FormComponentInfo
         {
             Name = "Text",
-            ViewComponentName = "Text",
-            WriteViewName = "Write",
-            ReadViewName = "Read"
+            ViewComponentName = "Text"
         };
         _resolver.Resolve(Arg.Any<FormPropertyInfo>()).Returns(componentInfo);
         _vch.InvokeAsync(componentInfo.ViewComponentName, Arg.Any<object>()).Returns(Task.FromResult<IHtmlContent>(new HtmlString("<mock/>")));

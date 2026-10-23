@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20261021184928_InitialCreate")]
+    [Migration("20261023041849_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -675,18 +675,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
-                    b.Property<string>("ReadViewName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("ViewComponentName")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<string>("WriteViewName")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

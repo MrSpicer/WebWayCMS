@@ -11,11 +11,10 @@ namespace WebWayCMS.ViewComponents.Forms;
                   DisplayName = "Dropdown", Description = "Dropdown select from predefined or enum options.")]
 public sealed class FormDropdown : FormFieldViewComponentBase
 {
-    public override IViewComponentResult Invoke(FormFieldContext field, string? viewName = null)
+    public override IViewComponentResult Invoke(FormFieldContext field)
     {
-        var name = viewName ?? (field.Mode == FormFieldMode.Read ? "Read" : "Write");
         if (field.Mode == FormFieldMode.Read)
-            return View(name, field);
+            return FieldView(field, field);
 
         var options = field.DropdownOptions;
 
@@ -46,7 +45,7 @@ public sealed class FormDropdown : FormFieldViewComponentBase
             Options = options
         };
 
-        return View(name, viewModel);
+        return FieldView(field, viewModel);
     }
 }
 

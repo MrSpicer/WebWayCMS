@@ -133,28 +133,32 @@ Pure logic over `IFormComponentRegistry`, unit-testable without a database. Reso
 ### 5.3 View Components
 
 Each EditorType has a corresponding ViewComponent in `WebWayCMS.Presentation/ViewComponents/Forms/`,
-all inheriting from `FormFieldViewComponentBase`. The base class selects the Write or Read view
-based on `FormFieldContext.Mode` (or an explicit `viewName` from the registry). Each component's
-view emits the field using `FormAttributeBuilder` inside a `<form-field>` tag helper.
+all inheriting from `FormFieldViewComponentBase`. The base class renders the view for the field's
+derived `FormFieldRenderMode` (`write`/`read`/`adminwrite`/`adminread`: read vs. write from
+`FormFieldContext.Mode`, admin vs. public from the request path), resolved through the
+`IFormFieldViewResolver` fallback chain with the field's `[FormProperty(FieldViewName)]` variant (see
+[form-control-system.md → Render Modes](../form-control-system.md#render-modes)). Each component's
+view emits the field using `FormAttributeBuilder` inside a `<form-field>` tag helper. The shipped
+views are the admin ones; the table lists each write view.
 
 | Component | View | EditorType |
 |-----------|------|-----------|
-| `FormText` | `Componens/FormText/Write.cshtml` | Text (default) |
-| `FormTextArea` | `Componens/FormTextArea/Write.cshtml` | TextArea |
-| `FormRichText` | `Componens/FormRichText/Write.cshtml` | RichText |
-| `FormNumber` | `Componens/FormNumber/Write.cshtml` | Number |
-| `FormCheckbox` | `Componens/FormCheckbox/Write.cshtml` | Checkbox |
-| `FormGuid` | `Componens/FormGuid/Write.cshtml` | Guid |
-| `FormDropdown` | `Componens/FormDropdown/Write.cshtml` | Dropdown |
-| `FormDate` | `Componens/FormDate/Write.cshtml` | Date |
-| `FormDateTime` | `Componens/FormDateTime/Write.cshtml` | DateTime |
-| `FormColor` | `Componens/FormColor/Write.cshtml` | Color |
-| `FormUrl` | `Componens/FormUrl/Write.cshtml` | Url |
-| `FormEmail` | `Componens/FormEmail/Write.cshtml` | Email |
-| `FormViewPicker` | `Componens/FormViewPicker/Write.cshtml` | ViewPicker |
-| `FormPageControllerPicker` | `Componens/FormPageControllerPicker/Write.cshtml` | PageControllerPicker |
-| `FormHidden` | `Componens/FormHidden/Write.cshtml` | Hidden |
-| `FormEntityPicker` | `Componens/FormEntityPicker/Write.cshtml` | (GUID with EntityType) |
+| `FormText` | `Components/FormText/adminwrite.default.cshtml` | Text (default) |
+| `FormTextArea` | `Components/FormTextArea/adminwrite.default.cshtml` | TextArea |
+| `FormRichText` | `Components/FormRichText/adminwrite.default.cshtml` | RichText |
+| `FormNumber` | `Components/FormNumber/adminwrite.default.cshtml` | Number |
+| `FormCheckbox` | `Components/FormCheckbox/adminwrite.default.cshtml` | Checkbox |
+| `FormGuid` | `Components/FormGuid/adminwrite.default.cshtml` | Guid |
+| `FormDropdown` | `Components/FormDropdown/adminwrite.default.cshtml` | Dropdown |
+| `FormDate` | `Components/FormDate/adminwrite.default.cshtml` | Date |
+| `FormDateTime` | `Components/FormDateTime/adminwrite.default.cshtml` | DateTime |
+| `FormColor` | `Components/FormColor/adminwrite.default.cshtml` | Color |
+| `FormUrl` | `Components/FormUrl/adminwrite.default.cshtml` | Url |
+| `FormEmail` | `Components/FormEmail/adminwrite.default.cshtml` | Email |
+| `FormViewPicker` | `Components/FormViewPicker/adminwrite.default.cshtml` | ViewPicker |
+| `FormPageControllerPicker` | `Components/FormPageControllerPicker/adminwrite.default.cshtml` | PageControllerPicker |
+| `FormHidden` | `Components/FormHidden/adminwrite.default.cshtml` | Hidden |
+| `FormEntityPicker` | `Components/FormEntityPicker/adminwrite.default.cshtml` | (GUID with EntityType) |
 
 ### 5.4 Chrome Convention
 

@@ -92,9 +92,6 @@ internal static class CmsFormComponentSeeder
 
             var viewComponentName = type.Name;
 
-            var writeViewName = attribute.WriteViewName;
-            var readViewName = attribute.ReadViewName;
-
             var dataTypeNamesJson = JsonSerializer.Serialize(
                 (attribute.DataTypes ?? Array.Empty<Type>()).Select(t => t.FullName));
             var editorTypeAlias = attribute.EditorType?.ToString();
@@ -104,15 +101,11 @@ internal static class CmsFormComponentSeeder
                 if (existing.DataTypeNamesJson != dataTypeNamesJson
                     || existing.EditorTypeAlias != editorTypeAlias
                     || existing.IsDefaultForType != attribute.IsDefaultForType
-                    || existing.WriteViewName != writeViewName
-                    || existing.ReadViewName != readViewName
                     || existing.ViewComponentName != viewComponentName)
                 {
                     existing.DataTypeNamesJson = dataTypeNamesJson;
                     existing.EditorTypeAlias = editorTypeAlias;
                     existing.IsDefaultForType = attribute.IsDefaultForType;
-                    existing.WriteViewName = writeViewName;
-                    existing.ReadViewName = readViewName;
                     existing.ViewComponentName = viewComponentName;
 
                     var save = service.UpsertAsync(existing).GetAwaiter().GetResult();
@@ -138,8 +131,6 @@ internal static class CmsFormComponentSeeder
                 DataTypeNamesJson = dataTypeNamesJson,
                 EditorTypeAlias = editorTypeAlias,
                 IsDefaultForType = attribute.IsDefaultForType,
-                WriteViewName = writeViewName,
-                ReadViewName = readViewName,
                 IsActive = true,
             };
 
