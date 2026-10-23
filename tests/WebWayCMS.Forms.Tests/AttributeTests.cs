@@ -158,4 +158,16 @@ public class AttributeTests
             Assert.That(WidgetRenderMode.AdminList.ToFilePrefix(), Is.EqualTo("adminlist"));
         });
     }
+
+    [Test]
+    public void FormFieldRenderModeExtensions_ToFilePrefix_ReturnsLowercaseModeName()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(FormFieldRenderMode.Write.ToFilePrefix(), Is.EqualTo("write"));
+            Assert.That(FormFieldRenderMode.Read.ToFilePrefix(), Is.EqualTo("read"));
+            Assert.That(FormFieldRenderMode.AdminWrite.ToFilePrefix(), Is.EqualTo("adminwrite"));
+            Assert.That(FormFieldRenderMode.AdminRead.ToFilePrefix(), Is.EqualTo("adminread"));
+        });
+    }
 }

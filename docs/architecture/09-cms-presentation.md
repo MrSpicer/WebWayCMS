@@ -221,6 +221,7 @@ public interface IViewDiscoveryService
 {
     IReadOnlyList<string> GetAvailableViews(string componentName, WidgetRenderMode mode);
     bool TryResolveView(string componentName, WidgetRenderMode mode, string? variant, out string? viewName);
+    bool TryResolveView(string componentName, FormFieldRenderMode mode, string? variant, out string? viewName);
     IReadOnlyList<string> GetControllerViews(string controllerName);
 }
 ```
@@ -245,7 +246,8 @@ option so an edit load keeps the selection; a mode with no views renders no pick
 
 **`TryResolveView(componentName, mode, variant, out viewName)`** — maps an empty/`default` or named
 variant to the real file name (`view.TwoColumnEqual`), matching case-insensitively. `WidgetViewResolver`
-builds the per-mode fallback chain on top of it.
+builds the per-mode fallback chain on top of it. The `FormFieldRenderMode` overload does the same for
+form controls (`adminwrite.default`), and `FormFieldViewResolver` builds their chain.
 
 **`GetControllerViews(controllerName)`** — returns views whose path tail is `Views/{controllerName}/{view}.cshtml` (optionally under an `Areas/{area}/` prefix). Sources:
 - Compiled descriptors matching that tail (e.g. `/Views/{controllerName}/Index.cshtml`)

@@ -114,8 +114,6 @@ public sealed class FormComponentRegistrationModel : IAdminCrudHandler
             DataTypeNamesJson = dto.DataTypeNamesJson,
             EditorTypeAlias = dto.EditorTypeAlias,
             IsDefaultForType = dto.IsDefaultForType,
-            WriteViewName = dto.WriteViewName,
-            ReadViewName = dto.ReadViewName,
             IsActive = dto.IsActive,
         };
 
@@ -133,8 +131,6 @@ public sealed class FormComponentRegistrationModel : IAdminCrudHandler
             DataTypeNamesJson = vm.DataTypeNamesJson,
             EditorTypeAlias = vm.EditorTypeAlias,
             IsDefaultForType = vm.IsDefaultForType,
-            WriteViewName = vm.WriteViewName,
-            ReadViewName = vm.ReadViewName,
             IsActive = vm.IsActive,
         };
 

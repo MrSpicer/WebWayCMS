@@ -137,8 +137,6 @@ namespace WebWayCMS.Data.Migrations
                     DataTypeNamesJson = table.Column<string>(type: "text", nullable: false),
                     EditorTypeAlias = table.Column<string>(type: "text", nullable: true),
                     IsDefaultForType = table.Column<bool>(type: "boolean", nullable: false),
-                    WriteViewName = table.Column<string>(type: "text", nullable: false),
-                    ReadViewName = table.Column<string>(type: "text", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>

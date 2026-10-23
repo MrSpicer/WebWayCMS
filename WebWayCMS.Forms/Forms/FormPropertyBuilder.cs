@@ -50,6 +50,7 @@ public static class FormPropertyBuilder
                 IsRequired = attr?.IsRequired == true || requiredAttr != null,
                 EntityType = attr?.EntityType ?? string.Empty,
                 ViewComponentName = attr?.ViewComponentName ?? string.Empty,
+                FieldViewName = attr?.FieldViewName ?? string.Empty,
                 RenderMode = attr?.RenderMode ?? WidgetRenderMode.View,
                 DisplayModes = attr?.DisplayModes ?? (WidgetDisplayMode.Single | WidgetDisplayMode.List),
                 Min = GetMinValue(attr, rangeAttr),

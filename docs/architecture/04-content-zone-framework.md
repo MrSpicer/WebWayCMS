@@ -298,7 +298,7 @@ the widget receives no configuration parameter and passes `null` to `ModeView`.
 
 The list endpoint for an `EntityPicker` is resolved **server-side**: `FormEntityPicker` passes the
 field's `EntityType` and the (optional) `IAdminHandlerRegistry` to `EntityPickerEndpoint.Resolve`
-(`WebWayCMS.Core/Controllers/Admin/Handlers/`), and `Write.cshtml` emits the result as
+(`WebWayCMS.Core/Controllers/Admin/Handlers/`), and `adminwrite.default.cshtml` emits the result as
 `data-endpoint` on the `<select>`. `form-components.js` only fetches that URL; it holds no endpoint
 map. Resolution order:
 

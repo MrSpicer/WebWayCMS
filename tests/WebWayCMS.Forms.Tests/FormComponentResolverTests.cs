@@ -173,8 +173,6 @@ public class CMSFormComponentAttributeTests
             Assert.That(attr.Category, Is.EqualTo("General"));
             Assert.That(attr.IconClass, Is.Empty);
             Assert.That(attr.Order, Is.EqualTo(0));
-            Assert.That(attr.WriteViewName, Is.EqualTo("Write"));
-            Assert.That(attr.ReadViewName, Is.EqualTo("Read"));
         });
     }
 
@@ -211,9 +209,7 @@ public class CMSFormComponentAttributeTests
             Description = "A custom component",
             Category = "Special",
             IconClass = "fa-star",
-            Order = 5,
-            WriteViewName = "Edit",
-            ReadViewName = "View"
+            Order = 5
         };
 
         Assert.Multiple(() =>
@@ -227,8 +223,6 @@ public class CMSFormComponentAttributeTests
             Assert.That(attr.Category, Is.EqualTo("Special"));
             Assert.That(attr.IconClass, Is.EqualTo("fa-star"));
             Assert.That(attr.Order, Is.EqualTo(5));
-            Assert.That(attr.WriteViewName, Is.EqualTo("Edit"));
-            Assert.That(attr.ReadViewName, Is.EqualTo("View"));
         });
     }
 }

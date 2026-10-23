@@ -49,7 +49,7 @@ gets a rendered form in the admin UI. This is the same mechanism behind content-
 | `[CMSFormComponent]` | `WebWayCMS.Forms/Attributes/CMSFormComponentAttribute.cs` | Marks a ViewComponent as a form control; read once at startup to seed its registration row |
 | `FormAttributeBuilder` | `WebWayCMS.Forms/Forms/FormAttributeBuilder.cs` | Fluent builder that produces HTML-encoded-once attribute strings for a field |
 | `FormFieldsTagHelper` / `FormFieldTagHelper` | `WebWayCMS.Forms/TagHelpers/` | `<form-fields for="@Model" />` renders every field; `<form-field>` emits the shared chrome around one |
-| `FormFieldViewComponentBase` | `WebWayCMS.Presentation/ViewComponents/Forms/FormFieldViewComponentBase.cs` | Base class for form controls; selects the Write or Read view from `FormFieldContext.Mode` |
+| `FormFieldViewComponentBase` | `WebWayCMS.Presentation/ViewComponents/Forms/FormFieldViewComponentBase.cs` | Base class for form controls; renders the view for the field's derived `FormFieldRenderMode` (see [Render Modes](#render-modes)) |
 | `FormComponentRegistrationModel` | admin content type at `/wadmin/formcomponents` | Lets admins edit a control's category, order, and display name without a deploy |
 
 ---
@@ -124,18 +124,17 @@ public sealed class FormRating : FormFieldViewComponentBase { }
 | `Category` | Groups related controls, e.g. `"Text"`, `"Number"` |
 | `IconClass` | Font Awesome class for the admin UI icon |
 | `Order` | Sort order within the category; lower values appear first |
-| `WriteViewName` / `ReadViewName` | View names to invoke; default to `"Write"` / `"Read"` |
 
 `DisplayName`, `Description`, `Category`, `IconClass`, and `Order` are **seed defaults**, written once
 and then admin-owned — edit the control at `/wadmin/formcomponents` to change them, since the seeder
 never overwrites an existing row's values for these fields. `DataTypes`, `EditorType`,
-`IsDefaultForType`, `WriteViewName`, `ReadViewName`, and `ViewComponentName` are different: the seeder
+`IsDefaultForType`, and `ViewComponentName` are different: the seeder
 **re-syncs** these on every startup, so the attribute (and the class name, for `ViewComponentName`)
 stays authoritative for them and an admin edit to one is only durable until the next restart.
 
 ### Step 3 — Create the Razor view
 
-**`Views/Shared/Components/FormRating/Write.cshtml`**
+**`Views/Shared/Components/FormRating/adminwrite.default.cshtml`**
 
 ```cshtml
 @model WebWayCMS.Forms.FormFieldContext
@@ -156,8 +155,10 @@ and read/write mode). Build attribute strings with `FormAttributeBuilder` and em
 label/help/validation chrome for free.
 
 For a control that renders its own layout (e.g. a checkbox with an inline `<label>`), pass
-`chrome="none"` to `<form-field>` instead, as `FormCheckbox`'s view does. Add a `Read.cshtml` in the
-same folder for a dedicated read-only rendering; omit it to fall back to the write view.
+`chrome="none"` to `<form-field>` instead, as `FormCheckbox`'s view does. Add an
+`adminread.default.cshtml` in the same folder for a dedicated read-only rendering; omit it to fall back
+to the write view. Add `write.default.cshtml` / `read.default.cshtml` for site-styled public rendering
+(see [Render Modes](#render-modes)). An un-prefixed `Write.cshtml` / `Read.cshtml` is **not** used.
 
 **JSON-bound forms need exactly one `data-prop` element.** A widget or page-type configuration form
 posts as JSON (see "Binding mode" above); the client-side serializer walks every `[data-prop]` element
@@ -176,12 +177,52 @@ or `Program.cs` are needed, and the control is available to `[FormProperty(Edito
 Two consequences worth knowing:
 
 - **Seeding re-syncs on every start, but only some fields.** `DataTypeNamesJson`, `EditorTypeAlias`,
-  `IsDefaultForType`, `WriteViewName`, `ReadViewName`, and `ViewComponentName` are re-written from the
+  `IsDefaultForType`, and `ViewComponentName` are re-written from the
   attribute (and the class name) on every startup; `DisplayName`, `Description`, `Category`, `IconClass`,
   and `Order` become admin-owned after the first seed and are left alone.
   `WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS=true` suppresses seeding entirely.
 - **A control that fails to resolve falls back to `"Text"`.** If the registry row is deleted or
   deactivated, fields that named it explicitly render as plain text inputs rather than failing.
+
+---
+
+## Render Modes
+
+Form fields follow the same `{mode}.{variant}.cshtml` convention as widgets, with four fixed modes:
+
+| Mode | File prefix | When |
+|---|---|---|
+| `Write` | `write.` | an editable field on a public page |
+| `Read` | `read.` | a read-only field (`<form-fields mode="read">`) on a public page |
+| `AdminWrite` | `adminwrite.` | an editable field on an admin page (path under `/wadmin`) |
+| `AdminRead` | `adminread.` | a read-only field on an admin page |
+
+The mode is **derived, never chosen by the caller**: read vs. write comes from the `<form-fields mode>`
+attribute, and admin vs. public from the request path (`/wadmin` on a segment boundary, the same test
+widgets use). The zone editor's configurator and metadata dialog are fetched from `/wadmin/...`, so they
+render the admin views. The shipped controls ship only `adminwrite.default` / `adminread.default`, which
+are Bulma admin markup. A site gives a control a public look by adding `write.default` / `read.default`;
+host views shadow package views of the same name, as with widgets.
+
+A field picks a **variant** with `[FormProperty(FieldViewName = "Compact")]`. Empty or `"default"`
+means the mode's default view. Each step of the fallback chain (`IFormFieldViewResolver`,
+`WebWayCMS.Core/Services/FormFieldViewResolver.cs`) tries `{mode}.{variant}` and then `{mode}.default`:
+
+- **Write:** `write` → `adminwrite`
+- **Read:** `read` → `write` → `adminread` → `adminwrite`
+- **AdminWrite:** `adminwrite` → `write`
+- **AdminRead:** `adminread` → `adminwrite` → `read` → `write`
+
+A read render prefers its own context's write view over the other context's read view. Every mode
+falls back to the other context, so the admin views render on a public page until the site supplies its
+own, and a host control that ships only public views still renders in the admin. A control with no view
+anywhere on its chain **throws** (`InvalidOperationException` naming the component, mode and variant):
+a silently missing input on a model-bound form would drop that value on save.
+
+A control that overrides `Invoke(FormFieldContext field)` to build its own view model renders it with
+`FieldView(field, model)`, which runs the same resolution (see `FormDropdown`, `FormViewPicker`).
+`FieldViewName` is unrelated to `ViewComponentName`/`RenderMode`, which configure *which widget* a
+`ViewPicker` lists views for.
 
 ---
 
@@ -227,7 +268,7 @@ registry name, with **no `EditorType` value of its own**:
 public string BlobHash { get; set; } = string.Empty;
 ```
 
-Its `Write.cshtml` emits a hidden input (built through `FormAttributeBuilder`, like every other
+Its `adminwrite.default.cshtml` emits a hidden input (built through `FormAttributeBuilder`, like every other
 control) plus a file input and a preview. `media-picker.js` uploads the file to the media API and
 writes only the returned content hash into the hidden input, so the surrounding form stays
 `application/x-www-form-urlencoded` and the view model never carries binary data.

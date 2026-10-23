@@ -77,6 +77,11 @@ public class FormPropertyInfo
     public string ViewComponentName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the view variant this field renders with (empty means the mode's default view).
+    /// </summary>
+    public string FieldViewName { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the render mode this property configures, for ViewPicker fields.
     /// The picker lists only views whose file name starts with this mode's prefix.
     /// </summary>

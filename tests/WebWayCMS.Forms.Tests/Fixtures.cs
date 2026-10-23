@@ -245,3 +245,14 @@ public sealed class DisplayModeModel
     [FormProperty(Label = "Shared", Order = 3)]
     public string? Shared { get; set; }
 }
+
+public sealed class FieldViewNameModel
+{
+    [FormProperty(Label = "Compact", FieldViewName = "Compact")]
+    public string? Compact { get; set; }
+
+    [FormProperty(Label = "Plain")]
+    public string? Plain { get; set; }
+
+    public string? NoAttribute { get; set; }
+}

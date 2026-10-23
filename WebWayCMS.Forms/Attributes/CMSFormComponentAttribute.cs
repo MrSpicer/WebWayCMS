@@ -62,16 +62,6 @@ public sealed class CMSFormComponentAttribute : Attribute
     public int Order { get; set; } = 0;
 
     /// <summary>
-    /// Name of the write-mode view. Default is "Write".
-    /// </summary>
-    public string WriteViewName { get; set; } = "Write";
-
-    /// <summary>
-    /// Name of the read-mode view. Default is "Read".
-    /// </summary>
-    public string ReadViewName { get; set; } = "Read";
-
-    /// <summary>
     /// Initializes a new instance with a registry key name.
     /// </summary>
     public CMSFormComponentAttribute(string name)

@@ -137,9 +137,7 @@ public sealed class FormComponentRegistry : IFormComponentRegistry
                 EditorTypeAlias = string.IsNullOrEmpty(dto.EditorTypeAlias)
                     ? null
                     : Enum.TryParse<EditorType>(dto.EditorTypeAlias, out var et) ? et : null,
-                IsDefaultForType = dto.IsDefaultForType,
-                WriteViewName = dto.WriteViewName,
-                ReadViewName = dto.ReadViewName
+                IsDefaultForType = dto.IsDefaultForType
             };
 
             all.Add(info);

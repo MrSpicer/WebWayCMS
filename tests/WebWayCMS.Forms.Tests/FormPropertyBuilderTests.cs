@@ -41,6 +41,19 @@ public class FormPropertyBuilderTests
     }
 
     [Test]
+    public void BuildPropertyInfos_CarriesFieldViewName_DefaultingToEmpty()
+    {
+        var infos = FormPropertyBuilder.BuildPropertyInfos(typeof(FieldViewNameModel)).ToDictionary(i => i.Name);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(infos["Compact"].FieldViewName, Is.EqualTo("Compact"));
+            Assert.That(infos["Plain"].FieldViewName, Is.Empty);
+            Assert.That(infos["NoAttribute"].FieldViewName, Is.Empty);
+        });
+    }
+
+    [Test]
     public void FormPropertyInfo_AppliesTo_MatchesTaggedModes_NullMatchesAll()
     {
         var single = new FormPropertyInfo { DisplayModes = WidgetDisplayMode.Single };

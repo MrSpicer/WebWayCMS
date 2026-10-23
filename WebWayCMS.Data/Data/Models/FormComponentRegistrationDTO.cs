@@ -18,7 +18,5 @@ public record FormComponentRegistrationDTO
     public string DataTypeNamesJson { get; set; } = "[]";
     public string? EditorTypeAlias { get; set; }
     public bool IsDefaultForType { get; set; }
-    public string WriteViewName { get; set; } = "Write";
-    public string ReadViewName { get; set; } = "Read";
     public bool IsActive { get; set; } = true;
 }

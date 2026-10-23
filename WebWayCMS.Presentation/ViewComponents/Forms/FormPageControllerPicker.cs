@@ -19,11 +19,10 @@ public sealed class FormPageControllerPicker : FormFieldViewComponentBase
         _pageControllerRegistry = pageControllerRegistry ?? throw new ArgumentNullException(nameof(pageControllerRegistry));
     }
 
-    public override IViewComponentResult Invoke(FormFieldContext field, string? viewName = null)
+    public override IViewComponentResult Invoke(FormFieldContext field)
     {
-        var name = viewName ?? (field.Mode == FormFieldMode.Read ? "Read" : "Write");
         if (field.Mode == FormFieldMode.Read)
-            return View(name, field);
+            return FieldView(field, field);
 
         var controllers = _pageControllerRegistry.GetAllControllers();
 
@@ -42,6 +41,6 @@ public sealed class FormPageControllerPicker : FormFieldViewComponentBase
             Options = options
         };
 
-        return View(name, viewModel);
+        return FieldView(field, viewModel);
     }
 }

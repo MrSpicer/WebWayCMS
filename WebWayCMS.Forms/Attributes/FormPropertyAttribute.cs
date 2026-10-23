@@ -73,6 +73,15 @@ public sealed class FormPropertyAttribute : Attribute
     public string ViewComponentName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the view variant this field renders with: the form component's
+    /// <c>{mode}.{FieldViewName}.cshtml</c>, falling back to <c>{mode}.default.cshtml</c> (see
+    /// <c>IFormFieldViewResolver</c>). Empty or "default" means the mode's default view. Not to be
+    /// confused with <see cref="ViewComponentName"/>/<see cref="RenderMode"/>, which configure the
+    /// widget a ViewPicker lists views for.
+    /// </summary>
+    public string FieldViewName { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets a value indicating whether this property is required.
     /// This is a convenience property; you can also use [Required] attribute.
     /// </summary>

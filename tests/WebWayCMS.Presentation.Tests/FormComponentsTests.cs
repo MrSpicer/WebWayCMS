@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
+using NSubstitute.ClearExtensions;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Forms;
 using WebWayCMS.Pages;
@@ -31,13 +33,13 @@ public class FormFieldViewComponentBaseTests
     public void Invoke_WriteMode_ReturnsWriteViewWithFieldModel()
     {
         var component = new FormText();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateContext(FormFieldMode.Write));
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
@@ -46,37 +48,107 @@ public class FormFieldViewComponentBaseTests
     public void Invoke_ReadMode_ReturnsReadViewWithFieldModel()
     {
         var component = new FormText();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateContext(FormFieldMode.Read));
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReturnsThatViewName()
+    public void Invoke_FieldViewName_RendersThatVariant()
     {
         var component = new FormText();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormText", FormFieldRenderMode.AdminWrite, "Compact", "adminwrite.Compact");
+        var context = CreateContext(FormFieldMode.Write);
+        context.Property.FieldViewName = "Compact";
 
-        var result = component.Invoke(CreateContext(FormFieldMode.Write), "CustomView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.Compact"));
     }
 
     [Test]
-    public void Invoke_CustomViewName_OverridesReadMode()
+    public void Invoke_FieldViewName_MissingVariant_FallsBackToModeDefault()
     {
         var component = new FormText();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
+        var context = CreateContext(FormFieldMode.Read);
+        context.Property.FieldViewName = "Compact";
 
-        var result = component.Invoke(CreateContext(FormFieldMode.Read), "CustomView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
+    }
+
+    [Test]
+    public void Invoke_PublicPath_WriteMode_RendersPublicWriteView()
+    {
+        var component = new FormText();
+        var harness = FormComponentHarness.Attach(component, path: "/contact");
+        harness.Hit("FormText", FormFieldRenderMode.Write, "default", "write.default");
+
+        var result = component.Invoke(CreateContext(FormFieldMode.Write));
+
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("write.default"));
+    }
+
+    [Test]
+    public void Invoke_PublicPath_ReadMode_RendersPublicReadView()
+    {
+        var component = new FormText();
+        var harness = FormComponentHarness.Attach(component, path: "/contact");
+        harness.Hit("FormText", FormFieldRenderMode.Read, "default", "read.default");
+
+        var result = component.Invoke(CreateContext(FormFieldMode.Read));
+
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("read.default"));
+    }
+
+    [Test]
+    public void Invoke_PathSharingAdminPrefix_IsPublic_FallsBackToAdminView()
+    {
+        var component = new FormText();
+        var harness = FormComponentHarness.Attach(component, path: "/wadmin-guide");
+
+        var result = component.Invoke(CreateContext(FormFieldMode.Write));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
+            harness.Discovery.Received().TryResolveView("FormText", FormFieldRenderMode.Write, "default", out Arg.Any<string?>());
+        });
+    }
+
+    [Test]
+    public void Invoke_NoViewOnChain_Throws()
+    {
+        var component = new FormText();
+        var harness = FormComponentHarness.Attach(component);
+        harness.Discovery.ClearSubstitute();
+        var context = CreateContext(FormFieldMode.Write);
+        context.Property.FieldViewName = "Compact";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => component.Invoke(context));
+
+        Assert.That(ex!.Message, Does.Contain("FormText").And.Contain("adminwrite").And.Contain("Compact"));
+    }
+
+    [Test]
+    public void Invoke_NoViewOnChain_DefaultVariant_NamesDefaultInMessage()
+    {
+        var component = new FormText();
+        var harness = FormComponentHarness.Attach(component);
+        harness.Discovery.ClearSubstitute();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => component.Invoke(CreateContext(FormFieldMode.Read)));
+
+        Assert.That(ex!.Message, Does.Contain("adminread").And.Contain("variant 'default'"));
     }
 }
 
@@ -87,7 +159,7 @@ public class FormHiddenTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormHidden();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -99,7 +171,7 @@ public class FormHiddenTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -110,7 +182,7 @@ public class FormRichTextTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormRichText();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -122,7 +194,7 @@ public class FormRichTextTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -133,7 +205,7 @@ public class FormCheckboxTests
     public void Invoke_ReadMode_ReturnsReadView()
     {
         var component = new FormCheckbox();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -145,7 +217,7 @@ public class FormCheckboxTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
     }
 }
 
@@ -153,22 +225,23 @@ public class FormCheckboxTests
 public class FormDateTests
 {
     [Test]
-    public void Invoke_CustomViewName_ReturnsThatView()
+    public void Invoke_FieldViewName_ReturnsThatView()
     {
         var component = new FormDate();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormDate", FormFieldRenderMode.AdminWrite, "SpecialDateView", "adminwrite.SpecialDateView");
 
         var result = component.Invoke(new FormFieldContext
         {
-            Property = new FormPropertyInfo { Name = "TestProp", Label = "Test Prop" },
+            Property = new FormPropertyInfo { Name = "TestProp", Label = "Test Prop", FieldViewName = "SpecialDateView" },
             Value = "2024-01-01",
             Mode = FormFieldMode.Write,
             InputName = "TestProp",
             ElementId = "TestProp",
             JsonBound = false
-        }, "SpecialDateView");
+        });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("SpecialDateView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.SpecialDateView"));
     }
 }
 
@@ -179,7 +252,7 @@ public class FormDateTimeTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormDateTime();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -191,7 +264,7 @@ public class FormDateTimeTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -202,7 +275,7 @@ public class FormNumberTests
     public void Invoke_ReadMode_ReturnsReadView()
     {
         var component = new FormNumber();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -214,7 +287,7 @@ public class FormNumberTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
     }
 }
 
@@ -225,7 +298,7 @@ public class FormEmailTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormEmail();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -237,7 +310,7 @@ public class FormEmailTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -248,7 +321,7 @@ public class FormUrlTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormUrl();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -260,7 +333,7 @@ public class FormUrlTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -271,7 +344,7 @@ public class FormColorTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormColor();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -283,7 +356,7 @@ public class FormColorTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -294,7 +367,7 @@ public class FormGuidTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormGuid();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -306,7 +379,7 @@ public class FormGuidTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -317,7 +390,7 @@ public class FormTextAreaTests
     public void Invoke_WriteMode_ReturnsWriteView()
     {
         var component = new FormTextArea();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(new FormFieldContext
         {
@@ -329,7 +402,7 @@ public class FormTextAreaTests
             JsonBound = false
         });
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
     }
 }
 
@@ -359,13 +432,13 @@ public class FormDropdownTests
     public void Invoke_ReadMode_ReturnsReadViewWithFieldModel()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateDropdownContext(FormFieldMode.Read));
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
@@ -374,7 +447,7 @@ public class FormDropdownTests
     public void Invoke_WriteMode_ReturnsDropdownViewModel()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var options = new Dictionary<string, string> { ["val1"] = "Label 1", ["val2"] = "Label 2" };
         var result = component.Invoke(CreateDropdownContext(dropdownOptions: options));
@@ -382,7 +455,7 @@ public class FormDropdownTests
         var model = (DropdownViewModel)ViewComponentHarness.Model(result)!;
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
             Assert.That(model.Options, Is.EqualTo(options));
             Assert.That(model.Field, Is.Not.Null);
         });
@@ -392,7 +465,7 @@ public class FormDropdownTests
     public void Invoke_EmptyOptions_EnumPropertyType_AutoPopulatesFromEnum()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateDropdownContext(propertyType: typeof(System.DayOfWeek)));
 
@@ -409,7 +482,7 @@ public class FormDropdownTests
     public void Invoke_EmptyOptions_NullableEnumPropertyType_AutoPopulatesFromUnderlyingEnum()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateDropdownContext(propertyType: typeof(System.DayOfWeek?)));
 
@@ -425,7 +498,7 @@ public class FormDropdownTests
     public void Invoke_EmptyOptions_NonEnumPropertyType_ReturnsEmptyOptions()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateDropdownContext(propertyType: typeof(string)));
 
@@ -434,25 +507,31 @@ public class FormDropdownTests
     }
 
     [Test]
-    public void Invoke_CustomViewName_OverridesViewName()
+    public void Invoke_FieldViewName_RendersThatVariant()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormDropdown", FormFieldRenderMode.AdminWrite, "CustomDropdownView", "adminwrite.CustomDropdownView");
+        var context = CreateDropdownContext();
+        context.Property.FieldViewName = "CustomDropdownView";
 
-        var result = component.Invoke(CreateDropdownContext(), "CustomDropdownView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomDropdownView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.CustomDropdownView"));
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReadMode_OverridesViewName()
+    public void Invoke_FieldViewName_ReadMode_RendersThatVariant()
     {
         var component = new FormDropdown();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormDropdown", FormFieldRenderMode.AdminRead, "CustomReadView", "adminread.CustomReadView");
+        var context = CreateDropdownContext(FormFieldMode.Read);
+        context.Property.FieldViewName = "CustomReadView";
 
-        var result = component.Invoke(CreateDropdownContext(FormFieldMode.Read), "CustomReadView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomReadView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.CustomReadView"));
     }
 }
 
@@ -461,13 +540,14 @@ public class FormViewPickerTests
 {
     private IViewDiscoveryService _viewDiscoveryService = null!;
     private FormViewPicker _component = null!;
+    private FormComponentHarness.Context _harness = null!;
 
     [SetUp]
     public void SetUp()
     {
         _viewDiscoveryService = Substitute.For<IViewDiscoveryService>();
         _component = new FormViewPicker(_viewDiscoveryService);
-        ViewComponentHarness.Attach(_component);
+        _harness = FormComponentHarness.Attach(_component);
     }
 
     private static FormFieldContext CreateViewPickerContext(
@@ -506,7 +586,7 @@ public class FormViewPickerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
@@ -522,7 +602,7 @@ public class FormViewPickerTests
         var model = (DropdownViewModel)ViewComponentHarness.Model(result)!;
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
             // "Default" is covered by the empty "-- Default --" option, so it is not listed again.
             Assert.That(model.Options, Has.Count.EqualTo(1));
             Assert.That(model.Options.ContainsKey("Default"), Is.False);
@@ -588,14 +668,17 @@ public class FormViewPickerTests
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReturnsThatView()
+    public void Invoke_FieldViewName_ReturnsThatView()
     {
         _viewDiscoveryService.GetAvailableViews("TestComponent", WebWayCMS.Attributes.WidgetRenderMode.View)
             .Returns(new List<string> { "Default" });
+        _harness.Hit("FormViewPicker", FormFieldRenderMode.AdminWrite, "CustomViewPickerView", "adminwrite.CustomViewPickerView");
+        var context = CreateViewPickerContext();
+        context.Property.FieldViewName = "CustomViewPickerView";
 
-        var result = _component.Invoke(CreateViewPickerContext(), "CustomViewPickerView");
+        var result = _component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomViewPickerView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.CustomViewPickerView"));
     }
 
     [Test]
@@ -669,13 +752,14 @@ public class FormPageControllerPickerTests
 {
     private IPageControllerRegistry _pageControllerRegistry = null!;
     private FormPageControllerPicker _component = null!;
+    private FormComponentHarness.Context _harness = null!;
 
     [SetUp]
     public void SetUp()
     {
         _pageControllerRegistry = Substitute.For<IPageControllerRegistry>();
         _component = new FormPageControllerPicker(_pageControllerRegistry);
-        ViewComponentHarness.Attach(_component);
+        _harness = FormComponentHarness.Attach(_component);
     }
 
     private static FormFieldContext CreatePageControllerPickerContext(
@@ -702,7 +786,7 @@ public class FormPageControllerPickerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
@@ -721,7 +805,7 @@ public class FormPageControllerPickerTests
         var model = (DropdownViewModel)ViewComponentHarness.Model(result)!;
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
             Assert.That(model.Options, Has.Count.EqualTo(2));
             Assert.That(model.Options["Blog"], Is.EqualTo("Blog Controller"));
             Assert.That(model.Options["Home"], Is.EqualTo("Home Controller"));
@@ -754,16 +838,19 @@ public class FormPageControllerPickerTests
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReturnsThatView()
+    public void Invoke_FieldViewName_ReturnsThatView()
     {
         _pageControllerRegistry.GetAllControllers().Returns(new List<PageControllerInfo>
         {
             new() { Name = "Blog", DisplayName = "Blog" }
         });
+        _harness.Hit("FormPageControllerPicker", FormFieldRenderMode.AdminWrite, "CustomPagePickerView", "adminwrite.CustomPagePickerView");
+        var context = CreatePageControllerPickerContext();
+        context.Property.FieldViewName = "CustomPagePickerView";
 
-        var result = _component.Invoke(CreatePageControllerPickerContext(), "CustomPagePickerView");
+        var result = _component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomPagePickerView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.CustomPagePickerView"));
     }
 }
 
@@ -779,7 +866,7 @@ public class FormEntityPickerTests
         registry.GetHandler("faqs").Returns(handler);
 
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component, services =>
+        FormComponentHarness.Attach(component, configure: services =>
         {
             services.AddSingleton(registry);
             services.AddSingleton(Substitute.For<ICompositeViewEngine>());
@@ -804,7 +891,7 @@ public class FormEntityPickerTests
     public void Invoke_WithoutRegistry_EndpointIsNull()
     {
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component, services =>
+        FormComponentHarness.Attach(component, configure: services =>
             services.AddSingleton(Substitute.For<ICompositeViewEngine>()));
 
         component.Invoke(CreateEntityPickerContext());
@@ -814,17 +901,6 @@ public class FormEntityPickerTests
             Assert.That(component.ViewData.ContainsKey(FormEntityPicker.EndpointViewDataKey), Is.True);
             Assert.That(component.ViewData[FormEntityPicker.EndpointViewDataKey], Is.Null);
         });
-    }
-
-    [Test]
-    public void Invoke_WithoutRequestServices_EndpointIsNull()
-    {
-        var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component);
-
-        component.Invoke(CreateEntityPickerContext());
-
-        Assert.That(component.ViewData[FormEntityPicker.EndpointViewDataKey], Is.Null);
     }
 
     private static FormFieldContext CreateEntityPickerContext(
@@ -842,13 +918,13 @@ public class FormEntityPickerTests
     public void Invoke_ReadMode_ReturnsReadViewWithFieldModel()
     {
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateEntityPickerContext(FormFieldMode.Read));
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Read"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
@@ -857,36 +933,42 @@ public class FormEntityPickerTests
     public void Invoke_WriteMode_ReturnsWriteViewWithFieldModel()
     {
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component);
+        FormComponentHarness.Attach(component);
 
         var result = component.Invoke(CreateEntityPickerContext(FormFieldMode.Write));
 
         Assert.Multiple(() =>
         {
-            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("Write"));
+            Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.default"));
             Assert.That(ViewComponentHarness.Model(result), Is.InstanceOf<FormFieldContext>());
         });
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReturnsThatView()
+    public void Invoke_FieldViewName_ReturnsThatView()
     {
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormEntityPicker", FormFieldRenderMode.AdminWrite, "CustomEntityPickerView", "adminwrite.CustomEntityPickerView");
+        var context = CreateEntityPickerContext();
+        context.Property.FieldViewName = "CustomEntityPickerView";
 
-        var result = component.Invoke(CreateEntityPickerContext(), "CustomEntityPickerView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomEntityPickerView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminwrite.CustomEntityPickerView"));
     }
 
     [Test]
-    public void Invoke_CustomViewName_ReadMode_OverridesViewName()
+    public void Invoke_FieldViewName_ReadMode_RendersThatVariant()
     {
         var component = new FormEntityPicker();
-        ViewComponentHarness.Attach(component);
+        var harness = FormComponentHarness.Attach(component);
+        harness.Hit("FormEntityPicker", FormFieldRenderMode.AdminRead, "CustomReadView", "adminread.CustomReadView");
+        var context = CreateEntityPickerContext(FormFieldMode.Read);
+        context.Property.FieldViewName = "CustomReadView";
 
-        var result = component.Invoke(CreateEntityPickerContext(FormFieldMode.Read), "CustomReadView");
+        var result = component.Invoke(context);
 
-        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("CustomReadView"));
+        Assert.That(ViewComponentHarness.ViewName(result), Is.EqualTo("adminread.CustomReadView"));
     }
 }

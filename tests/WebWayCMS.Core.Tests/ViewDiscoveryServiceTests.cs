@@ -240,6 +240,26 @@ public class ViewDiscoveryServiceTests
     }
 
     [Test]
+    public void TryResolveView_FormFieldMode_ResolvesItsOwnPrefixOnly()
+    {
+        var dir = Path.Combine(_root, "Views", "Shared", "Components", "FormText");
+        WriteView(dir, "adminwrite.default.cshtml");
+        WriteView(dir, "AdminRead.Compact.cshtml");
+        WriteView(dir, "Write.cshtml"); // un-prefixed: ignored
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_service.TryResolveView("FormText", FormFieldRenderMode.AdminWrite, null, out var write), Is.True);
+            Assert.That(write, Is.EqualTo("adminwrite.default"));
+            Assert.That(_service.TryResolveView("FormText", FormFieldRenderMode.AdminRead, "compact", out var read), Is.True);
+            Assert.That(read, Is.EqualTo("AdminRead.Compact"));
+            Assert.That(_service.TryResolveView("FormText", FormFieldRenderMode.Write, "default", out var publicWrite), Is.False);
+            Assert.That(publicWrite, Is.Null);
+            Assert.That(_service.TryResolveView(" ", FormFieldRenderMode.AdminWrite, "default", out _), Is.False);
+        });
+    }
+
+    [Test]
     public void ScanDirectory_UnreadableDirectory_IsCaughtAndDoesNotThrow()
     {
         if (OperatingSystem.IsWindows())
