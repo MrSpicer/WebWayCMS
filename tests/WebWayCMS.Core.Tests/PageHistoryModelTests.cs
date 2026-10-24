@@ -173,6 +173,7 @@ public class PageHistoryModelTests
         _history.GetSnapshotStateAsync(entry.Id, Arg.Any<CancellationToken>()).Returns(entryState);
         _history.GetSnapshotStateAsync(previous.Id, Arg.Any<CancellationToken>()).Returns(previousState);
         _history.ListAsync(_pageNodeId, Arg.Any<CancellationToken>()).Returns([entry, previous]);
+        _history.GetLatestIdAsync(_pageNodeId, Arg.Any<CancellationToken>()).Returns(entry.Id);
 
         var vm = (await _model.GetEntryAsync(_pageNodeId, entry.Id))!;
 
