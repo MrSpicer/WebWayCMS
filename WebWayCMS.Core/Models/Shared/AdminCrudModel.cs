@@ -126,4 +126,7 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
 
     public virtual Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => DeleteVersionCoreAsync(id, ct);
+
+    public virtual async Task<(bool Success, string? ErrorMessage)> TryDeleteVersionAsync(Guid id, CancellationToken ct = default)
+        => await DeleteVersionAsync(id, ct) ? (true, null) : (false, IAdminCrudHandler.VersionNotDeletedMessage);
 }

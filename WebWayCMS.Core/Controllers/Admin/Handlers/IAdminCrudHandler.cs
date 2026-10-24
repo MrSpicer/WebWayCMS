@@ -94,4 +94,14 @@ public interface IAdminCrudHandler
 
     Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult(false);
+
+    /// <summary>The reason <see cref="TryDeleteVersionAsync"/> gives when a delete was simply not possible.</summary>
+    const string VersionNotDeletedMessage = "The version could not be deleted. The latest version is always kept.";
+
+    /// <summary>
+    /// <see cref="DeleteVersionAsync"/> with the reason a delete was refused (e.g. the version is part of
+    /// page history), for the admin UI and MCP to show.
+    /// </summary>
+    async Task<(bool Success, string? ErrorMessage)> TryDeleteVersionAsync(Guid id, CancellationToken ct = default)
+        => await DeleteVersionAsync(id, ct) ? (true, null) : (false, VersionNotDeletedMessage);
 }

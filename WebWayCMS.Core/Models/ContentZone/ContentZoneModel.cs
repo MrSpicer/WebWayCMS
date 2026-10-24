@@ -9,6 +9,7 @@ using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Security;
 using WebWayCMS.Services;
@@ -25,6 +26,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly ContentZoneChildHandler _childHandler;
     private readonly ContentZoneRegistryHandler _registryHandler;
+    private readonly IWidgetSlotDiscovery _slotDiscovery;
+    private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<ContentZoneModel>();
 
     protected override IContentStore<ContentZoneDTO> Store => _zoneStore;
 
@@ -51,10 +54,14 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         IViewDiscoveryService viewDiscoveryService,
         ICMSRouteService routeService,
         IRouteRegistrationService routeRegistration,
+        IPageHistoryService pageHistory,
+        IWidgetSlotDiscovery slotDiscovery,
         IChangeSetScope changeSetScope)
         : base(changeSetScope)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _slotDiscovery = slotDiscovery ?? throw new ArgumentNullException(nameof(slotDiscovery));
+        PageHistory = pageHistory ?? throw new ArgumentNullException(nameof(pageHistory));
         _zoneStore = zoneStore ?? throw new ArgumentNullException(nameof(zoneStore));
         _itemStore = itemStore ?? throw new ArgumentNullException(nameof(itemStore));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -68,6 +75,75 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     /// <summary>The registration for a widget, or null when it is not registered.</summary>
     internal WidgetRegistrationInfo? GetWidget(string componentName) => _registry.GetByName(componentName);
+
+    /// <summary>Page-set history, consulted before an item version may be deleted.</summary>
+    internal IPageHistoryService PageHistory { get; }
+
+    /// <summary>
+    /// <see cref="IContentZoneService.RestoreItemVersionAsync"/>; a restore that changes a container's view
+    /// moves its nested content into the restored view's zones (see <see cref="PlanSlotRemapAsync"/>).
+    /// </summary>
+    public async Task<(bool Success, string? ErrorMessage)> RestoreItemVersionAsync(Guid versionId, string? metadataJson, int? expectedVersionNumber, CancellationToken ct = default)
+    {
+        var historical = await _itemStore.GetVersionAsync(versionId, ct);
+        var current = historical == null ? null : await _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, ct);
+        if (historical != null && current != null)
+        {
+            // The same document the service will store, so the remap plan is planned against what is saved.
+            var restoredMetadata = metadataJson ?? historical.MetadataJson ?? "{}";
+            var restored = current with
+            {
+                ComponentName = historical.ComponentName,
+                ComponentPropertiesJson = historical.ComponentPropertiesJson,
+                MetadataJson = restoredMetadata,
+                IsActive = historical.IsActive
+            };
+            var remap = await PlanSlotRemapAsync(current, restored, ct);
+            if (remap != null)
+                return await _service.RestoreItemVersionAsync(versionId, restoredMetadata, expectedVersionNumber, remap, ct);
+        }
+
+        return await _service.RestoreItemVersionAsync(versionId, metadataJson, expectedVersionNumber, ct);
+    }
+
+    /// <summary>
+    /// When a save changes a container's view, the moves that carry its nested content from the old view's
+    /// zones into the new view's (<see cref="SlotRemapPlanner"/>), discovered by rendering both views. Null
+    /// when nothing needs to move: the item owns no zone holding widgets (every ordinary widget, without a
+    /// render), the item is being removed (its content stays with it, hidden), or either view's slots could
+    /// not be discovered — the save then goes ahead unchanged, and stranded content shows in the page zone
+    /// editor's Unplaced panel.
+    /// </summary>
+    internal async Task<SlotRemapPlan?> PlanSlotRemapAsync(ContentZoneItemDTO before, ContentZoneItemDTO after, CancellationToken ct)
+    {
+        if (!after.IsActive
+            || (before.ComponentName == after.ComponentName
+                && before.ComponentPropertiesJson == after.ComponentPropertiesJson
+                && before.MetadataJson == after.MetadataJson))
+            return null;
+
+        var itemNodeId = before.Version.Node.Id;
+        var slotsWithContent = await _service.GetOwnedSlotsWithItemsAsync(itemNodeId, ct);
+        if (slotsWithContent.Count == 0)
+            return null;
+
+        var oldSlots = await _slotDiscovery.DiscoverSlotsAsync(itemNodeId, before.ComponentName, BuildComponentProperties(before), ct);
+        var newSlots = await _slotDiscovery.DiscoverSlotsAsync(itemNodeId, after.ComponentName, BuildComponentProperties(after), ct);
+        if (oldSlots == null || newSlots == null)
+        {
+            _logger.Warning("Could not discover the zones of {Component} item {ItemNodeId}; its content was not moved.",
+                after.ComponentName, itemNodeId);
+            return null;
+        }
+
+        var moves = SlotRemapPlanner.Plan(oldSlots, newSlots, slotsWithContent);
+        if (moves.Count == 0)
+            return null;
+
+        var label = ItemLabel(after);
+        var summary = string.Join(", ", moves.Select(m => $"{m.FromSlot} → {m.ToSlot}"));
+        return new SlotRemapPlan(moves, $"{label}: layout changed; content moved ({summary})");
+    }
 
     // IContentZoneModel members
 
@@ -139,6 +215,18 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public Task<Guid?> GetParentPageNodeForZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
         => _service.GetParentPageNodeForZoneAsync(zoneNodeId, ct);
 
+    public async Task<IReadOnlyList<UnplacedZoneCandidate>> GetUnplacedCandidatesAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        var zones = await _service.GetItemOwnedZonesForPageAsync(pageNodeId, ct);
+        return zones
+            .Select(z => new UnplacedZoneCandidate(z.ZoneNodeId, z.Owner.Version.Node.Id, $"{ItemLabel(z.Owner)} › {z.SlotName}"))
+            .ToList();
+    }
+
+    /// <summary>A widget's admin label, else its component name.</summary>
+    internal static string ItemLabel(ContentZoneItemDTO item)
+        => WidgetMetadataJson.Parse(item.MetadataJson).AdminLabel is { Length: > 0 } label ? label : item.ComponentName;
+
     public async Task<ContentZoneDTO?> GetByIdAsync(Guid nodeId, CancellationToken ct = default)
     {
         return await _zoneStore.GetCurrentDraftAsync(nodeId, ct);
@@ -168,8 +256,19 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public async Task<ContentZoneItemDTO> AddItemAsync(Guid zoneNodeId, ContentZoneItemDTO item, CancellationToken ct = default)
         => await _service.AddItemAsync(zoneNodeId, item, ct);
 
+    /// <summary>
+    /// <see cref="IContentZoneService.UpdateItemAsync(ContentZoneItemDTO, CancellationToken, int?)"/>; an update
+    /// that changes a container's view moves its nested content into the new view's zones in the same write.
+    /// </summary>
     public async Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null)
-        => await _service.UpdateItemAsync(item, ct, expectedVersionNumber);
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var existing = item.Version?.Node == null ? null : await _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, ct);
+        var remap = existing == null ? null : await PlanSlotRemapAsync(existing, ContentZoneService.MergeUpdate(existing, item), ct);
+        return remap == null
+            ? await _service.UpdateItemAsync(item, ct, expectedVersionNumber)
+            : await _service.UpdateItemAsync(item, remap, expectedVersionNumber, ct);
+    }
 
     public async Task<bool> RemoveItemAsync(Guid itemNodeId, CancellationToken ct = default)
         => await _service.RemoveItemAsync(itemNodeId, ct);
@@ -182,6 +281,10 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemNodeId, CancellationToken ct = default)
         => await _itemStore.GetAllVersionsAsync(itemNodeId, ct);
+
+    /// <summary><see cref="IContentZoneService.GetDescendantItemNodeIdsAsync"/>.</summary>
+    internal Task<List<Guid>> GetDescendantItemNodeIdsAsync(Guid containerItemNodeId, CancellationToken ct = default)
+        => _service.GetDescendantItemNodeIdsAsync(containerItemNodeId, ct);
 
     public async Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
         => await _service.GetItemsAsync(zoneNodeId, ct);
@@ -358,35 +461,49 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         vm.ZoneObjects = items
             .Select(i =>
             {
-                var obj = new ContentZoneObject
+                var properties = BuildComponentProperties(i);
+                return new ContentZoneObject
                 {
                     Id = i.Version.Node.Id,
                     Ordinal = i.Ordinal,
                     ZoneId = i.ContentZoneNodeId,
                     VersionNumber = i.Version.VersionNumber,
                     ComponentName = i.ComponentName,
-                    ComponentProperties = DeserializePropertiesToConfigType(i.ComponentName, i.ComponentPropertiesJson),
-                    Metadata = WidgetMetadataJson.Parse(i.MetadataJson)
+                    ComponentProperties = properties,
+                    Metadata = properties is WidgetConfiguration config ? config.Metadata! : EffectiveMetadata(i)
                 };
-
-                // A stored List mode only renders as a list while the widget still supports it
-                // (the capability is code-owned and can be removed after the item was saved).
-                if (obj.Metadata.DisplayMode != WidgetDisplayMode.Single && _registry.GetByName(i.ComponentName)?.SupportsList != true)
-                    obj.Metadata.DisplayMode = WidgetDisplayMode.Single;
-
-                // Attach the metadata to the configuration so widget view resolution can pick up
-                // the item's display mode (single vs. list), and the item id so nested zones the
-                // widget renders are owned by it.
-                if (obj.ComponentProperties is WidgetConfiguration widgetConfig)
-                {
-                    widgetConfig.Metadata = obj.Metadata;
-                    widgetConfig.ZoneItemNodeId = obj.Id;
-                }
-
-                return obj;
             })
             .ToList();
         return vm;
+    }
+
+    /// <summary>The item's metadata, with a stored List mode downgraded where the widget no longer supports lists.</summary>
+    private WidgetMetadata EffectiveMetadata(ContentZoneItemDTO item)
+    {
+        var metadata = WidgetMetadataJson.Parse(item.MetadataJson);
+
+        // A stored List mode only renders as a list while the widget still supports it
+        // (the capability is code-owned and can be removed after the item was saved).
+        if (metadata.DisplayMode != WidgetDisplayMode.Single && _registry.GetByName(item.ComponentName)?.SupportsList != true)
+            metadata.DisplayMode = WidgetDisplayMode.Single;
+        return metadata;
+    }
+
+    /// <summary>
+    /// The configuration a widget is invoked with: its typed config, with the item's metadata attached (so
+    /// widget view resolution picks up the display mode) and the item id (so nested zones the widget renders
+    /// are owned by it).
+    /// </summary>
+    private object BuildComponentProperties(ContentZoneItemDTO item)
+    {
+        var properties = DeserializePropertiesToConfigType(item.ComponentName, item.ComponentPropertiesJson);
+        if (properties is WidgetConfiguration widgetConfig)
+        {
+            widgetConfig.Metadata = EffectiveMetadata(item);
+            widgetConfig.ZoneItemNodeId = item.Version.Node.Id;
+        }
+
+        return properties;
     }
 
     /// <summary>
@@ -616,36 +733,73 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
 
     public bool SupportsVersionHistory => true;
 
+    /// <summary>
+    /// The item's versions. A container's page also lists every version of every widget inside it (nested
+    /// containers included), newest first, each row labelled with its widget and restorable on its own.
+    /// </summary>
     public async Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default)
     {
         var versions = await _model.GetAllItemVersionsAsync(nodeId, ct);
         if (!versions.Any()) return null;
-        var maxVersion = versions.Max(v => v.Version.VersionNumber);
+
+        var title = ItemTitle(versions.First());
+        var rows = VersionRows(versions, $"{title} (this container)");
+        foreach (var descendantId in await _model.GetDescendantItemNodeIdsAsync(nodeId, ct))
+        {
+            var nested = await _model.GetAllItemVersionsAsync(descendantId, ct);
+            if (nested.Count > 0)
+                rows.AddRange(VersionRows(nested, ItemTitle(nested.First())));
+        }
+
+        var isCombined = rows.Count > versions.Count;
         return new VersionHistoryViewModel
         {
             ContentType = "contentzones",
             NodeId = nodeId,
-            ItemTitle = versions.First().Version.Title ?? versions.First().ComponentName,
+            ItemTitle = title,
             BackUrl = "/wadmin/contentzones",
+            CurrentVersionNumber = versions.FirstOrDefault(v => v.Version.IsCurrentDraft)?.Version.VersionNumber,
             ParentKey = parentKey,
             ChildType = "items",
-            Versions = versions.Select(v => new VersionItemViewModel
-            {
-                Id = v.VersionId,
-                Version = v.Version.VersionNumber,
-                Title = v.ComponentName,
-                CreationDate = v.Version.Node.CreatedUtc,
-                ModificationDate = v.Version.CreatedUtc,
-                IsPublished = v.Version.State == ContentVersionState.Published,
-                IsDeleted = v.Version.Node.IsDeleted,
-                IsLatest = v.Version.VersionNumber == maxVersion,
-                CreatedBy = v.Version.CreatedBy,
-                ChangeNote = v.Version.ChangeNote,
-                State = v.Version.State,
-                ChangeSetId = v.Version.ChangeSetId
-            }).ToList()
+            IsCombined = isCombined,
+            Versions = isCombined
+                ? rows.OrderByDescending(r => r.ModificationDate).ThenByDescending(r => r.Version).ToList()
+                : rows
         };
     }
+
+    /// <summary>One widget's history rows; latest and current version are per widget.</summary>
+    private static List<VersionItemViewModel> VersionRows(List<ContentZoneItemDTO> versions, string widgetLabel)
+    {
+        var maxVersion = versions.Max(v => v.Version.VersionNumber);
+        var currentVersion = versions.FirstOrDefault(v => v.Version.IsCurrentDraft)?.Version.VersionNumber;
+        return versions.Select(v => new VersionItemViewModel
+        {
+            Id = v.VersionId,
+            Version = v.Version.VersionNumber,
+            Title = v.ComponentName,
+            CreationDate = v.Version.Node.CreatedUtc,
+            ModificationDate = v.Version.CreatedUtc,
+            IsPublished = v.Version.State == ContentVersionState.Published,
+            IsDeleted = v.Version.Node.IsDeleted,
+            IsLatest = v.Version.VersionNumber == maxVersion,
+            CreatedBy = v.Version.CreatedBy,
+            ChangeNote = v.Version.ChangeNote,
+            State = v.Version.State,
+            ChangeSetId = v.Version.ChangeSetId,
+            NodeId = v.Version.Node.Id,
+            WidgetLabel = widgetLabel,
+            NodeCurrentVersionNumber = currentVersion
+        }).ToList();
+    }
+
+    /// <summary>
+    /// The history page's heading: the version title, else (zone items saved by the editor carry none)
+    /// the widget's admin label, else its component name.
+    /// </summary>
+    private static string ItemTitle(ContentZoneItemDTO item)
+        => !string.IsNullOrWhiteSpace(item.Version.Title) ? item.Version.Title
+         : ContentZoneModel.ItemLabel(item);
 
     public async Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
     {
@@ -660,30 +814,51 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ExpectedVersionNumber = current.Version.VersionNumber,
             ComponentName = historical.ComponentName,
             ComponentPropertiesJson = historical.ComponentPropertiesJson,
-            MetadataJson = RestorableMetadataJson(historical.MetadataJson, historical.ComponentName, current.MetadataJson),
+            MetadataJson = WidgetMetadataJson.Restorable(historical.MetadataJson, _model.GetWidget(historical.ComponentName), current.MetadataJson),
             IsActive = historical.IsActive,
         };
     }
 
     /// <summary>
-    /// A historical version's metadata as it can be saved back today. A historical List on a widget
-    /// that has since dropped list support (and that the current item does not already store as
-    /// List) is restored as Single — it renders as Single anyway, and saving List would be rejected.
+    /// One-step restore: the version's content, metadata (List→Single where the widget no longer
+    /// supports lists), active state, zone and ordinal, as a draft until the page publishes. A
+    /// global-zone item goes live now, so its widget routes follow.
     /// </summary>
-    private string? RestorableMetadataJson(string? historicalJson, string componentName, string? currentJson)
+    public async Task<AdminSaveResult> RestoreChildVersionAsync(string parentKey, Guid versionId, int? expectedVersionNumber, CancellationToken ct = default)
     {
-        if (!WidgetMetadataJson.StoresList(historicalJson)
-            || _model.GetWidget(componentName)?.SupportsList == true
-            || WidgetMetadataJson.StoresList(currentJson))
-            return historicalJson;
+        var historical = await _model.GetItemVersionAsync(versionId, ct);
+        if (historical == null)
+            return new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage);
 
-        var metadata = WidgetMetadataJson.Parse(historicalJson);
-        metadata.DisplayMode = WidgetDisplayMode.Single;
-        return JsonSerializer.Serialize(metadata);
+        var nodeId = historical.Version.Node.Id;
+        var current = await _model.GetItemByNodeIdAsync(nodeId, ct);
+        if (current == null)
+            return new AdminSaveResult(false, IContentZoneService.ItemNotFoundMessage);
+
+        var metadataJson = WidgetMetadataJson.Restorable(historical.MetadataJson, _model.GetWidget(historical.ComponentName), current.MetadataJson);
+        var (success, error) = await _model.RestoreItemVersionAsync(versionId, metadataJson, expectedVersionNumber, ct);
+        if (!success)
+            return new AdminSaveResult(false, error);
+
+        await _model.RegisterWidgetRouteIfRoutableAsync(
+            historical.ComponentName, nodeId, historical.ContentZoneNodeId, historical.IsActive, ct);
+        return new AdminSaveResult(true, NodeId: nodeId);
     }
 
     public async Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default)
-        => await _model.DeleteItemVersionAsync(id, ct);
+        => (await TryDeleteChildVersionAsync(id, ct)).Success;
+
+    /// <summary>A version a page-history entry captured cannot be deleted while that entry exists.</summary>
+    public async Task<(bool Success, string? ErrorMessage)> TryDeleteChildVersionAsync(Guid id, CancellationToken ct = default)
+    {
+        var entries = await _model.PageHistory.GetSnapshotsReferencingVersionAsync(id, ct);
+        if (entries.Count > 0)
+            return (false, PageHistoryMessages.VersionInHistory(entries[0]));
+
+        return await _model.DeleteItemVersionAsync(id, ct)
+            ? (true, null)
+            : (false, IAdminCrudHandler.VersionNotDeletedMessage);
+    }
 }
 
 /// <summary>Exposes the content zone component registry as admin JSON endpoints.</summary>

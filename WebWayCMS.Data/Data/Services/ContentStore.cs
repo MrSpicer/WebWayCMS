@@ -193,7 +193,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             return new ContentWriteResult(false, NotFoundMessage);
 
         if (currentDraft.State == ContentVersionState.Published)
-            return new ContentWriteResult(true, VersionId: currentDraft.Id);
+            return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId);
 
         var otherPublished = await _versions
             .Where(v => v.NodeId == nodeId
@@ -223,7 +223,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
         // Report the version this publish archived (at most one Published per variant), so a caller
         // whose follow-up step fails can hand it to RevertPublishAsync.
-        return new ContentWriteResult(true, VersionId: currentDraft.Id,
+        return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId,
             DisplacedVersionId: otherPublished.Select(v => v.Id).FirstOrDefault());
     }
 
@@ -246,7 +246,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             foreach (var v in published)
                 v.State = ContentVersionState.Archived;
             await SaveChangesAsync(ct);
-            return new ContentWriteResult(true, VersionId: currentDraft.Id);
+            return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId);
         }
 
         if (currentDraft.State == ContentVersionState.Published)
@@ -254,10 +254,10 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             currentDraft.State = ContentVersionState.Draft;
             currentDraft.ChangeSetId = _changeSetScope.Current;
             await SaveChangesAsync(ct);
-            return new ContentWriteResult(true, VersionId: currentDraft.Id);
+            return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId);
         }
 
-        return new ContentWriteResult(true, VersionId: currentDraft.Id);
+        return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId);
     }
 
     /// <summary>
@@ -340,7 +340,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                                    && e.Version.IsCurrentDraft, ct);
 
         if (currentDraft != null && currentDraft.VersionId == versionId)
-            return new ContentWriteResult(true, VersionId: versionId);
+            return new ContentWriteResult(true, VersionId: versionId, NodeId: nodeId);
 
         var maxNumber = await _set
             .Where(e => e.Version.NodeId == nodeId
@@ -351,7 +351,8 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
         var newVersion = BuildVersion(
             historical.Version, nodeId, newNumber,
-            ContentVersionState.Draft, isCurrentDraft: true, now);
+            ContentVersionState.Draft, isCurrentDraft: true, now,
+            defaultNote: $"Restored from version {historical.Version.VersionNumber}");
 
         // Clone the historical type-table row at the DTO level by detaching it and re-inserting
         // with a new key — no round-trip through a ViewModel, so every DTO field survives.
@@ -361,20 +362,43 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         historical.VersionId = newVersion.Id;
         historical.Version = newVersion;
 
-        if (currentDraft != null)
-            currentDraft.Version.IsCurrentDraft = false;
-
-        _set.Add(historical);
+        // Demote, then insert, in two saves inside one transaction (joining the caller's when one is open):
+        // see EditDraftAsync for why one combined save trips UX_ContentVersion_DraftVariant.
+        var oldVersion = currentDraft?.Version;
+        var ambient = _context.Database.CurrentTransaction != null;
+        await using var transaction = ambient ? null : await _context.Database.BeginTransactionAsync(ct);
         try
         {
+            if (oldVersion != null)
+            {
+                oldVersion.IsCurrentDraft = false;
+                await SaveChangesAsync(ct);
+            }
+
+            _set.Add(historical);
             await SaveChangesAsync(ct);
+
+            if (!ambient)
+                await transaction!.CommitAsync(ct);
         }
-        catch (DbUpdateException)
+        catch (Exception ex)
         {
-            return new ContentWriteResult(false, StaleVersionMessage);
+            // The scoped context is shared, so the abandoned demotion and insert are detached before the
+            // next SaveChanges would replay them (the rollback restores only the rows).
+            if (!ambient)
+                await transaction!.RollbackAsync(CancellationToken.None);
+            _context.Entry(historical).State = EntityState.Detached;
+            _context.Entry(newVersion).State = EntityState.Detached;
+            if (currentDraft != null)
+                _context.Entry(currentDraft).State = EntityState.Detached;
+            if (oldVersion != null)
+                _context.Entry(oldVersion).State = EntityState.Detached;
+            if (ex is DbUpdateException)
+                return new ContentWriteResult(false, StaleVersionMessage);
+            throw;
         }
 
-        return new ContentWriteResult(true, VersionId: newVersion.Id);
+        return new ContentWriteResult(true, VersionId: newVersion.Id, NodeId: nodeId);
     }
 
     public async Task<bool> DeleteAsync(Guid nodeId, bool softDelete, CancellationToken ct = default)
@@ -395,11 +419,25 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         var typeRows = await _set.Where(e => e.Version.NodeId == nodeId).ToListAsync(ct);
         var versionRows = await _versions.Where(v => v.NodeId == nodeId).ToListAsync(ct);
 
+        // A node that is gone takes every page-set history entry that captured it with it: an entry
+        // missing one of its versions could no longer be previewed or reverted faithfully.
+        await RemoveSnapshotsReferencingAsync(versionRows.Select(v => v.Id).ToList(), ct);
+
         _set.RemoveRange(typeRows);
         _versions.RemoveRange(versionRows);
         _nodes.Remove(node);
 
-        await SaveChangesAsync(ct);
+        try
+        {
+            await SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A recorder may have inserted a snapshot referencing one of these versions between the
+            // removal sweep and this save; refuse instead of letting the FK violation escape.
+            _context.ChangeTracker.Clear();
+            return false;
+        }
         return true;
     }
 
@@ -426,74 +464,25 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         if (entity.Version.VersionNumber >= maxVersion)
             return false;
 
+        // A user-initiated delete of a captured version is refused upstream (the handlers check
+        // GetSnapshotsReferencingVersionAsync first); reaching here means an internal cleanup such as a
+        // zone delete, which takes the referencing entries with it.
+        await RemoveSnapshotsReferencingAsync([versionId], ct);
+
         _set.Remove(entity);
         _versions.Remove(entity.Version);
-        await SaveChangesAsync(ct);
-        return true;
-    }
-
-    public async Task<ContentWriteResult> DiscardDraftAsync(Guid nodeId, CancellationToken ct = default)
-    {
-        using var _ = EnsureScope(ChangeSetKind.Discard, nodeId);
-
-        var currentDraft = await _set
-            .Include(e => e.Version)
-            .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
-                                   && e.Version.Culture == string.Empty
-                                   && e.Version.Segment == string.Empty
-                                   && e.Version.IsCurrentDraft, ct);
-        if (currentDraft == null)
-            return new ContentWriteResult(false, NotFoundMessage);
-
-        if (currentDraft.Version.State == ContentVersionState.Published)
-            return new ContentWriteResult(true, VersionId: currentDraft.VersionId, NodeId: nodeId);
-
-        // Fall back to the published version, else the newest earlier one, so a once-live node keeps
-        // its history instead of being deleted.
-        var fallback = await _versions
-            .Where(v => v.NodeId == nodeId
-                     && v.Culture == string.Empty
-                     && v.Segment == string.Empty
-                     && v.Id != currentDraft.VersionId)
-            .OrderByDescending(v => v.State == ContentVersionState.Published)
-            .ThenByDescending(v => v.VersionNumber)
-            .FirstOrDefaultAsync(ct);
-
-        if (fallback == null)
-        {
-            await DeleteAsync(nodeId, softDelete: false, ct);
-            return new ContentWriteResult(true, NodeId: nodeId);
-        }
-
-        // Remove the draft in its own SaveChanges before promoting the fallback, so the filtered
-        // unique index on IsCurrentDraft never sees two current drafts at once. Both saves run in
-        // one transaction so a crash — or a concurrent RestoreAsync promoting itself in the window —
-        // can never leave the node without a current draft (absence has no index backstop).
-        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
         try
         {
-            _set.Remove(currentDraft);
-            _versions.Remove(currentDraft.Version);
             await SaveChangesAsync(ct);
-
-            fallback.IsCurrentDraft = true;
-            await SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
         }
         catch (DbUpdateException)
         {
-            await transaction.RollbackAsync(ct);
-            // The rollback restores the rows but not the change tracker, which may still hold the
-            // draft's removal or the fallback's promotion. The context is scoped and shared, so the
-            // next SaveChanges (e.g. the next item of a page discard) would otherwise replay them
-            // outside any transaction.
-            _context.Entry(currentDraft).State = EntityState.Detached;
-            _context.Entry(currentDraft.Version).State = EntityState.Detached;
-            _context.Entry(fallback).State = EntityState.Detached;
-            return new ContentWriteResult(false, StaleVersionMessage);
+            // A recorder may have inserted a snapshot referencing this version between the removal sweep
+            // and this save; refuse instead of letting the FK violation escape.
+            _context.ChangeTracker.Clear();
+            return false;
         }
-
-        return new ContentWriteResult(true, VersionId: fallback.Id, NodeId: nodeId);
+        return true;
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────
@@ -514,7 +503,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             CreatedBy = _userContext.CurrentUserId
         };
 
-        var version = BuildVersion(entity.Version, node.Id, 0, ContentVersionState.Draft, isCurrentDraft: true, now);
+        var version = BuildVersion(entity.Version, node.Id, 0, ContentVersionState.Draft, isCurrentDraft: true, now, defaultNote: "Created");
         version.Node = node;
 
         entity.Version = version;
@@ -541,64 +530,87 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         if (expectedVersionNumber.HasValue && currentDraft.Version.VersionNumber != expectedVersionNumber.Value)
             return new ContentWriteResult(false, StaleVersionMessage);
 
-        if (currentDraft.Version.State == ContentVersionState.Published)
+        // Every save is history: versions are never rewritten in place, so each save mints a new current
+        // draft and the previous one (published or not) stays restorable.
+        var maxNumber = await _set
+            .Where(e => e.Version.NodeId == nodeId
+                     && e.Version.Culture == string.Empty
+                     && e.Version.Segment == string.Empty)
+            .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
+
+        var newVersion = BuildVersion(entity.Version, nodeId, maxNumber + 1, ContentVersionState.Draft,
+            isCurrentDraft: true, now, defaultNote: "Edited");
+
+        // A caller may hand back an instance the context already tracks (identity resolution can even
+        // make it the same instance as currentDraft). It is re-keyed as a new row, so it must be
+        // detached first (EF never lets a tracked key change) — before any save, so edits the caller
+        // made to the tracked instance are never flushed onto the old version's row. The ContentVersion
+        // and ContentNode rows are tracked separately, so the demotion below persists regardless.
+        if (_context.Entry(entity).State != EntityState.Detached)
+            _context.Entry(entity).State = EntityState.Detached;
+
+        // The demotion of the old draft and the promotion of the new one are separate SaveChanges calls
+        // inside one transaction: the filtered unique index UX_ContentVersion_DraftVariant is checked
+        // per-statement and EF Core does not order INSERTs before UPDATEs within one SaveChanges, so a
+        // combined save would transiently hold two current drafts and fail spuriously. When a caller
+        // already opened a transaction (no nested transactions on Npgsql), the two saves join it as-is.
+        // Captured before the swap below: when entity is currentDraft, currentDraft.Version becomes newVersion.
+        var oldVersion = currentDraft.Version;
+        var ambient = _context.Database.CurrentTransaction != null;
+        await using var transaction = ambient ? null : await _context.Database.BeginTransactionAsync(ct);
+        try
         {
-            // Publish a separate draft version: mint a new row and demote the published one.
-            var maxNumber = await _set
-                .Where(e => e.Version.NodeId == nodeId
-                         && e.Version.Culture == string.Empty
-                         && e.Version.Segment == string.Empty)
-                .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
-            var newNumber = maxNumber + 1;
-
-            var newVersion = BuildVersion(entity.Version, nodeId, newNumber, ContentVersionState.Draft, isCurrentDraft: true, now);
-
-            currentDraft.Version.IsCurrentDraft = false;
-            ApplyNodeFields(currentDraft.Version.Node, entity.Version.Node);
+            oldVersion.IsCurrentDraft = false;
+            ApplyNodeFields(oldVersion.Node, entity.Version.Node);
+            await SaveChangesAsync(ct);
 
             entity.Version = newVersion;
             entity.VersionId = newVersion.Id;
             _set.Add(entity);
+            await SaveChangesAsync(ct);
 
-            try
-            {
-                await SaveChangesAsync(ct);
-            }
-            catch (DbUpdateException)
-            {
-                return new ContentWriteResult(false, StaleVersionMessage);
-            }
-
-            return new ContentWriteResult(true, VersionId: newVersion.Id, NodeId: nodeId);
+            if (!ambient)
+                await transaction!.CommitAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // The scoped context is shared, so the abandoned demotion and insert are detached before the
+            // next SaveChanges would replay them (the transaction's rollback restores only the rows).
+            if (!ambient)
+                await transaction!.RollbackAsync(CancellationToken.None);
+            _context.Entry(entity).State = EntityState.Detached;
+            _context.Entry(newVersion).State = EntityState.Detached;
+            _context.Entry(currentDraft).State = EntityState.Detached;
+            _context.Entry(oldVersion).State = EntityState.Detached;
+            return new ContentWriteResult(false, StaleVersionMessage);
+        }
+        catch
+        {
+            if (!ambient)
+                await transaction!.RollbackAsync(CancellationToken.None);
+            _context.Entry(entity).State = EntityState.Detached;
+            _context.Entry(newVersion).State = EntityState.Detached;
+            _context.Entry(currentDraft).State = EntityState.Detached;
+            _context.Entry(oldVersion).State = EntityState.Detached;
+            throw;
         }
 
-        // Already a draft: update it in place so repeated saves do not mint a version each.
-        currentDraft.Version.Title = entity.Version.Title ?? string.Empty;
-        currentDraft.Version.Slug = NormalizeSlug(entity.Version.Title, entity.Version.Slug);
-        currentDraft.Version.PublishStartUtc = entity.Version.PublishStartUtc;
-        currentDraft.Version.PublishEndUtc = entity.Version.PublishEndUtc;
-        currentDraft.Version.ChangeNote = entity.Version.ChangeNote;
-        currentDraft.Version.ChangeSetId = _changeSetScope.Current;
-        currentDraft.Version.CustomFields = entity.Version.CustomFields.Select(c => c with { }).ToList();
-
-        ApplyNodeFields(currentDraft.Version.Node, entity.Version.Node);
-
-        // The incoming entity's VersionId is the shared PK/FK; it may be unset (e.g. mapped from a
-        // view model). SetValues must never rewrite it, so pin it to the existing draft's key first.
-        entity.VersionId = currentDraft.VersionId;
-        _context.Entry(currentDraft).CurrentValues.SetValues(entity);
-
-        await SaveChangesAsync(ct);
-        return new ContentWriteResult(true, VersionId: currentDraft.VersionId, NodeId: nodeId);
+        return new ContentWriteResult(true, VersionId: newVersion.Id, NodeId: nodeId);
     }
 
+    /// <summary>
+    /// A new version row carrying <paramref name="source"/>'s fields. Its change note is the ambient one
+    /// (<see cref="IChangeSetScope.UseChangeNote"/>), else <paramref name="defaultNote"/> — never the
+    /// source's, so a note describes only the save that wrote it.
+    /// </summary>
     private ContentVersion BuildVersion(
         ContentVersion source,
         Guid nodeId,
         int versionNumber,
         ContentVersionState state,
         bool isCurrentDraft,
-        DateTime now)
+        DateTime now,
+        string defaultNote)
         => new()
         {
             Id = Guid.NewGuid(),
@@ -614,7 +626,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             CreatedUtc = now,
             PublishStartUtc = source.PublishStartUtc,
             PublishEndUtc = source.PublishEndUtc,
-            ChangeNote = source.ChangeNote,
+            ChangeNote = string.IsNullOrEmpty(_changeSetScope.CurrentChangeNote) ? defaultNote : _changeSetScope.CurrentChangeNote,
             ChangeSetId = _changeSetScope.Current,
             CustomFields = source.CustomFields.Select(c => c with { }).ToList()
         };
@@ -630,6 +642,26 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         => _changeSetScope.Current == Guid.Empty
             ? _changeSetScope.Begin(kind, rootNodeId, null)
             : null;
+
+    /// <summary>
+    /// Stages the removal of every page-set history entry that references one of
+    /// <paramref name="versionIds"/> (as its page version or as an item), so the caller's
+    /// SaveChanges deletes the entries before the versions their FKs point at.
+    /// </summary>
+    private async Task RemoveSnapshotsReferencingAsync(List<Guid> versionIds, CancellationToken ct)
+    {
+        var viaItems = await _context.Set<PageSetSnapshotItem>()
+            .Where(i => versionIds.Contains(i.ItemVersionId))
+            .Select(i => i.SnapshotId)
+            .ToListAsync(ct);
+
+        var snapshots = await _context.Set<PageSetSnapshot>()
+            .Include(s => s.Items)
+            .Where(s => versionIds.Contains(s.PageVersionId) || viaItems.Contains(s.Id))
+            .ToListAsync(ct);
+
+        _context.Set<PageSetSnapshot>().RemoveRange(snapshots);
+    }
 
     private static void ApplyNodeFields(ContentNode target, ContentNode? source)
     {

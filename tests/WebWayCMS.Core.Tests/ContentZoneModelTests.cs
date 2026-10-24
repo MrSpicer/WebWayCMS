@@ -41,6 +41,8 @@ public class ContentZoneModelTests
     private ICMSRouteService _routeService = null!;
     private IRouteRegistrationService _routeRegistration = null!;
     private IChangeSetScope _changeSetScope = null!;
+    private IPageHistoryService _pageHistory = null!;
+    private IWidgetSlotDiscovery _slotDiscovery = null!;
     private ContentZoneModel _model = null!;
 
     [SetUp]
@@ -54,9 +56,14 @@ public class ContentZoneModelTests
         _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
-        _model = new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope);
+        _pageHistory = Substitute.For<IPageHistoryService>();
+        _slotDiscovery = Substitute.For<IWidgetSlotDiscovery>();
+        _pageHistory.GetSnapshotsReferencingVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<PageSetSnapshot>());
+        _model = new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope);
 
         _service.GetItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO>());
+        _service.GetOwnedSlotsWithItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<string>());
+        _service.GetDescendantItemNodeIdsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<Guid>());
     }
 
     private static ContentZoneDTO Zone(Guid? nodeId = null, string name = "Zone")
@@ -104,14 +111,14 @@ public class ContentZoneModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneModel(null!, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, null!, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, null!, _registry, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, null!, _viewDiscovery, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, null!, _routeService, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, null!, _routeRegistration, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(null!, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, null!, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, null!, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, null!, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, null!, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, null!, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, null!, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -897,6 +904,157 @@ public class ContentZoneModelTests
         Assert.That(await child.DeleteChildVersionAsync(item.VersionId), Is.True);
 
         Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.EqualTo((false, (string?)"The parent key must be a content zone id.")));
+    }
+
+    // --- Page history: one-step restore, history guard ---
+
+    [Test]
+    public void Constructor_NullPageHistory_Throws()
+    {
+        Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, null!, _slotDiscovery, _changeSetScope),
+            Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public async Task ChildHandler_VersionHistory_ReportsTheCurrentDraftsVersionNumber()
+    {
+        var child = _model.ChildHandler!;
+        var archived = Item("C", "{}") with { };
+        archived.Version.IsCurrentDraft = false;
+        var current = Item("C", "{}");
+        current.Version.IsCurrentDraft = true;
+        current.Version.VersionNumber = 4;
+        var nodeId = Guid.NewGuid();
+        _itemStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new List<ContentZoneItemDTO> { current, archived }, new List<ContentZoneItemDTO> { archived });
+
+        var withDraft = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
+        var withoutDraft = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withDraft!.CurrentVersionNumber, Is.EqualTo(4));
+            Assert.That(withoutDraft!.CurrentVersionNumber, Is.Null);
+        });
+    }
+
+    [TestCase("Titled", null, "Titled")]
+    [TestCase("", "{\"AdminLabel\":\"Hero\"}", "Hero")]
+    [TestCase("", "{}", "C")]
+    public async Task ChildHandler_VersionHistory_TitleFallsBackToAdminLabelThenComponent(string title, string? metadata, string expected)
+    {
+        var child = _model.ChildHandler!;
+        var item = Item("C", "{}") with { MetadataJson = metadata };
+        item.Version.Title = title;
+        var nodeId = Guid.NewGuid();
+        _itemStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
+
+        var vm = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
+
+        Assert.That(vm!.ItemTitle, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public async Task ChildHandler_RestoreChildVersion_UnknownVersionOrItem_IsReported()
+    {
+        var child = _model.ChildHandler!;
+        var historical = Item("C", "{}");
+        _itemStore.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+        var unknownVersion = await child.RestoreChildVersionAsync("k", Guid.NewGuid(), null);
+
+        _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
+        _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+        var unknownItem = await child.RestoreChildVersionAsync("k", historical.VersionId, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(unknownVersion, Is.EqualTo(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage)));
+            Assert.That(unknownItem, Is.EqualTo(new AdminSaveResult(false, IContentZoneService.ItemNotFoundMessage)));
+        });
+        await _service.DidNotReceive().RestoreItemVersionAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_RestoreChildVersion_RestoresWithNormalizedMetadata_ThenSyncsGlobalRoutes()
+    {
+        var child = _model.ChildHandler!;
+        _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
+        var historical = Item("C", "{}") with { MetadataJson = "{\"DisplayMode\":\"List\"}" };
+        var current = historical with { VersionId = Guid.NewGuid(), MetadataJson = "{}" };
+        _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
+        _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _service.RestoreItemVersionAsync(historical.VersionId, Arg.Any<string?>(), 2, Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null));
+        _service.GetParentPageNodeForZoneAsync(historical.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
+
+        var result = await child.RestoreChildVersionAsync("k", historical.VersionId, 2);
+
+        Assert.That(result, Is.EqualTo(new AdminSaveResult(true, NodeId: historical.Version.Node.Id)));
+        await _service.Received(1).RestoreItemVersionAsync(historical.VersionId,
+            Arg.Is<string?>(m => WidgetMetadataJson.Parse(m).DisplayMode == WidgetDisplayMode.Single), 2, Arg.Any<CancellationToken>());
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("C", historical.Version.Node.Id, null, true, null, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_RestoreChildVersion_Refused_ReturnsTheReasonAndTouchesNoRoutes()
+    {
+        var child = _model.ChildHandler!;
+        var historical = Item("C", "{}");
+        _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
+        _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(historical);
+        _service.RestoreItemVersionAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns((false, IContentZoneService.RestoreZoneMissingMessage));
+
+        var result = await child.RestoreChildVersionAsync("k", historical.VersionId, null);
+
+        Assert.That(result, Is.EqualTo(new AdminSaveResult(false, IContentZoneService.RestoreZoneMissingMessage)));
+        await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_TryDeleteChildVersion_InPageHistory_IsRefused()
+    {
+        var child = _model.ChildHandler!;
+        var versionId = Guid.NewGuid();
+        var entry = new PageSetSnapshot { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow };
+        _pageHistory.GetSnapshotsReferencingVersionAsync(versionId, Arg.Any<CancellationToken>()).Returns([entry]);
+
+        var (success, error) = await child.TryDeleteChildVersionAsync(versionId);
+        var deleted = await child.DeleteChildVersionAsync(versionId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Is.EqualTo(WebWayCMS.Models.PageHistory.PageHistoryMessages.VersionInHistory(entry)));
+            Assert.That(deleted, Is.False);
+        });
+        await _itemStore.DidNotReceive().DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ChildHandler_TryDeleteChildVersion_NotInHistory_DeletesOrExplains()
+    {
+        var child = _model.ChildHandler!;
+        _itemStore.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
+
+        var deleted = await child.TryDeleteChildVersionAsync(Guid.NewGuid());
+        var refused = await child.TryDeleteChildVersionAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo((true, (string?)null)));
+            Assert.That(refused, Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
+        });
+    }
+
+    [Test]
+    public async Task RestoreItemVersionAsync_DelegatesToTheZoneService()
+    {
+        var versionId = Guid.NewGuid();
+        _service.RestoreItemVersionAsync(versionId, "{}", 3, Arg.Any<CancellationToken>()).Returns((true, (string?)null));
+
+        Assert.That(await _model.RestoreItemVersionAsync(versionId, "{}", 3), Is.EqualTo((true, (string?)null)));
     }
 
     // --- Registry handler ---

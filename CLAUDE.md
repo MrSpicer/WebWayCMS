@@ -63,23 +63,29 @@
   `ContentService<T>`/`PageService`/zone CRUD. Reads are `GetAsync(nodeId)`/`GetAllAsync()`/… (read-context
   aware) plus `GetCurrentDraftAsync`/`GetAllCurrentDraftsAsync` (admin) and `GetAllVersionsAsync` (history).
   Writes are `SaveDraftAsync(entity, expectedVersionNumber)`, `PublishAsync`, `UnpublishAsync`,
-  `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync`, `DiscardDraftAsync` and return `ContentWriteResult`.
-  `DiscardDraftAsync` throws away an unpublished current draft: the published version (else the newest
-  earlier one) becomes current again; a node whose only version is the draft is hard-deleted. The
-  discard's delete + fallback-promotion run in one DB transaction, and a conflicting write maps to the
-  shared `StaleVersionMessage` like every other write path. `RevertPublishAsync(nodeId, publishedVersionId,
+  `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync` and return `ContentWriteResult`; a conflicting write
+  maps to the shared `StaleVersionMessage`. There is no draft discard in the store (nothing deletes a draft
+  any more; a page "Discard changes" is a revert to what is live, see page-set history). `RevertPublishAsync(nodeId, publishedVersionId,
   displacedVersionId)` undoes one publish (from `PublishAsync`'s `VersionId`/`DisplacedVersionId`) when a
   follow-up step such as route registration fails; `PublishPageAsync` skips it when the page was already live.
 - **Two invariants** (enforced in code; filtered unique indexes are the DB backstop): exactly one
   `IsCurrentDraft` per (NodeId, Culture, Segment), and at most one `Published` per variant.
-  `SaveDraftAsync` mints a new version only when editing a published item; repeated edits of a draft update
-  in place. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
+  **Every save mints a new version** (any content type, published or draft): a version is never rewritten in
+  place, so every save stays restorable. Each version carries a **change note**: the ambient
+  `IChangeSetScope.UseChangeNote(note)` if one is open (zone writes set e.g. "Content edited", "Settings
+  changed", "Moved to Side (position 2)", "Position changed (moved by another widget)", "Removed",
+  "Restored from version n"), else "Created"/"Edited"/"Restored from version n" — never copied from the
+  previous version. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
 - **Read context is a mode boundary:** `IContentReadContext { Mode (Published|Draft), Culture, Segment }`.
   Rendering-only hosts register a sealed `PublishedContentReadContext` (can never serve a draft); admin hosts
   register `PreviewAwareReadContext` (Draft only for an Admin/Editor whose request is marked with
   `HttpContext.Items[PreviewConstants.DraftRequestItemKey] = true` — set by `CMSRouteTransformer` for a
   resolved `/_preview/{nodeId}` and by the page zone editor action). Draft reads are **per request**; there is
   no preview cookie, so previewing a page never puts the live site into draft mode.
+  A third mode, `ContentReadMode.Snapshot`, renders a page-history entry: `/_preview/{pageNodeId}/history/{entryId}`
+  (Admin only) stores a `ContentReadSnapshot` via `PreviewConstants.MarkSnapshotRequest`; nodes it governs
+  (the page + every item ever in its zone tree) read the captured versions (or nothing), everything else
+  reads published. It wins over a draft mark; `PublishedContentReadContext` never enters it.
   Version selection lives in one place: `ContentQueryExtensions.AtReadContext`.
 - **Edits are drafts until an explicit Publish.** Routes are written by Publish (never Save) via
   `ICMSRouteService`; a draft slug change doesn't touch the route table until published.
@@ -87,7 +93,11 @@
   `(bool Success, string? ErrorMessage, CMSRouteDTO? Route)` — a foreign owner on the same pattern is
   a collision, never a silent steal. Publish/unpublish are
   `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`. Restore is one-step (`RestoreVersionAsync`,
-  DTO-level clone). A page's parent is persisted on `ContentNode.ParentNodeId` (not a route prefix);
+  DTO-level clone); a child (zone item) restore is one-step too (`ChildVersionRestore` POST →
+  `IAdminCrudChildHandler.RestoreChildVersionAsync` → `IContentZoneService.RestoreItemVersionAsync`: content,
+  metadata (List→Single via `WidgetMetadataJson.Restorable`), active state, **zone and ordinal**, re-inserted
+  at the old position as a draft; refused when the old zone is gone or on another page). There is no child
+  restore-edit form; MCP `restore_child_version` uses the same path. A page's parent is persisted on `ContentNode.ParentNodeId` (not a route prefix);
   the publish-time slug-collision check (`PageModel.IsSlugAvailableAsync`) and the admin tree both
   derive nested URLs from it.
 - **Preview renders the current draft with no route row.** `GET /wadmin/{contentType}/preview/{nodeId}`
@@ -108,23 +118,58 @@
   `WebWayCMS.Routing` (namespace `WebWayCMS`).
 - Zone **items in a page's zones** (directly or via nested zones — `GetParentPageNodeForZoneAsync`
   resolves to a page) are **drafts until the page is published**, whichever path wrote them (zone editor,
-  child CRUD, MCP). Delete of a once-published item saves an `IsActive=false` draft; a never-published
-  item is hard-deleted; reorder saves draft ordinals. Items in **global/name-based zones** (no page)
-  still auto-publish on write. Zone item CRUD/reorder goes through `IContentZoneService` (node-keyed).
+  child CRUD, MCP). **Removing an item is never a delete:** it saves an `IsActive=false` version (published at
+  once in a global zone), so its history stays and a restore or page revert brings it back (a removed
+  container keeps its nested items, hidden). Reorder saves new ordinals only for items that moved; removed items keep their places in the order, so no two
+  items share an ordinal. Items in
+  **global/name-based zones** (no page) still auto-publish on write. Zone item CRUD/reorder goes through
+  `IContentZoneService` (node-keyed). Only a zone/page delete hard-deletes items.
 - **Page publish cascades:** `PageModel.PublishPageAsync` (every publish path: toolbar, Pages list, page
   form, MCP `publish_content`) publishes the page, then `IContentZoneService.PublishPageZonesAsync`
   publishes every pending item under it in the same change set, and registers each item's widget routes.
   Widget routes for page-zone items change **only** at publish (never on a draft save/delete);
   global-zone items register on write. A zone failure after the page went live returns
-  `"Page published; some zone changes failed: …"` and those items stay pending. The Pages list
-  "Live · Changes pending" status includes pending zone drafts (`GetPagesWithPendingZoneChangesAsync`).
+  `"Page published; some zone changes failed: …"` and those items stay pending. "Pending changes" (Pages list
+  "Live · Changes pending", editor status, Discard button) compares **content**:
+  `IPageHistoryService.GetPagesWithUnpublishedChangesAsync` (page fields vs. the live page, plus
+  `PageZoneTree.GetPagesWithPendingZoneChangesAsync`), so drafts equal to what is live — left by a discard or a
+  revert — are not pending. (The publish set `GetPendingItemNodeIdsAsync` stays state-based.)
+- **Page-set history:** an entry (`PageSetSnapshot`: a page version + every **active** zone item version in its
+  tree, nested included; `Kind`, `Note`, content `StateHash`) is recorded by `IPageHistoryRecorder` after
+  **every change** to the page set — a **Draft** entry (current drafts) after each page save/restore, each
+  zone item add/edit/settings/remove/move/reorder/restore (`ContentZoneService` records once per write, after
+  it committed, for every page whose tree holds the zone — none for a global zone), each revert and discard
+  — and a **Published** entry (what went live) after each publish (`PageModel.PublishPageAsync` /
+  `PublishZoneItemsAsync` → `IPageHistoryService.CaptureAsync`). An entry identical by content to the latest
+  (Draft: latest of either kind; Published: latest Published) is skipped; a failed write is logged and never
+  fails the change; no backfill. Zone-tree queries live in `PageZoneTree` (shared, so `PageHistoryService`
+  does not depend on `ContentZoneService`). Deleting a single captured page/item version is refused by the
+  handlers (`TryDeleteVersionAsync` / `TryDeleteChildVersionAsync`, used by the admin and MCP) — with an entry
+  per change that is most versions; any store-level hard delete (page delete, zone delete) removes whole
+  referencing snapshots. The editor toolbar's **History** button → `AdminPageHistoryController`
+  (`/wadmin/contentzones/page/{id}/history`, Admin only): list (Draft/Published tag + note), entry detail
+  (diff vs. previous), compare with current drafts (by content, `PageSetEquality`/`PageSetComparer`),
+  preview, delete entry, and **revert** — the page + every item as new drafts in one transaction (later
+  items become inactive drafts, never deleted), guarded by a draft state token (`StaleStateMessage`), and
+  itself recorded. **Discard changes** = `IPageHistoryService.DiscardUnpublishedChangesAsync`: the same
+  mechanics with what is live as the target (never-live items become inactive drafts), recorded, so it can
+  be undone; refused (button hidden) when the page is not published. Each zone item's toolbar has a History
+  link to its child history page with a local `returnUrl`. MCP: `list_page_history`,
+  `get_page_history_entry`, `revert_page_to_entry`, `delete_page_history_entry`.
 - **Page zone editor:** `GET /wadmin/contentzones/page/{pageNodeId}` (Pages list → page title or **Edit zones**) stacks
   every zone assigned to the page (`IContentZoneModel.GetPageZoneSlotsAsync`) in the unchanged zone
   editor, under a toolbar (status, Publish, Discard changes, Unpublish, Edit page, Back) and two tabs:
   Edit zones / Preview (an iframe of the existing preview action; `#preview` hash remembers the tab).
   Publish/Unpublish post to the existing actions with a `returnUrl` (local URLs only). Discard is
-  `POST /wadmin/contentzones/page/{pageNodeId}/discard` → `DiscardPageZoneDraftsAsync`. Slots are created
+  `POST /wadmin/contentzones/page/{pageNodeId}/discard` → `IPageHistoryService.DiscardUnpublishedChangesAsync`. Slots are created
   lazily by the page template, so an empty page loads the preview in the background and reloads once.
+  Below the slots, an **Unplaced content** panel (editor only, never live) lists zones owned by the page's
+  widgets that nothing rendered (e.g. a Layout's columns stranded by an old view change):
+  `ContentZoneViewComponent` logs every edit-mode zone and widget in `ZoneEditRenderLog`
+  (`HttpContext.Items`), `IContentZoneModel.GetUnplacedCandidatesAsync` lists the candidates
+  (`IContentZoneService.GetItemOwnedZonesForPageAsync`), and the view renders each unrendered one by
+  `zoneId` in edit mode (looping, since a stranded zone can hold a container) so its widgets can be dragged
+  back or removed. Removing a widget that holds widgets confirms with the nested count (`edit.js`).
 - **Nested zones are owned by items:** `ContentZoneAssignments.ParentItemNodeId` (page XOR item) keys a
   nested zone (e.g. a Layout's columns) to the zone item rendering it — `WidgetViewComponent.ModeView` sets
   `ViewData["ContentZone:ParentItemId"]` from `WidgetConfiguration.ZoneItemNodeId` (attached by
@@ -132,6 +177,22 @@
   resolves it. A zone rendered inside a zone with no owning item renders nothing (it would otherwise alias
   the enclosing zone and recurse). A container therefore moves with its content; hard-deleting one deletes
   its nested zone tree first — the `ParentItemNodeId` FK is `Restrict`, so a delete that skips that fails.
+- **A container's view change carries its content.** Nothing declares a container's slots: they are
+  **discovered by a dry render** (`IWidgetSlotDiscovery` → `ViewComponentSlotDiscovery`, Presentation),
+  which invokes the widget with a `SlotDiscoveryRecorder` in ViewData — `ContentZoneViewComponent` records
+  each top-level zone it owns and renders nothing, and `WidgetViewComponent.GetContextMode` uses the public
+  `view.*`/`list.*` variant. `ContentZoneModel.UpdateItemAsync`/`RestoreItemVersionAsync` (every write path:
+  zone editor config + cog, child form, MCP `update_child`/`restore_child_version`, the seeder) plan a
+  remap (`SlotRemapPlanner`: same slot name keeps its content, the rest pair by position, leftovers append
+  to the new view's last slot) when the item owns a zone holding widgets (a fast path skips the render
+  otherwise) and is still active, then call the service's `SlotRemapPlan` overloads: the container's save
+  and the moves (every current draft, removed ones too, "Moved to {slot} (layout changed)") commit in one
+  transaction (target zones created inside it, after the version-checked container save, so a stale or failed save
+  leaves no empty zones; zone creation joins an open transaction since Npgsql has none nested), as **one** page-history
+  entry. Failed discovery saves without moving (the content shows in the Unplaced panel). Page revert and
+  discard never remap. A container's history page is a **combined timeline**: its versions plus every
+  version of every widget ever inside it (`GetDescendantItemNodeIdsAsync`), newest first, each row labelled
+  with its widget (`VersionHistoryViewModel.IsCombined`) and restored against its own current version.
 - **Moving items:** `IContentZoneService.MoveItemAsync(item, targetZone, position, expectedVersionNumber)` (API
   `POST /api/contentzones/items/{id}/move`, MCP `move_child` via optional `IAdminCrudChildHandler.SupportsMove`).
   Same zone = reorder; cross-zone only within one page's zone tree and never into the item's own nested
@@ -447,7 +508,7 @@
 - Test naming: `MethodName_Scenario_ExpectedBehavior`, NUnit constraint model (`Assert.That(...)`)
 - Import order: System > Microsoft > Third-party > Project
 - Configuration form fields use `[FormProperty]` attribute with `EditorType` enum
-- Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageUpsert,form-components}.js`
+- Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageHistory,PageUpsert,form-components}.js`
   sources and the `wwwroot/js/*` copies the `CopyViewScripts` MSBuild target generates on every build.
   Edit only the `Views/**` source — a hand-edit to a `wwwroot` copy is silently reverted by the next build.
 

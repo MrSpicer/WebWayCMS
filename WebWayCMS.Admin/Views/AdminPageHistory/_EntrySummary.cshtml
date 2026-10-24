@@ -1,0 +1,38 @@
+@* The change counts of one entry relative to the entry before it. *@
+@using WebWayCMS.Models.PageHistory
+@model PageHistoryEntrySummary
+
+<div class="tags">
+    @if (Model.Kind == WebWayCMS.Data.Models.PageSetSnapshotKind.Published)
+    {
+        <span class="tag is-success">Published</span>
+    }
+    else
+    {
+        <span class="tag is-light">Draft</span>
+    }
+    @if (Model.IsLatest)
+    {
+        <span class="tag is-primary">Latest</span>
+    }
+    @if (Model.PageUpdated)
+    {
+        <span class="tag is-warning">Page updated</span>
+    }
+    @if (Model.Added > 0)
+    {
+        <span class="tag is-success">+@Model.Added added</span>
+    }
+    @if (Model.Updated > 0)
+    {
+        <span class="tag is-warning">@Model.Updated updated</span>
+    }
+    @if (Model.Moved > 0)
+    {
+        <span class="tag is-info">@Model.Moved moved</span>
+    }
+    @if (Model.Removed > 0)
+    {
+        <span class="tag is-danger">−@Model.Removed removed</span>
+    }
+</div>

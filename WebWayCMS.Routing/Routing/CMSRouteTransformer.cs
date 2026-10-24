@@ -18,6 +18,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
     private readonly ICMSRouteService _routeService;
     private readonly IPageControllerRegistry _registry;
     private readonly IContentStore<PageDTO> _pageStore;
+    private readonly IPageHistoryService _pageHistory;
 
     private readonly CmsDeploymentOptions _deploymentOptions;
 
@@ -25,11 +26,13 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         ICMSRouteService routeService,
         IPageControllerRegistry registry,
         IContentStore<PageDTO> pageStore,
+        IPageHistoryService pageHistory,
         CmsDeploymentOptions deploymentOptions)
     {
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
+        _pageHistory = pageHistory ?? throw new ArgumentNullException(nameof(pageHistory));
         // Required, so a host that never registered the deployment mode fails at resolution
         // instead of silently serving drafts.
         _deploymentOptions = deploymentOptions ?? throw new ArgumentNullException(nameof(deploymentOptions));
@@ -49,6 +52,10 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         var previewNodeId = TryParsePreviewNodeId(path);
         if (previewNodeId.HasValue)
             return (await ResolvePreviewAsync(httpContext, previewNodeId.Value)) ?? null!;
+
+        var historyPreview = TryParseHistoryPreview(path);
+        if (historyPreview.HasValue)
+            return (await ResolveHistoryPreviewAsync(httpContext, historyPreview.Value.PageNodeId, historyPreview.Value.EntryId)) ?? null!;
 
         var match = await _routeService.MatchRouteAsync(path);
         if (match == null)
@@ -174,6 +181,66 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
             Pattern = $"/_preview/{nodeId}",
             OwningContentType = "Page",
             OwningContentNodeId = nodeId
+        };
+
+        return new RouteValueDictionary
+        {
+            { "controller", page.ControllerName },
+            { "action", "Index" }
+        };
+    }
+
+    /// <summary>Parses <c>/_preview/{pageNodeId}/history/{entryId}</c>.</summary>
+    private static (Guid PageNodeId, Guid EntryId)? TryParseHistoryPreview(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length != 4
+            || !string.Equals("/" + segments[0], PreviewConstants.PathPrefix, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(segments[2], PreviewConstants.HistorySegment, StringComparison.OrdinalIgnoreCase)
+            || !Guid.TryParse(segments[1], out var pageNodeId)
+            || !Guid.TryParse(segments[3], out var entryId))
+            return null;
+
+        return (pageNodeId, entryId);
+    }
+
+    /// <summary>
+    /// Renders a page as one page-history entry captured it: the page and its zone items read the
+    /// captured versions, everything else reads published. Admins only (admin mode), like the
+    /// page-history screens that link here.
+    /// </summary>
+    private async Task<RouteValueDictionary?> ResolveHistoryPreviewAsync(HttpContext httpContext, Guid pageNodeId, Guid entryId)
+    {
+        var ct = httpContext.RequestAborted;
+        if (!_deploymentOptions.IsAdminMode)
+            return null;
+
+        var user = httpContext.User;
+        if (user?.Identity?.IsAuthenticated != true || !user.IsInRole(PreviewConstants.AdminRole))
+            return null;
+
+        var entry = await _pageHistory.GetAsync(entryId, ct);
+        if (entry == null || entry.PageNodeId != pageNodeId)
+            return null;
+
+        // The entry's FKs keep its page version alive for as long as the entry exists; a null would be
+        // a broken invariant — fall back to the not-found path rather than crash the request.
+        var page = await _pageStore.GetVersionAsync(entry.PageVersionId, ct);
+        if (page == null)
+            return null;
+        if (StashPageControllerContext(httpContext, page) == null)
+            return null;
+
+        var readSnapshot = await _pageHistory.GetReadSnapshotAsync(entryId, ct);
+        if (readSnapshot == null)
+            return null;
+        PreviewConstants.MarkSnapshotRequest(httpContext, readSnapshot);
+
+        httpContext.Items["CMS:RouteData"] = new CMSRouteDTO
+        {
+            Pattern = $"{PreviewConstants.PathPrefix}/{pageNodeId}/{PreviewConstants.HistorySegment}/{entryId}",
+            OwningContentType = "Page",
+            OwningContentNodeId = pageNodeId
         };
 
         return new RouteValueDictionary

@@ -11,6 +11,7 @@
     var containerId = $"cz-container-{Guid.NewGuid():N}";
     var modalTitleId = $"czModalTitle-{Guid.NewGuid():N}";
     var settingsTitleId = $"czSettingsTitle-{Guid.NewGuid():N}";
+    var editorReturnUrl = $"{Context.Request.PathBase}{Context.Request.Path}{Context.Request.QueryString}";
 }
 
 @* Zone name identifier for admin *@
@@ -76,6 +77,14 @@
                             <i class="fas fa-cog" aria-hidden="true"></i>
                         </span>
                     </button>
+                    @* The item's version history; Back (and restore/delete) return to this editor. parentKey must be
+                       a string: the route's notreserved constraint rejects any other value type. *@
+                    <a class="zone-history-item" title="History of @toolbarLabel" aria-label="History of @toolbarLabel"
+                       href="@Url.Action("ChildVersionHistory", "AdminContent", new { contentType = "contentzones", parentKey = obj.ZoneId.ToString(), childType = "items", nodeId = obj.Id, returnUrl = editorReturnUrl })">
+                        <span class="icon">
+                            <i class="fas fa-history" aria-hidden="true"></i>
+                        </span>
+                    </a>
                     <button type="button" class="zone-delete-item" title="Delete @toolbarLabel" aria-label="Delete @toolbarLabel">
                         <span class="icon">
                             <i class="fas fa-trash" aria-hidden="true"></i>

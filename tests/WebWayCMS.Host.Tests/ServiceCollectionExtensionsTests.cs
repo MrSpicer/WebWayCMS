@@ -252,6 +252,26 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Test]
+    public void Provider_BothModes_ResolveWidgetSlotDiscovery()
+    {
+        foreach (var add in new Action<IServiceCollection, IConfiguration>[]
+                 {
+                     (s, c) => s.AddWebWayCms(c),
+                     (s, c) => s.AddWebWayCmsRendering(c)
+                 })
+        {
+            var builder = NewBuilder();
+            AddConnection(builder);
+            add(builder.Services, builder.Configuration);
+            using var app = builder.Build();
+            using var scope = app.Services.CreateScope();
+
+            Assert.That(scope.ServiceProvider.GetService<WebWayCMS.Services.IWidgetSlotDiscovery>(),
+                Is.InstanceOf<WebWayCMS.ViewComponents.SlotDiscovery.ViewComponentSlotDiscovery>());
+        }
+    }
+
+    [Test]
     public void Provider_Rendering_ResolvesPublishedReadContext()
     {
         var builder = NewBuilder();
@@ -264,6 +284,30 @@ public class ServiceCollectionExtensionsTests
 
         Assert.That(context, Is.InstanceOf<PublishedContentReadContext>());
         Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
+    }
+
+    [Test]
+    public void Provider_BothModes_ResolvePageHistoryService_AndAdminResolvesPageHistoryModel()
+    {
+        var admin = NewBuilder();
+        AddConnection(admin);
+        admin.Services.AddWebWayCms(admin.Configuration);
+        using var adminApp = admin.Build();
+        using var adminScope = adminApp.Services.CreateScope();
+
+        var rendering = NewBuilder();
+        AddConnection(rendering);
+        rendering.Services.AddWebWayCmsRendering(rendering.Configuration);
+        using var renderingApp = rendering.Build();
+        using var renderingScope = renderingApp.Services.CreateScope();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(adminScope.ServiceProvider.GetRequiredService<IPageHistoryService>(), Is.InstanceOf<PageHistoryService>());
+            Assert.That(adminScope.ServiceProvider.GetRequiredService<WebWayCMS.Models.PageHistory.IPageHistoryModel>(), Is.Not.Null);
+            Assert.That(renderingScope.ServiceProvider.GetRequiredService<IPageHistoryService>(), Is.InstanceOf<PageHistoryService>());
+            Assert.That(renderingScope.ServiceProvider.GetService<WebWayCMS.Models.PageHistory.IPageHistoryModel>(), Is.Null);
+        });
     }
 
     [Test]
@@ -483,6 +527,55 @@ public class ContentReadContextTests
         ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
 
         Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Draft));
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_AdminWithSnapshot_ReadsTheSnapshot_EvenWhenAlsoMarkedDraft()
+    {
+        var ctx = Context(Principal("Admin"));
+        var snapshot = new ContentReadSnapshot([Guid.NewGuid()], [Guid.NewGuid()]);
+        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = snapshot;
+        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
+
+        var context = new PreviewAwareReadContext(Accessor(ctx));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Snapshot));
+            Assert.That(context.Snapshot, Is.SameAs(snapshot));
+        });
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_EditorWithSnapshot_DoesNotReadIt()
+    {
+        var ctx = Context(Principal("Editor"));
+        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = new ContentReadSnapshot([], []);
+
+        var context = new PreviewAwareReadContext(Accessor(ctx));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
+            Assert.That(context.Snapshot, Is.Null);
+        });
+    }
+
+    [Test]
+    public void PreviewAwareReadContext_SnapshotItemOfTheWrongType_IsIgnored()
+    {
+        var ctx = Context(Principal("Admin"));
+        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = "not a snapshot";
+
+        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
+    }
+
+    [Test]
+    public void PublishedContentReadContext_NeverReadsASnapshot()
+    {
+        IContentReadContext context = new PublishedContentReadContext();
+
+        Assert.That(context.Snapshot, Is.Null);
     }
 
     [Test]

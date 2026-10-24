@@ -98,8 +98,8 @@ may still be holding an `Mcp-Session-Id`. Against the stateless endpoint that se
 `/mcp` reconnects without the stale header, a real client works normally. This is stale client state,
 not a server bug.
 
-The tools carry accurate annotation hints for MCP clients: the 14 pure-read tools are `ReadOnly`, the
-recoverable writes (`create_*`/`reorder_children`/`move_child`/`restore_*`) are marked non-destructive, and the
+The tools carry accurate annotation hints for MCP clients: the 16 pure-read tools are `ReadOnly`, the
+recoverable writes (`create_*`/`reorder_children`/`move_child`/`restore_*`/`revert_page_to_entry`) are marked non-destructive, and the
 overwriting or irreversible `update_*`/`delete_*`/`publish_content`/`unpublish_content` tools keep the
 `Destructive` default (with `publish_content` additionally `Idempotent`).
 
@@ -132,7 +132,19 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 | `get_registry_properties` | Form property definitions for a registry entry |
 
 **`VersionToolset`** — `list_versions` (keyed on `nodeId`), `get_version`, `restore_version` (one-step
-DTO-level restore), `delete_version`.
+DTO-level restore), `delete_version`. `delete_version` and `delete_child_version` return
+`deleted: false` when the latest version was asked for, and throw with the reason when the version is
+part of a page history entry (delete the entry first).
+
+**`PageHistoryToolset`** — a page's page-set history (an entry after every change to the page or its zone
+items and after every publish; see [04 → History in the Zone Editor](04-content-zone-framework.md#8b-history-in-the-zone-editor)):
+
+| Tool | Purpose |
+|---|---|
+| `list_page_history(pageNodeId)` | Entries, newest first — one per change (kind Draft, with a note) and per publish (kind Published) — with change counts (`ReadOnly`) |
+| `get_page_history_entry(pageNodeId, entryId, compareWithCurrent=false)` | The entry's items and their change vs. the previous entry; with `compareWithCurrent`, how the current drafts changed since the entry plus the `stateToken` a revert needs (`ReadOnly`) |
+| `revert_page_to_entry(pageNodeId, entryId, stateToken)` | Revert the page and every zone item to the entry as drafts (non-destructive; refused when the page changed since the token) — publish with `publish_content("pages", …)` |
+| `delete_page_history_entry(pageNodeId, entryId)` | Delete the entry record (its versions are kept) |
 
 **`ChildContentToolset`** — `list_children`, `get_child`, `get_child_version`, `create_child`,
 `update_child`, `delete_child`, `reorder_children`, `move_child`, `list_child_versions`,
@@ -140,6 +152,17 @@ DTO-level restore), `delete_version`.
 carries the item's `nodeId`, so an agent can address the new item without listing the zone. A zone item's
 `update_child` merges over the stored item, whose `expectedVersionNumber` is its current version; an agent
 that passes the version it read gets `StaleVersionMessage` instead of overwriting a newer edit.
+`update_child` and `restore_child_version` on a container (e.g. a Layout) whose view changes move its
+nested widgets into the new view's zones, like the zone editor (see
+[04 → Changing a container's view](04-content-zone-framework.md#changing-a-containers-view)).
+`list_child_versions` on a container returns its combined timeline: its versions plus every nested
+widget's, newest first, each row with its `nodeId` and `widgetLabel` (`isCombined: true`).
+
+`restore_child_version(contentType, childType, parentKey, versionId, expectedVersionNumber?)` is the
+same one-step restore as the admin history page (`IAdminCrudChildHandler.RestoreChildVersionAsync`): for
+a zone item, its widget, configuration, settings, active state, zone and position come back, and it is
+refused (returned as a failed save result) when the old zone no longer exists on the page. An unknown
+version still throws.
 
 `move_child(contentType, childType, childId, targetParentKey, position)` moves a child to a 0-based
 position (clamped) under a possibly different parent. It is gated on the optional

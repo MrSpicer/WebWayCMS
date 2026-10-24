@@ -241,11 +241,10 @@ public class ChildContentToolsetTests
     [Test]
     public async Task RestoreChildVersion_WhenFound_SavesRestoredModel()
     {
-        var vm = new FakeUpsertViewModel { Title = "restored" };
-        _child.GetChildRestoreVersionViewModelAsync("parent", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
-        _child.SaveChildUpsertAsync("parent", vm, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+        var versionId = Guid.NewGuid();
+        _child.RestoreChildVersionAsync("parent", versionId, 4, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
 
-        var result = await _tools.RestoreChildVersion("articles", "items", "parent", Guid.NewGuid());
+        var result = await _tools.RestoreChildVersion("articles", "items", "parent", versionId, 4);
 
         Assert.That(result.Success, Is.True);
     }
@@ -253,18 +252,48 @@ public class ChildContentToolsetTests
     [Test]
     public void RestoreChildVersion_WhenMissing_Throws()
     {
-        _child.GetChildRestoreVersionViewModelAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((object?)null);
+        _child.RestoreChildVersionAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage));
 
         Assert.That(async () => await _tools.RestoreChildVersion("articles", "items", "parent", Guid.NewGuid()),
             Throws.TypeOf<McpException>());
     }
 
     [Test]
+    public async Task RestoreChildVersion_OtherFailure_IsReturnedNotThrown()
+    {
+        _child.RestoreChildVersionAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(false, "zone gone"));
+
+        var result = await _tools.RestoreChildVersion("articles", "items", "parent", Guid.NewGuid());
+
+        Assert.That(result, Is.EqualTo(new AdminSaveResult(false, "zone gone")));
+    }
+
+    [Test]
     public async Task DeleteChildVersion_ReturnsHandlerResult()
     {
-        _child.DeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null));
 
         Assert.That((await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid())).Deleted, Is.True);
+    }
+
+    [Test]
+    public async Task DeleteChildVersion_LatestVersion_ReturnsNotDeleted()
+    {
+        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((false, IAdminCrudHandler.VersionNotDeletedMessage));
+
+        Assert.That((await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid())).Deleted, Is.False);
+    }
+
+    [Test]
+    public void DeleteChildVersion_VersionInPageHistory_ThrowsWithTheReason()
+    {
+        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((false, "part of page history"));
+
+        Assert.That(async () => await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid()),
+            Throws.TypeOf<McpException>().With.Message.EqualTo("part of page history"));
     }
 }

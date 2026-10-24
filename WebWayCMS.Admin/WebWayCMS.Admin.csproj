@@ -26,6 +26,8 @@
           DestinationFiles="wwwroot/js/page-upsert.js" />
     <Copy SourceFiles="Views/AdminContentZone/PageZonesEdit.js"
           DestinationFiles="wwwroot/js/page-zones-edit.js" />
+    <Copy SourceFiles="Views/AdminPageHistory/PageHistory.js"
+          DestinationFiles="wwwroot/js/page-history.js" />
     <Copy SourceFiles="Views/Shared/form-components.js"
           DestinationFiles="wwwroot/js/form-components.js" />
   </Target>

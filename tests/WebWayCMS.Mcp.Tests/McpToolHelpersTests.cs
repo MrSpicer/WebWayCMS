@@ -87,6 +87,13 @@ public class McpToolHelpersTests
     }
 
     [Test]
+    public void DeleteResult_WhenRefusedWithNullMessage_ThrowsTheFallbackReason()
+    {
+        Assert.That(() => McpToolHelpers.DeleteResult((false, (string?)null)),
+            Throws.TypeOf<McpException>().With.Message.EqualTo("The version could not be deleted."));
+    }
+
+    [Test]
     public void Merge_OverlaysProvidedFields_AndPreservesOthers()
     {
         var baseModel = new FakeUpsertViewModel { Title = "orig", Body = "keep" };

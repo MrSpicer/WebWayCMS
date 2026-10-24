@@ -70,13 +70,13 @@ public sealed class VersionToolset
     }
 
     [McpServerTool(Name = "delete_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a version
-    [Description("Permanently deletes a single historical version by its id.")]
+    [Description("Permanently deletes a single historical version by its id. The latest version is never deleted (deleted: false). A page version that is part of a page history entry is refused with an error naming the entry; delete that entry first (delete_page_history_entry).")]
     public async Task<McpDeleteResult> DeleteVersion(
         [Description("The content type.")] string contentType,
         [Description("The id of the version to delete.")] Guid versionId,
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
-        return new McpDeleteResult(await handler.DeleteVersionAsync(versionId, ct));
+        return McpToolHelpers.DeleteResult(await handler.TryDeleteVersionAsync(versionId, ct));
     }
 }

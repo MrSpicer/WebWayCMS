@@ -21,12 +21,14 @@ public class ContentZoneApiController : ControllerBase
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<ContentZoneApiController>();
 
     private readonly IContentZoneService _service;
+    private readonly IContentZoneModel _model;
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly IWidgetRegistry _widgetRegistry;
 
-    public ContentZoneApiController(IContentZoneService service, IRouteRegistrationService routeRegistration, IWidgetRegistry widgetRegistry)
+    public ContentZoneApiController(IContentZoneService service, IContentZoneModel model, IRouteRegistrationService routeRegistration, IWidgetRegistry widgetRegistry)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _model = model ?? throw new ArgumentNullException(nameof(model));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
     }
@@ -119,7 +121,8 @@ public class ContentZoneApiController : ControllerBase
                     IsActive = true
                 };
 
-                var updated = await _service.UpdateItemAsync(item, ct, request.ExpectedVersionNumber);
+                // Through the model, so a container's view change carries its nested content along.
+                var updated = await _model.UpdateItemAsync(item, ct, request.ExpectedVersionNumber);
                 if (!updated)
                     return ItemWriteFailed(request.ExpectedVersionNumber);
 
@@ -287,7 +290,7 @@ public class ContentZoneApiController : ControllerBase
 
             // Only the metadata column changes; everything else is preserved from the existing item.
             var updated = existing with { MetadataJson = metadataJson };
-            var ok = await _service.UpdateItemAsync(updated, ct, request.ExpectedVersionNumber);
+            var ok = await _model.UpdateItemAsync(updated, ct, request.ExpectedVersionNumber);
             if (!ok)
                 return ItemWriteFailed(request.ExpectedVersionNumber);
 

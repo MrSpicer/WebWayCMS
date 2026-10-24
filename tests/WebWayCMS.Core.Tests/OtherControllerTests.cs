@@ -26,13 +26,13 @@ public class AdminContentZoneControllerTests
         var model = Substitute.For<IContentZoneModel>();
         var registry = Substitute.For<IWidgetRegistry>();
         var pageStore = Substitute.For<IContentStore<PageDTO>>();
-        var zoneService = Substitute.For<IContentZoneService>();
+        var pageHistory = Substitute.For<IPageHistoryService>();
 
         Assert.Multiple(() =>
         {
-            Assert.That(() => new AdminContentZoneController(null!, registry, pageStore, zoneService), Throws.ArgumentNullException);
-            Assert.That(() => new AdminContentZoneController(model, null!, pageStore, zoneService), Throws.ArgumentNullException);
-            Assert.That(() => new AdminContentZoneController(model, registry, null!, zoneService), Throws.ArgumentNullException);
+            Assert.That(() => new AdminContentZoneController(null!, registry, pageStore, pageHistory), Throws.ArgumentNullException);
+            Assert.That(() => new AdminContentZoneController(model, null!, pageStore, pageHistory), Throws.ArgumentNullException);
+            Assert.That(() => new AdminContentZoneController(model, registry, null!, pageHistory), Throws.ArgumentNullException);
             Assert.That(() => new AdminContentZoneController(model, registry, pageStore, null!), Throws.ArgumentNullException);
         });
     }
@@ -42,7 +42,7 @@ public class AdminContentZoneControllerTests
     {
         var model = Substitute.For<IContentZoneModel>();
         var controller = new AdminContentZoneController(model, Substitute.For<IWidgetRegistry>(),
-            Substitute.For<IContentStore<PageDTO>>(), Substitute.For<IContentZoneService>());
+            Substitute.For<IContentStore<PageDTO>>(), Substitute.For<IPageHistoryService>());
         new MvcHarness().Configure(controller, new[] { "Admin" });
 
         model.GetViewModelByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
@@ -60,7 +60,7 @@ public class AdminContentZoneControllerTests
     {
         var model = Substitute.For<IContentZoneModel>();
         var controller = new AdminContentZoneController(model, Substitute.For<IWidgetRegistry>(),
-            Substitute.For<IContentStore<PageDTO>>(), Substitute.For<IContentZoneService>());
+            Substitute.For<IContentStore<PageDTO>>(), Substitute.For<IPageHistoryService>());
         new MvcHarness().Configure(controller, new[] { "Admin" });
         model.GetViewModelByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentZoneViewModel());
 
@@ -79,7 +79,7 @@ public class AdminContentZoneControllerPageZonesTests
 {
     private IContentZoneModel _model = null!;
     private IContentStore<PageDTO> _pageStore = null!;
-    private IContentZoneService _zoneService = null!;
+    private IPageHistoryService _pageHistory = null!;
     private AdminContentZoneController _controller = null!;
 
     [SetUp]
@@ -87,8 +87,8 @@ public class AdminContentZoneControllerPageZonesTests
     {
         _model = Substitute.For<IContentZoneModel>();
         _pageStore = Substitute.For<IContentStore<PageDTO>>();
-        _zoneService = Substitute.For<IContentZoneService>();
-        _controller = new AdminContentZoneController(_model, Substitute.For<IWidgetRegistry>(), _pageStore, _zoneService);
+        _pageHistory = Substitute.For<IPageHistoryService>();
+        _controller = new AdminContentZoneController(_model, Substitute.For<IWidgetRegistry>(), _pageStore, _pageHistory);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
     }
 
@@ -114,7 +114,7 @@ public class AdminContentZoneControllerPageZonesTests
         var slots = new List<PageZoneSlot> { new("Main", Guid.NewGuid()) };
         _pageStore.GetCurrentDraftAsync(pageId, Arg.Any<CancellationToken>()).Returns(page);
         _pageStore.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
-        _zoneService.GetPagesWithPendingZoneChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+        _pageHistory.GetPagesWithUnpublishedChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new HashSet<Guid> { pageId });
         _model.GetPageZoneSlotsAsync(pageId, Arg.Any<CancellationToken>()).Returns(slots);
 
@@ -135,6 +135,22 @@ public class AdminContentZoneControllerPageZonesTests
     }
 
     [Test]
+    public async Task PageZones_PassesTheUnplacedCandidates()
+    {
+        var pageId = Guid.NewGuid();
+        var page = Page(pageId, ContentVersionState.Published);
+        var candidates = new List<UnplacedZoneCandidate> { new(Guid.NewGuid(), Guid.NewGuid(), "Layout › Column3") };
+        _pageStore.GetCurrentDraftAsync(pageId, Arg.Any<CancellationToken>()).Returns(page);
+        _pageStore.GetAllVersionsAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
+        _pageHistory.GetPagesWithUnpublishedChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _model.GetUnplacedCandidatesAsync(pageId, Arg.Any<CancellationToken>()).Returns(candidates);
+
+        var vm = (PageZonesEditViewModel)((ViewResult)await _controller.PageZones(pageId, default)).Model!;
+
+        Assert.That(vm.UnplacedCandidates, Is.SameAs(candidates));
+    }
+
+    [Test]
     public async Task PageZones_UpToDateAndNeverPublished_Variants()
     {
         var liveId = Guid.NewGuid();
@@ -145,8 +161,9 @@ public class AdminContentZoneControllerPageZonesTests
         _pageStore.GetAllVersionsAsync(liveId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { live });
         _pageStore.GetCurrentDraftAsync(newId, Arg.Any<CancellationToken>()).Returns(draft);
         _pageStore.GetAllVersionsAsync(newId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { draft });
-        _zoneService.GetPagesWithPendingZoneChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
-            .Returns(new HashSet<Guid>());
+        // The history service reports a page that is not live as having unpublished changes.
+        _pageHistory.GetPagesWithUnpublishedChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<Guid> { newId });
 
         var upToDate = (PageZonesEditViewModel)((ViewResult)await _controller.PageZones(liveId, default)).Model!;
         var neverPublished = (PageZonesEditViewModel)((ViewResult)await _controller.PageZones(newId, default)).Model!;
@@ -165,7 +182,7 @@ public class AdminContentZoneControllerPageZonesTests
     public async Task DiscardPageZones_RedirectsBackToTheEditor_ReportingFailures()
     {
         var pageId = Guid.NewGuid();
-        _zoneService.DiscardPageZoneDraftsAsync(pageId, Arg.Any<CancellationToken>()).Returns((true, (string?)null), (false, "boom"));
+        _pageHistory.DiscardUnpublishedChangesAsync(pageId, Arg.Any<CancellationToken>()).Returns((true, (string?)null), (false, "boom"));
 
         var ok = (RedirectToActionResult)await _controller.DiscardPageZones(pageId, default);
         Assert.That(_controller.TempData.ContainsKey("Error"), Is.False);
@@ -186,6 +203,7 @@ public class AdminContentZoneControllerPageZonesTests
 public class ContentZoneApiControllerTests
 {
     private IContentZoneService _service = null!;
+    private IContentZoneModel _model = null!;
     private IRouteRegistrationService _routeRegistration = null!;
     private IWidgetRegistry _widgetRegistry = null!;
     private ContentZoneApiController _controller = null!;
@@ -197,7 +215,12 @@ public class ContentZoneApiControllerTests
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _widgetRegistry = Substitute.For<IWidgetRegistry>();
         _widgetRegistry.GetByName("Lister").Returns(new WidgetRegistrationInfo { Name = "Lister", SupportsList = true });
-        _controller = new ContentZoneApiController(_service, _routeRegistration, _widgetRegistry);
+        // Item updates go through the model (which may move a container's nested content along); it
+        // forwards to the service here so the update scenarios below exercise the controller's handling.
+        _model = Substitute.For<IContentZoneModel>();
+        _model.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>())
+            .Returns(ci => _service.UpdateItemAsync(ci.ArgAt<ContentZoneItemDTO>(0), ci.ArgAt<CancellationToken>(1), ci.ArgAt<int?>(2)));
+        _controller = new ContentZoneApiController(_service, _model, _routeRegistration, _widgetRegistry);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
         _routeRegistration.TryRegisterWidgetRoutesAsync(
             Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
@@ -221,9 +244,10 @@ public class ContentZoneApiControllerTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneApiController(null!, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, null!, _widgetRegistry), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, _routeRegistration, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(null!, _model, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, null!, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _model, null!, _widgetRegistry), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _model, _routeRegistration, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -623,6 +647,25 @@ public class ContentZoneApiControllerTests
             Assert.That(objectResult.StatusCode, Is.EqualTo(409));
             Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
         });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task ItemUpdates_GoThroughTheModel_SoAContainerViewChangeMovesItsContent()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, zoneId);
+        existing.Version = new ContentVersion { VersionNumber = 5, Node = new ContentNode { Id = itemNodeId } };
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(Guid.NewGuid());
+        _model.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(true);
+
+        await _controller.SaveItem(
+            new SaveItemRequest { ZoneId = zoneId, ItemId = itemNodeId, ComponentName = "X", ZoneName = "Z", ExpectedVersionNumber = 5 }, default);
+        await _controller.UpdateItemMetadata(itemNodeId, new UpdateItemMetadataRequest { MetadataJson = "{}", ExpectedVersionNumber = 5 }, default);
+
+        await _model.Received(2).UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5));
         await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
     }
 

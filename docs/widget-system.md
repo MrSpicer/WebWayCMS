@@ -69,13 +69,20 @@ a **Preview** tab shows the draft page in an iframe.
 
 - **Edits to a page's zones are drafts.** Adding, editing, re-configuring, reordering, or deleting a
   widget in any zone under a page (nested zones included) saves a draft version; the live site is
-  unchanged. A deleted widget that was live becomes an inactive draft; a never-published one is removed.
+  unchanged. Removing a widget saves an inactive version (never a delete), so it can be restored from its
+  history; removing one that holds widgets asks first and says how many are inside.
   This applies to every write path — this editor, the single-zone editor, the Advanced item pages, MCP.
 - **Publishing the page publishes its zones.** Any page publish (this toolbar, the Pages list, the page
   form, MCP `publish_content`) publishes the page and every pending zone item under it in one change
   set. The Pages list shows **Live · Changes pending** while zone drafts exist.
-- **Discard changes** reverts every pending zone item to its published version (never-published items
-  are deleted). Page field edits are not touched.
+- **Discard changes** returns the page and its widgets to what is live, as new versions recorded in page
+  history (so it can be undone); it is offered only for a published page with changes.
+- **Changing a Layout's view keeps its content.** Switching e.g. two columns to three moves each old
+  column's widgets into the new view's zones: a zone with the same name keeps its widgets, the rest pair
+  up in order, and any left over go to the last zone. The move is one draft change with the save.
+- **Unplaced content.** Widgets in zones the page no longer renders (e.g. columns stranded before the
+  rule above existed) are listed in an "Unplaced content" panel below the zones, editor only, so they can
+  be dragged back or removed.
 - **Drag and drop.** Each widget's toolbar has a grip handle: drag it (mouse or touch) to reorder within
   a zone or move the widget to any other zone of the same page, including a Layout's columns. A Layout
   takes its columns' content with it; it can't be dropped into its own columns. With the handle focused,
@@ -468,6 +475,7 @@ The `ContentZoneViewComponent` resolves zones via the `ContentZoneAssignments` t
 
 - **Page-scoped zones** look up by `(ParentPageNodeId, SlotName)` in `ContentZoneAssignments`. If no assignment exists and the user is an admin, a `ContentZoneDTO` + `ContentZoneAssignment` record are created automatically.
 - **Nested zones** (zones rendered inside a zone item, e.g. a Layout widget's columns) look up by `(ParentItemNodeId, SlotName)` using the rendering item's node ID stored in render context (`ViewData["ContentZone:ParentItemId"]`, set by `WidgetViewComponent` from the item's configuration and by the shipped zone views). They belong to the item, so they move with it. A container widget that renders nested zones should derive from `WidgetViewComponent`; a nested zone with no owning item renders nothing.
+- **Container widgets declare nothing.** A container's views simply call `@await Component.InvokeAsync("ContentZone", new { zoneName = "Left" })` with fixed names. When an edit changes which view (or configuration) the container renders, the CMS finds the old and new views' zones by rendering both in a discovery mode (the public `view.*`/`list.*` variant; nothing is loaded or shown) and moves the content across. Keep slot names stable between views where content should stay put (e.g. `Main`), and render each zone by name (not `zoneId`/`IsGlobal`) so discovery sees it.
 - **Global zones** (`IsGlobal = true`) bypass assignment lookup and use name-based lookup on `ContentZoneDTO.Name`.
 
 The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Main"`, `"Sidebar"`) rather than an opaque path. Zone identity is determined by the assignment record, not the name.

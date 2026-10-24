@@ -100,7 +100,7 @@ public sealed class ChildContentToolset
     }
 
     [McpServerTool(Name = "update_child", OpenWorld = false)] // Destructive left at its true default: overwrites existing values
-    [Description("Updates an existing child entity. Only supplied fields are changed.")]
+    [Description("Updates an existing child entity. Only supplied fields are changed. Changing a container content zone item's view (e.g. a Layout from two columns to three) moves the widgets in its old zones into the new view's zones: same-named zones keep their widgets, the rest pair up in order, and any left over go to the last zone.")]
     public async Task<AdminSaveResult> UpdateChild(
         [Description("The parent content type.")] string contentType,
         [Description("The child type.")] string childType,
@@ -117,8 +117,8 @@ public sealed class ChildContentToolset
         return await child.SaveChildUpsertAsync(parentKey, model, ct);
     }
 
-    [McpServerTool(Name = "delete_child", OpenWorld = false)] // Destructive left at its true default: deletes a child entity permanently
-    [Description("Deletes a child entity by id.")]
+    [McpServerTool(Name = "delete_child", OpenWorld = false)] // Destructive left at its true default
+    [Description("Deletes a child entity by id. A content zone item is not deleted but removed: it gets an inactive version (a draft on a page until the page is published; live at once in a global zone), so restore_child_version or a page history revert can bring it back.")]
     public async Task<McpDeleteResult> DeleteChild(
         [Description("The parent content type.")] string contentType,
         [Description("The child type.")] string childType,
@@ -167,7 +167,7 @@ public sealed class ChildContentToolset
     }
 
     [McpServerTool(Name = "list_child_versions", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists the version history for a child entity, identified by its masterId.")]
+    [Description("Lists the version history for a child entity, identified by its masterId. For a content zone item that holds nested zones (e.g. a Layout), the list also has every version of every widget inside it, newest first (isCombined true): each row's nodeId and widgetLabel say which widget it belongs to, and isLatest/nodeCurrentVersionNumber are per widget.")]
     public async Task<VersionHistoryViewModel> ListChildVersions(
         [Description("The parent content type.")] string contentType,
         [Description("The child type.")] string childType,
@@ -183,23 +183,24 @@ public sealed class ChildContentToolset
     }
 
     [McpServerTool(Name = "restore_child_version", Destructive = false, OpenWorld = false)]
-    [Description("Restores a historical version of a child entity as its new current version.")]
+    [Description("Restores a historical version of a child entity as its new current version, in one step. For a content zone item that is its widget, configuration, settings, active state, zone and position (it goes back into its old zone at its old position); it is refused when that zone no longer exists on the page. Restoring a container (e.g. a Layout) to a different view moves its nested widgets into that view's zones. On a page it stays a draft until the page is published.")]
     public async Task<AdminSaveResult> RestoreChildVersion(
         [Description("The parent content type.")] string contentType,
         [Description("The child type.")] string childType,
         [Description("The parent key (slug or Guid).")] string parentKey,
         [Description("The id of the historical version to restore.")] Guid versionId,
+        [Description("Optional: the child's current version number as you last read it; the restore is refused if it has changed since.")] int? expectedVersionNumber = null,
         CancellationToken ct = default)
     {
         var child = ResolveVersioned(contentType, childType);
-        var vm = await child.GetChildRestoreVersionViewModelAsync(parentKey, versionId, ct);
-        if (vm == null)
+        var result = await child.RestoreChildVersionAsync(parentKey, versionId, expectedVersionNumber, ct);
+        if (!result.Success && result.ErrorMessage == IAdminCrudChildHandler.VersionNotFoundMessage)
             throw new McpException($"No version found with id '{versionId}'.");
-        return await child.SaveChildUpsertAsync(parentKey, vm, ct);
+        return result;
     }
 
     [McpServerTool(Name = "delete_child_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a child version
-    [Description("Permanently deletes a single historical version of a child entity by its id.")]
+    [Description("Permanently deletes a single historical version of a child entity by its id. The latest version is never deleted (deleted: false). A version that is part of a page history entry is refused with an error naming the entry; delete that entry first (delete_page_history_entry).")]
     public async Task<McpDeleteResult> DeleteChildVersion(
         [Description("The parent content type.")] string contentType,
         [Description("The child type.")] string childType,
@@ -207,6 +208,6 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var child = ResolveVersioned(contentType, childType);
-        return new McpDeleteResult(await child.DeleteChildVersionAsync(versionId, ct));
+        return McpToolHelpers.DeleteResult(await child.TryDeleteChildVersionAsync(versionId, ct));
     }
 }

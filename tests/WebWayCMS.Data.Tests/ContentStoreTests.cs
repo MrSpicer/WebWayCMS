@@ -57,13 +57,14 @@ public class ContentStoreTests
             => throw new DbUpdateException("conflict", (Exception?)null);
     }
 
-    // Lets the first saves through and throws a DbUpdateException on save number failOnSave.
+    // Lets the first saves through and throws on save number failOnSave (a DbUpdateException unless told otherwise).
     private sealed class FailingNthSaveStore<T> : ContentStore<T> where T : class, IVersionedContent
     {
         private readonly int _failOnSave;
+        private readonly Func<Exception> _exception;
         private int _saves;
 
-        public FailingNthSaveStore(CmsDbContext ctx, int failOnSave) : base(
+        public FailingNthSaveStore(CmsDbContext ctx, int failOnSave, Func<Exception>? exception = null) : base(
             ctx,
             new TestReadContext(ContentReadMode.Published),
             new ChangeSetScope(ctx, new DefaultContentUserContext()),
@@ -71,11 +72,12 @@ public class ContentStoreTests
             "contentblocks")
         {
             _failOnSave = failOnSave;
+            _exception = exception ?? (() => new DbUpdateException("conflict", (Exception?)null));
         }
 
         protected override Task<int> SaveChangesAsync(CancellationToken ct)
             => ++_saves == _failOnSave
-                ? throw new DbUpdateException("conflict", (Exception?)null)
+                ? throw _exception()
                 : base.SaveChangesAsync(ct);
     }
 
@@ -465,27 +467,32 @@ public class ContentStoreTests
     }
 
     [Test]
-    public async Task SaveDraftAsync_EditDraft_UpdatesInPlace()
+    public async Task SaveDraftAsync_EditDraft_MintsANewVersionAndKeepsTheOld()
     {
         var dto = NewBlock("T");
         var store = NewStore();
         await store.SaveDraftAsync(dto, null);
+        var firstVersionId = dto.VersionId;
 
         var edit = dto with { Content = "c2", Version = dto.Version with { Title = "T2" } };
         var result = await store.SaveDraftAsync(edit, 0);
 
-        var versions = await store.GetAllVersionsAsync(dto.Version.Node!.Id);
+        var versions = await NewStore().GetAllVersionsAsync(dto.Version.Node!.Id);
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(1), "repeated draft saves must not mint versions");
+            Assert.That(versions.Select(v => v.Version.VersionNumber), Is.EqualTo(new[] { 1, 0 }), "every save is a version");
             Assert.That(versions[0].Content, Is.EqualTo("c2"));
             Assert.That(versions[0].Version.Title, Is.EqualTo("T2"));
+            Assert.That(versions[0].Version.IsCurrentDraft, Is.True);
+            Assert.That(versions[1].VersionId, Is.EqualTo(firstVersionId));
+            Assert.That(versions[1].Content, Is.EqualTo("c"), "the earlier draft is kept unchanged");
+            Assert.That(versions[1].Version.IsCurrentDraft, Is.False);
         });
     }
 
     [Test]
-    public async Task SaveDraftAsync_EditDraft_WithUnsetIncomingKey_PreservesKey()
+    public async Task SaveDraftAsync_EditDraft_WithUnsetIncomingKey_MintsAKeyedVersion()
     {
         var dto = NewBlock("T");
         var store = NewStore();
@@ -505,13 +512,14 @@ public class ContentStoreTests
         };
         var result = await store.SaveDraftAsync(edit, 0);
 
-        var versions = await store.GetAllVersionsAsync(dto.Version.Node.Id);
+        var versions = await NewStore().GetAllVersionsAsync(dto.Version.Node.Id);
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(1), "repeated draft saves must not mint versions");
+            Assert.That(versions, Has.Count.EqualTo(2));
+            Assert.That(versions[0].VersionId, Is.Not.EqualTo(Guid.Empty));
+            Assert.That(versions[0].VersionId, Is.EqualTo(result.VersionId));
             Assert.That(versions[0].Content, Is.EqualTo("c2"));
-            Assert.That(versions[0].Version.Title, Is.EqualTo("T2"));
         });
     }
 
@@ -889,6 +897,76 @@ public class ContentStoreTests
         Assert.That(result.Success, Is.True);
     }
 
+    [TestCase(1, TestName = "RestoreAsync_DemoteFails_ReturnsStaleAndDetaches")]
+    [TestCase(2, TestName = "RestoreAsync_InsertFails_ReturnsStaleAndDetaches")]
+    public async Task RestoreAsync_SaveFails_ReturnsStaleAndDetaches(int failOnSave)
+    {
+        var (nodeId, v0, v1) = await CreatePublishedWithDraftAsync();
+        var ctx = NewContext();
+
+        var result = await new FailingNthSaveStore<ContentBlockDTO>(ctx, failOnSave).RestoreAsync(v0);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
+            Assert.That(ctx.ChangeTracker.Entries<ContentVersion>(), Is.Empty, "the demotion must never be replayed by a later save");
+            Assert.That(ctx.ChangeTracker.Entries<ContentBlockDTO>(), Is.Empty);
+            if (failOnSave == 1)
+                Assert.That((await NewStore().GetCurrentDraftAsync(nodeId))!.VersionId, Is.EqualTo(v1));
+        });
+    }
+
+    [Test]
+    public async Task RestoreAsync_SaveThrows_RethrowsAndDetaches()
+    {
+        var (_, v0, _) = await CreatePublishedWithDraftAsync();
+        var ctx = NewContext();
+        var store = new FailingNthSaveStore<ContentBlockDTO>(ctx, 2, () => new InvalidOperationException("boom"));
+
+        Assert.That(async () => await store.RestoreAsync(v0), Throws.InvalidOperationException);
+        Assert.That(ctx.ChangeTracker.Entries<ContentVersion>(), Is.Empty);
+    }
+
+    [Test]
+    public async Task RestoreAsync_NoCurrentDraft_InsertsTheRestoredDraft()
+    {
+        var (nodeId, v0, v1) = await CreatePublishedWithDraftAsync();
+        await using (var ctx = NewContext())
+        {
+            (await ctx.Set<ContentVersion>().SingleAsync(v => v.Id == v1)).IsCurrentDraft = false;
+            await ctx.SaveChangesAsync();
+        }
+
+        var result = await NewStore().RestoreAsync(v0);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That((await NewStore().GetCurrentDraftAsync(nodeId))!.VersionId, Is.EqualTo(result.VersionId));
+        });
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_TrackedCurrentDraftInstance_InsertFails_DetachesTheOldVersion()
+    {
+        // The caller hands back the very instance the store loads as the current draft (identity resolution).
+        var (nodeId, _, _) = await CreatePublishedWithDraftAsync();
+        var ctx = NewContext();
+        var tracked = await ctx.Set<ContentBlockDTO>()
+            .Include(e => e.Version).ThenInclude(v => v.Node)
+            .SingleAsync(e => e.Version.NodeId == nodeId && e.Version.IsCurrentDraft);
+
+        var result = await new FailingNthSaveStore<ContentBlockDTO>(ctx, 2).SaveDraftAsync(tracked, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(ctx.ChangeTracker.Entries<ContentVersion>(), Is.Empty);
+            Assert.That(ctx.ChangeTracker.Entries<ContentBlockDTO>(), Is.Empty);
+        });
+    }
+
     // ─── DeleteAsync ──────────────────────────────────────────────────────────
 
     [Test]
@@ -1042,103 +1120,6 @@ public class ContentStoreTests
         Assert.That((await NewStore().GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(1));
     }
 
-    // ─── DiscardDraftAsync ────────────────────────────────────────────────────
-
-    [Test]
-    public async Task DiscardDraftAsync_UnknownNode_Fails()
-    {
-        var result = await NewStore().DiscardDraftAsync(Guid.NewGuid());
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.False);
-            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.NotFoundMessage));
-        });
-    }
-
-    [Test]
-    public async Task DiscardDraftAsync_CurrentDraftIsPublished_IsNoOp()
-    {
-        var nodeId = await CreatePublishedAsync();
-
-        var result = await NewStore().DiscardDraftAsync(nodeId);
-
-        await using var ctx = NewContext();
-        var versions = await ctx.Set<ContentVersion>().Where(v => v.NodeId == nodeId).ToListAsync();
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(1));
-            Assert.That(versions[0].State, Is.EqualTo(ContentVersionState.Published));
-            Assert.That(versions[0].IsCurrentDraft, Is.True);
-        });
-    }
-
-    [Test]
-    public async Task DiscardDraftAsync_EditedPublishedItem_RevertsToPublished()
-    {
-        var nodeId = await CreatePublishedAsync("Live");
-        var store = NewStore();
-        var edit = await store.GetCurrentDraftAsync(nodeId);
-        edit!.Content = "edited";
-        await store.SaveDraftAsync(edit, null);
-
-        var result = await NewStore().DiscardDraftAsync(nodeId);
-
-        await using var ctx = NewContext();
-        var versions = await ctx.Set<ContentVersion>().Where(v => v.NodeId == nodeId).ToListAsync();
-        var current = await NewStore(ctx).GetCurrentDraftAsync(nodeId);
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.True);
-            Assert.That(versions, Has.Count.EqualTo(1));
-            Assert.That(current!.Content, Is.EqualTo("c"));
-            Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Published));
-            Assert.That(result.VersionId, Is.EqualTo(current.VersionId));
-        });
-    }
-
-    [Test]
-    public async Task DiscardDraftAsync_NeverPublished_DeletesNode()
-    {
-        var store = NewStore();
-        var dto = NewBlock();
-        await store.SaveDraftAsync(dto, null);
-        var nodeId = dto.Version.Node!.Id;
-
-        var result = await NewStore().DiscardDraftAsync(nodeId);
-
-        await using var ctx = NewContext();
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.True);
-            Assert.That(result.VersionId, Is.EqualTo(Guid.Empty));
-            Assert.That(ctx.Set<ContentNode>().Any(n => n.Id == nodeId), Is.False);
-        });
-    }
-
-    [Test]
-    public async Task DiscardDraftAsync_NoPublishedVersion_FallsBackToNewestEarlierVersion()
-    {
-        var nodeId = await CreatePublishedAsync("Live");
-        var store = NewStore();
-        var edit = await store.GetCurrentDraftAsync(nodeId);
-        edit!.Content = "edited";
-        await store.SaveDraftAsync(edit, null);
-        await NewStore().UnpublishAsync(nodeId); // archives the published version, keeps the draft
-
-        var result = await NewStore().DiscardDraftAsync(nodeId);
-
-        await using var ctx = NewContext();
-        var current = await NewStore(ctx).GetCurrentDraftAsync(nodeId);
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.True);
-            Assert.That(current!.Content, Is.EqualTo("c"));
-            Assert.That(current.Version.State, Is.EqualTo(ContentVersionState.Archived));
-        });
-    }
-
     [Test]
     public async Task PublishAsync_AmbientChangeSetScope_IsJoinedRatherThanMinted()
     {
@@ -1176,43 +1157,180 @@ public class ContentStoreTests
         });
     }
 
-    [Test]
-    public async Task DiscardDraftAsync_DbConflict_MapsToFriendlyMessage()
+    // ─── page-set history snapshots ───────────────────────────────────────────
+
+    private async Task<Guid> AddSnapshotAsync(Guid pageNodeId, Guid pageVersionId, params Guid[] itemVersionIds)
     {
-        var nodeId = await CreatePublishedAsync("Live");
+        await using var ctx = NewContext();
+        var snapshot = new PageSetSnapshot
+        {
+            Id = Guid.NewGuid(),
+            PageNodeId = pageNodeId,
+            PageVersionId = pageVersionId,
+            CreatedUtc = DateTime.UtcNow,
+            ItemCount = itemVersionIds.Length,
+            Items = itemVersionIds.Select(id => new PageSetSnapshotItem { ItemVersionId = id, ItemNodeId = Guid.NewGuid() }).ToList()
+        };
+        ctx.Set<PageSetSnapshot>().Add(snapshot);
+        await ctx.SaveChangesAsync();
+        return snapshot.Id;
+    }
+
+    private async Task<(Guid NodeId, Guid VersionId)> CreateUnpublishedSnapshotVersionAsync(bool asItem)
+    {
+        var nodeId = await CreatePublishedAsync("Captured");
+        var versionId = (await NewStore().GetCurrentDraftAsync(nodeId))!.VersionId;
+        if (asItem)
+            await AddSnapshotAsync(Guid.NewGuid(), Guid.NewGuid(), versionId);
+        else
+            await AddSnapshotAsync(nodeId, versionId);
+
+        // An unpublish turns the captured live version back into the current draft.
+        await NewStore().UnpublishAsync(nodeId);
+        return (nodeId, versionId);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task SaveDraftAsync_EditingASnapshotVersion_MintsANewVersionInstead(bool asItem)
+    {
+        var (nodeId, versionId) = await CreateUnpublishedSnapshotVersionAsync(asItem);
         var store = NewStore();
-        var edit = await store.GetCurrentDraftAsync(nodeId);
-        edit!.Content = "edited";
-        await store.SaveDraftAsync(edit, null);
+        var draft = (await store.GetCurrentDraftAsync(nodeId))!;
 
-        var result = await new ThrowingStore<ContentBlockDTO>(NewContext()).DiscardDraftAsync(nodeId);
+        var result = await store.SaveDraftAsync(draft with { Version = draft.Version with { Title = "Edited" } }, draft.Version.VersionNumber);
 
+        await using var ctx = NewContext();
+        var captured = await ctx.Set<ContentVersion>().SingleAsync(v => v.Id == versionId);
         Assert.Multiple(() =>
         {
-            Assert.That(result.Success, Is.False);
-            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.VersionId, Is.Not.EqualTo(versionId));
+            Assert.That(captured.Title, Is.EqualTo("Captured"), "the captured version is frozen");
+            Assert.That(captured.IsCurrentDraft, Is.False);
         });
     }
 
-    [TestCase(1)]
-    [TestCase(2)]
-    public async Task DiscardDraftAsync_DbConflict_LeavesNoPendingChangesOnTheSharedContext(int failOnSave)
+    [Test]
+    public async Task DeleteAsync_HardDelete_RemovesEverySnapshotThatCapturedTheNode()
     {
-        // Save 1 removes the draft, save 2 promotes the fallback. Whichever fails, nothing it queued
-        // may linger on the scoped context for the next unrelated SaveChanges to replay.
-        var nodeId = await CreatePublishedAsync("Live");
-        var store = NewStore();
-        var edit = await store.GetCurrentDraftAsync(nodeId);
-        edit!.Content = "edited";
-        await store.SaveDraftAsync(edit, null);
+        var nodeId = await CreatePublishedAsync("T");
+        var versionId = (await NewStore().GetCurrentDraftAsync(nodeId))!.VersionId;
+        await AddSnapshotAsync(nodeId, versionId);
+        await AddSnapshotAsync(Guid.NewGuid(), Guid.NewGuid(), versionId);
+        var unrelated = await AddSnapshotAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
+        var ok = await NewStore().DeleteAsync(nodeId, softDelete: false);
+
+        await using var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(ctx.Set<PageSetSnapshot>().Select(s => s.Id), Is.EqualTo(new[] { unrelated }));
+            Assert.That(ctx.Set<PageSetSnapshotItem>().Count(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_RemovesEverySnapshotThatCapturedTheVersion()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+        await AddSnapshotAsync(Guid.NewGuid(), Guid.NewGuid(), current.VersionId);
+        await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+
+        var ok = await NewStore().DeleteVersionAsync(current.VersionId);
+
+        await using var ctx = NewContext();
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(ctx.Set<PageSetSnapshot>().Any(), Is.False);
+        });
+    }
+
+    // ─── change notes ─────────────────────────────────────────────────────────
+
+    private (ContentStore<ContentBlockDTO> Store, ChangeSetScope Scope) NewStoreWithScope()
+    {
         var ctx = NewContext();
-        var result = await new FailingNthSaveStore<ContentBlockDTO>(ctx, failOnSave).DiscardDraftAsync(nodeId);
+        var scope = new ChangeSetScope(ctx, new DefaultContentUserContext());
+        return (new ContentStore<ContentBlockDTO>(ctx, new TestReadContext(ContentReadMode.Published), scope,
+            new DefaultContentUserContext(), "contentblocks"), scope);
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_ChangeNote_ComesFromTheScopeElseTheDefault()
+    {
+        var (store, scope) = NewStoreWithScope();
+        var dto = NewBlock("T");
+        await store.SaveDraftAsync(dto, null);
+        using (scope.UseChangeNote("Content edited"))
+            await store.SaveDraftAsync(dto with { Content = "c2", Version = dto.Version with { } }, 0);
+        await store.SaveDraftAsync(dto with { Content = "c3", Version = dto.Version with { } }, 1);
+
+        var notes = (await NewStore().GetAllVersionsAsync(dto.Version.Node!.Id)).Select(v => v.Version.ChangeNote);
+
+        Assert.That(notes, Is.EqualTo(new[] { "Edited", "Content edited", "Created" }),
+            "a note describes only the save that wrote it, never inherited by the next one");
+    }
+
+    [Test]
+    public async Task SaveDraftAsync_TrackedIncomingEntity_IsSavedAsANewRowWithoutTouchingTheOld()
+    {
+        var ctx = NewContext();
+        var store = NewStore(ctx);
+        var dto = NewBlock("T");
+        await store.SaveDraftAsync(dto, null);
+        var firstVersionId = dto.VersionId;
+
+        // The same (still tracked) instance, edited and saved again through the same context.
+        dto.Content = "c2";
+        var result = await store.SaveDraftAsync(dto, 0);
+
+        var versions = await NewStore().GetAllVersionsAsync(dto.Version.Node.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(versions, Has.Count.EqualTo(2));
+            Assert.That(versions.Single(v => v.VersionId == firstVersionId).Content, Is.EqualTo("c"));
+            Assert.That(versions.Single(v => v.Version.IsCurrentDraft).Content, Is.EqualTo("c2"));
+        });
+    }
+
+    [Test]
+    public async Task RestoreAsync_DefaultChangeNote_NamesTheRestoredVersion()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var v0 = (await store.GetAsync(nodeId))!;
+        await store.SaveDraftAsync(v0 with { Version = v0.Version with { Title = "v1" } }, 0);
+
+        await NewStore().RestoreAsync(v0.VersionId);
+
+        var current = (await NewStore().GetCurrentDraftAsync(nodeId))!;
+        Assert.That(current.Version.ChangeNote, Is.EqualTo("Restored from version 0"));
+    }
+
+    [Test]
+    public void ChangeSetScope_UseChangeNote_NestsAndRestoresThePreviousNote()
+    {
+        var scope = new ChangeSetScope(NewContext(), new DefaultContentUserContext());
+
+        string? inner, outer;
+        using (scope.UseChangeNote("outer"))
+        {
+            using (scope.UseChangeNote("inner"))
+                inner = scope.CurrentChangeNote;
+            outer = scope.CurrentChangeNote;
+        }
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.ErrorMessage, Is.EqualTo(ContentStore<ContentBlockDTO>.StaleVersionMessage));
-            Assert.That(ctx.ChangeTracker.Entries().Where(e => e.State != EntityState.Unchanged), Is.Empty);
+            Assert.That(inner, Is.EqualTo("inner"));
+            Assert.That(outer, Is.EqualTo("outer"));
+            Assert.That(scope.CurrentChangeNote, Is.Null);
         });
     }
 }

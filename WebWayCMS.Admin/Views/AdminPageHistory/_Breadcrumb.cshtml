@@ -1,0 +1,32 @@
+@* Shared header of the page-history screens. Model: (page node id, page title, current crumb, entry id or null). *@
+@model (Guid PageNodeId, string PageTitle, string Current, Guid? EntryId)
+
+<div class="admin-page-header">
+    <div class="container">
+        <nav class="breadcrumb" aria-label="breadcrumbs">
+            <ul>
+                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
+                <li><a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@Model.PageNodeId">@Model.PageTitle</a></li>
+                @if (Model.EntryId.HasValue)
+                {
+                    <li><a asp-controller="AdminPageHistory" asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId">History</a></li>
+                }
+                <li class="is-active"><a href="#" aria-current="page">@Model.Current</a></li>
+            </ul>
+        </nav>
+        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+    </div>
+</div>
+
+@if (TempData["Error"] != null)
+{
+    <div class="container is-fluid mt-4">
+        <div class="notification is-danger" role="alert">@TempData["Error"]</div>
+    </div>
+}
+@if (TempData["Success"] != null)
+{
+    <div class="container is-fluid mt-4">
+        <div class="notification is-success" role="status">@TempData["Success"]</div>
+    </div>
+}

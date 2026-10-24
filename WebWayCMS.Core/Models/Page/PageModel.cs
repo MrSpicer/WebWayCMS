@@ -7,6 +7,7 @@ using WebWayCMS.Data.Services;
 using WebWayCMS.Data.Slugs;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
+using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Pages;
 using WebWayCMS.Services;
@@ -22,6 +23,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private readonly ICMSRouteService _routeService;
     private readonly IPageControllerRegistry _controllerRegistry;
     private readonly IContentZoneService _contentZoneService;
+    private readonly IPageHistoryService _pageHistory;
 
     protected override IContentStore<PageDTO> Store => _store;
 
@@ -47,10 +49,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         IRouteRegistrationService routeRegistration,
         ICMSRouteService routeService,
         IContentZoneService contentZoneService,
+        IPageHistoryService pageHistory,
         IChangeSetScope changeSetScope)
         : base(changeSetScope)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _pageHistory = pageHistory ?? throw new ArgumentNullException(nameof(pageHistory));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
@@ -73,10 +77,11 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var activeRoutes = await _routeService.GetAllRoutesAsync(ct);
         var publishedNodeIds = await _store.GetPublishedNodeIdsAsync(ct) ?? [];
 
-        // A published page with unpublished zone-item drafts has pending changes too.
-        var pendingZonePages = await _contentZoneService.GetPagesWithPendingZoneChangesAsync(
+        // A published page whose drafts (its own fields or its zones) differ from what is live has pending
+        // changes; drafts equal to it (left by a discard or a revert) do not.
+        var pendingPages = await _pageHistory.GetPagesWithUnpublishedChangesAsync(
             pages.Select(p => p.Version.Node.Id), ct) ?? [];
-        return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes, publishedNodeIds, pendingZonePages) };
+        return new PageIndexViewModel { Pages = BuildTree(pages, activeRoutes, publishedNodeIds, pendingPages) };
     }
 
     public async Task<(bool Success, string? ErrorMessage)> SavePageUpsertAsync(PageUpsertViewModel model, CancellationToken ct = default)
@@ -84,10 +89,30 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (model == null) throw new ArgumentNullException(nameof(model));
 
         var dto = _mapper.Map<PageDTO>(model);
-        var result = await _store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
+        var note = model.NodeId.HasValue && model.NodeId != Guid.Empty ? "Page edited" : "Page created";
+        ContentWriteResult result;
+        using (ChangeSetScope.UseChangeNote(note))
+            result = await _store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
         if (!result.Success) return (false, result.ErrorMessage ?? "Failed to update page.");
         model.NodeId = result.NodeId;
+        await _pageHistory.RecordDraftAsync(result.NodeId, note, ct);
         return (true, null);
+    }
+
+    /// <summary>A restored page version is a change to the page set, so it is recorded in page history.</summary>
+    public override async Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, CancellationToken ct = default)
+    {
+        // Opened here (the store would open its own and close it before the history entry is written), so
+        // the entry belongs to the restore's change set.
+        using var _ = ChangeSetScope.Begin(ChangeSetKind.Restore, null, null);
+        var result = await _store.RestoreAsync(versionId, ct);
+        if (!result.Success)
+            return new AdminSaveResult(false, result.ErrorMessage);
+
+        // The new version's note says which version came back ("Restored from version n").
+        var restored = await _store.GetVersionAsync(result.VersionId, ct);
+        await _pageHistory.RecordDraftAsync(result.NodeId, $"Page: {restored?.Version.ChangeNote ?? "Restored an earlier version"}", ct);
+        return new AdminSaveResult(true);
     }
 
     public async Task<bool> DeletePageAsync(Guid nodeId, CancellationToken ct = default)
@@ -104,8 +129,20 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
 
-    public Task<bool> DeletePageVersionAsync(Guid id, CancellationToken ct = default)
-        => DeleteVersionCoreAsync(id, ct);
+    public async Task<bool> DeletePageVersionAsync(Guid id, CancellationToken ct = default)
+        => (await TryDeleteVersionAsync(id, ct)).Success;
+
+    /// <summary>A page version a page-history entry captured cannot be deleted while that entry exists.</summary>
+    public override async Task<(bool Success, string? ErrorMessage)> TryDeleteVersionAsync(Guid id, CancellationToken ct = default)
+    {
+        var entries = await _pageHistory.GetSnapshotsReferencingVersionAsync(id, ct);
+        if (entries.Count > 0)
+            return (false, PageHistoryMessages.VersionInHistory(entries[0]));
+
+        return await DeleteVersionCoreAsync(id, ct)
+            ? (true, null)
+            : (false, IAdminCrudHandler.VersionNotDeletedMessage);
+    }
 
     public async Task<(bool Success, string? ErrorMessage)> PublishPageAsync(Guid nodeId, CancellationToken ct = default)
     {
@@ -169,7 +206,11 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 : (false, error + " The previous route could not be restored: " + string.Join(" ", restoreErrors));
         }
 
-        return await PublishZoneDraftsAsync(nodeId, ct);
+        var zones = await PublishZoneDraftsAsync(nodeId, ct);
+
+        // Record what went live — including a partial zone failure, since what did publish is live.
+        await _pageHistory.CaptureAsync(nodeId, ct);
+        return zones;
     }
 
     /// <summary>
@@ -192,6 +233,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         var zones = await _contentZoneService.PublishPageZoneItemsAsync(pageNodeId, itemNodeIds, ct);
         var errors = await RegisterPublishedZoneRoutesAsync(pageNodeId, zones, ct);
+        await _pageHistory.CaptureAsync(pageNodeId, ct);
         return zones with { Errors = errors };
     }
 
@@ -320,7 +362,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         => DeletePageVersionAsync(id, ct);
 
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static List<PageTreeNode> BuildTree(List<PageDTO> pages, List<CMSRouteDTO> activeRoutes, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingZonePages)
+    private static List<PageTreeNode> BuildTree(List<PageDTO> pages, List<CMSRouteDTO> activeRoutes, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingPages)
     {
         var routeMap = activeRoutes
             .Where(r => r.OwningContentType == "Page" && r.OwningContentNodeId.HasValue)
@@ -352,7 +394,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         Title = page.Version.Title,
                         PageNodeId = page.Version.Node.Id,
                         IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds),
-                        HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
+                        HasPendingChanges = HasPendingChanges(page.Version.Node.Id, publishedNodeIds, pendingPages),
                         IsHidden = page.Version.Node.IsHidden,
                         ModificationDate = page.Version.CreatedUtc
                     };
@@ -364,7 +406,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     rootNode.Title = page.Version.Title;
                     rootNode.PageNodeId = page.Version.Node.Id;
                     rootNode.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
-                    rootNode.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
+                    rootNode.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, publishedNodeIds, pendingPages);
                     rootNode.IsHidden = page.Version.Node.IsHidden;
                     rootNode.ModificationDate = page.Version.CreatedUtc;
                 }
@@ -387,7 +429,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         Title = isLeaf ? page.Version.Title : segments[i],
                         PageNodeId = isLeaf ? page.Version.Node.Id : null,
                         IsPublished = isLeaf && IsNodePublished(page.Version.Node.Id, publishedNodeIds),
-                        HasPendingChanges = isLeaf && HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages),
+                        HasPendingChanges = isLeaf && HasPendingChanges(page.Version.Node.Id, publishedNodeIds, pendingPages),
                         IsHidden = isLeaf && page.Version.Node.IsHidden,
                         ModificationDate = isLeaf ? page.Version.CreatedUtc : null
                     };
@@ -411,7 +453,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                     node.Title = page.Version.Title;
                     node.PageNodeId = page.Version.Node.Id;
                     node.IsPublished = IsNodePublished(page.Version.Node.Id, publishedNodeIds);
-                    node.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, page.Version.State, publishedNodeIds, pendingZonePages);
+                    node.HasPendingChanges = HasPendingChanges(page.Version.Node.Id, publishedNodeIds, pendingPages);
                     node.IsHidden = page.Version.Node.IsHidden;
                     node.ModificationDate = page.Version.CreatedUtc;
                 }
@@ -468,9 +510,8 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private static bool IsNodePublished(Guid nodeId, HashSet<Guid> publishedNodeIds)
         => publishedNodeIds.Contains(nodeId);
 
-    private static bool HasPendingChanges(Guid nodeId, ContentVersionState state, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingZonePages)
-        => publishedNodeIds.Contains(nodeId)
-           && (state != ContentVersionState.Published || pendingZonePages.Contains(nodeId));
+    private static bool HasPendingChanges(Guid nodeId, HashSet<Guid> publishedNodeIds, HashSet<Guid> pendingPages)
+        => publishedNodeIds.Contains(nodeId) && pendingPages.Contains(nodeId);
 
     private async Task<string> DeriveRoutePatternForPublishAsync(string slug, Guid nodeId, Guid? parentNodeId, CancellationToken ct)
     {

@@ -1,0 +1,15 @@
+@* A zone item's change as a tag. ViewData["Since"] = true phrases it relative to an entry ("Added since"). *@
+@using WebWayCMS.Models.PageHistory
+@model PageSetChange
+@{
+    var since = ViewData["Since"] is true;
+    var (css, text) = Model switch
+    {
+        PageSetChange.Added => ("is-success", since ? "Added since" : "Added"),
+        PageSetChange.Removed => ("is-danger", since ? "Removed since" : "Removed"),
+        PageSetChange.Changed => ("is-warning", "Changed"),
+        PageSetChange.Moved => ("is-info", "Moved"),
+        _ => ("is-light", "Unchanged")
+    };
+}
+<span class="tag @css">@text</span>

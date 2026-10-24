@@ -132,7 +132,7 @@ collide and the invariant indexes below would silently fail to enforce anything.
 ### `ChangeSet` — groups versions written by one operation
 
 ```csharp
-public enum ChangeSetKind { Save = 0, Publish = 1, Unpublish = 2, Restore = 3, Delete = 4 }
+public enum ChangeSetKind { Save = 0, Publish = 1, Unpublish = 2, Restore = 3, Delete = 4, Discard = 5 }
 
 public record ChangeSet
 {
@@ -146,8 +146,61 @@ public record ChangeSet
 ```
 
 `IChangeSetScope` provides ambient scoping: `AdminCrudModel.SaveUpsertAsync` (and publish/restore)
-opens a scope; every `IContentStore<T>` write inside stamps `ChangeSetId = scope.Current`, so a
-composite save reads back as one history entry.
+opens a scope; every `IContentStore<T>` write inside stamps `ChangeSetId = scope.Current`. A version's
+`ChangeSetId` records only the **last** operation that wrote it (a publish restamps it), so it is not a
+history of a page set: that is recorded explicitly as page-set snapshots (below).
+
+**Change notes.** Every version carries a `ChangeNote` saying what wrote it. The note is the ambient
+`IChangeSetScope.UseChangeNote(note)` when one is open (it nests and restores the previous note, and opens
+no change set), else the store's default — "Created", "Edited", or "Restored from version n". It is never
+copied from the version the save started from.
+
+### `PageSetSnapshot` — page-set history
+
+One row per change to a page set: a page version plus every **active** zone item version in the page's
+zone tree (nested zones included), as `PageSetSnapshotItem` rows (`ItemNodeId`, `ItemVersionId`,
+denormalized `ZoneNodeId`/`Ordinal`), with `Kind`, `Note` and `StateHash` (a content hash, no version ids).
+Tables `PageSetSnapshots` / `PageSetSnapshotItems` (items cascade with their snapshot; the FKs to
+`ContentNodes`/`ContentVersions` are **restrict**). Written by `IPageHistoryRecorder`:
+
+- **Draft** entries (`RecordDraftAsync`: the page's current draft + the active current drafts, descending
+  only through active containers) after every page save/restore (`PageModel`), every zone item
+  add/edit/settings/remove/move/reorder/restore (`ContentZoneService`, once per write after it committed,
+  for every page whose tree holds the zone — `PageZoneTree.GetPagesForZoneAsync`; none for a global zone),
+  and every revert/discard.
+- **Published** entries (`RecordPublishedAsync`, via `IPageHistoryService.CaptureAsync`: the published page
+  + the active published items) after `PageModel.PublishPageAsync` and `PublishZoneItemsAsync`.
+- An entry whose `StateHash` equals the latest one (Draft: latest of either kind; Published: latest
+  Published) is skipped. A failed write is logged and never fails the change.
+
+The zone-tree queries (walk up, walk down, live/draft tree items, content-aware pending) live in
+`PageZoneTree`, shared by `ContentZoneService`, `PageHistoryService` and the recorder so none depends on
+another.
+
+- **Versions are immutable** (every save mints one), so an entry always shows exactly what it captured.
+- **Deletes.** A user deleting a single captured page or item version is refused by the handlers
+  (`TryDeleteVersionAsync` / `TryDeleteChildVersionAsync`, message from `PageHistoryMessages`) — with an entry
+  per change that covers most versions. Any hard delete inside the store (`DeleteAsync`,
+  `DeleteVersionAsync` — page delete, zone delete) removes **whole** snapshots that reference the deleted
+  versions first.
+- **Revert** (`IPageHistoryService.RevertAsync`): one transaction, one `Restore` change set rooted at the
+  page. The page and each captured item get the captured content and placement as **new drafts** (items
+  already content-equal are skipped); every other item in the tree becomes an inactive draft (never
+  deleted), moved past the zone's last ordinal if it would share a captured one. Guarded by a draft
+  **state token** (`PageSetEquality.StateToken` over the current drafts' version numbers and content) and
+  refused with `StaleStateMessage` when the page changed since. Metadata is normalized through a
+  Core-supplied `RestorableMetadata` delegate (List→Single grandfathering). The revert is recorded as a
+  Draft entry.
+- **Discard** (`IPageHistoryService.DiscardUnpublishedChangesAsync`, the page editor's "Discard changes"):
+  the revert mechanics with what is live as the target — edited items get their live content and placement
+  back, never-live items (or live as removed) become inactive drafts, the page returns to its published
+  fields. Nothing is deleted, it is recorded, so it can be undone; refused (`NotPublishedMessage`) when the
+  page is not published.
+- **Pending changes** (`GetPagesWithUnpublishedChangesAsync`) compare by content: the page draft vs. the
+  live page, plus `PageZoneTree.GetPagesWithPendingZoneChangesAsync` (a current draft that differs from its
+  published row, or an active one never live). Drafts equal to what is live are not pending.
+- **Comparison** is by content (`PageSetEquality`), never by version id, so a restored identical copy
+  reads as unchanged.
 
 ### The two state invariants
 
@@ -274,6 +327,7 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | `ContentNodeEntityConfiguration` | `ContentNodes` |
 | `ContentVersionEntityConfiguration` | `ContentVersions` |
 | `ChangeSetEntityConfiguration` | `ChangeSets` |
+| `PageSetSnapshotEntityConfiguration` / `PageSetSnapshotItemEntityConfiguration` | `PageSetSnapshots` / `PageSetSnapshotItems` |
 | `ArticleDTOEntityConfiguration` | `Articles` |
 | `ArticleListDTOEntityConfiguration` | `ArticleLists` |
 | `ContentBlockDTOEntityConfiguration` | `ContentBlocks` |
@@ -288,7 +342,11 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | `ContentSeedRecordDTOEntityConfiguration` | `ContentSeedRecords` |
 
 Migrations live in `WebWayCMS.Data/Migrations/`; `./scripts/RebuildEFMigrations.sh` wipes and
-regenerates a single `InitialCreate` (destructive, not additive).
+regenerates a single `InitialCreate` (destructive, not additive). Because the schema is kept as one
+regenerated `InitialCreate`, a regenerated migration carries a **new timestamp** — any database that
+already applied the previous `InitialCreate` holds a stale `__EFMigrationsHistory` row and must be
+rebuilt (or its history row updated by hand) before `Database.Migrate()` can run again; the rebuild
+script is the supported path.
 
 ---
 
@@ -322,6 +380,13 @@ q.Where(e => e.Version.Culture == ctx.Culture
 Both branches are single-row index seeks against the filtered unique indexes. (Scheduled-publishing
 predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship as columns, unfiltered.)
 
+A third mode, `ContentReadMode.Snapshot`, renders a page-history entry: when the context carries a
+`ContentReadSnapshot(GovernedNodeIds, VersionIds)` (the `IContentReadContext.Snapshot` default member;
+null everywhere but an admin page-history preview), a governed node reads only a version in
+`VersionIds` — or nothing, which is how an item added after the entry is hidden — and every other node
+reads `Published`. `IPageHistoryService.GetReadSnapshotAsync` governs the page plus every item that
+has sat in its zone tree. Snapshot mode without a snapshot falls back to `Published`.
+
 **Reads (version-explicit / admin):**
 
 | Method | Behaviour |
@@ -338,17 +403,22 @@ predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship
 
 | Method | Behaviour |
 |---|---|
-| `SaveDraftAsync(entity, expectedVersionNumber)` | New node ⇒ v0 draft. Existing ⇒ if current draft is `Published`, mint `VersionNumber+1` as a new draft and clear the published row's `IsCurrentDraft`; if already `Draft`, update in place. `VersionNumber` comes from `MAX` on the DB, never the client. `expectedVersionNumber` (a hidden form field) is compared against the current draft's number; mismatch returns the friendly stale-version message. |
+| `SaveDraftAsync(entity, expectedVersionNumber)` | New node ⇒ v0 draft. Existing ⇒ **always** mints `VersionNumber+1` as the new current draft and clears the previous one's `IsCurrentDraft` (published or not) — no version is ever rewritten, so every save is restorable. A tracked incoming entity is detached before it is re-keyed. `VersionNumber` comes from `MAX` on the DB, never the client. `expectedVersionNumber` (a hidden form field) is compared against the current draft's number; mismatch returns the friendly stale-version message. The new version's change note is the ambient one, else "Created"/"Edited". |
 | `PublishAsync(nodeId)` | Promotes the current draft to `Published`; archives any prior published version. |
 | `UnpublishAsync(nodeId)` | Published current → `Draft`; or, with a separate draft, archives the published row and leaves the draft. |
 | `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
-| `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node. |
-| `DeleteVersionAsync(versionId)` | Removes a single version row + its type row — **but refuses to delete the highest-numbered version** for the node, matching the admin UI which hides Delete on the latest version. A node's single version is its max, so it can never be removed this way. |
-| `DiscardDraftAsync(nodeId)` | Throws away an unpublished current draft (change-set kind `Discard`). A current draft that is itself `Published` is a no-op. Otherwise the draft row is removed and the `Published` version — or, if none, the newest earlier version — becomes the current draft again (two `SaveChanges` inside one DB transaction, so the `IsCurrentDraft` unique index never sees two and a crash can never leave the node without a current draft; a `DbUpdateException` — e.g. a concurrent restore — rolls back, detaches the draft/fallback entries so the scoped context can't replay them on its next save, and maps to the shared stale-version message). A node whose only version is the draft is hard-deleted (`VersionId` empty in the result). |
+| `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node, and every page-history snapshot that captured one of those versions. |
+| `DeleteVersionAsync(versionId)` | Removes a single version row + its type row — **but refuses to delete the highest-numbered version** for the node, matching the admin UI which hides Delete on the latest version. A node's single version is its max, so it can never be removed this way. Snapshots that captured the version go with it (user-initiated deletes of captured versions are refused earlier, by the handlers). |
 
 **Concurrency:** the unique index `UX_ContentVersion_Number` is the backstop; `ContentStore<T>` catches
 `DbUpdateException` and maps it to the same stale-version message, so a true race degrades to the
-friendly error rather than corruption.
+friendly error rather than corruption. On a failed `SaveDraftAsync`/`RestoreAsync`, the abandoned
+demotion (the old version row, captured before the swap) and insert are detached from the scoped context (after the transaction's rollback) so no
+later `SaveChanges` in the same request replays them. In both, the demotion and the minted version are written
+as two `SaveChanges` calls inside one transaction — the filtered `UX_ContentVersion_DraftVariant`
+index is checked per-statement and EF Core does not order INSERTs before UPDATEs within one
+`SaveChanges` — and the transaction is skipped when the caller already opened one (Npgsql has no
+nested transactions).
 
 **Slug generation:** `SlugNormalizer.Normalize` (in `WebWayCMS.Data/Slugs/`) is the single source of truth
 for slug shape, called from both `ContentStore<T>.NormalizeSlug` (the write path) and `PageModel`'s
@@ -407,9 +477,11 @@ versioned through `IContentStore<T>`). Zone and item **reads** are read-context 
 **Draft rule.** Items in a zone that belongs to a page — directly, or through nested zones
 (`GetParentPageNodeForZoneAsync` resolves to a page) — are **drafts until the page is published**:
 `AddItemAsync`, `UpdateItemAsync` and `ReorderItemsAsync` save drafts without publishing, and
-`RemoveItemAsync` saves an `IsActive=false` draft for an item that was ever published (a never-published
-item is hard-deleted). Items in global/name-based zones have no page to publish them, so they still
-auto-publish on write. The rule lives in the service, so it applies to every caller (zone editor API,
+`RemoveItemAsync` saves an `IsActive=false` version — never a delete, published or not, so the item's
+history stays and a restore or page revert brings it back (a removed container keeps its nested items,
+hidden). Items in global/name-based zones have no page to publish them, so they still auto-publish on write
+(a global removal is published at once). Each write sets the versions' change notes and records one page
+history entry for every page whose tree holds the zone (see `PageSetSnapshot`). The rule lives in the service, so it applies to every caller (zone editor API,
 admin child CRUD, MCP).
 
 **Page draft lifecycle:**
@@ -418,10 +490,9 @@ admin child CRUD, MCP).
 |---|---|
 | `GetZoneTreeNodeIdsForPageAsync(pageNodeId)` | Every zone under a page: its assigned zones, then the zones owned by their items (matched on any item version, so a moved item's draft and published zones both count), breadth-first (visited set guards cycles). Each level queries only the current frontier's zones, so the cost follows the page's tree, not the whole zone table |
 | `GetPendingItemNodeIdsAsync(zoneNodeIds)` | Item nodes in those zones whose current draft is not `Published` (never published, or edited since) |
-| `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a pending item anywhere in their zone tree (Pages list "Pending" tag). One breadth-first walk covers all the pages at once |
+| `GetPagesWithPendingZoneChangesAsync(pageNodeIds)` | Batched: which of the pages have a change anywhere in their zone tree, **by content** (`PageZoneTree`): a current draft differing from its published row, or an active item never live — a draft equal to what is live is not a change. One breadth-first walk covers all the pages at once |
 | `PublishPageZonesAsync(pageNodeId)` | Publishes every pending item under the page; returns `PageZonePublishResult(Published, Errors)` so the caller (`PageModel`) can register widget routes for what went live. Joins the caller's ambient change set |
 | `PublishPageZoneItemsAsync(pageNodeId, itemNodeIds)` | Publishes only the listed items among the page's pending drafts (others stay pending; a listed item that isn't pending is ignored). Same result shape, plus `FailedItemNodeIds`. Backs `IPageModel.PublishZoneItemsAsync`, which the content seeder uses on an already-live page instead of republishing it |
-| `DiscardPageZoneDraftsAsync(pageNodeId)` | `DiscardDraftAsync` on every pending item — once-published items first, so a live widget dragged into a never-published container returns home before the container (and its nested zones) is deleted. A container's nested zones are deleted only when the discard will delete the container itself (its draft is its sole version); one with an earlier version falls back to it and keeps its columns. Items already removed with a deleted container are skipped. Sweeps route rows of items the discard deleted |
 
 | Method | Behaviour |
 |---|---|
@@ -434,10 +505,23 @@ admin child CRUD, MCP).
 | `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators |
 | `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks zone → assignment → page, or → owning item → that item's zone …, to the owning page node (null for global, orphaned, or cyclic zones) |
 | `GetItemByNodeIdAsync` / `AddItemAsync` / `UpdateItemAsync` / `RemoveItemAsync` | Item CRUD (node-keyed). `UpdateItemAsync(item, expectedVersionNumber)` and the removal save reject the write with the shared stale-version message when the item changed since the caller read it; a null/whitespace `MetadataJson` never reaches the column as NULL (an omitted update keeps the stored document, a blank one stores `"{}"`). The metadata API normalizes a blank body as `{}` against the stored document, so clearing keeps a grandfathered List. |
-| `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Validates up front that every id resolves and belongs to `zoneNodeId`, then writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation). Each save carries the version the item was read with, so a concurrent edit to a sibling fails the whole reorder instead of being silently reverted. The saves run in one DB transaction (a failure rolls back and clears the change tracker), so a missing/foreign id or a failed save returns `false` with no partial reorder. |
+| `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Validates up front that every id resolves and belongs to `zoneNodeId`, then writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation). The client sends only the active items: every other current draft in the zone (removed items above all) keeps its place and the requested items fill the positions they held, so the whole zone is renumbered and no two items share an ordinal. A repeated id fails the reorder. Each save carries the version the item was read with, so a concurrent edit to a sibling fails the whole reorder instead of being silently reverted. The saves run in one DB transaction (a failure rolls back and clears the change tracker), so a missing/foreign id or a failed save returns `false` with no partial reorder. |
 | `MoveItemAsync(itemNodeId, targetZoneNodeId, position, expectedVersionNumber)` | Moves an item to a 0-based (clamped) position among the target's active items, in one ChangeSet. Removed (inactive) items in the target are renumbered in place too, so no two items share an ordinal if a removal is later discarded, and a cross-zone move renumbers the source zone's remaining items. `expectedVersionNumber` (the moved item's version as the client rendered it) rejects the move with `StaleVersionMessage` when the widget changed since the page loaded; sibling saves carry their read versions, so a concurrent edit fails the move (also `StaleVersionMessage`; the API maps it to 409). Both zones' renumbering commits in one DB transaction, so a failed source renumber never leaves the widget half-moved. A missing or inactive item returns `IContentZoneService.ItemNotFoundMessage` (the API maps it to 404). Same zone = reorder; another zone only within the same page's zone tree, never into the item's own nested zones. Returns `(Success, ErrorMessage)`. A draft until the page is published (global zones auto-publish). See [04 → Moving Items](04-content-zone-framework.md#8a-moving-items-drag-and-drop). |
-| `DeleteZoneAsync(zoneNodeId)` | Removes the zone's assignments, its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back via `DiscardDraftAsync` and only its versions in this zone are dropped. Nested zones hang off items, so deleting a zone's items recurses into them (the zone's own assignment rows go first, so a cycle can't lead back); nested zones still referenced elsewhere survive. |
+| `RestoreItemVersionAsync(versionId, metadataJson, expectedVersionNumber)` | One-step restore of an item version: its content, metadata (`metadataJson` when the caller normalized it, else the version's own), active state, **zone and ordinal**. It is inserted back into its old zone before the first sibling at or past its old ordinal, siblings renumbered (and the source zone too on a cross-zone restore), sharing `MoveItemAsync`'s placement code, in one transaction under a `Restore` change set. Refused with `RestoreZoneMissingMessage` when the old zone no longer exists, now belongs to another page (or is not the current zone of a global item), or sits inside the item itself; `StaleVersionMessage` on an expected-version mismatch. A draft until the page publishes (a global zone's item publishes now). |
+| `UpdateItemAsync(item, SlotRemapPlan, expected)` / `RestoreItemVersionAsync(versionId, metadataJson, expected, SlotRemapPlan)` | The same writes for a container whose view changed, all in one transaction: the version-checked container save (or the restore's placement) first, then each `SlotMove`'s target zone is got or created (`GetOrCreateByItemSlotAsync`, which joins the open transaction; a missing source or one that is its own target is skipped), so a stale or failed save creates no zones; then each target zone's new order (existing items, then the sources' current drafts — removed ones too — noted "Moved to {slot} (layout changed)") commit in one transaction, published at once in a global zone. One page-history entry with the plan's `HistoryNote` (prefixed "Restored X from version N; " for a restore). The plan comes from Core (`SlotRemapPlanner`, see [04 → Changing a container's view](04-content-zone-framework.md#changing-a-containers-view)). `ContentZoneService.MergeUpdate` is the shared "what an update saves" rule. |
+| `GetOwnedSlotsWithItemsAsync(itemNodeId)` | Slot names of the item's own zones holding any current draft (removed ones count) — the remap's fast-path check |
+| `GetDescendantItemNodeIdsAsync(containerItemNodeId)` | Every item with any version in a zone nested under the container, at any depth (breadth-first, cycle-guarded, deleted nodes excluded) — the combined history timeline |
+| `GetItemOwnedZonesForPageAsync(pageNodeId)` | `ItemOwnedZone`s (zone, slot, owner draft) owned by the page's active widgets and holding an active current draft — the Unplaced panel's candidates |
+| `DeleteZoneAsync(zoneNodeId)` | Removes the zone's assignments, its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back (if its current draft sits here, a new version restoring the published one — "Returned to its published zone") and only its versions in this zone are dropped. If sending it back or dropping one of those versions fails, the delete stops and returns `false` (logged) instead of deleting a zone a current draft still points at. Nested zones hang off items, so deleting a zone's items recurses into them (the zone's own assignment rows go first, so a cycle can't lead back); nested zones still referenced elsewhere survive. |
 | `DeletePageZonesAsync(pageNodeId)` | Removes the page's own assignment rows, then for each distinct zone node re-queries the remaining assignment count and calls `DeleteZoneAsync` when it is `0`. A zone node is deleted exactly when nothing references it any more — whether it is shared with another page or parent, or assigned to two of the same page's slots. This is what stops page deletion from orphaning `ContentZoneAssignments` rows or zone nodes. |
+
+**Breaking API note (for package hosts):** this change removes `IContentStore<T>.DiscardDraftAsync`
+and `IContentZoneService.DiscardPageZoneDraftsAsync` (a "discard" is now a page-history revert to what
+is live — see `IPageHistoryService.DiscardUnpublishedChangesAsync`), and adds members to
+`IContentZoneService` (`UpdateItemAsync`/`RestoreItemVersionAsync` overloads taking a `SlotRemapPlan`,
+plus `GetOwnedSlotsWithItemsAsync`, `GetDescendantItemNodeIdsAsync`, `GetItemOwnedZonesForPageAsync`).
+A host that *implements* these interfaces directly must add the new members; hosts that only *consume*
+them recompile unchanged. This warrants a package major-version bump on the next release.
 
 ---
 

@@ -72,8 +72,15 @@ public interface IAdminCrudHandler
     Task<VersionHistoryViewModel?> GetVersionHistoryViewModelAsync(Guid nodeId, CancellationToken ct = default);
     Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default);
     Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default);
+
+    // DeleteVersionAsync with the reason a delete was refused; default wraps it with VersionNotDeletedMessage
+    Task<(bool Success, string? ErrorMessage)> TryDeleteVersionAsync(Guid id, CancellationToken ct = default);
 }
 ```
+
+`TryDeleteVersionAsync` is what the admin `VersionDelete` action and MCP `delete_version` call; the reason
+is shown to the user. `PageModel` overrides it to refuse a page version that a page-history entry
+captured (`PageHistoryMessages.VersionInHistory`).
 
 **Semantics:**
 - `GetIndexViewModelAsync(IQueryCollection)` — default implementation delegates to the parameterless overload; override to support filtering via query string
@@ -117,8 +124,19 @@ public interface IAdminCrudChildHandler
     Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default);
     Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default);
     Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default);
+
+    // one-step restore (history page Restore button, MCP restore_child_version); the default saves the
+    // GetChildRestoreVersionViewModelAsync form through SaveChildUpsertAsync
+    Task<AdminSaveResult> RestoreChildVersionAsync(string parentKey, Guid versionId, int? expectedVersionNumber, CancellationToken ct = default);
+    // DeleteChildVersionAsync with the reason a delete was refused
+    Task<(bool Success, string? ErrorMessage)> TryDeleteChildVersionAsync(Guid id, CancellationToken ct = default);
 }
 ```
+
+The zone-item child handler overrides both: restore goes through
+`IContentZoneService.RestoreItemVersionAsync` (content, metadata, active state, zone and ordinal; see
+[04 → History in the Zone Editor](04-content-zone-framework.md#8b-history-in-the-zone-editor)), and a
+version a page-history entry captured cannot be deleted.
 
 `parentKey` is interpreted by the child handler (zone items, the only shipped child handler, use the zone's Guid string). Prefer a stable id: a slug changes when the parent is renamed.
 
@@ -215,9 +233,13 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}` | `ChildVersionHistory` |
-| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/edit/{id:guid}` | `ChildVersionRestoreEdit` |
-| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}` | `ChildVersionDelete` |
+| GET | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}` | `ChildVersionHistory` — optional `returnUrl` (local only) replaces the Back link and is carried through the forms |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/restore/{id:guid}` | `ChildVersionRestore` — one-step restore (`expectedVersionNumber`, `returnUrl` form fields) |
+| POST | `/wadmin/{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}` | `ChildVersionDelete` — a refusal's reason goes to `TempData["Error"]` |
+
+The page-history screens live on their own controller, `AdminPageHistoryController`
+(`/wadmin/contentzones/page/{pageNodeId}/history…`) — see
+[04 → History in the Zone Editor](04-content-zone-framework.md#8b-history-in-the-zone-editor).
 
 ---
 
@@ -240,7 +262,10 @@ ViewModel's `ExpectedVersionNumber` with the **current** draft's `VersionNumber`
 row's). This is what lets a restore-edit of an *older* version save cleanly instead of failing the
 concurrency check with "changed by someone else".
 
-Child resources follow the same pattern with `ChildVersionHistory*` routes.
+Child resources list their history the same way (`ChildVersionHistory`), but restore in **one step**:
+the history page's Restore button posts `ChildVersionRestore` → `RestoreChildVersionAsync` with the
+current draft's version number (`VersionHistoryViewModel.CurrentVersionNumber`) as the expected version.
+There is no child restore-edit form. Restore is hidden on the latest version, like Delete.
 
 ---
 
@@ -263,7 +288,7 @@ Handles the admin inline zone editing views. Delegates to `IContentZoneModel` fo
 |--------|-------|--------|
 | GET | `/wadmin/contentzones/zone-edit/{id:guid}` | `ZoneEdit` — one zone (`~/Views/AdminContentZone/ZoneEdit.cshtml`); a draft read (`PreviewConstants.MarkDraftRequest`), so page-owned items render their current draft and version |
 | GET | `/wadmin/contentzones/page/{pageNodeId:guid}` | `PageZones` — the **page zone editor** (`PageZonesEdit.cshtml`); 404 for an unknown page |
-| POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `DiscardPageZoneDraftsAsync`, then back to the editor |
+| POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `IPageHistoryService.DiscardUnpublishedChangesAsync` (return to what is live, recorded in page history), then back to the editor |
 
 **Page zone editor.** Opened from a page's title (or its **Edit zones** button) on the Pages list. It lists the page's
 zone assignments (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in

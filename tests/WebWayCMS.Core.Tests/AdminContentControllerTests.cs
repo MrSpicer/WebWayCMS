@@ -250,6 +250,21 @@ public class AdminContentControllerTests
         Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
     }
 
+    [Test]
+    public async Task VersionDelete_Refused_ShowsTheReason()
+    {
+        _handler.SupportsVersionHistory.Returns(true);
+        _handler.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "in history"));
+
+        var result = await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<RedirectToActionResult>());
+            Assert.That(_controller.TempData["Error"], Is.EqualTo("in history"));
+        });
+    }
+
     // --- Preview ---
 
     [Test]
@@ -388,28 +403,73 @@ public class AdminContentControllerTests
     public async Task ChildVersionHistory_Unsupported_NullVm_View()
     {
         WireChild();
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "wrong", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.ChildVersionHistory("ct", "p", "wrong", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
 
         _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
 
         _child.SupportsVersionHistory.Returns(true);
         _child.GetChildVersionHistoryViewModelAsync("p", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((VersionHistoryViewModel?)null, new VersionHistoryViewModel());
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
+        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<ViewResult>());
+    }
+
+    [TestCase("/wadmin/contentzones/page/abc", "/wadmin/contentzones/page/abc")]
+    [TestCase("https://evil.example/", null)]
+    [TestCase("", null)]
+    public async Task ChildVersionHistory_ReturnUrl_ReplacesBackLinkOnlyWhenLocal(string returnUrl, string? expected)
+    {
+        WireChild();
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        _child.SupportsVersionHistory.Returns(true);
+        _child.GetChildVersionHistoryViewModelAsync("p", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new VersionHistoryViewModel { BackUrl = "/wadmin/contentzones" });
+
+        var view = (ViewResult)await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), returnUrl, default);
+
+        var vm = (VersionHistoryViewModel)view.Model!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.ReturnUrl, Is.EqualTo(expected));
+            Assert.That(vm.BackUrl, Is.EqualTo(expected ?? "/wadmin/contentzones"));
+        });
     }
 
     [Test]
-    public async Task ChildVersionRestoreEdit_Unsupported_NullVm_View()
+    public async Task ChildVersionRestore_Unsupported_Forbidden_SuccessAndFailure()
     {
+        Assert.That(await _controller.ChildVersionRestore("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundObjectResult>());
+
         WireChild();
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        Assert.That(await _controller.ChildVersionRestore("ct", "p", "wrong", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundResult>());
+
         _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionRestoreEdit("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundResult>());
 
         _child.SupportsVersionHistory.Returns(true);
-        _child.GetChildRestoreVersionViewModelAsync("p", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((object?)null, new FakeUpsert());
-        Assert.That(await _controller.ChildVersionRestoreEdit("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildVersionRestoreEdit("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
+        AsRoles("Viewer");
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        Assert.That(await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<ForbidResult>());
+
+        AsRoles("Admin");
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        var versionId = Guid.NewGuid();
+        _child.RestoreChildVersionAsync("p", versionId, 3, Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true), new AdminSaveResult(false, "stale"));
+
+        var ok = (RedirectToActionResult)await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), versionId, 3, "/wadmin/x", default);
+        var okMessage = _controller.TempData["Success"];
+        var failed = (RedirectToActionResult)await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), versionId, 3, "https://evil.example/", default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok.ActionName, Is.EqualTo(nameof(AdminContentController.ChildVersionHistory)));
+            Assert.That(ok.RouteValues!["returnUrl"], Is.EqualTo("/wadmin/x"));
+            Assert.That(okMessage, Is.Not.Null);
+            Assert.That(failed.RouteValues!["returnUrl"], Is.Null);
+            Assert.That(_controller.TempData["Error"], Is.EqualTo("stale"));
+        });
     }
 
     [Test]
@@ -417,14 +477,19 @@ public class AdminContentControllerTests
     {
         WireChild();
         _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
 
         _child.SupportsVersionHistory.Returns(true);
         AsRoles("Viewer");
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<ForbidResult>());
+        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<ForbidResult>());
 
         AsRoles("Admin");
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
+        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, "in history"));
+        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
+        Assert.That(_controller.TempData.ContainsKey("Error"), Is.False);
+        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
+        Assert.That(_controller.TempData["Error"], Is.EqualTo("in history"));
     }
 
     [Test]
@@ -436,9 +501,8 @@ public class AdminContentControllerTests
             Assert.That(await _controller.ChildEdit("missing", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
             Assert.That(await _controller.ChildDelete("missing", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
             Assert.That(await _controller.ChildReorder("missing", "p", "items", new List<Guid>(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildVersionHistory("missing", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildVersionRestoreEdit("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildVersionDelete("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
+            Assert.That(await _controller.ChildVersionHistory("missing", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
+            Assert.That(await _controller.ChildVersionDelete("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
         });
     }
 }

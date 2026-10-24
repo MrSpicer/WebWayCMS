@@ -28,6 +28,12 @@
             @TempData["Error"]
         </div>
     }
+    @if (TempData["Success"] != null)
+    {
+        <div class="notification is-success" role="status">
+            @TempData["Success"]
+        </div>
+    }
 
     @* Toolbar: draft status plus the page-level publish actions. Zone edits below are drafts until Publish. *@
     <div class="level box py-3 mb-4 page-zones-toolbar">
@@ -60,7 +66,7 @@
                     @if (Model.HasPendingZoneChanges)
                     {
                         <form asp-action="DiscardPageZones" asp-route-pageNodeId="@Model.PageNodeId" method="post" class="is-inline-block"
-                              data-confirm="Discard all unpublished zone changes on this page? This cannot be undone.">
+                              data-confirm="Return this page and its widgets to what is live? This is recorded in page history and can be undone from there.">
                             <button type="submit" class="button is-danger is-light">
                                 <span class="icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
                                 <span>Discard changes</span>
@@ -74,6 +80,10 @@
                             <button type="submit" class="button is-warning is-light">Unpublish</button>
                         </form>
                     }
+                    <a asp-controller="AdminPageHistory" asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId" class="button">
+                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                        <span>History</span>
+                    </a>
                     <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId" class="button">Edit page</a>
                     <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages" class="button">Back to Pages</a>
                 </div>
@@ -113,6 +123,42 @@
                 <div class="box mt-4">
                     <h2 class="title is-6">@slot.SlotName</h2>
                     @await Component.InvokeAsync("ContentZone", new { zoneName = slot.SlotName, zoneId = slot.ZoneNodeId, editMode = true })
+                </div>
+            }
+
+            @* Zones owned by this page's widgets that nothing above rendered (e.g. a layout's old columns):
+               their widgets would otherwise vanish from the editor. Rendering a batch can render more owners
+               (a stranded zone may hold a layout), so it repeats until nothing is left. Never shown live. *@
+            var renderLog = ZoneEditRenderLog.For(Context);
+            var listed = new HashSet<Guid>();
+            var batch = renderLog.NextUnplaced(Model.UnplacedCandidates, listed);
+            if (batch.Count > 0)
+            {
+                <div class="box mt-4 page-zones-unplaced">
+                    <h2 class="title is-6">
+                        <span class="icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></span>
+                        <span>Unplaced content</span>
+                    </h2>
+                    <p class="help mb-3">Not shown on the page — drag these widgets into a zone above, or remove them.</p>
+                    @while (batch.Count > 0)
+                    {
+                        foreach (var candidate in batch)
+                        {
+                            // Rendering this zone (directly, by id) also renders any zone nested inside it
+                            // via edit-mode inheritance; skip one an earlier candidate of this batch already
+                            // placed in the DOM, or its widgets would appear twice with a stale version.
+                            if (listed.Contains(candidate.ZoneNodeId) || renderLog.WasRendered(candidate.ZoneNodeId))
+                            {
+                                continue;
+                            }
+                            listed.Add(candidate.ZoneNodeId);
+                            <div class="page-zones-unplaced-zone">
+                                <h3 class="subtitle is-6 mb-2">@candidate.Label</h3>
+                                @await Component.InvokeAsync("ContentZone", new { zoneId = candidate.ZoneNodeId, editMode = true })
+                            </div>
+                        }
+                        batch = renderLog.NextUnplaced(Model.UnplacedCandidates, listed);
+                    }
                 </div>
             }
         }

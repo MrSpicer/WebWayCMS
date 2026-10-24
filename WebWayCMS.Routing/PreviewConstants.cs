@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Net.Http.Headers;
 
+using WebWayCMS.Data.Services;
+
 namespace WebWayCMS;
 
 /// <summary>
@@ -38,6 +40,30 @@ public static class PreviewConstants
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         httpContext.Items[DraftRequestItemKey] = true;
+        httpContext.Response.Headers[HeaderNames.CacheControl] = DraftCacheControl;
+    }
+
+    /// <summary>
+    /// Path segment of a page-history preview, <c>/_preview/{pageNodeId}/history/{entryId}</c>, which renders
+    /// the page as one page-history entry captured it.
+    /// </summary>
+    public const string HistorySegment = "history";
+
+    /// <summary>
+    /// <see cref="Microsoft.AspNetCore.Http.HttpContext.Items"/> key holding the
+    /// <see cref="ContentReadSnapshot"/> a page-history preview reads (Admin only).
+    /// </summary>
+    public const string SnapshotRequestItemKey = "WebWayCMS:ReadSnapshot";
+
+    /// <summary>
+    /// Marks this request as a page-history read of <paramref name="snapshot"/> and makes its response
+    /// uncacheable, for the same reason as <see cref="MarkDraftRequest"/>.
+    /// </summary>
+    public static void MarkSnapshotRequest(HttpContext httpContext, ContentReadSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        httpContext.Items[SnapshotRequestItemKey] = snapshot;
         httpContext.Response.Headers[HeaderNames.CacheControl] = DraftCacheControl;
     }
 }

@@ -1,0 +1,53 @@
+@* The zone items of an entry or a comparison. Each links to its own version history, which returns here. *@
+@using WebWayCMS.Models.PageHistory
+@model (List<PageHistoryItemRow> Rows, bool Since)
+@{
+    var returnUrl = $"{Context.Request.PathBase}{Context.Request.Path}{Context.Request.QueryString}";
+}
+
+@if (Model.Rows.Count == 0)
+{
+    <p class="has-text-grey">No widgets.</p>
+}
+else
+{
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped">
+            <thead>
+                <tr>
+                    <th scope="col">Zone</th>
+                    <th scope="col">Widget</th>
+                    <th scope="col">Position</th>
+                    <th scope="col">Version</th>
+                    <th scope="col">Change</th>
+                    <th scope="col"><span class="is-sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.Rows)
+                {
+                    <tr>
+                        <td>@row.ZoneName</td>
+                        <td>
+                            @row.Label
+                            @if (row.Label != row.ComponentName)
+                            {
+                                <span class="has-text-grey is-size-7">(@row.ComponentName)</span>
+                            }
+                        </td>
+                        <td>@row.Ordinal</td>
+                        <td><span class="tag is-light">v@(row.VersionNumber)</span></td>
+                        <td><partial name="_ChangeTag" model="row.Change" view-data='new ViewDataDictionary(ViewData) { ["Since"] = Model.Since }' /></td>
+                        <td>
+                            <a class="button is-small"
+                               href="@Url.Action("ChildVersionHistory", "AdminContent", new { contentType = "contentzones", parentKey = row.ZoneNodeId.ToString(), childType = "items", nodeId = row.ItemNodeId, returnUrl })">
+                                <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                <span>Widget history</span>
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

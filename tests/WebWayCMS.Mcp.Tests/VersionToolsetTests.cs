@@ -93,8 +93,17 @@ public class VersionToolsetTests
     [Test]
     public async Task DeleteVersion_ReturnsHandlerResult()
     {
-        _handler.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        _handler.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null));
 
         Assert.That((await _tools.DeleteVersion("contentblocks", Guid.NewGuid())).Deleted, Is.True);
+    }
+
+    [Test]
+    public void DeleteVersion_VersionInPageHistory_ThrowsWithTheReason()
+    {
+        _handler.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "part of page history"));
+
+        Assert.That(async () => await _tools.DeleteVersion("contentblocks", Guid.NewGuid()),
+            Throws.TypeOf<McpException>().With.Message.EqualTo("part of page history"));
     }
 }

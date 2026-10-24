@@ -53,7 +53,8 @@ content type).
 1. **Normalize** — an empty/unset path is treated as root `/`; lowercase the path; strip a
    trailing `/` (preserving root `/`)
 2. **Preview** — if the path is `/_preview/{nodeId:guid}`, resolve the draft directly (see below);
-   a malformed node id falls through to normal matching
+   if it is `/_preview/{pageNodeId:guid}/history/{entryId:guid}`, resolve a page-history entry (see
+   below); a malformed id or any other shape falls through to normal matching
 3. **Match** — `ICMSRouteService.MatchRouteAsync(path)` walks the active routes and returns the
    first pattern that matches, along with the route values it extracted. No match ⇒ `return null!`
 4. **Read `DefaultsJson`** — a `Dictionary<string, string>`; a `"controller"` key is required, and
@@ -106,6 +107,22 @@ editor and the single-zone editor can never mark one without the other) — the 
 gate on draft content is the per-request role check, so a cached draft response could otherwise be
 replayed later without it. `/_preview` responses are the only ones that may be framed (same origin
 only) — the admin page zone editor shows the draft preview in an iframe tab.
+
+### Page-history preview (`/_preview/{pageNodeId}/history/{entryId}`)
+
+Renders a page as one page-history entry (`PageSetSnapshot`) captured it, for the admin page-history
+screens' Preview frame. Same shape as the draft preview, with three differences:
+
+1. **Admin role only** (admin mode, authenticated, `Admin` — not `Editor`, since the history screens
+   are Admin-only); the entry must exist and belong to `pageNodeId`, else 404
+2. **The page is the captured version** — `IContentStore<PageDTO>.GetVersionAsync(entry.PageVersionId)`
+3. **Snapshot read, not draft read** — `PreviewConstants.MarkSnapshotRequest(httpContext,
+   IPageHistoryService.GetReadSnapshotAsync(entryId))` stores the `ContentReadSnapshot` under
+   `PreviewConstants.SnapshotRequestItemKey` (and sends `no-store`). `PreviewAwareReadContext` then reads
+   `ContentReadMode.Snapshot` for an Admin: the page and its zone items show the captured versions (an
+   item added since is hidden), while everything else — articles, content blocks, images, navigation,
+   other pages — reads as currently published. A rendering-only host's `PublishedContentReadContext` can
+   never enter snapshot mode.
 
 > **Routing precedence.** Attribute-routed controllers are mapped via `app.MapControllers()`
 > **before** the dynamic route, so real controller routes such as `AdminContentController`'s

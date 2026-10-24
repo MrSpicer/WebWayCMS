@@ -223,6 +223,47 @@ Discard brings everything back.
 
 Nesting depth is unlimited, but each level adds a database query. Avoid deep nesting for performance-sensitive pages.
 
+### Changing a container's view
+
+A container's slots are whatever its current view renders, so switching a Layout from two columns to
+three would strand the old columns' zones (still owned by the item, never rendered). Every item save and
+restore therefore goes through `ContentZoneModel.PlanSlotRemapAsync`:
+
+1. **Fast path.** An item that is being removed, is unchanged, or owns no zone holding a current-draft
+   widget (`IContentZoneService.GetOwnedSlotsWithItemsAsync`) saves as before, with no render.
+2. **Discovery by dry render.** `IWidgetSlotDiscovery.DiscoverSlotsAsync` (`ViewComponentSlotDiscovery`)
+   invokes the widget twice — old and new configuration, built exactly as the zone would
+   (`BuildComponentProperties`: metadata, List→Single downgrade, `ZoneItemNodeId`) — with a
+   `SlotDiscoveryRecorder` in ViewData and the output discarded. Under it, `ContentZoneViewComponent`
+   records the `zoneName` of each non-global, by-name zone whose `ContentZone:ParentItemId` is the item and
+   returns empty content (no zone is loaded or created, nothing nested renders), and
+   `WidgetViewComponent.GetContextMode` picks the public `view.*`/`list.*` variant even in the zone editor
+   (so the slots follow the configured view and host overrides). With no request (the startup seeder) it
+   runs in a stand-in `DefaultHttpContext`. Any failure returns null: the save goes ahead unmoved and the
+   page zone editor's Unplaced panel shows the content.
+3. **Mapping** (`SlotRemapPlanner.Plan`): a slot name in both views keeps its content; the remaining old
+   slots pair with the remaining new ones by position; any old slot left over goes to the new view's last
+   slot. Only old slots holding widgets produce a `SlotMove`. HeroWithColumns → TwoColumnEqual gives
+   Hero→Left, Column1→Right, Column2→Right, Column3→Right; TwoColumnSidebar → OneThirdTwoThird moves nothing.
+4. **Atomic write.** `UpdateItemAsync(item, SlotRemapPlan, expected)` / `RestoreItemVersionAsync(…, plan)`
+   create the target zones first (zone creation has its own transaction), then in one transaction save the
+   container and rewrite each target zone's order: what it already held, then every current draft of each
+   source (removed ones included, in order), noted "Moved to {slot} (layout changed)". Moves on a page are
+   drafts until the page publishes; in a global zone they publish with the container. One page-history
+   entry records it: "{label}: layout changed; content moved (Hero → Left, …)".
+
+Page-history revert and discard restore exact placements and never remap.
+
+**Unplaced content.** Below its slots, the page zone editor lists zones owned by the page's active widgets
+that hold active widgets but were not rendered (`ZoneEditRenderLog` records every edit-mode zone and widget
+per request; `IContentZoneModel.GetUnplacedCandidatesAsync` supplies "{widget} › {slot}" candidates). Each
+renders in edit mode by `zoneId`, so its widgets can be dragged into a real zone (same page tree) or
+removed; the loop repeats because a stranded zone may hold a container with its own zones. It never
+appears on the live site.
+
+**Removing a container** asks for confirmation naming how many widgets are inside it; the removal itself
+stays non-destructive (an inactive version that a restore brings back with its content).
+
 ---
 
 ## 8a. Moving Items (drag-and-drop)
@@ -260,6 +301,54 @@ by `ContentZoneViewComponent` in edit mode and inherited by nested zones via
 looked up again); the server enforces the same rules. The window auto-scrolls near
 its edges, Escape cancels, and every drop saves and reloads like other zone edits. On a focused handle,
 ArrowUp/ArrowDown move the item one step within its zone and focus returns to the handle after the reload.
+
+---
+
+## 8b. History in the Zone Editor
+
+**Every save is history.** Every save of an item mints a new version (nothing is rewritten in place), each
+with an automatic change note — "Added to Main", "Content edited", "Settings changed", "Moved to Side
+(position 2)", "Position changed (moved by another widget)" for siblings a drag renumbered, "Reordered
+(position n)", "Removed", "Restored from version n". **Removing an item is never a delete**: it saves an
+inactive version (a draft on a page; published at once in a global zone), so it can be restored. A removed
+container keeps its nested items, hidden, and brings them back when restored.
+
+**Container timeline.** A container's history page also lists every version of every widget that ever sat
+inside it, at any depth (`IContentZoneService.GetDescendantItemNodeIdsAsync`, any version counts), merged
+newest first with a Widget column (`VersionHistoryViewModel.IsCombined`). "Latest" and each row's Restore
+expected version are per widget (`VersionItemViewModel.NodeCurrentVersionNumber`); MCP
+`list_child_versions` returns the same rows with their `nodeId`.
+
+**Per item.** Each item's edit-mode toolbar has a History link (`a.zone-history-item`, plain link, no
+script) to the existing child history page,
+`/wadmin/contentzones/{zoneId}/items/versions/{itemNodeId}?returnUrl={this editor}`; the local
+`returnUrl` becomes the page's Back link and is carried through its forms. Restore there is **one step**
+(`POST .../versions/{nodeId}/restore/{id}` → `IAdminCrudChildHandler.RestoreChildVersionAsync` →
+`IContentZoneService.RestoreItemVersionAsync`): the version's content, metadata (List→Single when the
+widget no longer supports lists — `WidgetMetadataJson.Restorable`), active state, zone and ordinal come
+back as one new draft version, inserted at the old position with siblings renumbered. It is refused when the old zone
+is gone or now belongs to another page. Deleting a version that a page-history entry captured is refused
+with the entry's date.
+
+**Per page (page-set history).** Every change to the page set records a **Draft** `PageSetSnapshot` (the
+page version + every active item in its zone tree, with a note such as "Added ContentBlock to Main"), and
+every publish records a **Published** one (what went live); an entry identical to the previous one is
+skipped (see [01 → PageSetSnapshot](01-data-tier.md)). **Discard changes** returns the page to what is live
+as new versions and is itself recorded, so it can be undone; it is offered only on a published page with
+changes. "Pending changes" compares content, so drafts equal to what is live are not pending. The page zone editor toolbar's **History** button opens
+`AdminPageHistoryController` (`/wadmin/contentzones/page/{pageNodeId}/history`, Admin only):
+
+| Route | Screen |
+|---|---|
+| `GET .../history` | Entries, newest first: time, Draft/Published tag, the change note, and added/updated/moved/removed counts against the previous entry |
+| `GET .../history/{entryId}` | Entry detail: who/when, captured title, each widget with its change vs. the previous entry and a link to its own history |
+| `GET .../history/{entryId}/compare` | The current drafts vs. the entry (what changed *since*), by content; the Revert form carries the draft state token |
+| `GET .../history/{entryId}/preview` | Banner + iframe of `/_preview/{pageNodeId}/history/{entryId}` (snapshot read mode) |
+| `POST .../history/{entryId}/revert` | Reverts the page and every zone item to the entry as **drafts**; later items become inactive drafts; back to the editor to review and publish. A stale token returns to the comparison with an error |
+| `POST .../history/{entryId}/delete` | Deletes the entry record only (its versions are kept, and become deletable) |
+
+The model is `IPageHistoryModel` (Core) over `IPageHistoryService` (Data). The confirmations use
+`Views/AdminPageHistory/PageHistory.js` (→ `wwwroot/js/page-history.js`).
 
 ---
 

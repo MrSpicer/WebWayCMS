@@ -5,11 +5,13 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Page;
+using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Pages;
 using WebWayCMS.Services;
 
@@ -26,6 +28,7 @@ public class PageModelTests
     private ICMSRouteService _cmsRouteService = null!;
     private IContentZoneService _contentZoneService = null!;
     private IChangeSetScope _changeSetScope = null!;
+    private IPageHistoryService _pageHistory = null!;
     private PageModel _model = null!;
 
     [SetUp]
@@ -41,7 +44,9 @@ public class PageModelTests
         _contentZoneService = Substitute.For<IContentZoneService>();
         _contentZoneService.PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([], []));
         _changeSetScope = Substitute.For<IChangeSetScope>();
-        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope);
+        _pageHistory = Substitute.For<IPageHistoryService>();
+        _pageHistory.GetSnapshotsReferencingVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<PageSetSnapshot>());
+        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope);
     }
 
     private static PageDTO Page(string title = "T", ContentVersionState state = ContentVersionState.Published,
@@ -83,14 +88,14 @@ public class PageModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _contentZoneService, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, null!), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -1040,6 +1045,9 @@ public class PageModelTests
 
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
         _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid> { nodeId });
+        // The page history service decides pending by content; here the newer draft differs from the live page.
+        _pageHistory.GetPagesWithUnpublishedChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<Guid> { nodeId });
         _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
         {
             RouteFor(nodeId, "/t"),
@@ -1265,7 +1273,7 @@ public class PageModelTests
 
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page });
         _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid> { nodeId });
-        _contentZoneService.GetPagesWithPendingZoneChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+        _pageHistory.GetPagesWithUnpublishedChangesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new HashSet<Guid> { nodeId });
         _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO> { RouteFor(nodeId, "/t") });
 
@@ -1333,6 +1341,155 @@ public class PageModelTests
             Assert.That(error, Does.Contain("item failed."));
             Assert.That(error, Does.Contain("route taken."));
             Assert.That(error, Does.Contain("Failed to register routes for widget 'B'."));
+        });
+    }
+
+    // ─── page-set history ─────────────────────────────────────────────────────
+
+    [Test]
+    public async Task SavePageUpsertAsync_RecordsAPageHistoryEntry_CreatedOrEdited()
+    {
+        var created = Guid.NewGuid();
+        var edited = Guid.NewGuid();
+        _store.SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true, NodeId: created), new ContentWriteResult(true, NodeId: edited));
+
+        await _model.SavePageUpsertAsync(new PageUpsertViewModel { Title = "New", ControllerName = "GenericPage" });
+        await _model.SavePageUpsertAsync(new PageUpsertViewModel { NodeId = edited, Title = "Old", ControllerName = "GenericPage" });
+
+        await _pageHistory.Received(1).RecordDraftAsync(created, "Page created", Arg.Any<CancellationToken>());
+        await _pageHistory.Received(1).RecordDraftAsync(edited, "Page edited", Arg.Any<CancellationToken>());
+        _changeSetScope.Received(1).UseChangeNote("Page created");
+        _changeSetScope.Received(1).UseChangeNote("Page edited");
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_FailedSave_RecordsNothing()
+    {
+        _store.SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(false, "stale"));
+
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel { NodeId = Guid.NewGuid(), Title = "T", ControllerName = "GenericPage" });
+
+        Assert.That(result, Is.EqualTo((false, (string?)"stale")));
+        await _pageHistory.DidNotReceive().RecordDraftAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RestoreVersionAsync_RecordsAnEntryNamingTheRestoredVersion_InARestoreChangeSet()
+    {
+        var nodeId = Guid.NewGuid();
+        var newVersionId = Guid.NewGuid();
+        var restored = Page(nodeId: nodeId);
+        restored.Version.ChangeNote = "Restored from version 2";
+        _store.RestoreAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true, VersionId: newVersionId, NodeId: nodeId));
+        _store.GetVersionAsync(newVersionId, Arg.Any<CancellationToken>()).Returns(restored);
+
+        var result = await _model.RestoreVersionAsync(Guid.NewGuid());
+
+        Assert.That(result.Success, Is.True);
+        _changeSetScope.Received(1).Begin(ChangeSetKind.Restore, null, null);
+        await _pageHistory.Received(1).RecordDraftAsync(nodeId, "Page: Restored from version 2", Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RestoreVersionAsync_Failure_RecordsNothing()
+    {
+        _store.RestoreAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "Version not found."));
+
+        var result = await _model.RestoreVersionAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.EqualTo(new AdminSaveResult(false, "Version not found.")));
+        await _pageHistory.DidNotReceive().RecordDraftAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public void Constructor_NullPageHistory_Throws()
+    {
+        Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, null!, _changeSetScope),
+            Throws.ArgumentNullException);
+    }
+
+    [Test]
+    public async Task PublishPageAsync_Success_RecordsPageHistory()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.True);
+        await _pageHistory.Received(1).CaptureAsync(nodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_ZoneFailures_StillRecordsWhatWentLive()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([], ["item failed."]));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.False);
+        await _pageHistory.Received(1).CaptureAsync(nodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PageFails_RecordsNoHistory()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(false, "nope"));
+
+        await _model.PublishPageAsync(nodeId);
+
+        await _pageHistory.DidNotReceive().CaptureAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishZoneItemsAsync_RecordsPageHistory()
+    {
+        var pageNodeId = Guid.NewGuid();
+        IReadOnlyCollection<Guid> ids = [Guid.NewGuid()];
+        _contentZoneService.PublishPageZoneItemsAsync(pageNodeId, ids, Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([], []));
+
+        await _model.PublishZoneItemsAsync(pageNodeId, ids);
+
+        await _pageHistory.Received(1).CaptureAsync(pageNodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TryDeleteVersionAsync_VersionInPageHistory_IsRefusedWithTheEntry()
+    {
+        var versionId = Guid.NewGuid();
+        var entry = new PageSetSnapshot { Id = Guid.NewGuid(), CreatedUtc = new DateTime(2026, 10, 1, 9, 30, 0, DateTimeKind.Utc) };
+        _pageHistory.GetSnapshotsReferencingVersionAsync(versionId, Arg.Any<CancellationToken>()).Returns([entry]);
+
+        var (success, error) = await _model.TryDeleteVersionAsync(versionId);
+        var deleted = await _model.DeleteVersionAsync(versionId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Is.EqualTo(PageHistoryMessages.VersionInHistory(entry)));
+            Assert.That(error, Does.Contain("2026-10-01 09:30"));
+            Assert.That(deleted, Is.False);
+        });
+        await _store.DidNotReceive().DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TryDeleteVersionAsync_NotInHistory_DeletesOrExplains()
+    {
+        _store.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
+
+        var deleted = await _model.TryDeleteVersionAsync(Guid.NewGuid());
+        var refused = await _model.TryDeleteVersionAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo((true, (string?)null)));
+            Assert.That(refused, Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
         });
     }
 

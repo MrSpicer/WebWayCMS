@@ -33,6 +33,24 @@ public static class WidgetMetadataJson
     public static bool StoresList(string? json) => Parse(json).DisplayMode == WidgetDisplayMode.List;
 
     /// <summary>
+    /// A historical version's metadata as it can be saved back today (an item restore or a page-history
+    /// revert). A historical List on a widget that has since dropped list support (and that the current
+    /// item does not already store as List) is restored as Single — it renders as Single anyway, and
+    /// saving List would be rejected.
+    /// </summary>
+    public static string? Restorable(string? historicalJson, WidgetRegistrationInfo? widget, string? currentJson)
+    {
+        if (!StoresList(historicalJson)
+            || widget?.SupportsList == true
+            || StoresList(currentJson))
+            return historicalJson;
+
+        var metadata = Parse(historicalJson);
+        metadata.DisplayMode = WidgetDisplayMode.Single;
+        return JsonSerializer.Serialize(metadata);
+    }
+
+    /// <summary>
     /// Parses stored metadata for rendering. Missing or malformed JSON degrades to an empty
     /// <see cref="WidgetMetadata"/> rather than dropping the item.
     /// </summary>

@@ -46,6 +46,18 @@ internal static class McpToolHelpers
         return child;
     }
 
+    /// <summary>
+    /// A version delete's outcome: deleted, or not deleted for the ordinary reason (the latest version is
+    /// always kept), as <c>deleted: false</c>; any other refusal (e.g. the version is part of page
+    /// history) is a protocol error carrying the reason.
+    /// </summary>
+    public static McpDeleteResult DeleteResult((bool Success, string? ErrorMessage) result)
+    {
+        if (!result.Success && result.ErrorMessage != IAdminCrudHandler.VersionNotDeletedMessage)
+            throw new McpException(result.ErrorMessage ?? "The version could not be deleted.");
+        return new McpDeleteResult(result.Success);
+    }
+
     /// <summary>Extracts the payload value from a handler registry <see cref="IActionResult"/>.</summary>
     public static object? Unwrap(IActionResult result) => result switch
     {

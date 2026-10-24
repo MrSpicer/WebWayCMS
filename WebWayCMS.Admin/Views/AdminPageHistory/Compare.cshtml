@@ -1,0 +1,60 @@
+@using WebWayCMS.Models.PageHistory
+@model PageHistoryCompareViewModel
+
+@{
+    var when = Model.Entry.CreatedUtc.ToString("yyyy-MM-dd HH:mm");
+    ViewData["Title"] = $"Compare with {when} UTC: {Model.PageTitle}";
+    var crumb = (Model.PageNodeId, Model.PageTitle, "Compare " + when, (Guid?)Model.Entry.Id);
+    var table = (Rows: Model.Items, Since: true);
+}
+
+<partial name="_Breadcrumb" model="crumb" />
+
+<section class="section">
+<div class="container is-fluid">
+
+    <div class="box">
+        <p class="mb-3">
+            The current draft of this page compared with the entry from @when UTC (@Model.Entry.Note). Each row says how a widget
+            changed <em>since</em> that entry. Reverting undoes all of it as drafts — widgets added since are removed
+            (kept as inactive drafts, never deleted) — and nothing changes on the live site until you publish.
+        </p>
+        @if (Model.PageChanged)
+        {
+            <p class="mb-3">
+                <span class="tag is-warning">Page settings changed</span>
+                Now “@Model.PageTitle”, was “@Model.CapturedPageTitle” (title, URL, page type or configuration differ).
+            </p>
+        }
+
+        <div class="buttons">
+            @if (Model.HasChanges)
+            {
+                <form asp-action="Revert" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" method="post" class="is-inline-block"
+                      data-confirm="Revert this page and all of its widgets to the entry from @when UTC? The result is a draft: review it in the editor, then publish.">
+                    <input type="hidden" name="stateToken" value="@Model.StateToken" />
+                    <button type="submit" class="button is-warning">
+                        <span class="icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
+                        <span>Revert page to this entry</span>
+                    </button>
+                </form>
+            }
+            else
+            {
+                <span class="tag is-success is-medium">The current draft already matches this entry</span>
+            }
+            <a asp-action="Preview" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Preview entry</a>
+            <a asp-action="Entry" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Entry details</a>
+            <a asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId" class="button">Back to history</a>
+        </div>
+    </div>
+
+    <h2 class="title is-5">Widgets</h2>
+    <partial name="_ItemTable" model="table" />
+
+</div>
+</section>
+
+@section Scripts {
+    <script src="~/_content/WebWayCMS.Admin/js/page-history.js"></script>
+}

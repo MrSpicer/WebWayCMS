@@ -21,6 +21,7 @@ public class CMSRouteTransformerTests
     private ICMSRouteService _routeService = null!;
     private IPageControllerRegistry _registry = null!;
     private IContentStore<PageDTO> _pageStore = null!;
+    private IPageHistoryService _pageHistory = null!;
     private CMSRouteTransformer _transformer = null!;
 
     private static readonly CmsDeploymentOptions AdminMode = new() { IsAdminMode = true };
@@ -31,7 +32,8 @@ public class CMSRouteTransformerTests
         _routeService = Substitute.For<ICMSRouteService>();
         _registry = Substitute.For<IPageControllerRegistry>();
         _pageStore = Substitute.For<IContentStore<PageDTO>>();
-        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, AdminMode);
+        _pageHistory = Substitute.For<IPageHistoryService>();
+        _transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, _pageHistory, AdminMode);
     }
 
     private static HttpContext CreateHttpContext(string path = "/test")
@@ -661,7 +663,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRouteService_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(null!, _registry, _pageStore, AdminMode));
+            new CMSRouteTransformer(null!, _registry, _pageStore, _pageHistory, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("routeService"));
     }
 
@@ -669,7 +671,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullRegistry_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, null!, _pageStore, AdminMode));
+            new CMSRouteTransformer(_routeService, null!, _pageStore, _pageHistory, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("registry"));
     }
 
@@ -677,7 +679,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullPageStore_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, _registry, null!, AdminMode));
+            new CMSRouteTransformer(_routeService, _registry, null!, _pageHistory, AdminMode));
         Assert.That(ex!.ParamName, Is.EqualTo("pageStore"));
     }
 
@@ -685,7 +687,7 @@ public class CMSRouteTransformerTests
     public void Constructor_NullDeploymentOptions_ThrowsArgumentNullException()
     {
         var ex = Assert.Throws<ArgumentNullException>(() =>
-            new CMSRouteTransformer(_routeService, _registry, _pageStore, null!));
+            new CMSRouteTransformer(_routeService, _registry, _pageStore, _pageHistory, null!));
         Assert.That(ex!.ParamName, Is.EqualTo("deploymentOptions"));
     }
 
@@ -890,7 +892,7 @@ public class CMSRouteTransformerTests
     [Test]
     public async Task TransformAsync_Preview_RenderingOnlyMode_ReturnsNull()
     {
-        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore,
+        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, _pageHistory,
             new CmsDeploymentOptions { IsAdminMode = false });
         var nodeId = Guid.NewGuid();
         var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
@@ -905,7 +907,7 @@ public class CMSRouteTransformerTests
     [Test]
     public async Task TransformAsync_Preview_AdminModeExplicit_Resolves()
     {
-        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore,
+        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, _pageHistory,
             new CmsDeploymentOptions { IsAdminMode = true });
         var nodeId = Guid.NewGuid();
         var context = CreatePreviewHttpContext($"/_preview/{nodeId}", "Admin");
@@ -1038,5 +1040,141 @@ public class CMSRouteTransformerTests
             Assert.That(config!.Title, Is.EqualTo("Hello"));
             Assert.That(config.PageSize, Is.EqualTo(10));
         });
+    }
+
+    // ─── page-history preview: /_preview/{page}/history/{entry} ──────────────
+
+    [Test]
+    public void Constructor_NullPageHistory_ThrowsArgumentNullException()
+    {
+        var ex = Assert.Throws<ArgumentNullException>(() =>
+            new CMSRouteTransformer(_routeService, _registry, _pageStore, null!, AdminMode));
+        Assert.That(ex!.ParamName, Is.EqualTo("pageHistory"));
+    }
+
+    /// <summary>Wires an entry for <paramref name="pageNodeId"/> whose page version uses controller "MyPage".</summary>
+    private (Guid EntryId, PageDTO Page, ContentReadSnapshot Read) WireHistoryEntry(Guid pageNodeId)
+    {
+        var entryId = Guid.NewGuid();
+        var page = new PageDTO { VersionId = Guid.NewGuid(), ControllerName = "MyPage", ConfigurationJson = "{}" };
+        var read = new ContentReadSnapshot([pageNodeId], [page.VersionId]);
+        _pageHistory.GetAsync(entryId, Arg.Any<CancellationToken>())
+            .Returns(new PageSetSnapshot { Id = entryId, PageNodeId = pageNodeId, PageVersionId = page.VersionId });
+        _pageHistory.GetReadSnapshotAsync(entryId, Arg.Any<CancellationToken>()).Returns(read);
+        _pageStore.GetVersionAsync(page.VersionId, Arg.Any<CancellationToken>()).Returns(page);
+        _registry.GetByName("MyPage").Returns(new PageControllerInfo { Name = "MyPage" });
+        return (entryId, page, read);
+    }
+
+    [Test]
+    public async Task TransformAsync_HistoryPreview_Admin_RendersTheCapturedPageAndMarksTheRequest()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var (entryId, page, read) = WireHistoryEntry(pageNodeId);
+        var context = CreatePreviewHttpContext($"/_preview/{pageNodeId}/history/{entryId}", "Admin");
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        var route = (CMSRouteDTO)context.Items["CMS:RouteData"]!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(result["controller"], Is.EqualTo("MyPage"));
+            Assert.That(result["action"], Is.EqualTo("Index"));
+            Assert.That(context.Items[CMSRouteTransformer.PageDataItemKey], Is.SameAs(page));
+            Assert.That(context.Items[PreviewConstants.SnapshotRequestItemKey], Is.SameAs(read));
+            Assert.That(context.Items.ContainsKey(PreviewConstants.DraftRequestItemKey), Is.False);
+            Assert.That(route.Pattern, Is.EqualTo($"/_preview/{pageNodeId}/history/{entryId}"));
+            Assert.That(route.OwningContentNodeId, Is.EqualTo(pageNodeId));
+            Assert.That(context.Response.Headers.CacheControl.ToString(), Is.EqualTo(PreviewConstants.DraftCacheControl));
+        });
+    }
+
+    [TestCase(null)]
+    [TestCase("Editor")]
+    [TestCase("Viewer")]
+    public async Task TransformAsync_HistoryPreview_NotAnAdmin_ReturnsNull(string? role)
+    {
+        var pageNodeId = Guid.NewGuid();
+        var (entryId, _, _) = WireHistoryEntry(pageNodeId);
+        var path = $"/_preview/{pageNodeId}/history/{entryId}";
+        var context = role == null ? CreateHttpContext(path) : CreatePreviewHttpContext(path, role);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.Null);
+            Assert.That(context.Items.ContainsKey(PreviewConstants.SnapshotRequestItemKey), Is.False);
+            await _pageHistory.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task TransformAsync_HistoryPreview_RenderingOnlyMode_ReturnsNull()
+    {
+        var transformer = new CMSRouteTransformer(_routeService, _registry, _pageStore, _pageHistory,
+            new CmsDeploymentOptions { IsAdminMode = false });
+        var pageNodeId = Guid.NewGuid();
+        var (entryId, _, _) = WireHistoryEntry(pageNodeId);
+        var context = CreatePreviewHttpContext($"/_preview/{pageNodeId}/history/{entryId}", "Admin");
+
+        var result = await transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+        await _pageHistory.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task TransformAsync_HistoryPreview_UnknownOrForeignEntry_ReturnsNull()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var (entryId, _, _) = WireHistoryEntry(pageNodeId);
+        _pageHistory.GetAsync(Arg.Is<Guid>(id => id != entryId), Arg.Any<CancellationToken>()).Returns((PageSetSnapshot?)null);
+
+        var unknown = await _transformer.TransformAsync(
+            CreatePreviewHttpContext($"/_preview/{pageNodeId}/history/{Guid.NewGuid()}", "Admin"), new RouteValueDictionary());
+        var foreign = await _transformer.TransformAsync(
+            CreatePreviewHttpContext($"/_preview/{Guid.NewGuid()}/history/{entryId}", "Admin"), new RouteValueDictionary());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(unknown, Is.Null);
+            Assert.That(foreign, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task TransformAsync_HistoryPreview_ControllerNotFound_ReturnsNull()
+    {
+        var pageNodeId = Guid.NewGuid();
+        var (entryId, _, _) = WireHistoryEntry(pageNodeId);
+        _registry.GetByName("MyPage").Returns((PageControllerInfo?)null);
+        var context = CreatePreviewHttpContext($"/_preview/{pageNodeId}/history/{entryId}", "Admin");
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Null);
+            Assert.That(context.Items.ContainsKey(PreviewConstants.SnapshotRequestItemKey), Is.False);
+        });
+    }
+
+    [TestCase("/_preview/{0}/history/not-a-guid")]
+    [TestCase("/_preview/not-a-guid/history/{0}")]
+    [TestCase("/_preview/{0}/versions/{0}")]
+    [TestCase("/elsewhere/{0}/history/{0}")]
+    [TestCase("/_preview/{0}/history/{0}/extra")]
+    public async Task TransformAsync_NotAHistoryPreviewPath_FallsThrough(string pattern)
+    {
+        var path = string.Format(pattern, Guid.NewGuid());
+        var context = CreatePreviewHttpContext(path, "Admin");
+        _routeService.MatchRouteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((CMSRouteMatchResult?)null);
+
+        var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
+
+        Assert.That(result, Is.Null);
+        await _pageHistory.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _routeService.Received(1).MatchRouteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }

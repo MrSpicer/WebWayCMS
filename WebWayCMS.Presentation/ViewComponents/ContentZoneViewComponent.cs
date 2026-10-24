@@ -4,6 +4,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.ViewComponents.SlotDiscovery;
 
 namespace WebWayCMS.ViewComponents;
 
@@ -41,6 +42,16 @@ public class ContentZoneViewComponent : ViewComponent
         Guid? zoneId = null)
     {
         var ct = HttpContext.RequestAborted;
+
+        // A slot-discovery render (IWidgetSlotDiscovery) only notes which of the container's zones its view
+        // shows: nothing is loaded or created, and nothing nested renders.
+        if (ViewData[SlotDiscoveryRecorder.ViewDataKey] is SlotDiscoveryRecorder recorder)
+        {
+            if (!IsGlobal && !zoneId.HasValue && !string.IsNullOrWhiteSpace(zoneName)
+                && ViewData["ContentZone:ParentItemId"] as Guid? == recorder.ItemNodeId)
+                recorder.Record(zoneName);
+            return Content(string.Empty);
+        }
 
         // A nested zone inside a zone being edited is edited too. Inheritance only ever turns edit
         // mode on: an ancestor rendering in View mode must not override an explicit editMode:true
@@ -141,6 +152,16 @@ public class ContentZoneViewComponent : ViewComponent
                 ownerPageNodeId = await _model.GetParentPageNodeForZoneAsync(vm.Id, ct);
             vm.OwnerPageNodeId = ownerPageNodeId;
             ViewData["ContentZone:OwnerPageId"] = ownerPageNodeId;
+
+            // The page zone editor lists the zones its widgets own that nothing rendered (ZoneEditRenderLog).
+            // A fallback VM for an unresolvable zone has no node id and must not pollute the log's zone set.
+            var renderLog = ZoneEditRenderLog.For(HttpContext);
+            if (vm.Id != Guid.Empty)
+            {
+                renderLog.ZoneRendered(vm.Id);
+                foreach (var item in vm.ZoneObjects)
+                    renderLog.ItemRendered(item.Id);
+            }
 
             ViewData["ComponentsByCategory"] = _registry.GetComponentsByCategory();
             return View("Edit", vm);

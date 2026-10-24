@@ -14,6 +14,7 @@ public sealed class ChangeSetScope : IChangeSetScope
     private readonly CmsDbContext _context;
     private readonly IContentUserContext _userContext;
     private readonly AsyncLocal<ChangeSet?> _ambient = new();
+    private readonly AsyncLocal<string?> _note = new();
 
     public ChangeSetScope(CmsDbContext context, IContentUserContext userContext)
     {
@@ -41,6 +42,29 @@ public sealed class ChangeSetScope : IChangeSetScope
         var previous = _ambient.Value;
         _ambient.Value = changeSet;
         return new ScopeLease(this, previous, changeSet);
+    }
+
+    public string? CurrentChangeNote => _note.Value;
+
+    public IDisposable UseChangeNote(string note)
+    {
+        var previous = _note.Value;
+        _note.Value = note;
+        return new NoteLease(this, previous);
+    }
+
+    private sealed class NoteLease : IDisposable
+    {
+        private readonly ChangeSetScope _owner;
+        private readonly string? _previous;
+
+        public NoteLease(ChangeSetScope owner, string? previous)
+        {
+            _owner = owner;
+            _previous = previous;
+        }
+
+        public void Dispose() => _owner._note.Value = _previous;
     }
 
     private void Close(ChangeSet? previous, ChangeSet changeSet)

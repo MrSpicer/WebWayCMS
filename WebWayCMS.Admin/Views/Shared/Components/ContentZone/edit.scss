@@ -75,6 +75,25 @@
         }
     }
 
+    // A plain link (to the item's version history), sized like the toolbar's icon buttons.
+    .zone-history-item {
+        display: inline-flex;
+        padding: 0.25rem;
+        font-size: 1rem;
+        border-radius: var(--admin-radius-sm, 4px);
+        color: var(--admin-text-muted, #64748b);
+
+        &:hover {
+            color: var(--admin-primary, #4f46e5);
+            background: var(--admin-primary-light, #eef2ff);
+        }
+
+        &:focus-visible {
+            outline: 3px solid var(--admin-primary, #4f46e5);
+            outline-offset: 2px;
+        }
+    }
+
     .zone-drag-handle {
         color: var(--admin-text-muted, #64748b);
         cursor: grab;
@@ -212,4 +231,18 @@ body.cz-saving {
 
 .cz-modal-error {
     margin-bottom: 1rem;
+}
+
+// The page zone editor's "Unplaced content" panel: zones owned by the page's widgets that nothing
+// rendered (e.g. a layout's old columns). Marked in the warning colour so it reads as needing attention.
+.page-zones-unplaced {
+    border-left: 4px solid var(--admin-warning, #fbbf24);
+
+    > .title {
+        color: var(--admin-warning, #fbbf24);
+    }
+}
+
+.page-zones-unplaced-zone + .page-zones-unplaced-zone {
+    margin-top: 1rem;
 }

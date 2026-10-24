@@ -141,14 +141,20 @@ function initContentZones() {
             btn.addEventListener('click', async function () {
                 const zoneObject = this.closest('.zone-object-edit');
                 const itemId = zoneObject.dataset.itemId;
-                const componentName = zoneObject.querySelector('.zone-object-label')?.textContent || 'this widget';
+                const componentName = zoneObject.querySelector('.zone-object-label')?.textContent.trim() || 'this widget';
 
                 if (!itemId || itemId === '00000000-0000-0000-0000-000000000000') {
                     alert('Cannot delete: Item ID not found.');
                     return;
                 }
 
-                if (!confirm('Are you sure you want to permanently delete "' + componentName + '"? This action cannot be undone.')) {
+                // A container (e.g. a layout) takes the widgets in its zones with it: say how many.
+                const nestedCount = zoneObject.querySelectorAll('.zone-object-edit').length;
+                const message = nestedCount > 0
+                    ? 'Remove "' + componentName + '" and the ' + nestedCount + ' widget' + (nestedCount === 1 ? '' : 's')
+                        + ' inside it? They stay in their history and can be restored from there.'
+                    : 'Remove "' + componentName + '"? It stays in its history and can be restored from there.';
+                if (!confirm(message)) {
                     return;
                 }
 

@@ -1,3 +1,5 @@
+using WebWayCMS.Data.Models;
+
 namespace WebWayCMS.Models.ContentZone;
 
 /// <summary>
@@ -18,4 +20,16 @@ public interface IContentZoneModel
 
     /// <summary>The page whose zone tree contains the zone, or null for a global zone.</summary>
     Task<Guid?> GetParentPageNodeForZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The zones owned by the page's active widgets that hold active widgets, labelled "{widget} › {slot}" —
+    /// what the page zone editor's Unplaced panel offers when it did not render one (<see cref="ZoneEditRenderLog"/>).
+    /// </summary>
+    Task<IReadOnlyList<UnplacedZoneCandidate>> GetUnplacedCandidatesAsync(Guid pageNodeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Saves a zone item (see <c>IContentZoneService.UpdateItemAsync</c>). When the save changes a container's
+    /// view, its nested content moves into the new view's zones in the same write.
+    /// </summary>
+    Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null);
 }

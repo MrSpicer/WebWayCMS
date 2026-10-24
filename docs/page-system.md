@@ -185,6 +185,21 @@ Unpublishing a page unpublishes its route, which removes the URL without deletin
 URLs that belong to the application rather than to editor-managed content, use `[CmsRoute]` on the
 controller instead — see [architecture/03-page-routing.md](architecture/03-page-routing.md#8-cmsroute--code-based-routes).
 
+### Page history
+
+Every change to a page or its widgets records a **page history entry** — the page and every widget in
+its zones (nested zones included) as they were right after that change, with a note such as "Added
+ContentBlock to Main" — and every publish records a **Published** entry (what went live). Every save of a
+widget is also its own version, so a single widget's history shows each edit, move and removal. In the page zone editor
+(`/wadmin/contentzones/page/{nodeId}`), the toolbar's **History** button lists the entries. Each one can
+be viewed (what changed against the previous entry), compared with the current draft, previewed (the
+page and its widgets as they were; everything else as published now), deleted, or **reverted to**. A
+revert restores the page and all of its widgets as drafts; widgets added since are removed (as inactive
+drafts, never deleted), and nothing goes live until you publish. **Discard changes** in the editor returns
+the page to what is live the same way, and is recorded too, so it can be undone from the history. Each widget's toolbar also has a
+History link to that widget's own versions, with a one-step Restore. See
+[architecture/04-content-zone-framework.md](architecture/04-content-zone-framework.md#8b-history-in-the-zone-editor).
+
 ---
 
 ## Accessing Page Data in Your Controller

@@ -848,6 +848,81 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("Pages", (string)null);
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChangeSetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("PageNodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PageVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StateHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PageVersionId");
+
+                    b.HasIndex("PageNodeId", "CreatedUtc");
+
+                    b.HasIndex("PageNodeId", "Kind", "CreatedUtc");
+
+                    b.ToTable("PageSetSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshotItem", b =>
+                {
+                    b.Property<Guid>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ItemVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ItemNodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ZoneNodeId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("SnapshotId", "ItemVersionId");
+
+                    b.HasIndex("ItemVersionId");
+
+                    b.HasIndex("ItemNodeId");
+
+                    b.HasIndex("ZoneNodeId");
+
+                    b.ToTable("PageSetSnapshotItems", (string)null);
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
                 {
                     b.Property<Guid>("VersionId")
@@ -1166,6 +1241,36 @@ namespace WebWayCMS.Data.Migrations
                     b.Navigation("Version");
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshot", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentNode", null)
+                        .WithMany()
+                        .HasForeignKey("PageNodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WebWayCMS.Data.Models.ContentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("PageVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshotItem", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("ItemVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WebWayCMS.Data.Models.PageSetSnapshot", null)
+                        .WithMany("Items")
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
                 {
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
@@ -1175,6 +1280,11 @@ namespace WebWayCMS.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Version");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshot", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

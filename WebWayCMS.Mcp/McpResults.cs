@@ -35,6 +35,9 @@ public sealed record McpReorderResult(bool Reordered);
 /// <summary>Result of a move operation.</summary>
 public sealed record McpMoveResult(bool Moved);
 
+/// <summary>Result of a page history revert.</summary>
+public sealed record McpRevertResult(bool Reverted);
+
 /// <summary>One stored media blob, as reported by <c>list_media</c>.</summary>
 public sealed record McpMediaInfo(
     string Hash,

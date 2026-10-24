@@ -326,7 +326,10 @@ public class AdminContentController : Controller
         if (!handler.SupportsVersionHistory) return NotFound();
         if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
 
-        await handler.DeleteVersionAsync(id, ct);
+        var (success, error) = await handler.TryDeleteVersionAsync(id, ct);
+        if (!success)
+            TempData["Error"] = error;
+
         return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId });
     }
 
@@ -462,10 +465,14 @@ public class AdminContentController : Controller
 
     // ─── Child Version History ─────────────────────────────────────────────────
 
+    /// <summary>
+    /// A child's version history. <paramref name="returnUrl"/> (local URLs only, e.g. the page zone editor
+    /// that linked here) replaces the page's Back link and is carried through its restore/delete forms.
+    /// </summary>
     [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}")]
     [ActionName("ChildVersionHistory")]
     public async Task<IActionResult> ChildVersionHistory(
-        string contentType, string parentKey, string childType, Guid nodeId, CancellationToken ct)
+        string contentType, string parentKey, string childType, Guid nodeId, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -477,33 +484,27 @@ public class AdminContentController : Controller
 
         var vm = await child.GetChildVersionHistoryViewModelAsync(parentKey, nodeId, ct);
         if (vm == null) return NotFound();
+
+        var local = LocalReturnUrl(returnUrl);
+        if (local != null)
+        {
+            vm.ReturnUrl = local;
+            vm.BackUrl = local;
+        }
+
         return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
     }
 
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/edit/{id:guid}")]
-    [ActionName("ChildVersionRestoreEdit")]
-    public async Task<IActionResult> ChildVersionRestoreEdit(
-        string contentType, string parentKey, string childType, Guid nodeId, Guid id, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-        if (!child.SupportsVersionHistory) return NotFound();
-
-        var vm = await child.GetChildRestoreVersionViewModelAsync(parentKey, id, ct);
-        if (vm == null) return NotFound();
-        await child.SetChildUpsertViewDataAsync(ViewData, parentKey, ct);
-        return View(child.ChildUpsertViewPath, vm);
-    }
-
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}")]
-    [ActionName("ChildVersionDelete")]
+    /// <summary>
+    /// One-step restore of a child version (see <see cref="IAdminCrudChildHandler.RestoreChildVersionAsync"/>);
+    /// back to the history page with the outcome.
+    /// </summary>
+    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/restore/{id:guid}")]
+    [ActionName("ChildVersionRestore")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildVersionDelete(
-        string contentType, string parentKey, string childType, Guid nodeId, Guid id, CancellationToken ct)
+    public async Task<IActionResult> ChildVersionRestore(
+        string contentType, string parentKey, string childType, Guid nodeId, Guid id,
+        int? expectedVersionNumber, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -514,7 +515,40 @@ public class AdminContentController : Controller
         if (!child.SupportsVersionHistory) return NotFound();
         if (!HasWriteAccess(child.WriteRoles)) return Forbid();
 
-        await child.DeleteChildVersionAsync(id, ct);
-        return RedirectToAction(nameof(ChildVersionHistory), new { contentType, parentKey, childType, nodeId });
+        var result = await child.RestoreChildVersionAsync(parentKey, id, expectedVersionNumber, ct);
+        if (result.Success)
+            TempData["Success"] = "Version restored as a draft.";
+        else
+            TempData["Error"] = result.ErrorMessage;
+
+        return RedirectToAction(nameof(ChildVersionHistory),
+            new { contentType, parentKey, childType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
+
+    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}")]
+    [ActionName("ChildVersionDelete")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChildVersionDelete(
+        string contentType, string parentKey, string childType, Guid nodeId, Guid id, string? returnUrl, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+
+        var child = handler.ChildHandler;
+        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
+            return NotFound();
+        if (!child.SupportsVersionHistory) return NotFound();
+        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
+
+        var (success, error) = await child.TryDeleteChildVersionAsync(id, ct);
+        if (!success)
+            TempData["Error"] = error;
+
+        return RedirectToAction(nameof(ChildVersionHistory),
+            new { contentType, parentKey, childType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
+    }
+
+    /// <summary>The return URL when it is local to this site, else null (never an open redirect).</summary>
+    private string? LocalReturnUrl(string? returnUrl)
+        => !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
 }

@@ -23,4 +23,10 @@ public sealed class PageZonesEditViewModel
     public bool HasPendingZoneChanges { get; init; }
 
     public IReadOnlyList<PageZoneSlot> Slots { get; init; } = [];
+
+    /// <summary>
+    /// Zones owned by the page's widgets; the editor lists those it did not render (see
+    /// <see cref="ZoneEditRenderLog"/>) in its "Unplaced content" panel.
+    /// </summary>
+    public IReadOnlyList<UnplacedZoneCandidate> UnplacedCandidates { get; init; } = [];
 }

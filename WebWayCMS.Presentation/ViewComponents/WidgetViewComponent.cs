@@ -9,6 +9,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Services;
+using WebWayCMS.ViewComponents.SlotDiscovery;
 
 namespace WebWayCMS.ViewComponents;
 
@@ -143,14 +144,15 @@ public abstract class WidgetViewComponent : ViewComponent
     /// <summary>
     /// Computes the active render mode: <see cref="WidgetRenderMode.Edit"/> when the zone is in edit
     /// mode; otherwise admin vs. public from the request path, and single vs. list from the item's
-    /// display mode.
+    /// display mode. A slot-discovery render always uses the public variant (<see cref="SlotDiscoveryRecorder"/>).
     /// </summary>
     internal WidgetRenderMode GetContextMode(WidgetConfiguration? config)
     {
-        if (ViewComponentContext.ViewData[RenderModeViewDataKey] is WidgetRenderMode.Edit)
+        var discovering = ViewComponentContext.ViewData[SlotDiscoveryRecorder.ViewDataKey] is SlotDiscoveryRecorder;
+        if (!discovering && ViewComponentContext.ViewData[RenderModeViewDataKey] is WidgetRenderMode.Edit)
             return WidgetRenderMode.Edit;
 
-        var isAdmin = AdminPathPrefix.Matches(HttpContext.Request.Path.ToString());
+        var isAdmin = !discovering && AdminPathPrefix.Matches(HttpContext.Request.Path.ToString());
         var isList = DisplayModeFor(config) == WidgetDisplayMode.List;
 
         return (isAdmin, isList) switch

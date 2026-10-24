@@ -538,6 +538,38 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "PageSetSnapshots",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PageNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PageVersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Kind = table.Column<int>(type: "integer", nullable: false),
+                    Note = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    StateHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
+                    ChangeSetId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ItemCount = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PageSetSnapshots", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PageSetSnapshots_ContentNodes_PageNodeId",
+                        column: x => x.PageNodeId,
+                        principalTable: "ContentNodes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_PageSetSnapshots_ContentVersions_PageVersionId",
+                        column: x => x.PageVersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "WidgetRegistrations",
                 columns: table => new
                 {
@@ -560,6 +592,33 @@ namespace WebWayCMS.Data.Migrations
                         name: "FK_WidgetRegistrations_ContentVersions_VersionId",
                         column: x => x.VersionId,
                         principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PageSetSnapshotItems",
+                columns: table => new
+                {
+                    SnapshotId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ItemVersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ItemNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Ordinal = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PageSetSnapshotItems", x => new { x.SnapshotId, x.ItemVersionId });
+                    table.ForeignKey(
+                        name: "FK_PageSetSnapshotItems_ContentVersions_ItemVersionId",
+                        column: x => x.ItemVersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_PageSetSnapshotItems_PageSetSnapshots_SnapshotId",
+                        column: x => x.SnapshotId,
+                        principalTable: "PageSetSnapshots",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -739,6 +798,36 @@ namespace WebWayCMS.Data.Migrations
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshotItems_ItemVersionId",
+                table: "PageSetSnapshotItems",
+                column: "ItemVersionId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshotItems_ItemNodeId",
+                table: "PageSetSnapshotItems",
+                column: "ItemNodeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshotItems_ZoneNodeId",
+                table: "PageSetSnapshotItems",
+                column: "ZoneNodeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshots_PageNodeId_CreatedUtc",
+                table: "PageSetSnapshots",
+                columns: new[] { "PageNodeId", "CreatedUtc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshots_PageNodeId_Kind_CreatedUtc",
+                table: "PageSetSnapshots",
+                columns: new[] { "PageNodeId", "Kind", "CreatedUtc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshots_PageVersionId",
+                table: "PageSetSnapshots",
+                column: "PageVersionId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_WidgetRegistrations_Category",
                 table: "WidgetRegistrations",
                 column: "Category");
@@ -822,6 +911,9 @@ namespace WebWayCMS.Data.Migrations
                 name: "Pages");
 
             migrationBuilder.DropTable(
+                name: "PageSetSnapshotItems");
+
+            migrationBuilder.DropTable(
                 name: "WidgetRegistrations");
 
             migrationBuilder.DropTable(
@@ -829,6 +921,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "AspNetUsers");
+
+            migrationBuilder.DropTable(
+                name: "PageSetSnapshots");
 
             migrationBuilder.DropTable(
                 name: "ContentVersions");

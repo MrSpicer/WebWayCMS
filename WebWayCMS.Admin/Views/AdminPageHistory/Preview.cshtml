@@ -1,0 +1,34 @@
+@using WebWayCMS.Models.PageHistory
+@model PageHistoryEntryViewModel
+
+@{
+    var when = Model.Entry.CreatedUtc.ToString("yyyy-MM-dd HH:mm");
+    ViewData["Title"] = $"Preview {when} UTC: {Model.PageTitle}";
+    var crumb = (Model.PageNodeId, Model.PageTitle, "Preview " + when, (Guid?)Model.Entry.Id);
+}
+
+<partial name="_Breadcrumb" model="crumb" />
+
+<section class="section">
+<div class="container is-fluid">
+
+    <div class="notification is-info is-light" role="status">
+        This is the page as it was at @when UTC (@Model.Entry.Note): the page and its widgets are shown exactly as
+        they were then. Everything else on it — articles, content blocks, images, navigation and other pages — is shown as it
+        is published now.
+    </div>
+
+    <div class="buttons">
+        <a asp-action="Compare" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button is-primary">Compare &amp; revert</a>
+        <a asp-action="Entry" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Entry details</a>
+        <a asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId" class="button">Back to history</a>
+    </div>
+
+    @* /_preview/{page}/history/{entry} renders the entry (Admin only); /_preview responses may be framed same-origin. *@
+    <iframe class="page-history-preview"
+            title="Preview of @Model.PageTitle as published on @when UTC"
+            src="@($"{WebWayCMS.PreviewConstants.PathPrefix}/{Model.PageNodeId}/{WebWayCMS.PreviewConstants.HistorySegment}/{Model.Entry.Id}")"
+            style="width: 100%; height: 80vh; border: 1px solid #dbdbdb; border-radius: 4px;"></iframe>
+
+</div>
+</section>

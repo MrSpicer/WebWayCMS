@@ -18,7 +18,7 @@ namespace WebWayCMS.Core.Tests;
 /// Minimal implementations that keep the interface default methods, so those default bodies
 /// (defined in WebWayCMS.Core) are executed and counted.
 /// </summary>
-internal sealed class MinimalHandler : IAdminCrudHandler
+internal class MinimalHandler : IAdminCrudHandler
 {
     public string ContentType => "minimal";
     public string DisplayName => "Minimal";
@@ -37,7 +37,7 @@ internal sealed class MinimalHandler : IAdminCrudHandler
     public IAdminCrudChildHandler? ChildHandler => null;
 }
 
-internal sealed class MinimalChild : IAdminCrudChildHandler
+internal class MinimalChild : IAdminCrudChildHandler
 {
     public string ChildType => "minimal";
     public string ChildDisplayName => "Minimal";
@@ -53,6 +53,30 @@ internal sealed class MinimalChild : IAdminCrudChildHandler
     public bool SupportsReorder => false;
     public Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
         => Task.FromResult((false, (string?)null));
+}
+
+/// <summary>A MinimalHandler whose version delete succeeds, for the TryDeleteVersionAsync default's success path.</summary>
+internal sealed class DeletingMinimalHandler : MinimalHandler, IAdminCrudHandler
+{
+    public Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
+}
+
+/// <summary>A MinimalChild with a restorable, deletable version, for the restore/delete defaults' success paths.</summary>
+internal sealed class VersionedMinimalChild : MinimalChild, IAdminCrudChildHandler
+{
+    public object RestoreModel { get; } = new();
+    public object? SavedModel { get; private set; }
+
+    public Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
+        => Task.FromResult<object?>(RestoreModel);
+
+    public new Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
+    {
+        SavedModel = model;
+        return Task.FromResult(new AdminSaveResult(true));
+    }
+
+    public Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 /// <summary>
@@ -86,7 +110,9 @@ internal sealed class MinimalCrudModel : AdminCrudModel<ContentBlockDTO>
     protected override string VersionHistoryContentType => "minimal-crud";
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/minimal-crud";
     protected override Task<List<ContentBlockDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => Task.FromResult(new List<ContentBlockDTO>());
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => Task.FromResult(true);
+    public bool DeleteVersionResult { get; set; } = true;
+
+    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => Task.FromResult(DeleteVersionResult);
 
     public override string ContentType => "minimal-crud";
     public override string DisplayName => "Minimal Crud";
@@ -192,6 +218,55 @@ public class InterfaceDefaultsTests
             Assert.That(model.SupportsPreview, Is.False);
             Assert.That(model.SecondaryApiListKeys, Is.Empty);
             Assert.That(await model.GetRestoreVersionViewModelAsync(Guid.NewGuid()), Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task IAdminCrudHandler_TryDeleteVersionAsync_Default()
+    {
+        IAdminCrudHandler refusing = new MinimalHandler();
+        IAdminCrudHandler deleting = new DeletingMinimalHandler();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await refusing.TryDeleteVersionAsync(Guid.NewGuid()), Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
+            Assert.That(await deleting.TryDeleteVersionAsync(Guid.NewGuid()), Is.EqualTo((true, (string?)null)));
+        });
+    }
+
+    [Test]
+    public async Task IAdminCrudChildHandler_RestoreAndTryDeleteDefaults()
+    {
+        IAdminCrudChildHandler bare = new MinimalChild();
+        var versioned = new VersionedMinimalChild();
+        IAdminCrudChildHandler child = versioned;
+
+        var missing = await bare.RestoreChildVersionAsync("p", Guid.NewGuid(), null);
+        var restored = await child.RestoreChildVersionAsync("p", Guid.NewGuid(), 1);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(missing, Is.EqualTo(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage)));
+            Assert.That(restored.Success, Is.True);
+            Assert.That(versioned.SavedModel, Is.SameAs(versioned.RestoreModel));
+            Assert.That(await bare.TryDeleteChildVersionAsync(Guid.NewGuid()), Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
+            Assert.That(await child.TryDeleteChildVersionAsync(Guid.NewGuid()), Is.EqualTo((true, (string?)null)));
+        });
+    }
+
+    [Test]
+    public async Task AdminCrudModel_TryDeleteVersionAsync_ReportsTheOutcome()
+    {
+        var model = new MinimalCrudModel(Substitute.For<IContentStore<ContentBlockDTO>>(), Substitute.For<IChangeSetScope>());
+
+        var deleted = await model.TryDeleteVersionAsync(Guid.NewGuid());
+        model.DeleteVersionResult = false;
+        var refused = await model.TryDeleteVersionAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo((true, (string?)null)));
+            Assert.That(refused, Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
         });
     }
 

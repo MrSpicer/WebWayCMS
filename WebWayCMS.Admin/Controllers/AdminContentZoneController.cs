@@ -15,18 +15,18 @@ public class AdminContentZoneController : Controller
     private readonly IContentZoneModel _model;
     private readonly IWidgetRegistry _registry;
     private readonly IContentStore<PageDTO> _pageStore;
-    private readonly IContentZoneService _zoneService;
+    private readonly IPageHistoryService _pageHistory;
 
     public AdminContentZoneController(
         IContentZoneModel model,
         IWidgetRegistry registry,
         IContentStore<PageDTO> pageStore,
-        IContentZoneService zoneService)
+        IPageHistoryService pageHistory)
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _pageStore = pageStore ?? throw new ArgumentNullException(nameof(pageStore));
-        _zoneService = zoneService ?? throw new ArgumentNullException(nameof(zoneService));
+        _pageHistory = pageHistory ?? throw new ArgumentNullException(nameof(pageHistory));
     }
 
     /// <summary>
@@ -60,27 +60,32 @@ public class AdminContentZoneController : Controller
 
         var versions = await _pageStore.GetAllVersionsAsync(pageNodeId, ct);
         var isPublished = versions.Any(v => v.Version.State == ContentVersionState.Published);
-        var zonePending = (await _zoneService.GetPagesWithPendingZoneChangesAsync([pageNodeId], ct)).Contains(pageNodeId);
+        var pending = (await _pageHistory.GetPagesWithUnpublishedChangesAsync([pageNodeId], ct)).Contains(pageNodeId);
 
         var vm = new PageZonesEditViewModel
         {
             PageNodeId = pageNodeId,
             PageTitle = page.Version.Title,
             IsPublished = isPublished,
-            HasPendingChanges = zonePending || page.Version.State != ContentVersionState.Published,
-            HasPendingZoneChanges = zonePending,
-            Slots = await _model.GetPageZoneSlotsAsync(pageNodeId, ct)
+            HasPendingChanges = pending,
+            // Discard returns the page to what is live, so it is offered only for a live page with changes.
+            HasPendingZoneChanges = isPublished && pending,
+            Slots = await _model.GetPageZoneSlotsAsync(pageNodeId, ct),
+            UnplacedCandidates = await _model.GetUnplacedCandidatesAsync(pageNodeId, ct)
         };
 
         return View("~/Views/AdminContentZone/PageZonesEdit.cshtml", vm);
     }
 
-    /// <summary>Throws away the page's unpublished zone-item drafts, reverting to what is live.</summary>
+    /// <summary>
+    /// Returns the page and its zones to what is live, as new drafts recorded in page history (so the
+    /// discard itself can be undone from there).
+    /// </summary>
     [HttpPost("page/{pageNodeId:guid}/discard")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DiscardPageZones(Guid pageNodeId, CancellationToken ct)
     {
-        var (success, errorMessage) = await _zoneService.DiscardPageZoneDraftsAsync(pageNodeId, ct);
+        var (success, errorMessage) = await _pageHistory.DiscardUnpublishedChangesAsync(pageNodeId, ct);
         if (!success)
             TempData["Error"] = errorMessage;
 

@@ -67,4 +67,29 @@ public interface IAdminCrudChildHandler
 
     Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult(false);
+
+    /// <summary>
+    /// Restores a historical child version as the child's current version in one step (the admin
+    /// history page's Restore button and MCP <c>restore_child_version</c>). The default saves the
+    /// <see cref="GetChildRestoreVersionViewModelAsync"/> form back through
+    /// <see cref="SaveChildUpsertAsync"/>, which carries its own expected version;
+    /// <paramref name="expectedVersionNumber"/> is the child's current version as the caller saw it.
+    /// </summary>
+    async Task<AdminSaveResult> RestoreChildVersionAsync(string parentKey, Guid versionId, int? expectedVersionNumber, CancellationToken ct = default)
+    {
+        var vm = await GetChildRestoreVersionViewModelAsync(parentKey, versionId, ct);
+        return vm == null
+            ? new AdminSaveResult(false, VersionNotFoundMessage)
+            : await SaveChildUpsertAsync(parentKey, vm, ct);
+    }
+
+    /// <summary><see cref="RestoreChildVersionAsync"/>'s error when the version does not exist.</summary>
+    const string VersionNotFoundMessage = "Version not found.";
+
+    /// <summary>
+    /// <see cref="DeleteChildVersionAsync"/> with the reason a delete was refused (e.g. the version is
+    /// part of page history), for the admin UI and MCP to show.
+    /// </summary>
+    async Task<(bool Success, string? ErrorMessage)> TryDeleteChildVersionAsync(Guid id, CancellationToken ct = default)
+        => await DeleteChildVersionAsync(id, ct) ? (true, null) : (false, IAdminCrudHandler.VersionNotDeletedMessage);
 }

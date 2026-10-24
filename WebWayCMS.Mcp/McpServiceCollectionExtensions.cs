@@ -34,6 +34,7 @@ public static class McpServiceCollectionExtensions
         services.AddScoped<VersionToolset>();
         services.AddScoped<ChildContentToolset>();
         services.AddScoped<MediaToolset>();
+        services.AddScoped<PageHistoryToolset>();
 
         // The free-form "fields" parameters are typed as JsonElement, which produces an untyped
         // schema; some clients then send the value as a JSON string. Declaring those parameters as
@@ -58,6 +59,7 @@ public static class McpServiceCollectionExtensions
             .Concat(ToolsFrom<VersionToolset>(toolOptions))
             .Concat(ToolsFrom<ChildContentToolset>(toolOptions))
             .Concat(ToolsFrom<MediaToolset>(toolOptions))
+            .Concat(ToolsFrom<PageHistoryToolset>(toolOptions))
             .ToList();
 
         services.AddMcpServer()

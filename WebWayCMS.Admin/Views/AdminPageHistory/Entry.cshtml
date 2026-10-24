@@ -1,0 +1,65 @@
+@using WebWayCMS.Models.PageHistory
+@model PageHistoryEntryViewModel
+
+@{
+    var when = Model.Entry.CreatedUtc.ToString("yyyy-MM-dd HH:mm");
+    ViewData["Title"] = $"Page history: {Model.PageTitle} — {when} UTC";
+    var crumb = (Model.PageNodeId, Model.PageTitle, when, (Guid?)Model.Entry.Id);
+    var table = (Rows: Model.Items, Since: false);
+}
+
+<partial name="_Breadcrumb" model="crumb" />
+
+<section class="section">
+<div class="container is-fluid">
+
+    <div class="box">
+        <div class="level">
+            <div class="level-left">
+                <div class="level-item">
+                    <div>
+                        <p><span class="has-text-grey">@(Model.Entry.Kind == WebWayCMS.Data.Models.PageSetSnapshotKind.Published ? "Published" : "Saved")</span> @when UTC
+                            @if (Model.Entry.CreatedBy.HasValue)
+                            {
+                                <span class="has-text-grey"> by @Model.Entry.CreatedBy</span>
+                            }
+                        </p>
+                        <p><span class="has-text-grey">Page title</span> @Model.CapturedPageTitle
+                            @if (Model.PageChanged)
+                            {
+                                <span class="tag is-warning ml-2">Page settings changed</span>
+                            }
+                        </p>
+                        <p><span class="has-text-grey">Change</span> @Model.Entry.Note</p>
+                        <p><span class="has-text-grey">Widgets</span> @Model.Entry.ItemCount</p>
+                        <partial name="_EntrySummary" model="Model.Entry" />
+                    </div>
+                </div>
+            </div>
+            <div class="level-right">
+                <div class="level-item buttons">
+                    <a asp-action="Compare" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button is-primary">Compare &amp; revert</a>
+                    <a asp-action="Preview" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Preview</a>
+                    @if (Model.PreviousEntryId.HasValue)
+                    {
+                        <a asp-action="Entry" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.PreviousEntryId" class="button">Previous entry</a>
+                    }
+                    <button type="button" class="button is-danger is-light"
+                            data-delete-trigger
+                            data-delete-name="the history entry from @when UTC"
+                            data-delete-url="@Url.Action("Delete", "AdminPageHistory", new { pageNodeId = Model.PageNodeId, entryId = Model.Entry.Id })">
+                        Delete entry
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="title is-5">Widgets in this entry</h2>
+    <p class="has-text-grey mb-3">
+        @(Model.PreviousEntryId.HasValue ? "Changes are relative to the entry before this one." : "This is the page's first history entry.")
+    </p>
+    <partial name="_ItemTable" model="table" />
+
+</div>
+</section>

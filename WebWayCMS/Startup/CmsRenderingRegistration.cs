@@ -31,6 +31,7 @@ using WebWayCMS.Routing;
 using WebWayCMS.Services;
 using WebWayCMS.TagHelpers;
 using WebWayCMS.ViewComponents;
+using WebWayCMS.ViewComponents.SlotDiscovery;
 
 namespace WebWayCMS.Startup;
 
@@ -55,6 +56,8 @@ internal static class CmsRenderingRegistration
                 ? ActivatorUtilities.CreateInstance<ViewDiscoveryService>(sp)
                 : sp.GetRequiredService<ViewDiscoveryService>());
         services.AddScoped<IWidgetViewResolver, WidgetViewResolver>();
+        // Finds a container widget's zones by rendering it (a view change moves its content along).
+        services.AddScoped<IWidgetSlotDiscovery, ViewComponentSlotDiscovery>();
         services.AddScoped<IFormFieldViewResolver, FormFieldViewResolver>();
 
         services.AddSingleton<IWidgetRegistry, WidgetRegistry>();
@@ -89,6 +92,9 @@ internal static class CmsRenderingRegistration
 
         services.AddScoped<ICmsTransaction, CmsTransaction>();
         services.AddScoped<IContentZoneService, ContentZoneService>();
+        services.AddScoped<PageZoneTree>();
+        services.AddScoped<IPageHistoryRecorder, PageHistoryRecorder>();
+        services.AddScoped<IPageHistoryService, PageHistoryService>();
         services.AddScoped<IWidgetRegistrationService, WidgetRegistrationService>();
         services.AddScoped<IPageControllerRegistrationService, PageControllerRegistrationService>();
         services.AddScoped<IFormComponentRegistrationService, FormComponentRegistrationService>();
