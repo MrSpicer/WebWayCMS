@@ -12,8 +12,13 @@ namespace WebWayCMS.Models.PageHistory;
 /// </summary>
 public interface IPageHistoryModel
 {
-    /// <summary>The page's entries, newest first; null when the page does not exist.</summary>
-    Task<PageHistoryIndexViewModel?> GetIndexAsync(Guid pageNodeId, CancellationToken ct = default);
+    /// <summary>
+    /// One page of the page's entries, newest first (<paramref name="skip"/> clamped to at least 0,
+    /// <paramref name="take"/> to 1..<see cref="IPageHistoryService.MaxPageSize"/>); null when the page
+    /// does not exist.
+    /// </summary>
+    Task<PageHistoryIndexViewModel?> GetIndexAsync(
+        Guid pageNodeId, int skip = 0, int take = IPageHistoryService.DefaultPageSize, CancellationToken ct = default);
 
     /// <summary>An entry and what it changed; null when the page or entry does not exist (or do not match).</summary>
     Task<PageHistoryEntryViewModel?> GetEntryAsync(Guid pageNodeId, Guid entryId, CancellationToken ct = default);
@@ -51,19 +56,29 @@ public sealed class PageHistoryModel : IPageHistoryModel
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
     }
 
-    public async Task<PageHistoryIndexViewModel?> GetIndexAsync(Guid pageNodeId, CancellationToken ct = default)
+    public async Task<PageHistoryIndexViewModel?> GetIndexAsync(
+        Guid pageNodeId, int skip = 0, int take = IPageHistoryService.DefaultPageSize, CancellationToken ct = default)
     {
         var page = await _pageStore.GetCurrentDraftAsync(pageNodeId, ct);
         if (page == null)
             return null;
 
-        var entries = await _history.ListAsync(pageNodeId, ct);
+        skip = Math.Max(skip, 0);
+        take = Math.Clamp(take, 1, IPageHistoryService.MaxPageSize);
+
+        // The service returns one entry past the page (when there is one) so the last row shown still has
+        // its predecessor to diff against; that extra entry is never shown itself.
+        var (entries, total) = await _history.ListPageAsync(pageNodeId, skip, take, ct);
         return new PageHistoryIndexViewModel
         {
             PageNodeId = pageNodeId,
             PageTitle = page.Version.Title,
+            Skip = skip,
+            Take = take,
+            TotalCount = total,
             Entries = entries
-                .Select((entry, i) => Summarize(entry, i + 1 < entries.Count ? entries[i + 1] : null, isLatest: i == 0))
+                .Take(take)
+                .Select((entry, i) => Summarize(entry, i + 1 < entries.Count ? entries[i + 1] : null, isLatest: skip == 0 && i == 0))
                 .ToList()
         };
     }

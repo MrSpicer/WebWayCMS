@@ -147,7 +147,8 @@
   handlers (`TryDeleteVersionAsync` / `TryDeleteChildVersionAsync`, used by the admin and MCP) — with an entry
   per change that is most versions; any store-level hard delete (page delete, zone delete) removes whole
   referencing snapshots. The editor toolbar's **History** button → `AdminPageHistoryController`
-  (`/wadmin/contentzones/page/{id}/history`, Admin only): list (Draft/Published tag + note), entry detail
+  (`/wadmin/contentzones/page/{id}/history`, Admin only): list (Draft/Published tag + note; paged by
+  `skip`/`take`, default 50, max 200, via `IPageHistoryService.ListPageAsync`, as is MCP `list_page_history`), entry detail
   (diff vs. previous), compare with current drafts (by content, `PageSetEquality`/`PageSetComparer`),
   preview, delete entry, and **revert** — the page + every item as new drafts in one transaction (later
   items become inactive drafts, never deleted), guarded by a draft state token (`StaleStateMessage`), and

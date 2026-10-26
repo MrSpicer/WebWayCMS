@@ -27,6 +27,12 @@ public interface IPageHistoryService
     /// <summary>Returned by <see cref="DiscardUnpublishedChangesAsync"/> for a page that is not live.</summary>
     const string NotPublishedMessage = "This page isn't published, so there is no published state to return to. Use page history instead.";
 
+    /// <summary>The page size <see cref="ListPageAsync"/> callers default to.</summary>
+    const int DefaultPageSize = 50;
+
+    /// <summary>The largest page <see cref="ListPageAsync"/> returns; a larger take is clamped to it.</summary>
+    const int MaxPageSize = 200;
+
     /// <summary>
     /// Records what is live for the page now (a Published entry, see
     /// <see cref="IPageHistoryRecorder.RecordPublishedAsync"/>). Called after every publish.
@@ -38,6 +44,15 @@ public interface IPageHistoryService
 
     /// <summary>The page's snapshots, newest first, with their items.</summary>
     Task<List<PageSetSnapshot>> ListAsync(Guid pageNodeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of <see cref="ListAsync"/>: up to <paramref name="take"/> snapshots after skipping
+    /// <paramref name="skip"/>, plus the next-older one when it exists (so the last row can still be diffed
+    /// against its predecessor; callers must not show it), and the page's total snapshot count.
+    /// <paramref name="skip"/> is clamped to at least 0 and <paramref name="take"/> to 1..<see cref="MaxPageSize"/>.
+    /// </summary>
+    Task<(List<PageSetSnapshot> Entries, int TotalCount)> ListPageAsync(
+        Guid pageNodeId, int skip, int take, CancellationToken ct = default);
 
     /// <summary>The id of the page's newest snapshot (the first of <see cref="ListAsync"/>), or null when it has none.</summary>
     Task<Guid?> GetLatestIdAsync(Guid pageNodeId, CancellationToken ct = default);

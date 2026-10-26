@@ -1,0 +1,31 @@
+@using WebWayCMS.Models.PageHistory
+@model PageHistoryIndexViewModel
+
+@if (Model.HasNewer || Model.HasOlder)
+{
+    var first = Model.Entries.Count == 0 ? 0 : Model.Skip + 1;
+    var last = Model.Skip + Model.Entries.Count;
+    <nav class="level my-3" aria-label="History pages">
+        <div class="level-left">
+            <p class="level-item has-text-grey">Showing @first–@last of @Model.TotalCount</p>
+        </div>
+        <div class="level-right">
+            <div class="buttons level-item">
+                @if (Model.HasNewer)
+                {
+                    <a asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId" asp-route-skip="@Math.Max(Model.Skip - Model.Take, 0)" asp-route-take="@Model.Take" class="button is-small">
+                        <span class="icon"><i class="fas fa-chevron-left" aria-hidden="true"></i></span>
+                        <span>Newer</span>
+                    </a>
+                }
+                @if (Model.HasOlder)
+                {
+                    <a asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId" asp-route-skip="@(Model.Skip + Model.Take)" asp-route-take="@Model.Take" class="button is-small">
+                        <span>Older</span>
+                        <span class="icon"><i class="fas fa-chevron-right" aria-hidden="true"></i></span>
+                    </a>
+                }
+            </div>
+        </div>
+    </nav>
+}

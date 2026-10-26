@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.PageHistory;
 
 namespace WebWayCMS.Controllers.Admin;
@@ -23,9 +24,10 @@ public class AdminPageHistoryController : Controller
     }
 
     [HttpGet("")]
-    public async Task<IActionResult> Index(Guid pageNodeId, CancellationToken ct)
+    public async Task<IActionResult> Index(
+        Guid pageNodeId, int skip = 0, int take = IPageHistoryService.DefaultPageSize, CancellationToken ct = default)
     {
-        var vm = await _model.GetIndexAsync(pageNodeId, ct);
+        var vm = await _model.GetIndexAsync(pageNodeId, skip, take, ct);
         return vm == null ? NotFound() : View(ViewRoot + "Index.cshtml", vm);
     }
 

@@ -51,6 +51,21 @@ public sealed class PageHistoryService : IPageHistoryService
                 .Where(s => s.PageNodeId == pageNodeId))
             .ToListAsync(ct);
 
+    public async Task<(List<PageSetSnapshot> Entries, int TotalCount)> ListPageAsync(
+        Guid pageNodeId, int skip, int take, CancellationToken ct = default)
+    {
+        skip = Math.Max(skip, 0);
+        take = Math.Clamp(take, 1, IPageHistoryService.MaxPageSize);
+
+        var snapshots = _context.Set<PageSetSnapshot>().AsNoTracking().Where(s => s.PageNodeId == pageNodeId);
+        var total = await snapshots.CountAsync(ct);
+        var entries = await Newest(snapshots.Include(s => s.Items))
+            .Skip(skip)
+            .Take(take + 1)
+            .ToListAsync(ct);
+        return (entries, total);
+    }
+
     public Task<PageSetSnapshot?> GetAsync(Guid snapshotId, CancellationToken ct = default)
         => _context.Set<PageSetSnapshot>()
             .AsNoTracking()

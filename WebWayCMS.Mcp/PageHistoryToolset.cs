@@ -3,6 +3,7 @@ using System.ComponentModel;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.PageHistory;
 
 namespace WebWayCMS.Mcp;
@@ -22,11 +23,13 @@ public sealed class PageHistoryToolset
     }
 
     [McpServerTool(Name = "list_page_history", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists a page's history entries, newest first. An entry is recorded after every change to the page or its zone items (kind Draft, with a note such as \"Added ContentBlock to Main\") and after every publish (kind Published: what went live). Each holds the page and every active zone item, nested zones included.")]
+    [Description("Lists a page's history entries, newest first. An entry is recorded after every change to the page or its zone items (kind Draft, with a note such as \"Added ContentBlock to Main\") and after every publish (kind Published: what went live). Each holds the page and every active zone item, nested zones included. Paged: totalCount is the page's entry count, hasOlder says whether to request the next skip.")]
     public async Task<PageHistoryIndexViewModel> ListPageHistory(
         [Description("The page's nodeId.")] Guid pageNodeId,
+        [Description("How many of the newest entries to skip (default 0).")] int skip = 0,
+        [Description("How many entries to return (default 50, max 200).")] int take = IPageHistoryService.DefaultPageSize,
         CancellationToken ct = default)
-        => await _model.GetIndexAsync(pageNodeId, ct)
+        => await _model.GetIndexAsync(pageNodeId, skip, take, ct)
            ?? throw new McpException($"No page found with nodeId '{pageNodeId}'.");
 
     [McpServerTool(Name = "get_page_history_entry", ReadOnly = true, OpenWorld = false)]

@@ -20,14 +20,22 @@
         <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@Model.PageNodeId" class="button">Back to editor</a>
     </div>
 
-    @if (Model.Entries.Count == 0)
+    @if (Model.TotalCount == 0)
     {
         <div class="notification is-light" role="status">
             No history yet. An entry is recorded every time this page or one of its widgets changes.
         </div>
     }
+    else if (Model.Entries.Count == 0)
+    {
+        <div class="notification is-light" role="status">
+            There are no entries this far back.
+            <a asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId">Go to the newest entries</a>.
+        </div>
+    }
     else
     {
+        <partial name="_Pager" model="Model" />
         <div class="table-container">
             <table class="table is-fullwidth is-striped">
                 <caption class="is-sr-only">Page history for @Model.PageTitle</caption>
@@ -78,6 +86,7 @@
                 </tbody>
             </table>
         </div>
+        <partial name="_Pager" model="Model" />
     }
 
 </div>

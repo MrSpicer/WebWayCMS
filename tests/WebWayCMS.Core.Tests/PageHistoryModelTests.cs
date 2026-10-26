@@ -96,7 +96,7 @@ public class PageHistoryModelTests
         Guid aV1 = Guid.NewGuid(), aV2 = Guid.NewGuid(), bV1 = Guid.NewGuid(), cV1 = Guid.NewGuid();
         var first = Entry(new DateTime(2026, 1, 1), Guid.NewGuid(), (a, aV1), (b, bV1));
         var second = Entry(new DateTime(2026, 2, 1), Guid.NewGuid(), (a, aV2), (c, cV1));
-        _history.ListAsync(_pageNodeId, Arg.Any<CancellationToken>()).Returns([second, first]);
+        _history.ListPageAsync(_pageNodeId, 0, IPageHistoryService.DefaultPageSize, Arg.Any<CancellationToken>()).Returns(([second, first], 2));
 
         var index = (await _model.GetIndexAsync(_pageNodeId))!;
 
@@ -110,6 +110,58 @@ public class PageHistoryModelTests
             Assert.That((oldest.Added, oldest.Updated, oldest.Removed, oldest.PageUpdated, oldest.IsLatest), Is.EqualTo((2, 0, 0, false, false)));
             Assert.That(oldest.ItemCount, Is.EqualTo(2));
         });
+    }
+
+    [Test]
+    public async Task GetIndexAsync_LaterPage_DiffsTheLastRowAgainstTheExtraEntry_WithoutShowingIt()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        var oldest = Entry(new DateTime(2026, 1, 1), Guid.NewGuid(), (a, Guid.NewGuid()));
+        var middle = Entry(new DateTime(2026, 2, 1), oldest.PageVersionId, (a, oldest.Items[0].ItemVersionId), (b, Guid.NewGuid()));
+        var newest = Entry(new DateTime(2026, 3, 1), Guid.NewGuid(), (a, Guid.NewGuid()), (b, middle.Items[1].ItemVersionId));
+        _history.ListPageAsync(_pageNodeId, 1, 2, Arg.Any<CancellationToken>()).Returns(([newest, middle, oldest], 5));
+
+        var index = (await _model.GetIndexAsync(_pageNodeId, skip: 1, take: 2))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(index.Entries.Select(e => e.Id), Is.EqualTo(new[] { newest.Id, middle.Id }));
+            Assert.That(index.Entries.Any(e => e.IsLatest), Is.False);
+            Assert.That((index.Entries[1].Added, index.Entries[1].Updated, index.Entries[1].PageUpdated), Is.EqualTo((1, 0, false)));
+            Assert.That((index.Skip, index.Take, index.TotalCount), Is.EqualTo((1, 2, 5)));
+            Assert.That((index.HasNewer, index.HasOlder), Is.EqualTo((true, true)));
+        });
+    }
+
+    [Test]
+    public async Task GetIndexAsync_LastPage_HasNoOlder_AndTheOldestRowHasNoPredecessor()
+    {
+        var only = Entry(new DateTime(2026, 1, 1), Guid.NewGuid(), (Guid.NewGuid(), Guid.NewGuid()));
+        _history.ListPageAsync(_pageNodeId, 2, 2, Arg.Any<CancellationToken>()).Returns(([only], 3));
+
+        var index = (await _model.GetIndexAsync(_pageNodeId, skip: 2, take: 2))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(index.Entries.Single().Added, Is.EqualTo(1));
+            Assert.That((index.HasNewer, index.HasOlder), Is.EqualTo((true, false)));
+        });
+    }
+
+    [TestCase(-5, 0, 0, 1)]
+    [TestCase(3, 1000, 3, IPageHistoryService.MaxPageSize)]
+    public async Task GetIndexAsync_OutOfRangeSkipAndTake_AreClamped(int skip, int take, int expectedSkip, int expectedTake)
+    {
+        _history.ListPageAsync(_pageNodeId, expectedSkip, expectedTake, Arg.Any<CancellationToken>()).Returns(([], 0));
+
+        var index = (await _model.GetIndexAsync(_pageNodeId, skip, take))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That((index.Skip, index.Take), Is.EqualTo((expectedSkip, expectedTake)));
+            Assert.That(index.Entries, Is.Empty);
+        });
+        await _history.Received(1).ListPageAsync(_pageNodeId, expectedSkip, expectedTake, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -129,7 +181,7 @@ public class PageHistoryModelTests
             new PageSetSnapshotItem { ItemNodeId = moved, ItemVersionId = Guid.NewGuid(), ZoneNodeId = zone, Ordinal = 3 },
             new PageSetSnapshotItem { ItemNodeId = edited, ItemVersionId = Guid.NewGuid(), ZoneNodeId = zone, Ordinal = 2 }
         ];
-        _history.ListAsync(_pageNodeId, Arg.Any<CancellationToken>()).Returns([second, first]);
+        _history.ListPageAsync(_pageNodeId, 0, IPageHistoryService.DefaultPageSize, Arg.Any<CancellationToken>()).Returns(([second, first], 2));
 
         var newest = (await _model.GetIndexAsync(_pageNodeId))!.Entries[0];
 

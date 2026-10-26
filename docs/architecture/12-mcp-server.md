@@ -141,7 +141,7 @@ items and after every publish; see [04 → History in the Zone Editor](04-conten
 
 | Tool | Purpose |
 |---|---|
-| `list_page_history(pageNodeId)` | Entries, newest first — one per change (kind Draft, with a note) and per publish (kind Published) — with change counts (`ReadOnly`) |
+| `list_page_history(pageNodeId, skip?, take?)` | Entries, newest first — one per change (kind Draft, with a note) and per publish (kind Published) — with change counts. Paged: `take` default 50, max 200; returns `totalCount`/`hasOlder` (`ReadOnly`) |
 | `get_page_history_entry(pageNodeId, entryId, compareWithCurrent=false)` | The entry's items and their change vs. the previous entry; with `compareWithCurrent`, how the current drafts changed since the entry plus the `stateToken` a revert needs (`ReadOnly`) |
 | `revert_page_to_entry(pageNodeId, entryId, stateToken)` | Revert the page and every zone item to the entry as drafts (non-destructive; refused when the page changed since the token) — publish with `publish_content("pages", …)` |
 | `delete_page_history_entry(pageNodeId, entryId)` | Delete the entry record (its versions are kept) |

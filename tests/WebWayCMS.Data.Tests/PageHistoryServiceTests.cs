@@ -304,6 +304,54 @@ public class PageHistoryServiceTests
     }
 
     [Test]
+    public async Task ListPageAsync_ReturnsThePageThenTheNextOlderEntry_AndTheTotal()
+    {
+        var page = await CreatePageAsync();
+        await AddItemAsync(await ZoneAsync(page), "Text");
+        for (var i = 1; i <= 4; i++)
+        {
+            await RenamePageAsync(page, $"Title {i}");
+            await NewGraph().History.RecordDraftAsync(page, $"Renamed {i}");
+        }
+
+        var history = NewGraph().History;
+        var all = await history.ListAsync(page);
+        var first = await history.ListPageAsync(page, 0, 2);
+        var last = await history.ListPageAsync(page, all.Count - 1, 2);
+        var other = await history.ListPageAsync(Guid.NewGuid(), 0, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.TotalCount, Is.EqualTo(all.Count));
+            Assert.That(first.Entries.Select(e => e.Id), Is.EqualTo(all.Take(3).Select(e => e.Id)), "the page plus the next-older entry");
+            Assert.That(first.Entries.All(e => e.Items.Count == 1), Is.True, "items are loaded");
+            Assert.That(last.Entries.Select(e => e.Id), Is.EqualTo(new[] { all[^1].Id }), "no older entry to add");
+            Assert.That((other.Entries.Count, other.TotalCount), Is.EqualTo((0, 0)));
+        });
+    }
+
+    [Test]
+    public async Task ListPageAsync_ClampsSkipAndTake()
+    {
+        var page = await CreatePageAsync();
+        for (var i = 1; i <= 3; i++)
+        {
+            await RenamePageAsync(page, $"Title {i}");
+            await NewGraph().History.RecordDraftAsync(page, $"Renamed {i}");
+        }
+
+        var history = NewGraph().History;
+        var smallest = await history.ListPageAsync(page, -5, 0);
+        var largest = await history.ListPageAsync(page, 0, int.MaxValue);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(smallest.Entries, Has.Count.EqualTo(2), "skip 0, take 1, plus the next-older entry");
+            Assert.That(largest.Entries, Has.Count.EqualTo(3), "take clamped to the maximum, no overflow on take + 1");
+        });
+    }
+
+    [Test]
     public async Task GetLatestIdAsync_IsTheFirstListedEntry_OrNull()
     {
         var page = await CreatePageAsync();

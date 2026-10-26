@@ -30,9 +30,17 @@ public class AdminPageHistoryControllerTests
         Assert.That(() => new AdminPageHistoryController(null!), Throws.ArgumentNullException);
 
     [Test]
+    public async Task Index_PassesSkipAndTakeThrough()
+    {
+        _model.GetIndexAsync(_page, 50, 25, Arg.Any<CancellationToken>()).Returns(new PageHistoryIndexViewModel());
+
+        Assert.That(await _controller.Index(_page, skip: 50, take: 25), Is.InstanceOf<ViewResult>());
+    }
+
+    [Test]
     public async Task GetActions_RenderTheirViewOrNotFound()
     {
-        _model.GetIndexAsync(_page, Arg.Any<CancellationToken>()).Returns(new PageHistoryIndexViewModel(), (PageHistoryIndexViewModel?)null);
+        _model.GetIndexAsync(_page, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new PageHistoryIndexViewModel(), (PageHistoryIndexViewModel?)null);
         _model.GetEntryAsync(_page, _entry, Arg.Any<CancellationToken>()).Returns(new PageHistoryEntryViewModel());
         _model.GetCompareAsync(_page, _entry, Arg.Any<CancellationToken>()).Returns(new PageHistoryCompareViewModel());
 

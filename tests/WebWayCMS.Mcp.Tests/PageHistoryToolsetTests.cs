@@ -4,6 +4,7 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Data.Services;
 using WebWayCMS.Models.PageHistory;
 
 namespace WebWayCMS.Mcp.Tests;
@@ -30,11 +31,24 @@ public class PageHistoryToolsetTests
     {
         var page = Guid.NewGuid();
         var index = new PageHistoryIndexViewModel { PageNodeId = page };
-        _model.GetIndexAsync(page, Arg.Any<CancellationToken>()).Returns(index);
-        _model.GetIndexAsync(Arg.Is<Guid>(g => g != page), Arg.Any<CancellationToken>()).Returns((PageHistoryIndexViewModel?)null);
+        _model.GetIndexAsync(page, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(index);
+        _model.GetIndexAsync(Arg.Is<Guid>(g => g != page), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((PageHistoryIndexViewModel?)null);
 
         Assert.That(await _tools.ListPageHistory(page), Is.SameAs(index));
         Assert.That(async () => await _tools.ListPageHistory(Guid.NewGuid()), Throws.TypeOf<McpException>());
+    }
+
+    [Test]
+    public async Task ListPageHistory_PassesSkipAndTake_DefaultingToTheFirstPage()
+    {
+        var page = Guid.NewGuid();
+        _model.GetIndexAsync(page, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new PageHistoryIndexViewModel());
+
+        await _tools.ListPageHistory(page);
+        await _tools.ListPageHistory(page, skip: 50, take: 25);
+
+        await _model.Received(1).GetIndexAsync(page, 0, IPageHistoryService.DefaultPageSize, Arg.Any<CancellationToken>());
+        await _model.Received(1).GetIndexAsync(page, 50, 25, Arg.Any<CancellationToken>());
     }
 
     [Test]

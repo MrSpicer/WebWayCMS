@@ -340,7 +340,7 @@ changes. "Pending changes" compares content, so drafts equal to what is live are
 
 | Route | Screen |
 |---|---|
-| `GET .../history` | Entries, newest first: time, Draft/Published tag, the change note, and added/updated/moved/removed counts against the previous entry |
+| `GET .../history?skip=&take=` | Entries, newest first, paged (`take` default 50, max 200; Newer/Older links): time, Draft/Published tag, the change note, and added/updated/moved/removed counts against the previous entry. `IPageHistoryService.ListPageAsync` reads one page plus the next-older entry, so the last row still diffs against its predecessor |
 | `GET .../history/{entryId}` | Entry detail: who/when, captured title, each widget with its change vs. the previous entry and a link to its own history |
 | `GET .../history/{entryId}/compare` | The current drafts vs. the entry (what changed *since*), by content; the Revert form carries the draft state token |
 | `GET .../history/{entryId}/preview` | Banner + iframe of `/_preview/{pageNodeId}/history/{entryId}` (snapshot read mode) |
