@@ -16,11 +16,128 @@
   --admin-info: #38bdf8;
   --admin-navbar-bg: #141824;
   --admin-navbar-text: #f1f5f9;
-  --admin-navbar-height: 56px;
+  --admin-navbar-height: 44px;
   --admin-radius: 8px;
   --admin-radius-sm: 4px;
   --admin-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.30);
   --admin-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40);
+}
+
+/* =============================================================
+   Density
+   The admin is a dense working surface: a 14px base (every rem/em
+   below scales from it) and tighter Bulma spacing. Bulma 1.x sets
+   most component variables on the component selector itself, so
+   each override sits on that selector, scoped to the admin shell.
+   ============================================================= */
+html.admin-html {
+  font-size: 14px;
+  /* Bulma's is-small (tags, help text, small buttons) is 0.75rem, which is
+     too small on a 14px base; keep it near 12px. */
+  --bulma-size-small: 0.875rem;
+}
+
+.admin-shell .section {
+  --bulma-section-padding: 1rem 1.25rem;
+  --bulma-section-padding-desktop: 1rem 1.25rem;
+}
+
+.admin-shell .block:not(:last-child),
+.admin-shell .box:not(:last-child),
+.admin-shell .content:not(:last-child),
+.admin-shell .notification:not(:last-child),
+.admin-shell .table:not(:last-child),
+.admin-shell .table-container:not(:last-child),
+.admin-shell .level:not(:last-child),
+.admin-shell .tabs:not(:last-child),
+.admin-shell .title:not(:last-child),
+.admin-shell .subtitle:not(:last-child) {
+  margin-bottom: 1rem;
+}
+
+.admin-shell .control,
+.admin-shell .input,
+.admin-shell .textarea,
+.admin-shell .select,
+.admin-shell .button,
+.admin-shell .file,
+.admin-shell .pagination {
+  --bulma-control-height: 2.375em;
+  --bulma-control-padding-vertical: calc(0.4em - 1px);
+  --bulma-control-padding-horizontal: calc(0.7em - 1px);
+}
+
+.admin-shell .button {
+  --bulma-button-padding-vertical: calc(0.4em - 1px);
+  --bulma-button-padding-horizontal: 1em;
+}
+
+.admin-shell .field {
+  --bulma-field-block-spacing: 0.85rem;
+}
+
+.admin-shell .label {
+  --bulma-label-spacing: 0.35em;
+}
+
+.admin-shell .label:not(:last-child) {
+  margin-bottom: 0.35em;
+}
+
+.admin-shell .card {
+  --bulma-card-content-padding: 1.25rem;
+  --bulma-card-header-padding: 0.65rem 1rem;
+  --bulma-card-footer-padding: 0.75rem;
+}
+
+.admin-shell .box {
+  --bulma-box-padding: 1rem;
+}
+
+.admin-shell .notification {
+  --bulma-notification-padding: 0.85em 2.5em 0.85em 1.25em;
+}
+
+.admin-shell .message {
+  --bulma-message-body-padding: 0.75em 1em;
+  --bulma-message-header-padding: 0.5em 0.75em;
+}
+
+.admin-shell .modal {
+  --bulma-modal-card-head-padding: 1rem 1.25rem;
+  --bulma-modal-card-body-padding: 1.25rem;
+  --bulma-modal-card-spacing: 1.5rem;
+}
+
+.admin-shell .modal-card-foot {
+  padding: 1rem 1.25rem;
+  gap: 0.5rem;
+}
+
+.admin-shell .table {
+  --bulma-table-cell-padding: 0.5em 0.75em;
+}
+
+.admin-shell .tabs {
+  --bulma-tabs-link-padding: 0.5em 1em;
+}
+
+.admin-shell .menu {
+  --bulma-menu-list-link-padding: 0.45em 0.7em;
+}
+
+.admin-shell .dropdown {
+  --bulma-dropdown-content-padding-top: 0.25rem;
+  --bulma-dropdown-content-padding-bottom: 0.25rem;
+}
+
+.admin-shell .admin-empty-state .card-content {
+  padding-top: 1.5rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+.admin-shell .admin-empty-state .icon.is-large {
+  margin-bottom: 0.5rem !important;
 }
 
 /* =============================================================
@@ -55,6 +172,8 @@ body.admin-shell {
    Admin Navbar
    ============================================================= */
 .admin-navbar {
+  --bulma-navbar-height: var(--admin-navbar-height);
+  --bulma-navbar-item-img-max-height: 1.5rem;
   background: var(--admin-navbar-bg) !important;
   min-height: var(--admin-navbar-height) !important;
   box-shadow: var(--admin-shadow-sm);
@@ -125,7 +244,7 @@ body.admin-shell {
 .admin-main {
   background: var(--admin-surface);
   min-height: calc(100vh - var(--admin-navbar-height));
-  padding: 2rem 0;
+  padding: 0 0 1.5rem;
 }
 
 /* =============================================================
@@ -148,19 +267,93 @@ a:focus-visible,
 .admin-page-header {
   background: var(--admin-surface-raised);
   border-bottom: 1px solid var(--admin-border);
-  padding: 1.25rem 0;
+  padding: 0.75rem 0;
   margin-bottom: 0;
+}
+
+/* Older two-line headers (breadcrumb above the title) still used by host views. */
+.admin-page-header > .container > .breadcrumb {
+  margin-bottom: 0.15rem;
+}
+
+.admin-page-header .title {
+  margin-bottom: 0 !important;
 }
 
 .admin-page-title-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.5rem;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0;
 }
 
-.admin-page-title-row .title {
-  margin-bottom: 0 !important;
+.admin-page-title-row .buttons {
+  margin-bottom: 0;
+}
+
+.admin-page-title-row .buttons .button {
+  margin-bottom: 0;
+}
+
+/* One-row header: ancestor crumbs, then the page title as the current crumb. */
+.admin-page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.admin-page-heading .breadcrumb {
+  margin: 0;
+}
+
+.admin-page-heading .breadcrumb ul {
+  flex-wrap: wrap;
+}
+
+.admin-page-heading .breadcrumb + .title::before {
+  content: "/";
+  color: var(--admin-text-muted);
+  font-weight: 400;
+  /* The last crumb link already carries Bulma's right padding. */
+  padding: 0 0.75em 0 0;
+}
+
+/* Below desktop a plain .container has no gutter (the old .section supplied one), and a fluid
+   one keeps Bulma's 32px; give both the same modest gutter. */
+@media screen and (max-width: 1023px) {
+  .admin-page-header > .container,
+  .admin-page-body.container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+}
+
+/* Phones: crumbs on their own line above the title, no separator. */
+@media screen and (max-width: 768px) {
+  .admin-page-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-page-heading .breadcrumb + .title::before {
+    content: none;
+  }
+
+  .admin-page-header .admin-page-heading .subtitle {
+    margin-left: 0 !important;
+  }
+}
+
+/* A subtitle (item id, description) sits on the title row after the title. */
+.admin-page-heading .subtitle {
+  margin: 0 0 0 0.75rem !important;
+}
+
+.admin-page-body {
+  padding-top: 1rem;
 }
 
 /* =============================================================
@@ -188,8 +381,8 @@ table thead th {
    ============================================================= */
 .form-group-section {
   border-left: 3px solid var(--admin-primary-light);
-  padding-left: 1rem;
-  margin-bottom: 1.5rem;
+  padding-left: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 /* =============================================================
@@ -661,7 +854,7 @@ hr {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 0.75rem;
-    padding: 0.75rem 0.5rem;
+    padding: 0.5rem 0.35rem;
     border-bottom: 1px solid var(--admin-border);
   }
   .admin-list-table td { display: block; border: 0; padding: 0; }

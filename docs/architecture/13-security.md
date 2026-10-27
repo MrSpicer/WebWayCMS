@@ -137,16 +137,17 @@ is host-configurable through the `"Csp"` section.
 |---|---|
 | `default-src` | `'self'` |
 | `script-src` | `'self' https://cdn.ckeditor.com` |
-| `style-src` | `'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.ckeditor.com` |
+| `style-src` | `'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.ckeditor.com` |
 | `img-src` | `'self' data: https://cdn.ckeditor.com` |
-| `font-src` | `'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net` |
+| `font-src` | `'self' https://cdnjs.cloudflare.com` |
 | `connect-src` | `'self'` |
 | `object-src` | `'none'` |
 | `base-uri` | `'self'` |
 | `frame-ancestors` | `'none'` |
 
-These are chosen so the admin UI works with zero configuration: CKEditor from its CDN, Bulma from
-jsDelivr, Font Awesome from cdnjs.
+These are chosen so the admin UI works with zero configuration: CKEditor from its CDN and Font Awesome
+from cdnjs. Bulma is served locally (`~/_content/WebWayCMS.Presentation/css/bulma.min.css`), so it
+needs no CDN allowance.
 
 **Preview framing exception.** Responses under `/_preview` (`PreviewConstants.PathPrefix`, the
 Admin/Editor-only draft preview) use `CspPolicyBuilder.BuildForPreview`, identical except the default

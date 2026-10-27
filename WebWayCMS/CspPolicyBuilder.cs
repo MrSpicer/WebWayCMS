@@ -11,15 +11,16 @@ public static class CspPolicyBuilder
     /// CMS default directives, in emission order. Chosen so the admin UI works out of the box:
     /// scripts are restricted to self + the CKEditor CDN (no <c>'unsafe-inline'</c>); styles allow
     /// <c>'unsafe-inline'</c> because CKEditor injects styles at runtime and views use inline style
-    /// attributes; the CDNs used by the admin layout are permitted for styles/fonts/images.
+    /// attributes; the CDNs used by the admin layout (CKEditor, Font Awesome; Bulma is served locally)
+    /// are permitted for styles/fonts/images.
     /// </summary>
     private static readonly (string Directive, string Value)[] Defaults =
     {
         ("default-src", "'self'"),
         ("script-src", "'self' https://cdn.ckeditor.com"),
-        ("style-src", "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.ckeditor.com"),
+        ("style-src", "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.ckeditor.com"),
         ("img-src", "'self' data: https://cdn.ckeditor.com"),
-        ("font-src", "'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net"),
+        ("font-src", "'self' https://cdnjs.cloudflare.com"),
         ("connect-src", "'self'"),
         ("object-src", "'none'"),
         ("base-uri", "'self'"),

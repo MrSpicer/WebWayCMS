@@ -131,7 +131,7 @@ contains MVC views only — no Razor Pages; the Identity pages stayed in `WebWay
 `PageControllerRegistration/`, `WidgetRegistration/`, and `Shared/` (`_AdminLayout`,
 `_AdminNavbar`, `_DeleteConfirmModal`).
 
-**Assets** — `wwwroot/css/{admin,bulma.min,content-zone-edit}.css`,
+**Assets** — `wwwroot/css/{admin,content-zone-edit}.css` (Bulma comes from Presentation's `wwwroot`),
 `wwwroot/js/{admin,content-zone-edit,page-upsert,page-zones-edit}.js`, served as
 `~/_content/WebWayCMS.Admin/...`.
 

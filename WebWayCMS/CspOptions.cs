@@ -2,7 +2,7 @@ namespace WebWayCMS;
 
 /// <summary>
 /// Content-Security-Policy configuration, bound from the "Csp" configuration section. The CMS ships
-/// secure defaults that keep its own admin UI working (CKEditor / Bulma / FontAwesome CDNs); a host
+/// secure defaults that keep its own admin UI working (CKEditor / FontAwesome CDNs; Bulma is served locally); a host
 /// overrides or adds individual directives via <see cref="Directives"/>. Directives the host does not
 /// mention keep the CMS default. Set a directive to an empty value to drop it entirely.
 /// </summary>

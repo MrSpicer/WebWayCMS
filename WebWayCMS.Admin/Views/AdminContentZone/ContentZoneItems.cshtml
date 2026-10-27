@@ -6,27 +6,25 @@
 }
 
 <div class="admin-page-header">
-    <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
-                <li class="is-active"><a href="#" aria-current="page">@Model.ZoneName</a></li>
-            </ul>
-        </nav>
+    <div class="container is-fluid">
         <div class="admin-page-title-row">
-            <div>
-                <h1 class="title is-4">@ViewData["Title"]</h1>
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
                 @if (!string.IsNullOrEmpty(Model.ZoneDescription))
                 {
-                    <p class="subtitle is-6 has-text-grey">@Model.ZoneDescription</p>
+                    <p class="subtitle is-7 has-text-grey">@Model.ZoneDescription</p>
                 }
             </div>
         </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
         @if (TempData["Error"] != null)
         {
@@ -37,7 +35,7 @@
 
         @if (!Model.Items.Any())
         {
-            <div class="card admin-empty-state mt-4">
+            <div class="card admin-empty-state">
                 <div class="card-content has-text-centered py-6">
                     <span class="icon is-large has-text-grey-light mb-4">
                         <i class="fas fa-puzzle-piece fa-3x" aria-hidden="true"></i>
@@ -49,7 +47,7 @@
         }
         else
         {
-            <div class="table-container admin-list-container mt-4">
+            <div class="table-container admin-list-container">
                 <table class="table is-fullwidth is-hoverable admin-list-table" id="items-table">
                     <caption class="is-sr-only">Items in content zone @Model.ZoneName</caption>
                     <thead>
@@ -65,7 +63,7 @@
                         @foreach (var item in Model.Items.OrderBy(i => i.Ordinal))
                         {
                             <tr data-item-id="@item.Id">
-                                <td><span class="tag is-medium">@item.Ordinal</span></td>
+                                <td><span class="tag">@item.Ordinal</span></td>
                                 <td class="admin-list-main">
                                     <a asp-controller="AdminContent" asp-action="ChildEdit" asp-route-contentType="contentzones" asp-route-parentKey="@Model.ZoneId" asp-route-childType="items" asp-route-id="@item.Id" class="admin-list-title">@item.ComponentName</a>
                                 </td>
@@ -119,4 +117,3 @@
             <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones" class="button">Back to Zones</a>
         </div>
 </div>
-</section>

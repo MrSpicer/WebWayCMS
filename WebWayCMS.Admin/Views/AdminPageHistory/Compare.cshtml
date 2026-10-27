@@ -10,8 +10,7 @@
 
 <partial name="_Breadcrumb" model="crumb" />
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
     <div class="box">
         <p class="mb-3">
@@ -41,7 +40,7 @@
             }
             else
             {
-                <span class="tag is-success is-medium">The current draft already matches this entry</span>
+                <span class="tag is-success">The current draft already matches this entry</span>
             }
             <a asp-action="Preview" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Preview entry</a>
             <a asp-action="Entry" asp-route-pageNodeId="@Model.PageNodeId" asp-route-entryId="@Model.Entry.Id" class="button">Entry details</a>
@@ -53,7 +52,6 @@
     <partial name="_ItemTable" model="table" />
 
 </div>
-</section>
 
 @section Scripts {
     <script src="~/_content/WebWayCMS.Admin/js/page-history.js"></script>

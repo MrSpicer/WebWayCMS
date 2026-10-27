@@ -46,7 +46,7 @@ and so on.
 
 | File | Purpose |
 |------|---------|
-| `Views/Shared/_AdminLayout.cshtml` | Root admin layout: navbar, Bulma + FontAwesome from CDN, the CSRF and CKEditor-license meta tags, and optional CKEditor sections |
+| `Views/Shared/_AdminLayout.cshtml` | Root admin layout: navbar, local Bulma (Presentation's `bulma.min.css`) + FontAwesome from CDN, the CSRF and CKEditor-license meta tags, and optional CKEditor sections |
 | `Views/Shared/_AdminNavbar.cshtml` | Top navigation bar (partial, included by `_AdminLayout`). The hand-written links (Pages, Content Blocks, Articles → the Article Lists page `/wadmin/articlelists`, highlighted for every `/wadmin/article*` path, the Advanced dropdown) point at admin controller actions; ahead of them it renders `RouteNavigation` with `AdminRoutes = true`, so any published `/wadmin`-prefixed route with a `NavigationName` appears automatically |
 | `Views/Shared/_DeleteConfirmModal.cshtml` | Reusable delete confirmation modal, rendered once by the layout |
 | `Views/AdminShared/VersionHistory.cshtml` | Shared version history list view used by all content types |

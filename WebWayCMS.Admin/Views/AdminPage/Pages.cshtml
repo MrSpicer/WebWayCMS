@@ -7,10 +7,10 @@
 }
 
 <div class="admin-page-header">
-    <div class="container">
+    <div class="container is-fluid">
         <div class="admin-page-title-row">
-            <h1 class="title is-4">Pages</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary">
+            <h1 class="title is-5">Pages</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary is-small">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
                 <span>New Page</span>
             </a>
@@ -18,12 +18,11 @@
     </div>
 </div>
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
         @if (TempData["Error"] != null)
         {
-            <div class="notification is-danger mt-4" role="alert">
+            <div class="notification is-danger" role="alert">
                 @TempData["Error"]
             </div>
         }
@@ -62,7 +61,6 @@
         }
 
 </div>
-</section>
 
 @functions {
     async Task RenderTreeNodes(List<PageTreeNode> nodes, int depth)

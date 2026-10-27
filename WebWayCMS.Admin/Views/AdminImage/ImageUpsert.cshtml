@@ -8,26 +8,24 @@
 
 <div class="admin-page-header">
     <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="images">Images</a></li>
-                <li class="is-active"><a href="#" aria-current="page">@ViewData["Title"]</a></li>
-            </ul>
-        </nav>
         <div class="admin-page-title-row">
-            <div>
-                <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="images">Images</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
                 @if (isEdit)
                 {
-                    <p class="subtitle is-6 has-text-grey"><code class="is-size-7" title="@Model?.NodeId">@Model?.NodeId</code></p>
+                    <p class="subtitle is-7 has-text-grey"><code class="is-size-7" title="@Model?.NodeId">@Model?.NodeId</code></p>
                 }
             </div>
         </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container">
+<div class="container admin-page-body">
         <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="images" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
@@ -73,4 +71,3 @@
             </div>
         </form>
 </div>
-</section>

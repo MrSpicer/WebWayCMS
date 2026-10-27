@@ -8,10 +8,10 @@
 }
 
 <div class="admin-page-header">
-    <div class="container">
+    <div class="container is-fluid">
         <div class="admin-page-title-row">
-            <h1 class="title is-4">Content Zones</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="contentzones" class="button is-primary">
+            <h1 class="title is-5">Content Zones</h1>
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="contentzones" class="button is-primary is-small">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
                 <span>New Zone</span>
             </a>
@@ -19,8 +19,7 @@
     </div>
 </div>
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
         @if (TempData["Error"] != null)
         {
@@ -34,7 +33,7 @@
             var label = Model.FilterPageId.HasValue
                 ? $"page: {Model.FilterPageRoute ?? Model.FilterPageId.ToString()}"
                 : $"zone: {Model.FilterParentZoneName ?? Model.FilterParentZoneId.ToString()}";
-            <div class="message is-info mt-4">
+            <div class="message is-info">
                 <div class="message-body">
                     Filtered by @label
                     <a href="@Url.Action("Index", "AdminContent", new { contentType = "contentzones" })" class="ml-3 button is-small">Clear filter</a>
@@ -44,7 +43,7 @@
 
         @if (!Model.Zones.Any())
         {
-            <div class="card admin-empty-state mt-4">
+            <div class="card admin-empty-state">
                 <div class="card-content has-text-centered py-6">
                     <span class="icon is-large has-text-grey-light mb-4">
                         <i class="fas fa-th-large fa-3x" aria-hidden="true"></i>
@@ -57,7 +56,7 @@
         }
         else
         {
-            <div class="table-container admin-list-container mt-4">
+            <div class="table-container admin-list-container">
                 <table class="table is-fullwidth is-hoverable admin-list-table">
                     <caption class="is-sr-only">List of content zones</caption>
                     <thead>
@@ -169,4 +168,3 @@
             </div>
         }
 </div>
-</section>

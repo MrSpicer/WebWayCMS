@@ -477,7 +477,8 @@
 - **Content-Security-Policy** is emitted by the middleware in `WebWayCMS/Startup/CmsMiddlewarePipeline.cs` and is
   **host-configurable via the `"Csp"` config section** (`CspOptions`): `Enabled` (default true),
   `ReportOnly` (default false), and a `Directives` map. The CMS ships secure defaults that keep the
-  admin UI working (CKEditor/Bulma/FontAwesome CDNs); a host overrides or adds individual directives,
+  admin UI working (CKEditor/FontAwesome CDNs; Bulma is served locally from
+  `_content/WebWayCMS.Presentation/css/bulma.min.css`); a host overrides or adds individual directives,
   and directives it does not mention keep the CMS default (set a directive to empty to drop it). The
   default `script-src` allows no `'unsafe-inline'`, so keep admin scripts in files, not inline
   `<script>` blocks. Framing is denied everywhere (`X-Frame-Options: DENY`, `frame-ancestors 'none'`)
@@ -512,6 +513,11 @@
 - Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageHistory,PageUpsert,form-components}.js`
   sources and the `wwwroot/js/*` copies the `CopyViewScripts` MSBuild target generates on every build.
   Edit only the `Views/**` source — a hand-edit to a `wwwroot` copy is silently reverted by the next build.
+- The admin is deliberately **dense**: `_AdminLayout` sets `<html class="admin-html">` (14px base) and
+  `admin.css` → "Density" tightens Bulma's variables under `.admin-shell`. An admin page header is one row:
+  `.admin-page-header` > `.admin-page-title-row` > `.admin-page-heading` (the ancestor crumbs in a `.breadcrumb`,
+  no `is-active` crumb, then `<h1 class="title is-5">`; CSS draws the separator) plus any `is-small` actions.
+  The body is `<div class="container[ is-fluid] admin-page-body">`, not a `<section class="section">`.
 
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes

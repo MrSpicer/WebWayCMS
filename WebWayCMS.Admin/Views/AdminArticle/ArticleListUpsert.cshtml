@@ -7,18 +7,20 @@
 
 <div class="admin-page-header">
     <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
-                <li class="is-active"><a aria-current="page">@ViewData["Title"]</a></li>
-            </ul>
-        </nav>
-        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
+            </div>
+        </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container">
+<div class="container admin-page-body">
         <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articlelists" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
@@ -50,7 +52,6 @@
             </div>
         </form>
 </div>
-</section>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />

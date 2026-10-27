@@ -1,7 +1,7 @@
 .zone-name-header {
     display: flex;
     align-items: center;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
     font-size: 0.75rem;
 
     .tag {
@@ -17,8 +17,8 @@
     min-height: 50px;
     border: 2px dashed var(--admin-border, #e2e8f0);
     border-radius: var(--admin-radius, 8px);
-    padding: 1rem;
-    margin: 0.5rem 0;
+    padding: 0.65rem;
+    margin: 0.35rem 0;
     background: rgba(255, 255, 255, 0.04);
 
     &:hover {
@@ -30,7 +30,7 @@
     position: relative;
     border: 1px solid var(--admin-border, #e2e8f0);
     border-radius: var(--admin-radius-sm, 4px);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
     background: var(--admin-surface-raised, #fff);
     box-shadow: var(--admin-shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.08));
 }
@@ -222,11 +222,11 @@ body.cz-saving {
 
 .zone-add-widget {
     text-align: center;
-    padding: 1rem;
+    padding: 0.6rem;
 }
 
 .dynamic-properties-container {
-    margin-top: 1rem;
+    margin-top: 0.75rem;
 }
 
 .cz-modal-error {
@@ -244,5 +244,5 @@ body.cz-saving {
 }
 
 .page-zones-unplaced-zone + .page-zones-unplaced-zone {
-    margin-top: 1rem;
+    margin-top: 0.75rem;
 }

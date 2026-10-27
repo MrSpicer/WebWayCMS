@@ -2,31 +2,34 @@
 @model (Guid PageNodeId, string PageTitle, string Current, Guid? EntryId)
 
 <div class="admin-page-header">
-    <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
-                <li><a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@Model.PageNodeId">@Model.PageTitle</a></li>
-                @if (Model.EntryId.HasValue)
-                {
-                    <li><a asp-controller="AdminPageHistory" asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId">History</a></li>
-                }
-                <li class="is-active"><a href="#" aria-current="page">@Model.Current</a></li>
-            </ul>
-        </nav>
-        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+    <div class="container is-fluid">
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
+                        <li><a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@Model.PageNodeId">@Model.PageTitle</a></li>
+                        @if (Model.EntryId.HasValue)
+                        {
+                            <li><a asp-controller="AdminPageHistory" asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId">History</a></li>
+                        }
+                    </ul>
+                </nav>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
+            </div>
+        </div>
     </div>
 </div>
 
 @if (TempData["Error"] != null)
 {
-    <div class="container is-fluid mt-4">
-        <div class="notification is-danger" role="alert">@TempData["Error"]</div>
+    <div class="container is-fluid admin-page-body">
+        <div class="notification is-danger mb-0" role="alert">@TempData["Error"]</div>
     </div>
 }
 @if (TempData["Success"] != null)
 {
-    <div class="container is-fluid mt-4">
-        <div class="notification is-success" role="status">@TempData["Success"]</div>
+    <div class="container is-fluid admin-page-body">
+        <div class="notification is-success mb-0" role="status">@TempData["Success"]</div>
     </div>
 }

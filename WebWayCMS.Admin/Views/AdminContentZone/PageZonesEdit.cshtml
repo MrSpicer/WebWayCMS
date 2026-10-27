@@ -7,20 +7,22 @@
 }
 
 <div class="admin-page-header">
-    <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
-                <li><a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId">@Model.PageTitle</a></li>
-                <li class="is-active"><a href="#" aria-current="page">Edit Zones</a></li>
-            </ul>
-        </nav>
-        <h1 class="title is-4 mt-2">@ViewData["Title"]</h1>
+    <div class="container is-fluid">
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
+                        <li><a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId">@Model.PageTitle</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
+            </div>
+        </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
     @if (TempData["Error"] != null)
     {
@@ -36,26 +38,26 @@
     }
 
     @* Toolbar: draft status plus the page-level publish actions. Zone edits below are drafts until Publish. *@
-    <div class="level box py-3 mb-4 page-zones-toolbar">
+    <div class="level box py-2 mb-3 page-zones-toolbar">
         <div class="level-left">
             <div class="level-item">
                 @if (!Model.IsPublished)
                 {
-                    <span class="tag is-warning is-medium">Not published</span>
+                    <span class="tag is-warning">Not published</span>
                 }
                 else if (Model.HasPendingChanges)
                 {
-                    <span class="tag is-warning is-medium">Pending changes</span>
+                    <span class="tag is-warning">Pending changes</span>
                 }
                 else
                 {
-                    <span class="tag is-success is-medium">Up to date</span>
+                    <span class="tag is-success">Up to date</span>
                 }
             </div>
         </div>
         <div class="level-right">
             <div class="level-item">
-                <div class="buttons">
+                <div class="buttons are-small">
                     <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@Model.PageNodeId" method="post" class="is-inline-block">
                         <input type="hidden" name="returnUrl" value="@editorUrl" />
                         <button type="submit" class="button is-success" @(Model.HasPendingChanges || !Model.IsPublished ? "" : "disabled")>
@@ -112,7 +114,7 @@
          data-empty="@(Model.Slots.Count == 0 ? "true" : "false")">
         @if (Model.Slots.Count == 0)
         {
-            <div class="notification is-light mt-4" role="status">
+            <div class="notification is-light mt-3" role="status">
                 This page has no zones yet. Its template creates them the first time it renders — loading the preview…
             </div>
         }
@@ -120,8 +122,8 @@
         {
             foreach (var slot in Model.Slots)
             {
-                <div class="box mt-4">
-                    <h2 class="title is-6">@slot.SlotName</h2>
+                <div class="box mt-3">
+                    <h2 class="title is-6 mb-1">@slot.SlotName</h2>
                     @await Component.InvokeAsync("ContentZone", new { zoneName = slot.SlotName, zoneId = slot.ZoneNodeId, editMode = true })
                 </div>
             }
@@ -134,7 +136,7 @@
             var batch = renderLog.NextUnplaced(Model.UnplacedCandidates, listed);
             if (batch.Count > 0)
             {
-                <div class="box mt-4 page-zones-unplaced">
+                <div class="box mt-3 page-zones-unplaced">
                     <h2 class="title is-6">
                         <span class="icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></span>
                         <span>Unplaced content</span>
@@ -167,14 +169,13 @@
     <div id="page-zones-panel-preview" class="page-zones-panel" role="tabpanel" aria-labelledby="page-zones-tab-preview" hidden>
         @* The preview action only redirects to /_preview/{id}; the route transformer marks that one
            request as a draft read, so drafts never leak site-wide. *@
-        <iframe class="page-zones-preview mt-4"
+        <iframe class="page-zones-preview mt-3"
                 title="Draft preview of @Model.PageTitle"
                 data-src="@Url.Action("Preview", "AdminContent", new { contentType = "pages", nodeId = Model.PageNodeId })"
                 style="width: 100%; height: 80vh; border: 1px solid #dbdbdb; border-radius: 4px;"></iframe>
     </div>
 
 </div>
-</section>
 
 @section Scripts {
     <script src="~/_content/WebWayCMS.Admin/js/page-zones-edit.js"></script>

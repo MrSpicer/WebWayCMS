@@ -36,15 +36,14 @@
     var recentArticles = allArticles.OrderByDescending(a => a.Version.CreatedUtc).Take(5).ToList();
 }
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
         @* Page Header *@
-        <div class="level mb-5">
+        <div class="level mb-3">
             <div class="level-left">
                 <div>
-                    <h1 class="title">Dashboard</h1>
-                    <p class="subtitle">Welcome to WebWay CMS!</p>
+                    <h1 class="title is-4">Dashboard</h1>
+                    <p class="subtitle is-6">Welcome to WebWay CMS!</p>
                 </div>
             </div>
             <div class="level-right">
@@ -57,10 +56,11 @@
 
         <style>
             .stats-row .box { height: 100%; margin-bottom: 0; }
+            .stats-row .level-left { flex-shrink: 1; min-width: 0; }
         </style>
 
         @* Stats Row *@
-        <div class="columns mb-5 stats-row">
+        <div class="columns mb-3 stats-row">
             <div class="column">
                 <div class="box">
                     <div class="level is-mobile">
@@ -136,7 +136,7 @@
         </div>
 
         @* Second Stats Row — New Content Types *@
-        <div class="columns mb-5 stats-row">
+        <div class="columns mb-3 stats-row">
             <div class="column is-4">
                 <div class="box">
                     <div class="level is-mobile">
@@ -209,7 +209,7 @@
         </div>
 
         @* Two-column section: Recent Pages + Quick Actions *@
-        <div class="columns mb-5">
+        <div class="columns mb-3">
             <div class="column is-8">
                 <div class="card">
                     <div class="card-header">
@@ -315,7 +315,7 @@
         </div>
 
         @* Recent Articles *@
-        <div class="card mb-5">
+        <div class="card mb-3">
             <div class="card-header">
                 <p class="card-header-title">Recent Articles</p>
             </div>
@@ -379,6 +379,5 @@
             </div>
         </div>
 </div>
-</section>
 
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Main" })

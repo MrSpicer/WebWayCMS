@@ -9,19 +9,21 @@
 
 <div class="admin-page-header">
     <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
-                <li><a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items">@zoneName</a></li>
-                <li class="is-active"><a aria-current="page">Edit Item</a></li>
-            </ul>
-        </nav>
-        <h1 class="title is-4 mt-2">Edit Item</h1>
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
+                        <li><a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items">@zoneName</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">Edit Item</h1>
+            </div>
+        </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container">
+<div class="container admin-page-body">
         <form asp-action="ChildEdit" asp-controller="AdminContent" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items" method="post" novalidate>
             @Html.AntiForgeryToken()
             <div role="alert" aria-live="polite">
@@ -40,7 +42,6 @@
             </div>
         </form>
 </div>
-</section>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />

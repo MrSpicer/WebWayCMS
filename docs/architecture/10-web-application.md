@@ -180,9 +180,9 @@ files for it:
 
 | Asset | Served from |
 |---|---|
-| `admin.css`, `admin.js`, `bulma.min.css`, `content-zone-edit.css/js`, `page-upsert.js`, `page-zones-edit.js` | `~/_content/WebWayCMS.Admin/...` |
-| `bulma.min.css`, `validation.js` for the public/Identity pages | `~/_content/WebWayCMS.Presentation/...` |
-| CKEditor 5, Bulma, Font Awesome | CDNs, allow-listed by the default CSP |
+| `admin.css`, `admin.js`, `content-zone-edit.css/js`, `page-upsert.js`, `page-zones-edit.js` | `~/_content/WebWayCMS.Admin/...` |
+| `bulma.min.css` (Bulma 1.0.4, the single copy both the admin and Identity layouts load), `validation.js` | `~/_content/WebWayCMS.Presentation/...` |
+| CKEditor 5, Font Awesome | CDNs, allow-listed by the default CSP |
 
 So a host's `wwwroot/` contains only its own branding — site CSS/JS, fonts, icons, favicon,
 `robots.txt`. There is no CMS-mandated structure and no CMS-provided Sass pipeline for it; compile

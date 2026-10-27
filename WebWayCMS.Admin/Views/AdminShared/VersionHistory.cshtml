@@ -8,24 +8,22 @@
 }
 
 <div class="admin-page-header">
-    <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                <li><a href="@Model.BackUrl">@(Model.ReturnUrl != null ? "Back" : "Back to listing")</a></li>
-                <li class="is-active"><a aria-current="page">Version History: @Model.ItemTitle</a></li>
-            </ul>
-        </nav>
+    <div class="container is-fluid">
         <div class="admin-page-title-row">
-            <div>
-                <h1 class="title is-4">Version History</h1>
-                <p class="subtitle is-6 has-text-grey">@Model.ItemTitle</p>
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul>
+                        <li><a href="@Model.BackUrl">@(Model.ReturnUrl != null ? "Back" : "Back to listing")</a></li>
+                    </ul>
+                </nav>
+                <h1 class="title is-5">Version History</h1>
+                <p class="subtitle is-7 has-text-grey">@Model.ItemTitle</p>
             </div>
         </div>
     </div>
 </div>
 
-<section class="section">
-<div class="container is-fluid">
+<div class="container is-fluid admin-page-body">
 
         @if (TempData["Error"] != null)
         {
@@ -183,4 +181,3 @@
             </table>
         </div>
 </div>
-</section>
