@@ -734,7 +734,7 @@ public class PageHistoryServiceTests
         await using (var ctx = NewContext())
         {
             var captured = ctx.Set<ContentZoneItemDTO>().Single(i => i.VersionId == snapshot.Items.Single().ItemVersionId);
-            captured.ContentZoneNodeId = Guid.NewGuid();
+            captured.Version.Relations.Single(r => r.Name == ZoneRelations.Zone).TargetNodeId = Guid.NewGuid();
             await ctx.SaveChangesAsync();
         }
 
@@ -1003,5 +1003,43 @@ public class PageHistoryServiceTests
         await using var ctx = NewContext();
         ctx.Set<PageSetSnapshotItem>().Add(new PageSetSnapshotItem { SnapshotId = snapshotId, ItemVersionId = itemVersionId, ItemNodeId = itemNodeId });
         await ctx.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task RevertAsync_RestoresPageAndItemRelations()
+    {
+        var page = await CreatePageAsync("Original", publish: false);
+        var main = await ZoneAsync(page);
+        var a = await AddItemAsync(main, "A");
+        var pageTarget = Guid.NewGuid();
+        var itemTarget = Guid.NewGuid();
+        var g = NewGraph();
+        var pageDraft = (await g.Pages.GetCurrentDraftAsync(page))!;
+        pageDraft.Version.SetRelation("Ref", pageTarget, RelationKind.Reference);
+        await g.Pages.SaveDraftAsync(pageDraft, null);
+        await g.Pages.PublishAsync(page);
+        var item = await DraftAsync(a);
+        item.Version.SetRelation("Ref", itemTarget, RelationKind.Reference);
+        await NewGraph().Items.SaveDraftAsync(item, null);
+        await PublishZonesAsync(page);
+        var snapshot = await CaptureAsync(page);
+
+        // Later: the page's relation points elsewhere and the item's is cleared.
+        g = NewGraph();
+        pageDraft = (await g.Pages.GetCurrentDraftAsync(page))!;
+        pageDraft.Version.SetRelation("Ref", Guid.NewGuid(), RelationKind.Reference);
+        await g.Pages.SaveDraftAsync(pageDraft, null);
+        item = await DraftAsync(a);
+        item.Version.SetRelation("Ref", null, RelationKind.Reference);
+        await NewGraph().Items.SaveDraftAsync(item, null);
+
+        var result = await NewGraph().History.RevertAsync(snapshot.Id, await TokenAsync(page), KeepMetadata);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That((await NewGraph().Pages.GetCurrentDraftAsync(page))!.Version.TargetOf("Ref"), Is.EqualTo(pageTarget));
+            Assert.That((await DraftAsync(a)).Version.TargetOf("Ref"), Is.EqualTo(itemTarget));
+        });
     }
 }

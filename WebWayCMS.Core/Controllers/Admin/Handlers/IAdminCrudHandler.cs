@@ -57,6 +57,13 @@ public interface IAdminCrudHandler
 
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// <see cref="DeleteAsync"/> with the reason a delete was refused (e.g. the item is still referenced)
+    /// and the number of child items deleted with it, for the admin UI and MCP to show.
+    /// </summary>
+    async Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> TryDeleteAsync(Guid id, CancellationToken ct = default)
+        => (await DeleteAsync(id, ct), null, 0);
+
     Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)
         => Task.FromResult(new AdminSaveResult(false, "Publishing is not supported."));
 

@@ -16,11 +16,8 @@ public sealed class ContentZoneItemDTOEntityConfiguration : IEntityTypeConfigura
         entity.Property(e => e.MetadataJson).HasMaxLength(4000);
         entity.ToTable("ContentZoneItems");
 
-        entity.HasOne<ContentNode>()
-              .WithMany()
-              .HasForeignKey(e => e.ContentZoneNodeId)
-              .OnDelete(DeleteBehavior.Cascade);
-
-        entity.HasIndex(e => new { e.ContentZoneNodeId, e.Ordinal });
+        // Placement is the version's Zone relation (zone + ordinal); these accessors read it in memory.
+        entity.Ignore(e => e.ContentZoneNodeId);
+        entity.Ignore(e => e.Ordinal);
     }
 }

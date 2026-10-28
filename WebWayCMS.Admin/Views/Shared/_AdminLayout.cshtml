@@ -1,5 +1,11 @@
+@using WebWayCMS.Controllers.Admin
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    // A reference-picker modal renders the same form without the admin chrome (and is framed by the
+    // source form's iframe, which relation-modal.js drives).
+    var isModal = AdminModal.IsModal(ViewData);
+}
 
 <!DOCTYPE html>
 <html lang="en" class="admin-html">
@@ -27,18 +33,24 @@
 	<meta name="ckeditor-license-key" content="@Configuration["CKEditor:LicenseKey"]" />
 </head>
 
-<body class="admin-shell">
-	<a href="#main-content" class="skip-to-content">Skip to main content</a>
+<body class="admin-shell" data-admin-modal="@(isModal ? "true" : null)">
+	@if (!isModal)
+	{
+		<a href="#main-content" class="skip-to-content">Skip to main content</a>
 
-	<header class="admin-header" role="banner">
-		<partial name="_AdminNavbar" />
-	</header>
+		<header class="admin-header" role="banner">
+			<partial name="_AdminNavbar" />
+		</header>
+	}
 
 	<main id="main-content" class="admin-main" tabindex="-1">
 		@RenderBody()
 	</main>
 
-	<partial name="_DeleteConfirmModal" />
+	@if (!isModal)
+	{
+		<partial name="_DeleteConfirmModal" />
+	}
 
 	@if (IsSectionDefined("CKEditor"))
 	{
@@ -47,6 +59,7 @@
 	<script src="~/_content/WebWayCMS.Admin/js/admin.js" asp-append-version="true"></script>
 	<script src="~/_content/WebWayCMS.Admin/js/form-components.js" asp-append-version="true"></script>
 	<script src="~/_content/WebWayCMS.Admin/js/media-picker.js" asp-append-version="true"></script>
+	<script src="~/_content/WebWayCMS.Admin/js/relation-modal.js" asp-append-version="true"></script>
 
 	@await RenderSectionAsync("CKEditor", required: false)
 	@await RenderSectionAsync("Scripts", required: false)

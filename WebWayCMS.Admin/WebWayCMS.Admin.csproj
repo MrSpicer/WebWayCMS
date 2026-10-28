@@ -30,5 +30,7 @@
           DestinationFiles="wwwroot/js/page-history.js" />
     <Copy SourceFiles="Views/Shared/form-components.js"
           DestinationFiles="wwwroot/js/form-components.js" />
+    <Copy SourceFiles="Views/Shared/relation-modal.js"
+          DestinationFiles="wwwroot/js/relation-modal.js" />
   </Target>
 </Project>

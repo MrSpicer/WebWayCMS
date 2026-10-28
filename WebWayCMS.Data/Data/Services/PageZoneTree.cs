@@ -31,6 +31,31 @@ public sealed class PageZoneTree
                      && i.Version.Segment == string.Empty
                      && !i.Version.Node.IsDeleted);
 
+    /// <summary>
+    /// Every zone's owner, from the current draft of its <see cref="ZoneRelations.Owner"/> relation (ownership
+    /// never changes, so the current draft speaks for every version). A global zone has no row. The owner
+    /// is a container item when its node is a zone item, else a page: an owner node that is gone keeps its
+    /// zone page-owned (never global, which would auto-publish), as the old assignment row did.
+    /// </summary>
+    public IQueryable<OwnedZone> ZoneOwners()
+        => from v in _context.Set<ContentVersion>().AsNoTracking()
+           where v.IsCurrentDraft
+              && v.Culture == string.Empty
+              && v.Segment == string.Empty
+              && !v.Node.IsDeleted
+           from r in v.Relations
+           where r.Name == ZoneRelations.Owner
+           join n in _context.Set<ContentNode>() on r.TargetNodeId equals n.Id into owners
+           from n in owners.DefaultIfEmpty()
+           let isItem = n != null && n.ContentTypeKey == ZoneRelations.ItemContentType
+           select new OwnedZone
+           {
+               ZoneNodeId = v.NodeId,
+               SlotName = r.Qualifier,
+               ParentPageNodeId = isItem ? null : r.TargetNodeId,
+               ParentItemNodeId = isItem ? r.TargetNodeId : null
+           };
+
     /// <summary>Page rows in the default variant (not deleted): each page's versions, drafts and published alike.</summary>
     public IQueryable<PageDTO> Pages()
         => _context.Set<PageDTO>()
@@ -47,11 +72,11 @@ public sealed class PageZoneTree
     public async Task<Guid?> GetItemZoneAsync(Guid itemNodeId, CancellationToken ct = default)
         => await CurrentDraftItems()
             .Where(i => i.Version.NodeId == itemNodeId)
-            .Select(i => (Guid?)i.ContentZoneNodeId)
+            .Select(i => (Guid?)i.Version.Relations.Where(r => r.Name == ZoneRelations.Zone).Select(r => r.TargetNodeId).FirstOrDefault())
             .FirstOrDefaultAsync(ct);
 
     /// <summary>
-    /// Walks a zone up to its page: zone → assignment → page, or → owning item → that item's zone, and so
+    /// Walks a zone up to its page: zone → owner → page, or → owning item → that item's zone, and so
     /// on. Returns the page (null for a global, orphaned, or cyclic zone) and every container item passed.
     /// </summary>
     public async Task<(Guid? PageNodeId, HashSet<Guid> OwnerItemNodeIds)> WalkUpAsync(Guid zoneNodeId, CancellationToken ct = default)
@@ -65,9 +90,8 @@ public sealed class PageZoneTree
             if (!visited.Add(currentZoneId.Value))
                 return (null, owners);
 
-            var assignment = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.ContentZoneNodeId == currentZoneId.Value, ct);
+            var assignment = await ZoneOwners()
+                .FirstOrDefaultAsync(a => a.ZoneNodeId == currentZoneId.Value, ct);
 
             if (assignment == null)
                 return (null, owners);
@@ -86,8 +110,8 @@ public sealed class PageZoneTree
     }
 
     /// <summary>
-    /// Every page whose zone tree holds the zone — following every assignment, so a zone assigned to
-    /// several pages (or nested in an item on several pages) reports each. Empty for a global zone.
+    /// Every page whose zone tree holds the zone (following owners up, and an item's draft and published
+    /// placement alike). Empty for a global zone.
     /// </summary>
     public async Task<List<Guid>> GetPagesForZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
     {
@@ -98,9 +122,8 @@ public sealed class PageZoneTree
         while (frontier.Count > 0)
         {
             var zoneIds = frontier.Where(visited.Add).ToList();
-            var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
-                .Where(a => zoneIds.Contains(a.ContentZoneNodeId))
+            var assignments = await ZoneOwners()
+                .Where(a => zoneIds.Contains(a.ZoneNodeId))
                 .Select(a => new { a.ParentPageNodeId, a.ParentItemNodeId })
                 .ToListAsync(ct);
 
@@ -109,7 +132,7 @@ public sealed class PageZoneTree
             var ownerItemIds = assignments.Where(a => a.ParentItemNodeId.HasValue).Select(a => a.ParentItemNodeId!.Value).ToList();
             frontier = await CurrentDraftItems()
                 .Where(i => ownerItemIds.Contains(i.Version.NodeId))
-                .Select(i => i.ContentZoneNodeId)
+                .Select(ZoneRelations.ZoneOf)
                 .Distinct()
                 .ToListAsync(ct);
         }
@@ -134,12 +157,11 @@ public sealed class PageZoneTree
         var result = new List<(Guid ZoneNodeId, Guid PageNodeId)>();
         var visited = new HashSet<(Guid, Guid)>();
 
-        var frontier = (await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
+        var frontier = (await ZoneOwners()
                 .Where(a => a.ParentPageNodeId != null && pageNodeIds.Contains(a.ParentPageNodeId.Value))
-                .Select(a => new { a.ContentZoneNodeId, PageNodeId = a.ParentPageNodeId!.Value })
+                .Select(a => new { a.ZoneNodeId, PageNodeId = a.ParentPageNodeId!.Value })
                 .ToListAsync(ct))
-            .Select(x => (x.ContentZoneNodeId, x.PageNodeId))
+            .Select(x => (ContentZoneNodeId: x.ZoneNodeId, x.PageNodeId))
             .ToList();
 
         while (frontier.Count > 0)
@@ -150,18 +172,21 @@ public sealed class PageZoneTree
             var zoneIds = added.Select(x => x.ContentZoneNodeId).Distinct().ToList();
             var itemZones = await _context.Set<ContentZoneItemDTO>()
                 .AsNoTracking()
-                .Where(i => zoneIds.Contains(i.ContentZoneNodeId))
-                .Select(i => new { i.Version.NodeId, i.ContentZoneNodeId })
+                .Where(ZoneRelations.InZones(zoneIds))
+                .Select(i => new
+                {
+                    i.Version.NodeId,
+                    ContentZoneNodeId = i.Version.Relations.Where(r => r.Name == ZoneRelations.Zone).Select(r => r.TargetNodeId).FirstOrDefault()
+                })
                 .Distinct()
                 .ToListAsync(ct);
             var itemIds = itemZones.Select(x => x.NodeId).Distinct().ToList();
             if (itemIds.Count == 0)
                 break;
 
-            var nested = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
+            var nested = await ZoneOwners()
                 .Where(a => a.ParentItemNodeId != null && itemIds.Contains(a.ParentItemNodeId.Value))
-                .Select(a => new { a.ContentZoneNodeId, ItemNodeId = a.ParentItemNodeId!.Value })
+                .Select(a => new { ContentZoneNodeId = a.ZoneNodeId, ItemNodeId = a.ParentItemNodeId!.Value })
                 .ToListAsync(ct);
 
             // A nested zone belongs to every page whose tree holds an item owning it.
@@ -195,10 +220,9 @@ public sealed class PageZoneTree
         var items = new List<ContentZoneItemDTO>();
         var visited = new HashSet<Guid>();
 
-        var frontier = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+        var frontier = await ZoneOwners()
             .Where(a => a.ParentPageNodeId == pageNodeId)
-            .Select(a => a.ContentZoneNodeId)
+            .Select(a => a.ZoneNodeId)
             .ToListAsync(ct);
 
         while (frontier.Count > 0)
@@ -207,8 +231,8 @@ public sealed class PageZoneTree
             var level = await _context.Set<ContentZoneItemDTO>()
                 .AsNoTracking()
                 .Where(version)
-                .Where(i => zoneIds.Contains(i.ContentZoneNodeId)
-                         && i.IsActive
+                .Where(ZoneRelations.InZones(zoneIds))
+                .Where(i => i.IsActive
                          && i.Version.Culture == string.Empty
                          && i.Version.Segment == string.Empty
                          && !i.Version.Node.IsDeleted)
@@ -216,10 +240,9 @@ public sealed class PageZoneTree
             items.AddRange(level);
 
             var ownerIds = level.Select(i => i.Version.NodeId).ToList();
-            frontier = await _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
+            frontier = await ZoneOwners()
                 .Where(a => a.ParentItemNodeId != null && ownerIds.Contains(a.ParentItemNodeId.Value))
-                .Select(a => a.ContentZoneNodeId)
+                .Select(a => a.ZoneNodeId)
                 .ToListAsync(ct);
             frontier = frontier.Where(id => !visited.Contains(id)).ToList();
         }
@@ -243,7 +266,8 @@ public sealed class PageZoneTree
         var zoneIds = tree.Select(x => x.ZoneNodeId).Distinct().ToList();
 
         var drafts = await CurrentDraftItems()
-            .Where(i => zoneIds.Contains(i.ContentZoneNodeId) && i.Version.State != ContentVersionState.Published)
+            .Where(ZoneRelations.InZones(zoneIds))
+            .Where(i => i.Version.State != ContentVersionState.Published)
             .ToListAsync(ct);
         if (drafts.Count == 0)
             return [];

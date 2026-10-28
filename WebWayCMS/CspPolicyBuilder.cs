@@ -44,6 +44,13 @@ public static class CspPolicyBuilder
     /// </summary>
     public static string BuildForPreview(CspOptions options) => Build(options, frameAncestors: "'self'");
 
+    /// <summary>
+    /// Builds the policy for a reference-picker modal form (<c>/wadmin/*?modal=1</c>), which the source
+    /// form embeds in an iframe: identical to <see cref="Build(CspOptions)"/> except the default
+    /// <c>frame-ancestors</c> is <c>'self'</c>. A host-supplied directive still wins.
+    /// </summary>
+    public static string BuildForModal(CspOptions options) => Build(options, frameAncestors: "'self'");
+
     private static string Build(CspOptions options, string? frameAncestors)
     {
         if (!options.Enabled)

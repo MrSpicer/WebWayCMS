@@ -21,6 +21,9 @@ public interface ICMSRouteService
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
     Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default);
+
+    /// <summary>Removes the projected rows of one route item.</summary>
+    Task<bool> DeleteByRouteNodeAsync(Guid routeNodeId, CancellationToken ct = default);
 }
 
 public sealed class CMSRouteMatchResult

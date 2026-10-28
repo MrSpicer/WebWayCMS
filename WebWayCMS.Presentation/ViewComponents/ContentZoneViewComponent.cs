@@ -11,7 +11,7 @@ namespace WebWayCMS.ViewComponents;
 /// <summary>
 /// ViewComponent that renders a content zone by slot name.
 /// Content zones contain a list of other view components configured in the database.
-/// Page and nested zones are resolved via the ContentZoneAssignments table.
+/// Page and nested zones are resolved through their owner (the zone's Owner relation: a page or a container item, plus the slot).
 /// Global zones fall back to name-based lookup.
 /// When an admin user is viewing, an edit mode is displayed allowing inline management.
 /// </summary>

@@ -81,9 +81,9 @@ public class JsonContentSeederZoneTests
             .AndDoes(c => _saved.Add((ContentZoneItemUpsertViewModel)c.ArgAt<object>(1)));
 
         _zones.GetOrCreateByPageSlotAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((Zone(ZoneNodeId), new ContentZoneAssignmentDTO()));
+            .Returns((Zone(ZoneNodeId), new OwnedZone()));
         _zones.GetOrCreateByItemSlotAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((Zone(ZoneNodeId), new ContentZoneAssignmentDTO()));
+            .Returns((Zone(ZoneNodeId), new OwnedZone()));
         _zones.GetOrCreateByNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Zone(ZoneNodeId));
         _zones.GetItemByNodeIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(c => Item(c.Arg<Guid>(), ZoneNodeId));
@@ -97,7 +97,7 @@ public class JsonContentSeederZoneTests
         new() { Version = new ContentVersion { Node = new ContentNode { Id = nodeId } } };
 
     private static ContentZoneItemDTO Item(Guid nodeId, Guid zoneNodeId) =>
-        new() { ContentZoneNodeId = zoneNodeId, Version = new ContentVersion { Node = new ContentNode { Id = nodeId } } };
+        new ContentZoneItemDTO { Version = new ContentVersion { Node = new ContentNode { Id = nodeId } } }.In(zoneNodeId);
 
     private static VersionHistoryViewModel History(bool published, bool deleted = false) =>
         new() { Versions = [new VersionItemViewModel { IsPublished = published, IsDeleted = deleted }] };
@@ -317,7 +317,7 @@ public class JsonContentSeederZoneTests
         var nestedZone = Guid.NewGuid();
         SaveReturns(layoutNode, nestedNode);
         _zones.GetOrCreateByItemSlotAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((Zone(nestedZone), new ContentZoneAssignmentDTO()));
+            .Returns((Zone(nestedZone), new OwnedZone()));
         var nested = ZoneItem(id: ItemSeedId2, zone: "{\"item\":\"@seed:" + ItemSeedId + "\",\"slot\":\"Sidebar\"}");
 
         // Listed before its owner: deferred once, then resolved against the owner's draft record.

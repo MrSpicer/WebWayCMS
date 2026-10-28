@@ -18,7 +18,15 @@ public sealed record McpFieldInfo(
     string EditorType,
     bool Required,
     string? HelpText,
-    int Order);
+    int Order,
+    McpRelationDescription? Relation = null);
+
+/// <summary>
+/// The relation a field declares (<c>[ContentRelation]</c>): its kind (<c>containment</c>,
+/// <c>reference</c> or <c>owned</c>), the target content type, whether it holds many ids, and whether
+/// a target is required. The field's value is the target's node id (or an array of them).
+/// </summary>
+public sealed record McpRelationDescription(string Kind, string Target, bool Many, bool Required);
 
 /// <summary>The full field contract for a content type, returned by <c>describe_content_type</c>.</summary>
 public sealed record McpContentTypeDescription(
@@ -26,8 +34,11 @@ public sealed record McpContentTypeDescription(
     string DisplayName,
     IReadOnlyList<McpFieldInfo> Fields);
 
-/// <summary>Result of a delete operation.</summary>
-public sealed record McpDeleteResult(bool Deleted);
+/// <summary>
+/// Result of a delete operation. <paramref name="DeletedDescendants"/> counts the child items deleted
+/// with it (e.g. an article list's articles).
+/// </summary>
+public sealed record McpDeleteResult(bool Deleted, int DeletedDescendants = 0);
 
 /// <summary>Result of a reorder operation.</summary>
 public sealed record McpReorderResult(bool Reordered);

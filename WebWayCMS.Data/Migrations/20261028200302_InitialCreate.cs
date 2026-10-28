@@ -80,6 +80,7 @@ namespace WebWayCMS.Data.Migrations
                     Order = table.Column<int>(type: "integer", nullable: false),
                     OwningContentNodeId = table.Column<Guid>(type: "uuid", nullable: true),
                     OwningContentType = table.Column<string>(type: "text", nullable: true),
+                    RouteNodeId = table.Column<Guid>(type: "uuid", nullable: true),
                     IsReserved = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
@@ -333,34 +334,6 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ContentZoneAssignments",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    SlotName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
-                    ContentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ParentPageNodeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    ParentItemNodeId = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ContentZoneAssignments", x => x.Id);
-                    table.CheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentItemNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentItemNodeId\" IS NOT NULL)");
-                    table.ForeignKey(
-                        name: "FK_ContentZoneAssignments_ContentNodes_ContentZoneNodeId",
-                        column: x => x.ContentZoneNodeId,
-                        principalTable: "ContentNodes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_ContentZoneAssignments_ContentNodes_ParentItemNodeId",
-                        column: x => x.ParentItemNodeId,
-                        principalTable: "ContentNodes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "ArticleLists",
                 columns: table => new
                 {
@@ -384,18 +357,11 @@ namespace WebWayCMS.Data.Migrations
                     VersionId = table.Column<Guid>(type: "uuid", nullable: false),
                     Body = table.Column<string>(type: "text", nullable: false),
                     AuthorName = table.Column<string>(type: "text", nullable: false),
-                    Summary = table.Column<string>(type: "text", nullable: false),
-                    ArticleListNodeId = table.Column<Guid>(type: "uuid", nullable: false)
+                    Summary = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Articles", x => x.VersionId);
-                    table.ForeignKey(
-                        name: "FK_Articles_ContentNodes_ArticleListNodeId",
-                        column: x => x.ArticleListNodeId,
-                        principalTable: "ContentNodes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Articles_ContentVersions_VersionId",
                         column: x => x.VersionId,
@@ -423,12 +389,33 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ContentRelations",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SourceVersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    TargetNodeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Kind = table.Column<int>(type: "integer", nullable: false),
+                    Name = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Ordinal = table.Column<int>(type: "integer", nullable: false),
+                    Qualifier = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentRelations", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_ContentRelations_ContentVersions_SourceVersionId",
+                        column: x => x.SourceVersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ContentZoneItems",
                 columns: table => new
                 {
                     VersionId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ContentZoneNodeId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Ordinal = table.Column<int>(type: "integer", nullable: false),
                     ComponentName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     ComponentPropertiesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
                     MetadataJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true),
@@ -437,12 +424,6 @@ namespace WebWayCMS.Data.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_ContentZoneItems", x => x.VersionId);
-                    table.ForeignKey(
-                        name: "FK_ContentZoneItems_ContentNodes_ContentZoneNodeId",
-                        column: x => x.ContentZoneNodeId,
-                        principalTable: "ContentNodes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_ContentZoneItems_ContentVersions_VersionId",
                         column: x => x.VersionId,
@@ -570,6 +551,27 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Routes",
+                columns: table => new
+                {
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Mode = table.Column<int>(type: "integer", nullable: false),
+                    Pattern = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
+                    NavigationName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    Order = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Routes", x => x.VersionId);
+                    table.ForeignKey(
+                        name: "FK_Routes_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "WidgetRegistrations",
                 columns: table => new
                 {
@@ -622,11 +624,6 @@ namespace WebWayCMS.Data.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Articles_ArticleListNodeId",
-                table: "Articles",
-                column: "ArticleListNodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AspNetRoleClaims_RoleId",
@@ -687,6 +684,11 @@ namespace WebWayCMS.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_CMSRoutes_RouteNodeId",
+                table: "CMSRoutes",
+                column: "RouteNodeId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ContentNodes_ParentNodeId",
                 table: "ContentNodes",
                 column: "ParentNodeId");
@@ -695,6 +697,16 @@ namespace WebWayCMS.Data.Migrations
                 name: "IX_ContentNodes_SiteId",
                 table: "ContentNodes",
                 column: "SiteId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentRelations_SourceVersionId_Name",
+                table: "ContentRelations",
+                columns: new[] { "SourceVersionId", "Name" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentRelations_TargetNodeId_Name",
+                table: "ContentRelations",
+                columns: new[] { "TargetNodeId", "Name" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentSeedRecords_NodeId",
@@ -730,30 +742,6 @@ namespace WebWayCMS.Data.Migrations
                 columns: new[] { "NodeId", "Culture", "Segment" },
                 unique: true,
                 filter: "\"State\" = 3");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneAssignments_ContentZoneNodeId",
-                table: "ContentZoneAssignments",
-                column: "ContentZoneNodeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneAssignments_ItemSlot",
-                table: "ContentZoneAssignments",
-                columns: new[] { "ParentItemNodeId", "SlotName" },
-                unique: true,
-                filter: "\"ParentItemNodeId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneAssignments_PageSlot",
-                table: "ContentZoneAssignments",
-                columns: new[] { "ParentPageNodeId", "SlotName" },
-                unique: true,
-                filter: "\"ParentPageNodeId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentZoneItems_ContentZoneNodeId_Ordinal",
-                table: "ContentZoneItems",
-                columns: new[] { "ContentZoneNodeId", "Ordinal" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_FormComponentRegistrations_Category",
@@ -798,14 +786,14 @@ namespace WebWayCMS.Data.Migrations
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PageSetSnapshotItems_ItemVersionId",
-                table: "PageSetSnapshotItems",
-                column: "ItemVersionId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_PageSetSnapshotItems_ItemNodeId",
                 table: "PageSetSnapshotItems",
                 column: "ItemNodeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PageSetSnapshotItems_ItemVersionId",
+                table: "PageSetSnapshotItems",
+                column: "ItemVersionId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PageSetSnapshotItems_ZoneNodeId",
@@ -881,10 +869,10 @@ namespace WebWayCMS.Data.Migrations
                 name: "ContentBlocks");
 
             migrationBuilder.DropTable(
-                name: "ContentSeedRecords");
+                name: "ContentRelations");
 
             migrationBuilder.DropTable(
-                name: "ContentZoneAssignments");
+                name: "ContentSeedRecords");
 
             migrationBuilder.DropTable(
                 name: "ContentZoneItems");
@@ -912,6 +900,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "PageSetSnapshotItems");
+
+            migrationBuilder.DropTable(
+                name: "Routes");
 
             migrationBuilder.DropTable(
                 name: "WidgetRegistrations");

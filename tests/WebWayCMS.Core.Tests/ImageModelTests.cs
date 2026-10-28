@@ -29,7 +29,7 @@ public class ImageModelTests
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _library = Substitute.For<IMediaLibrary>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ImageModel(_store, _mapper, _library, _changeSetScope);
+        _model = new ImageModel(_store, _mapper, _library, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
     }
 
     private static ImageDTO Dto(Guid? nodeId = null, int version = 0, string title = "T") => new()
@@ -64,9 +64,9 @@ public class ImageModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ImageModel(null!, _mapper, _library, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ImageModel(_store, null!, _library, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ImageModel(_store, _mapper, null!, _changeSetScope), Throws.ArgumentNullException);
+            Assert.That(() => new ImageModel(null!, _mapper, _library, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ImageModel(_store, null!, _library, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ImageModel(_store, _mapper, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
         });
     }
 

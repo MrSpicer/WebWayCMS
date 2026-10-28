@@ -56,4 +56,17 @@ public record ContentVersion
     public Guid ChangeSetId { get; set; }
 
     public List<CustomField> CustomFields { get; set; } = new();
+
+    /// <summary>The relations this version owns (auto-included with the version).</summary>
+    public List<ContentRelation> Relations { get; set; } = new();
+
+    /// <summary>
+    /// Not mapped. The relations a caller wrote for the next save, by name: the store starts the new
+    /// version from a baseline (the current draft's relations on an edit, none on a create) and replaces
+    /// only the names written here, so a write path that never mentions a relation can't drop it. Written
+    /// through <see cref="ContentVersionRelations"/>, which replaces the dictionary rather than mutating
+    /// it, so a <c>with</c> copy never shares writes with its original.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<RelationWrite>> RelationWrites { get; set; }
+        = new Dictionary<string, IReadOnlyList<RelationWrite>>();
 }

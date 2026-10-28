@@ -10,8 +10,10 @@
 
 **Depends on:** Data Tier (`IContentZoneService`), Form Generation Metadata (`FormPropertyBuilder`), Page Routing Subsystem (`CMS:PageData` from `HttpContext`)
 
-> **Versioning note (Node/Version model):** zone **items** and assignments are keyed on `ContentNode.Id`
-> (not a version row); items have no static `Items` navigation and are resolved through
+> **Versioning note (Node/Version model):** zone **items** and zones are keyed on `ContentNode.Id`
+> (not a version row), and the structure is relations: an item's version sits in its zone through a `Zone`
+> containment (with its ordinal), a zone's version names its page or container item through an `Owner`
+> containment (slot in the qualifier) — see [17-content-relations](17-content-relations.md) §7. Items have no static `Items` navigation and are resolved through
 > `IContentZoneService.GetItemsAsync(zoneNodeId)` at the read context. Items in a page's zones are
 > drafts until the page is published (the page publish cascades to them); items in global zones
 > auto-publish on write. See [01-data-tier](01-data-tier.md) §7.
@@ -24,9 +26,9 @@
 Content zones are named database-backed slots that appear in Razor views. Each zone holds an ordered list of *widget instances* — rows in `ContentZoneItems` that reference a ViewComponent by name and store a JSON configuration blob.
 
 Zones can be:
-- **Page-scoped** — tied to a specific page via `ContentZoneAssignments (ParentPageNodeId, SlotName)`
-- **Nested** — owned by the zone *item* that renders it (e.g. a Layout widget's columns) via
-  `ContentZoneAssignments (ParentItemNodeId, SlotName)`, so the nested content moves with the item
+- **Page-scoped** — owned by a specific page's slot (the zone's `Owner` relation → the page, qualifier = slot)
+- **Nested** — owned by the zone *item* that renders it (e.g. a Layout widget's columns) through the same
+  `Owner` relation → the item, so the nested content moves with the item
 - **Global** — looked up by name only, shared across all pages
 
 Widgets are ViewComponents decorated with `[ContentZoneComponent]`. They receive their stored JSON configuration deserialized into a typed object.
@@ -77,17 +79,17 @@ If the resolved `ContentZoneViewModel` is `null`, an empty view model is constru
 
 ## 4. Lazy Zone Creation
 
-Zones are created on demand. The first time a page is rendered in admin edit mode, `GetOrCreateByPageSlotAsync` runs inside a database transaction:
+Zones are created on demand. The first time a page is rendered in admin edit mode, `GetOrCreateByPageSlotAsync`:
 
-1. Check if an assignment exists for `(pageNodeId, slotName)`
-2. If yes, resolve the zone **draft-aware** — `GetAsync` (published) then `GetCurrentDraftAsync`
-   (draft) — and return it. An *unpublished* zone is therefore found and reused, not silently
-   duplicated.
-3. If the assignment points at a zone that no longer exists (both lookups miss), the assignment is
-   **dangling** — create a real published zone and **repoint** the assignment to it. Get-or-create
-   never hands back an unpersisted zone with `Node.Id == Guid.Empty`.
-4. If no assignment exists, begin transaction → re-check (double-checked locking) → create
-   `ContentZoneDTO` + `ContentZoneAssignmentDTO` atomically → commit
+1. Looks up the zone owned by `(pageNodeId, slotName)` — or, when there is none, the slot's
+   deterministic node id `ZoneNodeIds.For(pageNodeId, slotName)` (an RFC 4122 v5 Guid; the slot is
+   case-sensitive).
+2. Resolves it **draft-aware** — `GetAsync` (published) then `GetCurrentDraftAsync` (draft) — and returns
+   it. An *unpublished* zone is therefore found and reused, not silently duplicated.
+3. Otherwise creates it, published, on that node id (`IContentStore.CreateWithNodeIdAsync`) with its
+   `Owner` relation in the same save. Two concurrent first renders collide on the `ContentNodes` primary
+   key; the loser (`AlreadyExistsMessage`) reads the winner's zone. Inside a caller's transaction (a
+   container's view-change remap) the create joins it.
 
 This means zones do not need to be seeded or pre-created. They appear in the database only when an
 admin first visits a page in edit mode. The same pattern applies to global zones
@@ -217,7 +219,7 @@ A nested zone's "parent zone" is derived: the zone its owning item's current dra
 (`GetAllByParentZoneAsync`, `GetZoneNodeIdsWithChildrenAsync`, `GetParentPageNodeForZoneAsync`).
 
 Hard-deleting a container item (never published, or in a global zone) deletes its nested zones and
-their items with it; a zone still referenced by another assignment survives. Deleting a published
+their items with it (a zone has one owner, so nothing else can still reference it). Deleting a published
 container in a page zone is a soft `IsActive=false` draft, so its nested zones stay until publish and
 Discard brings everything back.
 

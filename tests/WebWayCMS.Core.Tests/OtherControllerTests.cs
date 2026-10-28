@@ -14,6 +14,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -206,6 +207,7 @@ public class ContentZoneApiControllerTests
     private IContentZoneModel _model = null!;
     private IRouteRegistrationService _routeRegistration = null!;
     private IWidgetRegistry _widgetRegistry = null!;
+    private IRelationBinder _relationBinder = null!;
     private ContentZoneApiController _controller = null!;
 
     [SetUp]
@@ -215,12 +217,13 @@ public class ContentZoneApiControllerTests
         _routeRegistration = Substitute.For<IRouteRegistrationService>();
         _widgetRegistry = Substitute.For<IWidgetRegistry>();
         _widgetRegistry.GetByName("Lister").Returns(new WidgetRegistrationInfo { Name = "Lister", SupportsList = true });
+        _relationBinder = Substitute.For<IRelationBinder>();
         // Item updates go through the model (which may move a container's nested content along); it
         // forwards to the service here so the update scenarios below exercise the controller's handling.
         _model = Substitute.For<IContentZoneModel>();
         _model.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>())
             .Returns(ci => _service.UpdateItemAsync(ci.ArgAt<ContentZoneItemDTO>(0), ci.ArgAt<CancellationToken>(1), ci.ArgAt<int?>(2)));
-        _controller = new ContentZoneApiController(_service, _model, _routeRegistration, _widgetRegistry);
+        _controller = new ContentZoneApiController(_service, _model, _routeRegistration, _widgetRegistry, _relationBinder);
         new MvcHarness().Configure(_controller, new[] { "Admin" });
         _routeRegistration.TryRegisterWidgetRoutesAsync(
             Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
@@ -228,13 +231,12 @@ public class ContentZoneApiControllerTests
     }
 
     private static ContentZoneItemDTO Item(Guid itemNodeId, Guid zoneNodeId, bool active = true)
-        => new()
+        => new ContentZoneItemDTO
         {
-            ContentZoneNodeId = zoneNodeId,
             ComponentName = "X",
             IsActive = active,
             Version = new ContentVersion { Node = new ContentNode { Id = itemNodeId } }
-        };
+        }.In(zoneNodeId);
 
     private static object? ValueOf(object? obj, string prop)
         => obj?.GetType().GetProperty(prop)?.GetValue(obj);
@@ -244,10 +246,11 @@ public class ContentZoneApiControllerTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneApiController(null!, _model, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, null!, _routeRegistration, _widgetRegistry), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, _model, null!, _widgetRegistry), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneApiController(_service, _model, _routeRegistration, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(null!, _model, _routeRegistration, _widgetRegistry, _relationBinder), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, null!, _routeRegistration, _widgetRegistry, _relationBinder), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _model, null!, _widgetRegistry, _relationBinder), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _model, _routeRegistration, null!, _relationBinder), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneApiController(_service, _model, _routeRegistration, _widgetRegistry, null!), Throws.ArgumentNullException);
         });
     }
 
@@ -322,7 +325,7 @@ public class ContentZoneApiControllerTests
     {
         var pageNodeId = Guid.NewGuid();
         var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } } };
-        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new OwnedZone()));
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
         _service.GetItemByNodeIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new ContentZoneItemDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() } } });
@@ -356,6 +359,44 @@ public class ContentZoneApiControllerTests
             Assert.That(ValueOf(objectResult.Value, "error"), Is.EqualTo("This item was changed by someone else since you opened it."));
         });
         await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    /// <summary>A widget configuration with one config relation.</summary>
+    public sealed class PickerConfig
+    {
+        [WebWayCMS.Attributes.ContentRelation("images")]
+        public Guid? ImageNodeId { get; set; }
+    }
+
+    [Test]
+    public async Task SaveItem_UpdateItem_ConfigRelationsRideOnTheItemPassedToTheUpdate()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var image = Guid.NewGuid();
+        _widgetRegistry.GetByName("Picker").Returns(new WidgetRegistrationInfo
+            { Name = "Picker", ConfigurationTypeName = typeof(PickerConfig).AssemblyQualifiedName });
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(Item(itemNodeId, zoneId));
+        ContentZoneItemDTO? passed = null;
+        _service.UpdateItemAsync(Arg.Do<ContentZoneItemDTO>(i => passed = i), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(true);
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ZoneId = zoneId,
+            ItemId = itemNodeId,
+            ComponentName = "Picker",
+            ZoneName = "Z",
+            ComponentPropertiesJson = $"{{\"ImageNodeId\":\"{image}\"}}"
+        }, default);
+
+        // The service merges the passed item's relation writes onto the version it reloads; writes left
+        // on another copy would be dropped and the picker change lost.
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(passed!.Version.TargetOf("config.ImageNodeId"), Is.EqualTo(image));
+            Assert.That(passed.ComponentPropertiesJson, Does.Not.Contain("ImageNodeId"));
+        });
     }
 
     [Test]
@@ -439,7 +480,7 @@ public class ContentZoneApiControllerTests
     {
         var pageNodeId = Guid.NewGuid();
         var zone = new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = Guid.Empty } } };
-        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+        _service.GetOrCreateByPageSlotAsync(pageNodeId, "Main", Arg.Any<CancellationToken>()).Returns((zone, new OwnedZone()));
 
         var result = await _controller.SaveItem(new SaveItemRequest { ComponentName = "C", ZoneName = "Z", ParentPageNodeId = pageNodeId, SlotName = "Main" }, default);
 
@@ -536,9 +577,8 @@ public class ContentZoneApiControllerTests
         var item = new ContentZoneItemDTO
         {
             Version = new ContentVersion { Node = new ContentNode { Id = nodeId } },
-            ContentZoneNodeId = Guid.NewGuid(),
             ComponentName = "C"
-        };
+        }.In(Guid.NewGuid());
         _service.GetItemByNodeIdAsync(nodeId, Arg.Any<CancellationToken>()).Returns(item);
         _service.GetItemByNodeIdAsync(Arg.Is<Guid>(g => g != nodeId), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
 

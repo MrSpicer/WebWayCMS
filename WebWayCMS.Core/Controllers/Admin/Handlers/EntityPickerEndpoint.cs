@@ -25,7 +25,7 @@ public static class EntityPickerEndpoint
 
         var plural = entityType + "s";
 
-        var handler = registry.GetHandler(entityType) ?? registry.GetHandler(plural);
+        var handler = ResolveHandler(entityType, registry);
         if (handler != null)
             return $"{AdminPrefix}/{Uri.EscapeDataString(handler.ContentType)}/api/list";
 
@@ -42,4 +42,20 @@ public static class EntityPickerEndpoint
 
         return null;
     }
+
+    /// <summary>
+    /// The handler an entity picker's values come from (exact key, then plural), or null when nothing
+    /// serves them. Used to resolve the target content type for the reference modal.
+    /// </summary>
+    public static IAdminCrudHandler? ResolveHandler(string? entityType, IAdminHandlerRegistry? registry)
+    {
+        if (string.IsNullOrWhiteSpace(entityType) || registry == null)
+            return null;
+
+        return registry.GetHandler(entityType) ?? registry.GetHandler(entityType + "s");
+    }
+
+    /// <summary>The modal/detail content type key for <paramref name="entityType"/>, or null.</summary>
+    public static string? ResolveContentType(string? entityType, IAdminHandlerRegistry? registry)
+        => ResolveHandler(entityType, registry)?.ContentType;
 }

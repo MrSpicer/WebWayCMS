@@ -27,17 +27,19 @@ public class PageSetEqualityTests
         };
 
     private static ContentZoneItemDTO Item(string? metadata = "{}", bool active = true, int ordinal = 1, Guid? zone = null, string props = "{}")
-        => new()
+    {
+        var item = new ContentZoneItemDTO
         {
             VersionId = Guid.NewGuid(),
             ComponentName = "Text",
             ComponentPropertiesJson = props,
             MetadataJson = metadata,
             IsActive = active,
-            Ordinal = ordinal,
-            ContentZoneNodeId = zone ?? Guid.Empty,
             Version = new ContentVersion { NodeId = Guid.NewGuid() }
         };
+        ZoneFixture.Place(item.Version, zone ?? Guid.Empty, ordinal);
+        return item;
+    }
 
     [Test]
     public void PagesEqual_IgnoresVersionIdentity_ButSeesEveryEditableField()
@@ -82,8 +84,30 @@ public class PageSetEqualityTests
         Assert.Multiple(() =>
         {
             Assert.That(PageSetEquality.StateToken(page, [b, a]), Is.EqualTo(token));
-            Assert.That(PageSetEquality.StateToken(page, [a, b with { Ordinal = 9 }]), Is.Not.EqualTo(token));
+            Assert.That(PageSetEquality.StateToken(page, [a, ZoneFixture.PlacedCopy(b, b.ContentZoneNodeId, 9)]), Is.Not.EqualTo(token));
             Assert.That(PageSetEquality.StateToken(page, [a]), Is.Not.EqualTo(token));
+        });
+    }
+
+    [Test]
+    public void Relations_JoinTheComparison_ButAddNothingWhenAbsent()
+    {
+        var target = Guid.NewGuid();
+        var related = Page();
+        related.Version.Relations = [new ContentRelation { Name = "Ref", TargetNodeId = target, Kind = RelationKind.Reference }];
+        var pendingWrite = Page();
+        pendingWrite.Version.SetRelation("Ref", target, RelationKind.Reference);
+        var relatedItem = Item();
+        relatedItem.Version.SetRelation("Ref", target, RelationKind.Reference);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PageSetEquality.PagesEqual(related, Page()), Is.False);
+            Assert.That(PageSetEquality.PagesEqual(related, pendingWrite), Is.True, "pending writes count as the version's relations");
+            Assert.That(PageSetEquality.ItemContentEqual(relatedItem, Item()), Is.False);
+            Assert.That(PageSetEquality.ItemsEqual(relatedItem, Item()), Is.False);
+            Assert.That(PageSetEquality.ItemFingerprint(Item()).Count(c => c == '\u001f'), Is.EqualTo(5), "no relations, no extra field");
+            Assert.That(PageSetEquality.ItemFingerprint(relatedItem), Does.EndWith($"Ref|0|{target}||1"));
         });
     }
 }

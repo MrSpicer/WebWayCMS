@@ -1,3 +1,5 @@
+using WebWayCMS.Data.Services;
+
 namespace WebWayCMS.Data.Models;
 
 /// <summary>
@@ -9,11 +11,19 @@ public record ContentZoneItemDTO : IVersionedContent
     public Guid VersionId { get; set; }
     public ContentVersion Version { get; set; } = new();
 
-    /// <summary>Foreign key to the parent zone's <see cref="ContentNode.Id"/>.</summary>
-    public Guid ContentZoneNodeId { get; set; }
+    /// <summary>
+    /// The zone this version sits in: its <see cref="ZoneRelations.Zone"/> relation. In-memory only (ignored
+    /// by EF): a query uses <see cref="ZoneRelations.InZone"/> / <see cref="ZoneRelations.ZoneOf"/>, and a
+    /// write uses <see cref="ZoneRelations.Place"/>.
+    /// </summary>
+    public Guid ContentZoneNodeId => Version.TargetOf(ZoneRelations.Zone) ?? Guid.Empty;
 
-    /// <summary>Display order within the content zone (lower numbers render first).</summary>
-    public int Ordinal { get; set; }
+    /// <summary>
+    /// Display order within the zone (lower numbers render first): the <see cref="ZoneRelations.Zone"/>
+    /// relation's ordinal. In-memory only, like <see cref="ContentZoneNodeId"/> (query with
+    /// <see cref="ZoneRelations.ZoneOrdinal"/>).
+    /// </summary>
+    public int Ordinal => Version.OrdinalOf(ZoneRelations.Zone);
 
     /// <summary>Name of the ViewComponent to render (e.g., "ContentBlock", "Article").</summary>
     public string ComponentName { get; set; } = string.Empty;

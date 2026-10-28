@@ -104,6 +104,41 @@ Because the MCP toolsets dispatch through the same registry, the host type is MC
 `ContentNode.ContentTypeKey` is a free-form string; the host picks a key that does not collide with the
 built-ins (two handlers sharing a `ContentType` key throw at first registry resolution).
 
+### The model contract
+
+A host model's constructor passes `(IChangeSetScope, IRelationBinder, IContentDeleteService)` to the
+`AdminCrudModel<T>` base (all three are registered by the CMS in both modes), and implements
+`DeleteSelfAsync(id)` — delete this one node — instead of `DeleteAsync`. The base's `DeleteAsync` /
+`TryDeleteAsync` route through the relation engine, which deletes the node's containment children with it.
+
+### Relations to other content
+
+A host type links to other content with one attribute on its upsert view model — no FK column, no
+`HasOne<ContentNode>()`, nothing in the host migration (the `ContentRelations` table belongs to the CMS):
+
+```csharp
+public sealed class FaqUpsertViewModel : BaseContentViewModel
+{
+    // Containment: the FAQ is visible only while its topic is, and is deleted with it.
+    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment, Required = true)]
+    [FormProperty(Label = "Topic", Order = 3)]
+    public Guid FaqTopicId { get; init; }
+
+    // Reference, many: an EntityPicker per id; deleting a referenced FAQ is refused while this uses it.
+    [ContentRelation("faqs")]
+    public List<Guid> RelatedFaqIds { get; init; } = [];
+}
+```
+
+The mapper stores the values on the FAQ's version (relation rows; no profile code), the relation binder
+validates them on every save (admin, MCP, seed), `describe_content_type` reports each field's `relation`
+block, and admin startup validates every declaration (`ContentRelationRegistry`: a containment must be a
+single `Guid`, the target key must be registered, …). A model reads a relation with
+`dto.Version.TargetOf(name)` / `TargetsOf(name)` and queries its sources with
+`IContentStore<T>.FindRelatedAsync(name, targetNodeId)`. See
+[17-content-relations.md](17-content-relations.md); `tests/WebWayCMS.Core.Tests/ContentRelationEngineTests.cs`
+(`HostRelationFixtureTests`) is a worked example.
+
 ### Routable widgets
 
 A host can also contribute **routable widgets**: `[ContentZoneComponent]` ViewComponents that

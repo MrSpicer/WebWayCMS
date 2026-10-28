@@ -29,6 +29,7 @@ using WebWayCMS.Models.WidgetRegistration;
 using WebWayCMS.Pages;
 using WebWayCMS.Routing;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 using WebWayCMS.TagHelpers;
 using WebWayCMS.ViewComponents;
 using WebWayCMS.ViewComponents.SlotDiscovery;
@@ -76,6 +77,17 @@ internal static class CmsRenderingRegistration
         services.AddScoped<IContentUserContext, HttpContentUserContext>();
         services.AddScoped<IChangeSetScope, ChangeSetScope>();
 
+        // Content relations: one containment filter per request (shared by every store, so each node's
+        // visibility is looked up once), the cross-type queries, save-time validation and the delete
+        // cascade. Registered in both modes because every AdminCrudModel depends on the last two.
+        services.AddScoped<ContainmentVisibility>();
+        services.AddScoped<IContentRelations, ContentRelations>();
+        services.AddScoped<IRelationBinder, RelationBinder>();
+        services.AddScoped<IContentDeleteService, ContentDeleteService>();
+        // Zones and their items are containment children of pages and container items; items have no
+        // admin handler, so the cascade gets their deleter explicitly (zones' is ContentZoneModel).
+        services.AddScoped<IContentDeleter, ZoneItemDeleter>();
+
         AddContentStore<PageDTO>(services, "pages");
         AddContentStore<ArticleDTO>(services, "articles");
         AddContentStore<ArticleListDTO>(services, "articlelists");
@@ -85,6 +97,7 @@ internal static class CmsRenderingRegistration
         AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems");
         AddContentStore<WidgetRegistrationDTO>(services, "widgets");
         AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes");
+        AddContentStore<RouteDTO>(services, "routes");
 
         // Registered for both deployment modes: a rendering-only host still serves media bytes.
         services.TryAddScoped<IMediaBlobStore, MediaBlobStore>();
@@ -108,7 +121,8 @@ internal static class CmsRenderingRegistration
             sp.GetRequiredService<IContentReadContext>(),
             sp.GetRequiredService<IChangeSetScope>(),
             sp.GetRequiredService<IContentUserContext>(),
-            contentTypeKey));
+            contentTypeKey,
+            sp.GetRequiredService<ContainmentVisibility>()));
     }
 
     private static void AddRoutingServices(IServiceCollection services)
@@ -141,6 +155,7 @@ internal static class CmsRenderingRegistration
         services.AddScoped<PageControllerRegistrationModel>();
         services.AddScoped<CMSRouteModel>();
         services.AddScoped<FormComponentRegistrationModel>();
+        services.AddScoped<Models.Route.RouteModel>();
 
         services.AddScoped<ArticleViewComponent>();
         services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<ArticleViewComponent>());

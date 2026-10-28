@@ -5,7 +5,10 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 using WebWayCMS.ContentZones;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Forms;
 using WebWayCMS.Security;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.ContentZone;
 
@@ -107,4 +110,158 @@ public static class WidgetConfigurationJson
     // Matches the deserializer's binding: an explicit [JsonPropertyName] wins over the CLR name.
     private static string JsonNameOf(PropertyInfo prop)
         => prop.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? prop.Name;
+
+    /// <summary>
+    /// Lifts a widget configuration payload's <c>[ContentRelation]</c> values out of its JSON. The ids
+    /// live on the zone item's version as <c>config.*</c> relations, not in the stored configuration.
+    /// Returns the JSON with those keys removed and the relation values in declaration order. A payload
+    /// with no resolvable type or no relation properties is returned unchanged; an unreadable payload
+    /// fails closed to <c>"{}"</c> with no relations, exactly like <see cref="Sanitize"/>.
+    /// </summary>
+    public static (string StrippedJson, IReadOnlyList<RelationValue> Relations) ExtractRelations(
+        Type? configType, string? json)
+    {
+        if (configType == null)
+            return (json ?? "{}", []);
+
+        var properties = RelationProperties.Describe(configType);
+        if (properties.Count == 0)
+            return (json ?? "{}", []);
+
+        if (string.IsNullOrWhiteSpace(json))
+            return ("{}", []);
+
+        try
+        {
+            if (JsonNode.Parse(json) is not JsonObject root)
+                return ("{}", []);
+
+            var relations = new List<RelationValue>();
+            var changed = false;
+            // Enumerating materializes the object, which is where duplicate keys throw.
+            foreach (var (key, value) in root.ToList())
+            {
+                var prop = properties.FirstOrDefault(p =>
+                    string.Equals(JsonNameOf(p.Property), key, StringComparison.OrdinalIgnoreCase));
+                if (prop == null)
+                    continue;
+
+                relations.AddRange(ReadRelationValues(prop, value));
+                root.Remove(key);
+                changed = true;
+            }
+
+            return (changed ? root.ToJsonString(WriteOptions) : json, relations);
+        }
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
+        {
+            return ("{}", []);
+        }
+    }
+
+    /// <summary><see cref="ExtractRelations(Type?, string?)"/> for a registered widget component.</summary>
+    public static (string StrippedJson, IReadOnlyList<RelationValue> Relations) ExtractRelations(
+        IWidgetRegistry registry, string componentName, string? json)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        return ExtractRelations(ResolveConfigurationType(registry, componentName), json);
+    }
+
+    private static IEnumerable<RelationValue> ReadRelationValues(RelationPropertyInfo relation, JsonNode? value)
+    {
+        var name = ContentRelationRegistry.ConfigPrefix + relation.Name;
+        var targets = relation.IsMany ? ReadTargets(value) : ReadTarget(value) is { } one ? [one] : [];
+        return targets.Select((target, i) => new RelationValue(name, target, i, string.Empty));
+    }
+
+    private static IEnumerable<Guid> ReadTargets(JsonNode? value)
+    {
+        if (value is not JsonArray array)
+            return [];
+
+        return array
+            .Select(item => item is JsonValue scalar && scalar.TryGetValue<string>(out var text) && Guid.TryParse(text, out var id)
+                ? id
+                : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct();
+    }
+
+    private static Guid? ReadTarget(JsonNode? value)
+        => value is JsonValue scalar && scalar.TryGetValue<string>(out var text) && Guid.TryParse(text, out var id)
+            ? id
+            : null;
+
+    /// <summary>
+    /// Writes a configuration payload's <c>[ContentRelation]</c> values onto the owning version as
+    /// <c>config.*</c> rows. Every declared name is written, so an emptied property clears its relation.
+    /// </summary>
+    public static void ApplyRelations(
+        WebWayCMS.Data.Models.ContentVersion version,
+        Type? configType,
+        IEnumerable<RelationValue> relations)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(relations);
+        if (configType == null)
+            return;
+
+        foreach (var relation in RelationProperties.Describe(configType))
+        {
+            var name = ContentRelationRegistry.ConfigPrefix + relation.Name;
+            version.SetRelations(
+                name,
+                relations.Where(v => v.Name == name).OrderBy(v => v.Ordinal).Select(v => v.TargetNodeId),
+                relation.Attribute.Kind.ToData());
+        }
+    }
+
+    /// <summary>
+    /// Returns the configuration payload with its relation values hydrated from the owning version's
+    /// <c>config.*</c> rows, for the editor, the config form and MCP. The stored JSON has no relation keys.
+    /// </summary>
+    public static string HydrateRelations(
+        Type? configType,
+        string? json,
+        IEnumerable<WebWayCMS.Data.Models.ContentRelation> relations)
+    {
+        ArgumentNullException.ThrowIfNull(relations);
+        if (configType == null)
+            return json ?? "{}";
+
+        var properties = RelationProperties.Describe(configType);
+        if (properties.Count == 0)
+            return json ?? "{}";
+
+        try
+        {
+            var root = string.IsNullOrWhiteSpace(json) ? new JsonObject() : JsonNode.Parse(json) as JsonObject;
+            if (root == null)
+                return "{}";
+
+            var byName = relations.ToLookup(r => r.Name, StringComparer.Ordinal);
+            foreach (var relation in properties)
+            {
+                var key = JsonNameOf(relation.Property);
+                root.Remove(key);
+
+                var targets = byName[ContentRelationRegistry.ConfigPrefix + relation.Name]
+                    .OrderBy(r => r.Ordinal)
+                    .Select(r => r.TargetNodeId)
+                    .ToList();
+                if (targets.Count == 0)
+                    continue;
+
+                root[key] = relation.IsMany
+                    ? new JsonArray(targets.Select(t => (JsonNode?)JsonValue.Create(t.ToString())).ToArray())
+                    : JsonValue.Create(targets[0].ToString());
+            }
+
+            return root.ToJsonString(WriteOptions);
+        }
+        catch (Exception ex) when (ex is JsonException or ArgumentException)
+        {
+            return "{}";
+        }
+    }
 }

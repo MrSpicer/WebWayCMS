@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -5,12 +7,15 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Data.Slugs;
+using WebWayCMS.Forms;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
+using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Pages;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.Page;
 
@@ -24,6 +29,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     private readonly IPageControllerRegistry _controllerRegistry;
     private readonly IContentZoneService _contentZoneService;
     private readonly IPageHistoryService _pageHistory;
+    private readonly IContentStore<RouteDTO> _routeStore;
+    private readonly ICmsTransaction _transaction;
+    private readonly ICMSRouteRegistry _routeRegistry;
 
     protected override IContentStore<PageDTO> Store => _store;
 
@@ -41,6 +49,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
     string IRoutableContent.RouteContentType => "Page";
 
+    /// <summary>The page -> routes owned relation.</summary>
+    public const string RouteRelation = nameof(PageUpsertViewModel.RouteIds);
+
     public PageModel(
         IContentStore<PageDTO> store,
         IMapper mapper,
@@ -50,8 +61,13 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         ICMSRouteService routeService,
         IContentZoneService contentZoneService,
         IPageHistoryService pageHistory,
-        IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+        IContentStore<RouteDTO> routeStore,
+        ICmsTransaction transaction,
+        ICMSRouteRegistry routeRegistry,
+        IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder,
+        IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _pageHistory = pageHistory ?? throw new ArgumentNullException(nameof(pageHistory));
@@ -60,6 +76,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _controllerRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
         _contentZoneService = contentZoneService ?? throw new ArgumentNullException(nameof(contentZoneService));
+        _routeStore = routeStore ?? throw new ArgumentNullException(nameof(routeStore));
+        _transaction = transaction ?? throw new ArgumentNullException(nameof(transaction));
+        _routeRegistry = routeRegistry ?? throw new ArgumentNullException(nameof(routeRegistry));
         _registryHandler = new PageRegistryHandler(
             registry,
             viewDiscovery ?? throw new ArgumentNullException(nameof(viewDiscovery)));
@@ -88,7 +107,20 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         if (model == null) throw new ArgumentNullException(nameof(model));
 
+        // Page configuration pickers are reference relations owned by the page's version. Lifting them
+        // out here means a direct caller gets the same storage as the admin form and MCP.
+        var configType = _controllerRegistry.GetByName(model.ControllerName)?.ConfigurationType;
+        var (strippedJson, relations) = WidgetConfigurationJson.ExtractRelations(configType, model.ConfigurationJson);
+        model.ConfigurationJson = strippedJson;
+        return await SavePageUpsertCoreAsync(model, configType, relations, ct);
+    }
+
+    private async Task<(bool Success, string? ErrorMessage)> SavePageUpsertCoreAsync(
+        PageUpsertViewModel model, Type? configType, IReadOnlyList<RelationValue> relations, CancellationToken ct)
+    {
         var dto = _mapper.Map<PageDTO>(model);
+        WidgetConfigurationJson.ApplyRelations(dto.Version, configType, relations);
+
         var note = model.NodeId.HasValue && model.NodeId != Guid.Empty ? "Page edited" : "Page created";
         ContentWriteResult result;
         using (ChangeSetScope.UseChangeNote(note))
@@ -144,74 +176,291 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             : (false, IAdminCrudHandler.VersionNotDeletedMessage);
     }
 
-    public async Task<(bool Success, string? ErrorMessage)> PublishPageAsync(Guid nodeId, CancellationToken ct = default)
+    public async Task<(bool Success, string? ErrorMessage, int DescendantsUpdated)> PublishPageAsync(Guid nodeId, CancellationToken ct = default)
     {
-        // Validate the draft that will be published *before* flipping any state, so a slug collision
-        // fails without leaving the page Published-but-routeless.
         var draft = await _store.GetCurrentDraftAsync(nodeId, ct);
-        if (draft == null) return (false, "Page not found.");
+        if (draft == null) return (false, "Page not found.", 0);
 
-        // The page and its zone-item drafts go live as one change set.
         using var _ = ChangeSetScope.Begin(ChangeSetKind.Publish, nodeId, null);
 
         var parentNodeId = draft.Version.Node.ParentNodeId;
         var slug = System.Net.WebUtility.UrlDecode(draft.Version.Slug);
 
         if (!await IsSlugAvailableAsync(slug, parentNodeId, nodeId, ct))
-            return (false, "A page with this slug already exists at this location.");
+            return (false, "A page with this slug already exists at this location.", 0);
 
-        var routePattern = await DeriveRoutePatternForPublishAsync(slug, nodeId, parentNodeId, ct);
+        var previousRoutes = await _routeService.GetByOwningContentAsync(nodeId, ct);
+        var routeIds = draft.Version.EffectiveRelations()
+            .Where(r => r.Name == RouteRelation)
+            .OrderBy(r => r.Ordinal)
+            .Select(r => r.TargetNodeId)
+            .Distinct()
+            .ToList();
 
+        // Pages created before route items existed (and hand-built/test pages) keep the generated
+        // route path: derive the pattern and register it directly, exactly as before phase 3.
+        if (routeIds.Count == 0)
+            return await PublishWithLegacyRouteAsync(nodeId, draft, slug, parentNodeId, previousRoutes, ct);
+
+        // The page, its route items, their projection and every live descendant's moved URLs go live
+        // together or not at all: a failure anywhere rolls the whole publish back.
+        string? error = null;
+        var descendants = 0;
+        bool committed;
+        try
+        {
+            committed = await _transaction.RunAsync(async c =>
+            {
+                var result = await _store.PublishAsync(nodeId, c);
+                if (!result.Success)
+                {
+                    error = result.ErrorMessage;
+                    return false;
+                }
+
+                var projection = await ProjectRoutesAsync(nodeId, draft, routeIds, previousRoutes, c);
+                if (!projection.Success)
+                {
+                    error = projection.ErrorMessage ?? "Failed to project the page routes.";
+                    return false;
+                }
+
+                if (projection.DerivedPatternChanged)
+                {
+                    var moved = await ReprojectDescendantsAsync(nodeId, c);
+                    if (!moved.Success)
+                    {
+                        error = moved.ErrorMessage;
+                        return false;
+                    }
+                    descendants = moved.Count;
+                }
+                return true;
+            }, ct);
+        }
+        finally
+        {
+            // The route service invalidates the route cache before this transaction commits, so a reload
+            // in between could cache what was there before; invalidate again once the outcome is final.
+            _routeRegistry.Invalidate();
+        }
+
+        if (!committed)
+            return (false, error, 0);
+
+        var zones = await PublishZoneDraftsAsync(nodeId, ct);
+        await _pageHistory.CaptureAsync(nodeId, ct);
+        return zones.Success
+            ? (true, descendants > 0 ? $"{descendants} child URL(s) updated." : null, descendants)
+            : (false, zones.ErrorMessage, descendants);
+    }
+
+    /// <summary>
+    /// Publishes a page with no route items through the route registration service. A failed
+    /// registration reverts the publish (unless the page was already live) and restores the old rows.
+    /// </summary>
+    private async Task<(bool Success, string? ErrorMessage, int DescendantsUpdated)> PublishWithLegacyRouteAsync(
+        Guid nodeId, PageDTO draft, string slug, Guid? parentNodeId, IReadOnlyList<CMSRouteDTO> previousRoutes, CancellationToken ct)
+    {
         var wasAlreadyPublished = draft.Version.State == ContentVersionState.Published;
         var result = await _store.PublishAsync(nodeId, ct);
-        if (!result.Success) return (false, result.ErrorMessage);
+        if (!result.Success) return (false, result.ErrorMessage, 0);
 
-        // Replace the page's route (a slug rename must drop the old pattern, not accumulate it).
-        var previousRoutes = await _routeService.GetByOwningContentAsync(nodeId, ct);
-
-        // A publish replaces the route row wholesale, so an admin-set navigation name would be lost.
-        // Carry it forward from the existing row(s) — including a *blank* one, which is how an admin
-        // takes a page out of the navigation widgets. Only a page that has never had a route row
-        // (its first publish) seeds a navigation name from the title.
+        var legacyPattern = await DeriveRoutePatternForPublishAsync(slug, nodeId, parentNodeId, ct);
         var navigationName = previousRoutes.Count > 0
             ? previousRoutes.Select(r => r.NavigationName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n))
             : draft.Version.Title;
 
         await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
-        var registration = await _routeRegistration.RegisterContentRoutesAsync(this, routePattern, draft.ControllerName, nodeId, navigationName, ct);
-        if (!registration.Success)
+        var legacy = await _routeRegistration.RegisterContentRoutesAsync(
+            this, legacyPattern, draft.ControllerName, nodeId, navigationName, ct);
+        if (!legacy.Success)
         {
-            // Roll the state flip back so a failed registration never leaves a published page
-            // with no route (or with a stale route). RevertPublishAsync undoes only what this publish
-            // changed: a republish failure leaves the previously published version live, a page
-            // that was offline stays offline, and a publish that changed nothing (the draft was
-            // already live, only zone drafts pending) is not reverted at all.
             if (!wasAlreadyPublished)
                 await _store.RevertPublishAsync(nodeId, result.VersionId, result.DisplacedVersionId, ct);
 
-            // Restore the prior route(s) so a republish whose new route collides still resolves. A restore
-            // can itself be rejected (e.g. a legacy pattern using a now-reserved parameter name), so its
-            // failure is reported rather than leaving the page silently routeless.
-            var restoreErrors = new List<string>();
+            var legacyRestores = new List<string>();
             foreach (var previous in previousRoutes)
             {
                 var restored = await _routeService.UpsertAsync(previous, ct);
                 if (!restored.Success)
-                    restoreErrors.Add(restored.ErrorMessage ?? $"Route '{previous.Pattern}' could not be restored.");
+                    legacyRestores.Add(restored.ErrorMessage ?? $"Route '{previous.Pattern}' could not be restored.");
             }
-
-            var error = registration.ErrorMessage ?? "Failed to register the page route.";
-            return restoreErrors.Count == 0
-                ? (false, error)
-                : (false, error + " The previous route could not be restored: " + string.Join(" ", restoreErrors));
+            var legacyError = legacy.ErrorMessage ?? "Failed to register the page route.";
+            return legacyRestores.Count == 0
+                ? (false, legacyError, 0)
+                : (false, legacyError + " The previous route could not be restored: " + string.Join(" ", legacyRestores), 0);
         }
 
-        var zones = await PublishZoneDraftsAsync(nodeId, ct);
-
-        // Record what went live — including a partial zone failure, since what did publish is live.
+        var legacyZones = await PublishZoneDraftsAsync(nodeId, ct);
         await _pageHistory.CaptureAsync(nodeId, ct);
-        return zones;
+        return legacyZones.Success
+            ? (true, null, 0)
+            : (false, legacyZones.ErrorMessage, 0);
     }
+
+    /// <summary>
+    /// Projects the page's published route items into <c>CMSRoutes</c>. Every route item is published,
+    /// then upserted by its route node; owner rows no longer related are removed and their route items
+    /// deleted (they were detached from the page).
+    /// </summary>
+    private async Task<(bool Success, string? ErrorMessage, bool DerivedPatternChanged)> ProjectRoutesAsync(
+        Guid ownerNodeId, PageDTO page, IReadOnlyList<Guid> routeIds, IReadOnlyList<CMSRouteDTO> previous, CancellationToken ct)
+    {
+        var previousByRoute = previous
+            .Where(r => r.RouteNodeId.HasValue)
+            .GroupBy(r => r.RouteNodeId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+        var projected = new HashSet<Guid>();
+        var derivedChanged = false;
+
+        foreach (var routeId in routeIds)
+        {
+            // A route item can be gone while the page still relates to it (a revert or discard restores a
+            // relation whose item an earlier publish deleted): fail rather than drop the page's URL.
+            var route = await _routeStore.GetCurrentDraftAsync(routeId, ct);
+            if (route == null)
+            {
+                var label = previousByRoute.TryGetValue(routeId, out var gone) ? gone.Pattern : routeId.ToString();
+                return (false, $"Route '{label}' no longer exists; edit the page's routes and publish again.", false);
+            }
+
+            var published = await _routeStore.PublishAsync(routeId, ct);
+            if (!published.Success)
+                return (false, published.ErrorMessage ?? "Failed to publish a route.", false);
+
+            var pattern = route.Mode == RouteMode.Explicit
+                ? RoutePatternRules.Normalize(route.Pattern)
+                : await DeriveRoutePatternForPublishAsync(page.Version.Slug, ownerNodeId, page.Version.Node.ParentNodeId, ct);
+
+            if (route.Mode == RouteMode.Derived
+                && previousByRoute.TryGetValue(routeId, out var old)
+                && !string.Equals(old.Pattern, pattern, StringComparison.OrdinalIgnoreCase))
+                derivedChanged = true;
+
+            var row = RouteRow(pattern, ownerNodeId, "Page", routeId, page.ControllerName,
+                route.Order, route.NavigationName, route.Mode);
+            var upserted = await _routeService.UpsertAsync(row, ct);
+            if (!upserted.Success)
+                return (false, upserted.ErrorMessage, derivedChanged);
+
+            projected.Add(routeId);
+        }
+
+        foreach (var stale in previous.Where(r => !r.RouteNodeId.HasValue || !projected.Contains(r.RouteNodeId.Value)))
+        {
+            await _routeService.DeleteAsync(stale.Id, ct);
+            if (stale.RouteNodeId.HasValue && !projected.Contains(stale.RouteNodeId.Value))
+                await _routeStore.DeleteAsync(stale.RouteNodeId.Value, softDelete: false, ct);
+        }
+
+        return (true, null, derivedChanged);
+    }
+
+    /// <summary>
+    /// The data token that marks a projected row's route mode, so a child's derived prefix can pick its
+    /// parent's Derived row without loading route items.
+    /// </summary>
+    internal const string RouteModeToken = "RouteMode";
+
+    private static CMSRouteDTO RouteRow(
+        string pattern, Guid ownerNodeId, string ownerType, Guid? routeNodeId,
+        string controllerName, int order, string? navigationName, RouteMode mode) => new()
+    {
+        Pattern = pattern,
+        NavigationName = navigationName is { Length: > CMSRouteDTO.NavigationNameMaxLength }
+            ? navigationName[..CMSRouteDTO.NavigationNameMaxLength]
+            : navigationName,
+        DefaultsJson = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            { "controller", controllerName },
+            { "action", "Index" }
+        }),
+        DataTokensJson = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            { "RouteContentType", ownerType },
+            { RouteModeToken, mode.ToString() }
+        }),
+        OwningContentNodeId = ownerNodeId,
+        OwningContentType = ownerType,
+        RouteNodeId = routeNodeId,
+        Order = order
+    };
+
+    /// <summary>
+    /// Re-projects every live descendant's Derived routes after this page's prefix changed, from the
+    /// descendant's <b>published</b> page and route versions: a never-published child gets no URL, and a
+    /// live child's unpublished slug change stays a draft. Explicit routes are left untouched. Stops at the
+    /// first failure (the caller rolls the publish back); otherwise returns how many descendants moved.
+    /// </summary>
+    private async Task<(bool Success, string? ErrorMessage, int Count)> ReprojectDescendantsAsync(Guid ownerNodeId, CancellationToken ct)
+    {
+        var pages = await _store.GetAllCurrentDraftsAsync(ct);
+        var children = pages
+            .Where(p => p.Version.Node.ParentNodeId.HasValue)
+            .GroupBy(p => p.Version.Node.ParentNodeId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var count = 0;
+        var queue = new Queue<Guid>();
+        queue.Enqueue(ownerNodeId);
+        while (queue.Count > 0)
+        {
+            var parent = queue.Dequeue();
+            if (!children.TryGetValue(parent, out var direct))
+                continue;
+
+            foreach (var child in direct)
+            {
+                var childId = child.Version.Node.Id;
+                queue.Enqueue(childId);
+
+                var live = Published(await _store.GetAllVersionsAsync(childId, ct));
+                if (live == null)
+                    continue;
+
+                var routeIds = live.Version.EffectiveRelations()
+                    .Where(r => r.Name == RouteRelation)
+                    .OrderBy(r => r.Ordinal)
+                    .Select(r => r.TargetNodeId)
+                    .ToList();
+                if (routeIds.Count == 0)
+                    continue;
+
+                var previous = await _routeService.GetByOwningContentAsync(childId, ct);
+                var previousByRoute = previous.Where(r => r.RouteNodeId.HasValue)
+                    .ToDictionary(r => r.RouteNodeId!.Value, r => r.Pattern);
+                var changed = false;
+
+                foreach (var routeId in routeIds)
+                {
+                    var route = Published(await _routeStore.GetAllVersionsAsync(routeId, ct));
+                    if (route == null || route.Mode != RouteMode.Derived)
+                        continue;
+
+                    var pattern = await DeriveRoutePatternForPublishAsync(
+                        live.Version.Slug, childId, live.Version.Node.ParentNodeId, ct);
+                    if (previousByRoute.TryGetValue(routeId, out var old)
+                        && !string.Equals(old, pattern, StringComparison.OrdinalIgnoreCase))
+                        changed = true;
+
+                    var row = RouteRow(pattern, childId, "Page", routeId, live.ControllerName,
+                        route.Order, route.NavigationName, RouteMode.Derived);
+                    var upserted = await _routeService.UpsertAsync(row, ct);
+                    if (!upserted.Success)
+                        return (false, $"The publish was rolled back: the child URL '{pattern}' could not be moved. {upserted.ErrorMessage}".TrimEnd(), count);
+                }
+
+                if (changed)
+                    count++;
+            }
+        }
+        return (true, null, count);
+    }
+
+    /// <summary>The published version among <paramref name="versions"/>, or null when none is live.</summary>
+    private static T? Published<T>(List<T>? versions) where T : class, IVersionedContent
+        => versions?.FirstOrDefault(v => v.Version.State == ContentVersionState.Published);
 
     /// <summary>
     /// Publishes the page's pending zone-item drafts (nested zones included) and registers each
@@ -259,6 +508,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var result = await _store.UnpublishAsync(nodeId, ct);
         if (!result.Success) return (false, result.ErrorMessage);
 
+        // The route items stay as drafts; only their projection goes away.
         await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
         return (true, null);
     }
@@ -275,6 +525,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             if (dto == null) return null;
 
             var vm = _mapper.Map<PageUpsertViewModel>(dto);
+            // The stored configuration has no relation ids (they are config.* rows on the version): put
+            // them back, or the next save of this form would clear them.
+            vm.ConfigurationJson = WidgetConfigurationJson.HydrateRelations(
+                _controllerRegistry.GetByName(dto.ControllerName)?.ConfigurationType, vm.ConfigurationJson, dto.Version.Relations);
             await PopulateParentageAsync(vm, dto, ct);
             return vm;
         }
@@ -308,20 +562,65 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (!slugAvailable)
             return new AdminSaveResult(false, "A page with this slug already exists at this location.", "Slug");
 
-        if (_controllerRegistry.GetByName(vm.ControllerName) == null)
+        var controllerInfo = _controllerRegistry.GetByName(vm.ControllerName);
+        if (controllerInfo == null)
             return new AdminSaveResult(false, $"Unknown controller: {vm.ControllerName}", "ControllerName");
+
+        var configType = controllerInfo.ConfigurationType;
+        var (strippedJson, relations) = WidgetConfigurationJson.ExtractRelations(configType, vm.ConfigurationJson);
+        vm.ConfigurationJson = strippedJson;
+
+        var relationError = await ValidateConfigRelationsAsync(configType, relations, ct);
+        if (relationError != null)
+            return relationError;
 
         var validationErrors = _controllerRegistry.ValidateConfiguration(vm.ControllerName, vm.ConfigurationJson);
         if (validationErrors.Count > 0)
             return new AdminSaveResult(false, string.Join(" ", validationErrors), "ConfigurationJson");
 
-        var result = await SavePageUpsertAsync(vm, ct);
+        // A route is an owned reference, so it has one owner: another page's route can't be taken over.
+        foreach (var routeId in vm.RouteIds.Distinct())
+        {
+            var owners = await _store.FindCurrentDraftsRelatedAsync(RouteRelation, routeId, ct) ?? [];
+            if (owners.Any(p => p.Version.Node.Id != excludeNodeId))
+                return new AdminSaveResult(false, "Routes: a selected route belongs to another page.", nameof(PageUpsertViewModel.RouteIds));
+        }
+
+        // A new page owns at least one route: mint its Derived route draft and relate it, so the
+        // form shows a route immediately and publish has something to project.
+        Guid? mintedRouteId = null;
+        if ((vm.NodeId == null || vm.NodeId == Guid.Empty) && vm.RouteIds.Count == 0)
+        {
+            var minted = await _routeStore.SaveDraftAsync(
+                new RouteDTO { Mode = RouteMode.Derived, NavigationName = vm.Title }, null, ct);
+            if (!minted.Success)
+                return new AdminSaveResult(false, minted.ErrorMessage ?? "Unable to create the page route.");
+            mintedRouteId = minted.NodeId;
+            vm.RouteIds = [minted.NodeId];
+        }
+
+        var result = await SavePageUpsertCoreAsync(vm, configType, relations, ct);
+        if (!result.Success && mintedRouteId.HasValue)
+            await _routeStore.DeleteAsync(mintedRouteId.Value, softDelete: false, ct);
+
         return result.Success
             ? new AdminSaveResult(true, NodeId: vm.NodeId)
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
-    public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    /// <summary>Validates a page configuration's extracted relations as its own declarations.</summary>
+    private async Task<AdminSaveResult?> ValidateConfigRelationsAsync(
+        Type? configType, IReadOnlyList<RelationValue> relations, CancellationToken ct)
+    {
+        if (configType == null)
+            return null;
+
+        var config = Activator.CreateInstance(configType)!;
+        RelationProperties.Write(config, relations, ContentRelationRegistry.ConfigPrefix);
+        return await RelationBinder.ValidateAsync(config, DisplayName, ct);
+    }
+
+    protected override async Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
         => await DeletePageAsync(id, ct);
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
@@ -336,7 +635,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         var result = await PublishPageAsync(nodeId, ct);
         return result.Success
-            ? new AdminSaveResult(true)
+            ? new AdminSaveResult(true, result.ErrorMessage)
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
@@ -520,7 +819,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (prefix == null)
         {
             var existingRoutes = await _routeService.GetByOwningContentAsync(nodeId, ct);
-            var existing = existingRoutes.FirstOrDefault();
+            var existing = PrefixRoute(existingRoutes);
             if (existing != null)
             {
                 var lastSlash = existing.Pattern.LastIndexOf('/');
@@ -575,8 +874,23 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             return null;
 
         var routes = await _routeService.GetByOwningContentAsync(parentNodeId.Value, ct);
-        return routes.FirstOrDefault()?.Pattern;
+        return PrefixRoute(routes)?.Pattern;
     }
+
+    /// <summary>
+    /// The row a page's URL derives from when it owns several: its Derived route (a row with no route
+    /// item is a generated one, so it counts as derived), else the first by order, then pattern.
+    /// </summary>
+    private static CMSRouteDTO? PrefixRoute(IEnumerable<CMSRouteDTO> routes)
+        => routes
+            .OrderBy(r => IsDerivedRow(r) ? 0 : 1)
+            .ThenBy(r => r.Order)
+            .ThenBy(r => r.Pattern, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private static bool IsDerivedRow(CMSRouteDTO route)
+        => route.RouteNodeId == null
+        || route.DataTokensJson.Contains($"\"{RouteModeToken}\":\"{RouteMode.Derived}\"", StringComparison.Ordinal);
 
     private async Task<Guid?> ResolveParentNodeIdAsync(string pattern, CancellationToken ct)
     {

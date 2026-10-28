@@ -5,6 +5,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.ContentBlock;
 
@@ -25,8 +26,9 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
     public override string IndexViewPath => "~/Views/AdminContentBlock/ContentBlocks.cshtml";
     public override string UpsertViewPath => "~/Views/AdminContentBlock/ContentBlockUpsert.cshtml";
 
-    public ContentBlockModel(IContentStore<ContentBlockDTO> store, IMapper mapper, IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+    public ContentBlockModel(IContentStore<ContentBlockDTO> store, IMapper mapper, IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder, IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
@@ -69,7 +71,7 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
         return (true, null);
     }
 
-    public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
+    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
     {
         return await _store.DeleteAsync(nodeId, softDelete: false, ct);
     }

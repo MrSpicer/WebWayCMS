@@ -1,18 +1,84 @@
 @model WebWayCMS.Forms.FormFieldContext
+@using System.Collections
+@using System.Text.Json
 @{
     var endpoint = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.EndpointViewDataKey] as string;
-    var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
-        .Css("entity-picker")
-        .Naming().Required().DescribedBy()
-        .Data("entity-type", Model.EntityType)
-        .Data("endpoint", endpoint ?? string.Empty)
-        .Data("current-value", Model.StringValue)
-        .Build();
+    var contentType = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.ContentTypeViewDataKey] as string;
+    var canWrite = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.CanWriteViewDataKey] as bool? == true;
+    var createUrl = canWrite && !string.IsNullOrEmpty(contentType)
+        ? $"/wadmin/{Uri.EscapeDataString(contentType!)}/create?modal=1"
+        : null;
+    var editBase = canWrite && !string.IsNullOrEmpty(contentType)
+        ? $"/wadmin/{Uri.EscapeDataString(contentType!)}/edit/"
+        : null;
+    var owned = Model.Property.RelationKind == WebWayCMS.Attributes.ContentRelationKind.Owned;
+
+    if (Model.IsMultiple)
+    {
+        var values = Model.Value is IEnumerable sequence && Model.Value is not string
+            ? sequence.Cast<object?>().Select(v => v?.ToString() ?? string.Empty).Where(v => v.Length > 0).ToList()
+            : new List<string>();
+        var valuesJson = JsonSerializer.Serialize(values);
+
+        var builder = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+            .Css("entity-picker-multi")
+            .Required().DescribedBy()
+            .Data("entity-type", Model.EntityType)
+            .Data("endpoint", endpoint ?? string.Empty)
+            .Data("values", valuesJson)
+            .Data("name", Model.InputName)
+            .Data("modal-create", createUrl ?? string.Empty)
+            .Data("modal-edit-base", editBase ?? string.Empty)
+            .Attr("id", Model.ElementId);
+
+        if (Model.JsonBound)
+            builder.Attr("data-prop", Model.Name);
+
+        var attrs = builder.Build();
+        <form-field field="@Model">
+            <div @Html.Raw(attrs)>
+                <ul class="entity-picker-values"></ul>
+                <div class="entity-picker-actions">
+                    @if (!owned)
+                    {
+                        <div class="select">
+                            <select class="entity-picker-add">
+                                <option value="">-- Loading... --</option>
+                            </select>
+                        </div>
+                    }
+                    @if (createUrl != null)
+                    {
+                        <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">New</button>
+                    }
+                </div>
+            </div>
+        </form-field>
+    }
+    else
+    {
+        var attrs = WebWayCMS.Forms.FormAttributeBuilder.For(Model)
+            .Css("entity-picker")
+            .Naming().Required().DescribedBy()
+            .Data("entity-type", Model.EntityType)
+            .Data("endpoint", endpoint ?? string.Empty)
+            .Data("current-value", Model.StringValue)
+            .Data("modal-create", createUrl ?? string.Empty)
+            .Data("modal-edit-base", editBase ?? string.Empty)
+            .Build();
+        <form-field field="@Model">
+            <div class="entity-picker-actions">
+                <div class="select is-fullwidth">
+                    <select @Html.Raw(attrs)>
+                        <option value="">-- Loading... --</option>
+                    </select>
+                </div>
+                @if (createUrl != null)
+                {
+                    <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">New</button>
+                    <button type="button" class="button is-small entity-picker-edit" data-modal-edit-base="@editBase" disabled>Edit</button>
+                }
+            </div>
+        </form-field>
+    }
 }
-<form-field field="@Model">
-    <div class="select is-fullwidth">
-        <select @Html.Raw(attrs)>
-            <option value="">-- Loading... --</option>
-        </select>
-    </div>
-</form-field>

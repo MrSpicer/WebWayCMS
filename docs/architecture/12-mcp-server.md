@@ -20,7 +20,8 @@ the rich-text sanitization and the required-field validation that `AdminCrudMode
 performs, since MCP writes go through the same save choke point. A field `describe_content_type`
 advertises as `required` is actually enforced on the MCP write path (see [Area 13](13-security.md)),
 so `create_content("contentblocks", fields={})` fails with an `errorField`/`errorMessage` instead of
-silently storing an empty row.
+silently storing an empty row. The same choke point runs the relation binder, so a relation field naming a
+missing node or the wrong type (e.g. a bogus `articleListId`) comes back as a field error, not a 500.
 
 ---
 
@@ -118,13 +119,13 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 | Tool | Purpose |
 |---|---|
 | `list_content_types` | Enumerate the registered `IAdminCrudHandler`s (including each type's `secondaryApiListKeys`) |
-| `describe_content_type` | Field/metadata description for one type |
+| `describe_content_type` | Field/metadata description for one type. A `[ContentRelation]` field carries `relation: { kind, target, many, required }` (kind `containment`/`reference`/`owned`); its value is the target's node id, or an array of ids when `many` |
 | `list_content` | List items of a type |
 | `list_secondary_content` | List a type's additional named list, keyed by one of its `secondaryApiListKeys` |
 | `get_content` | Fetch a single item |
 | `create_content` | Create an item |
 | `update_content` | Update an item |
-| `delete_content` | Delete an item |
+| `delete_content` | Delete an item, with everything it contains (e.g. an article list's articles): returns `{ deleted, deletedDescendants }`; a delete the relation engine refuses (the item is still referenced) throws with the reason |
 | `publish_content` | Publish the current draft of an item (gated on `SupportsPublishing`) |
 | `unpublish_content` | Unpublish the published version of an item |
 | `get_content_state` | Report an item's published/draft/current-version state |

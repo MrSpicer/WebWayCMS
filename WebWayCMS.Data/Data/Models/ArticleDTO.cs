@@ -9,6 +9,5 @@ public record ArticleDTO : IVersionedContent
     public string AuthorName { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
 
-    /// <summary>FK to <see cref="ContentNode.Id"/> — a real foreign key, not a soft reference.</summary>
-    public Guid ArticleListNodeId { get; set; }
+    // The article list it belongs to is a containment relation on the version ("ArticleListId"), not a column.
 }

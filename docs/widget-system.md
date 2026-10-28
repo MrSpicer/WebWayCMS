@@ -52,7 +52,7 @@ Content Zones are named, database-backed regions in a view that an admin can pop
 @await Component.InvokeAsync("ContentZone", new { zoneName = "Sidebar", IsGlobal = true })
 ```
 
-- `zoneName` — slot name for the zone (e.g. `"Main"`, `"Sidebar"`); scoped to the current page or parent zone via a `ContentZoneAssignment` record.
+- `zoneName` — slot name for the zone (e.g. `"Main"`, `"Sidebar"`); scoped to the current page or the containing item through the zone's `Owner` relation.
 - `IsGlobal = true` — bypasses the page context so one zone instance is shared across all pages.
 
 In normal (non-admin) mode the component renders nothing if the zone has no items assigned.
@@ -471,14 +471,14 @@ properties as nullable (`int?`) and apply the fallback in the widget.
 
 ## How Zone Resolution Works
 
-The `ContentZoneViewComponent` resolves zones via the `ContentZoneAssignments` table rather than path strings:
+The `ContentZoneViewComponent` resolves zones by their owner and slot rather than path strings (a zone's `Owner` relation; its node id is the deterministic `ZoneNodeIds.For(owner, slot)`):
 
-- **Page-scoped zones** look up by `(ParentPageNodeId, SlotName)` in `ContentZoneAssignments`. If no assignment exists and the user is an admin, a `ContentZoneDTO` + `ContentZoneAssignment` record are created automatically.
-- **Nested zones** (zones rendered inside a zone item, e.g. a Layout widget's columns) look up by `(ParentItemNodeId, SlotName)` using the rendering item's node ID stored in render context (`ViewData["ContentZone:ParentItemId"]`, set by `WidgetViewComponent` from the item's configuration and by the shipped zone views). They belong to the item, so they move with it. A container widget that renders nested zones should derive from `WidgetViewComponent`; a nested zone with no owning item renders nothing.
+- **Page-scoped zones** look up by (page, slot). If there is none and the user is an admin, the zone is created automatically with its `Owner` relation.
+- **Nested zones** (zones rendered inside a zone item, e.g. a Layout widget's columns) look up by (item, slot) using the rendering item's node ID stored in render context (`ViewData["ContentZone:ParentItemId"]`, set by `WidgetViewComponent` from the item's configuration and by the shipped zone views). They belong to the item, so they move with it. A container widget that renders nested zones should derive from `WidgetViewComponent`; a nested zone with no owning item renders nothing.
 - **Container widgets declare nothing.** A container's views simply call `@await Component.InvokeAsync("ContentZone", new { zoneName = "Left" })` with fixed names. When an edit changes which view (or configuration) the container renders, the CMS finds the old and new views' zones by rendering both in a discovery mode (the public `view.*`/`list.*` variant; nothing is loaded or shown) and moves the content across. Keep slot names stable between views where content should stay put (e.g. `Main`), and render each zone by name (not `zoneId`/`IsGlobal`) so discovery sees it.
-- **Global zones** (`IsGlobal = true`) bypass assignment lookup and use name-based lookup on `ContentZoneDTO.Name`.
+- **Global zones** (`IsGlobal = true`) have no owner and use name-based lookup on `ContentZoneDTO.Name`.
 
-The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Main"`, `"Sidebar"`) rather than an opaque path. Zone identity is determined by the assignment record, not the name.
+The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Main"`, `"Sidebar"`) rather than an opaque path. Zone identity is determined by its owner and slot, not the name.
 
 ---
 
@@ -487,9 +487,11 @@ The `ContentZoneDTO.Name` field now stores a human-readable slot name (e.g. `"Ma
 ## The Image widget
 
 `ImageViewComponent` (category "Media") renders an image content item chosen with an entity picker.
-Its configuration stores `Guid? ImageNodeId` — **nullable on purpose**: a non-nullable value type in
-a widget configuration silently discards the entire saved configuration when the field is left
-empty, because the editor writes `null`, deserialization throws, and the zone model falls back to an
-empty configuration object.
+Its configuration declares `[ContentRelation("images")] Guid? ImageNodeId` — the id is stored as a
+`config.ImageNodeId` relation on the zone item's version, not in the config JSON. The property is
+**nullable on purpose**: a non-nullable value type in a widget configuration silently discards the
+entire saved configuration when the field is left empty, because the editor writes `null`,
+deserialization throws, and the zone model falls back to an empty configuration object. The other
+shipped config pickers (Article, Article List, Content Block) work the same way; see doc 17.
 
 See [architecture/16-media-and-images](architecture/16-media-and-images.md).

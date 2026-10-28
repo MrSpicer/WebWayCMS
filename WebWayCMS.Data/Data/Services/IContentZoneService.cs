@@ -3,8 +3,8 @@ using WebWayCMS.Data.Models;
 namespace WebWayCMS.Data.Services;
 
 /// <summary>
-/// Content-zone specific operations: item resolution (read-context aware), assignment management,
-/// and item writes. Zone CRUD and version history are handled by <c>IContentStore&lt;ContentZoneDTO&gt;</c>;
+/// Content-zone specific operations: item resolution (read-context aware), owned zones (a page's or a
+/// container item's slots, held as <see cref="ZoneRelations.Owner"/> relations), and item writes. Zone CRUD and version history are handled by <c>IContentStore&lt;ContentZoneDTO&gt;</c>;
 /// item history by <c>IContentStore&lt;ContentZoneItemDTO&gt;</c>.
 /// </summary>
 public interface IContentZoneService
@@ -16,18 +16,20 @@ public interface IContentZoneService
     Task<ContentZoneDTO?> GetZoneByNodeAsync(Guid zoneNodeId, CancellationToken ct = default);
     Task<ContentZoneDTO?> GetZoneByNameAsync(string name, CancellationToken ct = default);
 
-    // assignment management
-    Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
-    Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
+    // owned zones: a slot's zone has a deterministic node id (ZoneNodeIds.For(owner, slot)), so a
+    // concurrent first render can't create it twice
+    Task<OwnedZone?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
+    Task<(ContentZoneDTO Zone, OwnedZone Owner)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default);
     // nested zones are owned by the zone item (e.g. a Layout widget) that renders them, so they move
     // with it
-    Task<ContentZoneAssignmentDTO?> GetByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
-    Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
+    Task<OwnedZone?> GetByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
+    Task<(ContentZoneDTO Zone, OwnedZone Owner)> GetOrCreateByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default);
     Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default);
-    Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
+    Task<List<OwnedZone>> GetOwnedZonesForPageAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<List<ContentZoneDTO>> GetAllByParentZoneAsync(Guid parentZoneNodeId, CancellationToken ct = default);
     Task<HashSet<Guid>> GetZoneNodeIdsWithChildrenAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default);
+    // how many owners each zone has (1 for a page's or item's zone; a global zone has none)
     Task<Dictionary<Guid, int>> GetAssignmentCountsByNodeIdAsync(IEnumerable<Guid> nodeIds, CancellationToken ct = default);
     // the slot names of the item's own zones that hold any current-draft widget (removed ones included)
     Task<List<string>> GetOwnedSlotsWithItemsAsync(Guid itemNodeId, CancellationToken ct = default);
@@ -87,10 +89,13 @@ public interface IContentZoneService
     // A listed item that is not pending (already live, or outside the page's zone tree) is left alone.
     Task<PageZonePublishResult> PublishPageZoneItemsAsync(Guid pageNodeId, IReadOnlyCollection<Guid> itemNodeIds, CancellationToken ct = default);
 
-    // zone deletion: the zone's assignments, its items, and the nested zones those items own (at any
-    // depth). A nested zone still referenced by another assignment keeps its node.
+    // zone deletion: the zone (its ownership goes with its versions), its items, and the nested zones
+    // those items own (at any depth)
     Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default);
 
-    // page deletion cleanup (removes the page's assigned zones and their nested child zones)
+    // hard-deletes one item: the zones it owns (and their content), its widget routes, then the item
+    Task<bool> DeleteItemAsync(Guid itemNodeId, CancellationToken ct = default);
+
+    // page deletion cleanup (removes the page's own zones and their nested child zones)
     Task DeletePageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
 }

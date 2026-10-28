@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Pages;
 
 namespace WebWayCMS.Routing;
@@ -102,7 +103,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
                     return null!;
                 if (controllerInfo.ConfigurationType != null)
                     httpContext.Items[PageConfigItemKey] =
-                        DeserializeConfig(null, controllerInfo.ConfigurationType);
+                        DeserializeConfig(null, controllerInfo.ConfigurationType, null);
             }
         }
 
@@ -133,7 +134,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         if (controllerInfo.ConfigurationType != null)
         {
             httpContext.Items[PageConfigItemKey] =
-                DeserializeConfig(page.ConfigurationJson, controllerInfo.ConfigurationType);
+                DeserializeConfig(page.ConfigurationJson, controllerInfo.ConfigurationType, page.Version.EffectiveRelations());
         }
 
         return controllerInfo;
@@ -265,19 +266,32 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         }
     }
 
-    private static object DeserializeConfig(string? json, Type configurationType)
+    private static object DeserializeConfig(string? json, Type configurationType, IEnumerable<ContentRelation>? relations)
     {
+        object config;
         if (string.IsNullOrWhiteSpace(json) || json == "{}")
-            return Activator.CreateInstance(configurationType)!;
-        try
+            config = Activator.CreateInstance(configurationType)!;
+        else
         {
-            return JsonSerializer.Deserialize(json, configurationType,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                ?? Activator.CreateInstance(configurationType)!;
+            try
+            {
+                config = JsonSerializer.Deserialize(json, configurationType,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? Activator.CreateInstance(configurationType)!;
+            }
+            catch
+            {
+                config = Activator.CreateInstance(configurationType)!;
+            }
         }
-        catch
+
+        if (relations != null)
         {
-            return Activator.CreateInstance(configurationType)!;
+            RelationProperties.Write(
+                config,
+                relations.Select(r => new RelationValue(r.Name, r.TargetNodeId, r.Ordinal, r.Qualifier)),
+                RelationProperties.ConfigPrefix);
         }
+        return config;
     }
 }

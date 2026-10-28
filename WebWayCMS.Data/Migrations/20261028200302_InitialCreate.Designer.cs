@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20261023190705_InitialCreate")]
+    [Migration("20261028200302_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -248,9 +248,6 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<Guid>("VersionId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ArticleListNodeId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("AuthorName")
                         .IsRequired()
                         .HasColumnType("text");
@@ -264,8 +261,6 @@ namespace WebWayCMS.Data.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("VersionId");
-
-                    b.HasIndex("ArticleListNodeId");
 
                     b.ToTable("Articles", (string)null);
                 });
@@ -322,12 +317,17 @@ namespace WebWayCMS.Data.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<Guid?>("RouteNodeId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OwningContentNodeId");
 
                     b.HasIndex("Pattern")
                         .IsUnique();
+
+                    b.HasIndex("RouteNodeId");
 
                     b.ToTable("CMSRoutes", (string)null);
                 });
@@ -414,6 +414,43 @@ namespace WebWayCMS.Data.Migrations
                     b.HasIndex("SiteId");
 
                     b.ToTable("ContentNodes", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.ContentRelation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Qualifier")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("SourceVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TargetNodeId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceVersionId", "Name");
+
+                    b.HasIndex("TargetNodeId", "Name");
+
+                    b.ToTable("ContentRelations", (string)null);
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentSeedRecordDTO", b =>
@@ -534,46 +571,6 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("ContentVersions", (string)null);
                 });
 
-            modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneAssignmentDTO", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ContentZoneNodeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ParentItemNodeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ParentPageNodeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("SlotName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ContentZoneNodeId");
-
-                    b.HasIndex("ParentItemNodeId", "SlotName")
-                        .IsUnique()
-                        .HasDatabaseName("IX_ContentZoneAssignments_ItemSlot")
-                        .HasFilter("\"ParentItemNodeId\" IS NOT NULL");
-
-                    b.HasIndex("ParentPageNodeId", "SlotName")
-                        .IsUnique()
-                        .HasDatabaseName("IX_ContentZoneAssignments_PageSlot")
-                        .HasFilter("\"ParentPageNodeId\" IS NOT NULL");
-
-                    b.ToTable("ContentZoneAssignments", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_ContentZoneAssignments_OneParent", "(\"ParentPageNodeId\" IS NOT NULL AND \"ParentItemNodeId\" IS NULL) OR (\"ParentPageNodeId\" IS NULL AND \"ParentItemNodeId\" IS NOT NULL)");
-                        });
-                });
-
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneDTO", b =>
                 {
                     b.Property<Guid>("VersionId")
@@ -609,9 +606,6 @@ namespace WebWayCMS.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
-                    b.Property<Guid>("ContentZoneNodeId")
-                        .HasColumnType("uuid");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -619,12 +613,7 @@ namespace WebWayCMS.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
-                    b.Property<int>("Ordinal")
-                        .HasColumnType("integer");
-
                     b.HasKey("VersionId");
-
-                    b.HasIndex("ContentZoneNodeId", "Ordinal");
 
                     b.ToTable("ContentZoneItems", (string)null);
                 });
@@ -917,13 +906,38 @@ namespace WebWayCMS.Data.Migrations
 
                     b.HasKey("SnapshotId", "ItemVersionId");
 
-                    b.HasIndex("ItemVersionId");
-
                     b.HasIndex("ItemNodeId");
+
+                    b.HasIndex("ItemVersionId");
 
                     b.HasIndex("ZoneNodeId");
 
                     b.ToTable("PageSetSnapshotItems", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.RouteDTO", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NavigationName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("VersionId");
+
+                    b.ToTable("Routes", (string)null);
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
@@ -1087,12 +1101,6 @@ namespace WebWayCMS.Data.Migrations
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ArticleDTO", b =>
                 {
-                    b.HasOne("WebWayCMS.Data.Models.ContentNode", null)
-                        .WithMany()
-                        .HasForeignKey("ArticleListNodeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
                         .WithOne()
                         .HasForeignKey("WebWayCMS.Data.Models.ArticleDTO", "VersionId")
@@ -1122,6 +1130,15 @@ namespace WebWayCMS.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Version");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.ContentRelation", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentVersion", null)
+                        .WithMany("Relations")
+                        .HasForeignKey("SourceVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentVersion", b =>
@@ -1165,24 +1182,6 @@ namespace WebWayCMS.Data.Migrations
                     b.Navigation("Node");
                 });
 
-            modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneAssignmentDTO", b =>
-                {
-                    b.HasOne("WebWayCMS.Data.Models.ContentNode", "ContentZoneNode")
-                        .WithMany()
-                        .HasForeignKey("ContentZoneNodeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("WebWayCMS.Data.Models.ContentNode", "ParentItemNode")
-                        .WithMany()
-                        .HasForeignKey("ParentItemNodeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ContentZoneNode");
-
-                    b.Navigation("ParentItemNode");
-                });
-
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneDTO", b =>
                 {
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
@@ -1196,12 +1195,6 @@ namespace WebWayCMS.Data.Migrations
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ContentZoneItemDTO", b =>
                 {
-                    b.HasOne("WebWayCMS.Data.Models.ContentNode", null)
-                        .WithMany()
-                        .HasForeignKey("ContentZoneNodeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
                         .WithOne()
                         .HasForeignKey("WebWayCMS.Data.Models.ContentZoneItemDTO", "VersionId")
@@ -1274,6 +1267,17 @@ namespace WebWayCMS.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.RouteDTO", b =>
+                {
+                    b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
+                        .WithOne()
+                        .HasForeignKey("WebWayCMS.Data.Models.RouteDTO", "VersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Version");
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.WidgetRegistrationDTO", b =>
                 {
                     b.HasOne("WebWayCMS.Data.Models.ContentVersion", "Version")
@@ -1283,6 +1287,11 @@ namespace WebWayCMS.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Version");
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.ContentVersion", b =>
+                {
+                    b.Navigation("Relations");
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.PageSetSnapshot", b =>

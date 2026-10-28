@@ -359,6 +359,47 @@ public class CMSRouteServiceTests
     }
 
     [Test]
+    public async Task UpsertAsync_RouteNodeOwnedByAnotherOwner_ReturnsFailureAndKeepsTheRow()
+    {
+        var pageA = Guid.NewGuid();
+        var pageB = Guid.NewGuid();
+        var routeNode = Guid.NewGuid();
+        var row = RouteRow("/a", owningContentNodeId: pageA);
+        row.RouteNodeId = routeNode;
+        await SeedAsync(row);
+
+        var steal = new CMSRouteDTO { Pattern = "/b", OwningContentNodeId = pageB, RouteNodeId = routeNode };
+
+        var result = await NewService().UpsertAsync(steal);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("This route belongs to another content item."));
+            Assert.That((await NewService().GetByOwningContentAsync(pageA)).Single().Pattern, Is.EqualTo("/a"));
+            Assert.That(await NewService().GetByOwningContentAsync(pageB), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task UpsertAsync_RouteNodeOfTheSameOwner_ReplacesItsRow()
+    {
+        var page = Guid.NewGuid();
+        var routeNode = Guid.NewGuid();
+        var row = RouteRow("/a", owningContentNodeId: page);
+        row.RouteNodeId = routeNode;
+        await SeedAsync(row);
+
+        var result = await NewService().UpsertAsync(new CMSRouteDTO { Pattern = "/b", OwningContentNodeId = page, RouteNodeId = routeNode });
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That((await NewService().GetByOwningContentAsync(page)).Single().Pattern, Is.EqualTo("/b"));
+        });
+    }
+
+    [Test]
     public async Task UpsertAsync_ConcurrentInsertRaceLosesToUniqueIndex_ReturnsCollisionResult()
     {
         var service = NewThrowingService(_db);

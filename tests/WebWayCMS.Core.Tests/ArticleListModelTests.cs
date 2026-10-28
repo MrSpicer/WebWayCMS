@@ -1,5 +1,3 @@
-using System.Linq.Expressions;
-
 using NSubstitute;
 
 using NUnit.Framework;
@@ -8,6 +6,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -16,7 +15,6 @@ public class ArticleListModelTests
 {
     private IContentStore<ArticleListDTO> _listStore = null!;
     private IContentStore<ArticleDTO> _articleStore = null!;
-    private ICmsTransaction _transaction = null!;
     private IChangeSetScope _changeSetScope = null!;
     private IMapper _mapper = null!;
     private ArticleListModel _model = null!;
@@ -27,25 +25,14 @@ public class ArticleListModelTests
     {
         _listStore = Substitute.For<IContentStore<ArticleListDTO>>();
         _articleStore = Substitute.For<IContentStore<ArticleDTO>>();
-        _transaction = Substitute.For<ICmsTransaction>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ArticleListModel(_listStore, _articleStore, _transaction, _mapper, _changeSetScope);
+        _model = new ArticleListModel(_listStore, _articleStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         _articles = new List<ArticleDTO>();
         _listStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO>());
-        _articleStore.FindCurrentDraftsAsync(Arg.Any<Expression<Func<ArticleDTO, bool>>>(), Arg.Any<CancellationToken>())
-            .Returns(c => _articles.Where(c.Arg<Expression<Func<ArticleDTO, bool>>>().Compile()).ToList());
-        _articleStore.CountCurrentDraftsByAsync(Arg.Any<Expression<Func<ArticleDTO, Guid>>>(), Arg.Any<CancellationToken>())
-            .Returns(c =>
-            {
-                var key = c.Arg<Expression<Func<ArticleDTO, Guid>>>().Compile();
-                return _articles.GroupBy(key).ToDictionary(g => g.Key, g => g.Count());
-            });
-
-        // The transaction runs the work as given; its own commit/rollback is covered by CmsTransactionTests.
-        _transaction.RunAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
-            .Returns(c => c.Arg<Func<CancellationToken, Task<bool>>>()(CancellationToken.None));
+        _articleStore.CountCurrentDraftsByRelationAsync(ArticleModel.ListRelation, Arg.Any<CancellationToken>())
+            .Returns(_ => _articles.GroupBy(a => a.Version.TargetOf(ArticleModel.ListRelation)!.Value).ToDictionary(g => g.Key, g => g.Count()));
     }
 
     private static ArticleListDTO List(Guid? nodeId = null, int version = 0)
@@ -67,19 +54,21 @@ public class ArticleListModelTests
 
     private static ArticleDTO Article(Guid listNodeId)
     {
+        var versionId = Guid.NewGuid();
         return new ArticleDTO
         {
-            VersionId = Guid.NewGuid(),
+            VersionId = versionId,
             Body = "b",
             AuthorName = "a",
-            ArticleListNodeId = listNodeId,
             Version = new ContentVersion
             {
+                Id = versionId,
                 Node = new ContentNode { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow },
                 Title = "A",
                 Slug = "a",
                 VersionNumber = 0,
-                State = ContentVersionState.Published
+                State = ContentVersionState.Published,
+                Relations = [new ContentRelation { SourceVersionId = versionId, TargetNodeId = listNodeId, Name = ArticleModel.ListRelation, Kind = RelationKind.Containment }]
             }
         };
     }
@@ -89,11 +78,12 @@ public class ArticleListModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ArticleListModel(null!, _articleStore, _transaction, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listStore, null!, _transaction, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listStore, _articleStore, null!, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _transaction, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _transaction, _mapper, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(null!, _articleStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, null!, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _mapper, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _mapper, _changeSetScope, null!, TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleListModel(_listStore, _articleStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), null!), Throws.ArgumentNullException);
         });
     }
 
@@ -165,49 +155,30 @@ public class ArticleListModelTests
     }
 
     [Test]
-    public async Task DeleteArticleListAsync_NotFound_ReturnsFalseWithoutATransaction()
+    public async Task DeleteArticleListAsync_GoesThroughTheRelationDeleteService()
     {
-        Assert.That(await _model.DeleteArticleListAsync(Guid.NewGuid()), Is.False);
-        await _transaction.DidNotReceive().RunAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>());
+        // The service deletes the list's articles first (containment); this model only supplies the list's own delete.
+        var deletes = Substitute.For<IContentDeleteService>();
+        var listId = Guid.NewGuid();
+        deletes.DeleteAsync(listId, Arg.Any<Func<Guid, CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null, 2));
+        var model = new ArticleListModel(_listStore, _articleStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), deletes);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await model.DeleteArticleListAsync(listId), Is.True);
+            Assert.That(await model.TryDeleteAsync(listId), Is.EqualTo((true, (string?)null, 2)));
+        });
     }
 
     [Test]
-    public async Task DeleteArticleListAsync_DeletesItsArticlesThenTheList_InOneTransaction()
+    public async Task DeleteSelf_DeletesOnlyTheList()
     {
-        var list = List();
-        var listId = list.Version.Node.Id;
-        var mine = Article(listId);
-        var other = Article(Guid.NewGuid());
-        _articles.AddRange([mine, other]);
-        _listStore.GetCurrentDraftAsync(listId, Arg.Any<CancellationToken>()).Returns(list);
-        _articleStore.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
+        var listId = Guid.NewGuid();
         _listStore.DeleteAsync(listId, false, Arg.Any<CancellationToken>()).Returns(true);
 
-        var ok = await _model.DeleteArticleListAsync(listId);
-
-        Assert.That(ok, Is.True);
-        await _transaction.Received(1).RunAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>());
-        Received.InOrder(() =>
-        {
-            _articleStore.DeleteAsync(mine.Version.Node.Id, false, Arg.Any<CancellationToken>());
-            _listStore.DeleteAsync(listId, false, Arg.Any<CancellationToken>());
-        });
-        await _articleStore.DidNotReceive().DeleteAsync(other.Version.Node.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-    }
-
-    [Test]
-    public async Task DeleteArticleListAsync_AnArticleDeleteFails_StopsAndReportsFailure()
-    {
-        var list = List();
-        var listId = list.Version.Node.Id;
-        _articles.Add(Article(listId));
-        _listStore.GetCurrentDraftAsync(listId, Arg.Any<CancellationToken>()).Returns(list);
-        _articleStore.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(false);
-
-        var ok = await _model.DeleteArticleListAsync(listId);
-
-        Assert.That(ok, Is.False);
-        await _listStore.DidNotReceive().DeleteAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        Assert.That(await _model.DeleteArticleListAsync(listId), Is.True);
+        await _articleStore.DidNotReceive().DeleteAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

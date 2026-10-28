@@ -24,7 +24,7 @@ public class ContentBlockModelTests
         _store = Substitute.For<IContentStore<ContentBlockDTO>>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ContentBlockModel(_store, _mapper, _changeSetScope);
+        _model = new ContentBlockModel(_store, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
     }
 
     private static ContentBlockDTO Dto(Guid? nodeId = null, int version = 0, string title = "T")
@@ -50,9 +50,9 @@ public class ContentBlockModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentBlockModel(null!, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentBlockModel(_store, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentBlockModel(_store, _mapper, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(null!, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(_store, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentBlockModel(_store, _mapper, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
         });
     }
 

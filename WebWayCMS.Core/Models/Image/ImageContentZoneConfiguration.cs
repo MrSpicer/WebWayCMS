@@ -16,8 +16,9 @@ public sealed class ImageContentZoneConfiguration : WidgetConfiguration
     /// null, deserialization throws, and the zone model swallows it and falls back to an empty
     /// configuration object.
     /// </remarks>
-    [FormProperty(Label = "Image", Order = 1, FormComponent = "EntityPicker", EntityType = "Image",
+    [FormProperty(Label = "Image", Order = 1,
         HelpText = "Choose an existing image content item.")]
+    [ContentRelation("images")]
     public Guid? ImageNodeId { get; set; }
 
     [FormProperty(Label = "CSS class", EditorType = EditorType.Text, Order = 2, FormComponent = "Text",

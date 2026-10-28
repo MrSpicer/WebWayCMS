@@ -11,6 +11,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -95,8 +96,9 @@ internal sealed class MinimalRegistryHandler : IAdminRegistryHandler
 /// </summary>
 internal sealed class MinimalCrudModel : AdminCrudModel<ContentBlockDTO>
 {
-    public MinimalCrudModel(IContentStore<ContentBlockDTO> store, IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+    public MinimalCrudModel(IContentStore<ContentBlockDTO> store, IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder, IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store;
     }
@@ -129,7 +131,7 @@ internal sealed class MinimalCrudModel : AdminCrudModel<ContentBlockDTO>
         return Task.FromResult(new AdminSaveResult(true));
     }
 
-    public override Task<bool> DeleteAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
+    protected override Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
     public override Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default) => Task.FromResult(Enumerable.Empty<object>());
 }
 
@@ -211,7 +213,7 @@ public class InterfaceDefaultsTests
     {
         var store = Substitute.For<IContentStore<ContentBlockDTO>>();
         var changeSetScope = Substitute.For<IChangeSetScope>();
-        var model = new MinimalCrudModel(store, changeSetScope);
+        var model = new MinimalCrudModel(store, changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         Assert.Multiple(async () =>
         {
@@ -257,7 +259,7 @@ public class InterfaceDefaultsTests
     [Test]
     public async Task AdminCrudModel_TryDeleteVersionAsync_ReportsTheOutcome()
     {
-        var model = new MinimalCrudModel(Substitute.For<IContentStore<ContentBlockDTO>>(), Substitute.For<IChangeSetScope>());
+        var model = new MinimalCrudModel(Substitute.For<IContentStore<ContentBlockDTO>>(), Substitute.For<IChangeSetScope>(), TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         var deleted = await model.TryDeleteVersionAsync(Guid.NewGuid());
         model.DeleteVersionResult = false;
@@ -275,7 +277,7 @@ public class InterfaceDefaultsTests
     {
         var store = Substitute.For<IContentStore<ContentBlockDTO>>();
         var changeSetScope = Substitute.For<IChangeSetScope>();
-        var model = new MinimalCrudModel(store, changeSetScope);
+        var model = new MinimalCrudModel(store, changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         var result = await model.SaveUpsertAsync(new ContentBlockUpsertViewModel { Title = "T", Content = "" });
 

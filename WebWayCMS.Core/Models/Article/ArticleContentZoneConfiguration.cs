@@ -14,23 +14,19 @@ public class ArticleContentZoneConfiguration : WidgetConfiguration
     [FormProperty(
         Label = "Article",
         HelpText = "The article to show when the URL does not name one. Leave empty to show only articles opened from a list.",
-        EditorType = EditorType.Guid,
-        EntityType = "Article",
         DisplayModes = WidgetDisplayMode.Single,
-        Order = 1,
-        FormComponent = "EntityPicker"
+        Order = 1
     )]
+    [ContentRelation("articles", OnTargetDelete = RelationDeletePolicy.Detach)]
     public Guid? ArticleId { get; set; }
 
     [FormProperty(
         Label = "Article List",
         HelpText = "The article list to display. Nothing renders until one is chosen.",
-        EditorType = EditorType.Guid,
-        EntityType = "ArticleList",
         DisplayModes = WidgetDisplayMode.List,
-        Order = 1,
-        FormComponent = "EntityPicker"
+        Order = 1
     )]
+    [ContentRelation("articlelists", OnTargetDelete = RelationDeletePolicy.Detach)]
     public Guid? ArticleListId { get; set; }
 
     [FormProperty(

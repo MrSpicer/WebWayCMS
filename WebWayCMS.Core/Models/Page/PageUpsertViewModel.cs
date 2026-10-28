@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Models.Route;
 
 namespace WebWayCMS.Models.Page;
 
@@ -36,4 +37,9 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     /// </summary>
     [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
     public string ConfigurationJson { get; set; } = "{}";
+
+    /// <summary>The route items owned by this page; a new page mints one Derived route.</summary>
+    [ContentRelation(RouteModel.ContentTypeKey, Kind = ContentRelationKind.Owned)]
+    [FormProperty(Label = "Routes", Order = 4)]
+    public List<Guid> RouteIds { get; set; } = [];
 }

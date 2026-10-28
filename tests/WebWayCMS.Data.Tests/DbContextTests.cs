@@ -34,13 +34,13 @@ public class DbContextTests
             {
                 VersionId = articleVersionId,
                 Body = "b",
-                ArticleListNodeId = listNodeId,
                 Version = new ContentVersion
                 {
                     Id = articleVersionId,
                     NodeId = articleNodeId,
                     Node = new ContentNode { Id = articleNodeId, ContentTypeKey = "articles" },
-                    Title = "Article"
+                    Title = "Article",
+                    Relations = [new ContentRelation { Id = Guid.NewGuid(), TargetNodeId = listNodeId, Name = "ArticleListId", Kind = RelationKind.Containment }]
                 }
             });
             await ctx.SaveChangesAsync();

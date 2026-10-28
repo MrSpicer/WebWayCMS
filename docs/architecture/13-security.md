@@ -149,11 +149,13 @@ These are chosen so the admin UI works with zero configuration: CKEditor from it
 from cdnjs. Bulma is served locally (`~/_content/WebWayCMS.Presentation/css/bulma.min.css`), so it
 needs no CDN allowance.
 
-**Preview framing exception.** Responses under `/_preview` (`PreviewConstants.PathPrefix`, the
-Admin/Editor-only draft preview) use `CspPolicyBuilder.BuildForPreview`, identical except the default
-`frame-ancestors` is `'self'`, and send `X-Frame-Options: SAMEORIGIN` — so the admin page zone editor
-can embed the preview in an iframe. A host-supplied `frame-ancestors` directive still wins. Both policy
-strings are built once at startup. Every other path keeps `'none'` / `DENY`.
+**Framing exceptions.** Responses under `/_preview` (`PreviewConstants.PathPrefix`, the Admin/Editor-only
+draft preview) use `CspPolicyBuilder.BuildForPreview`; reference-picker modal forms
+(`/wadmin/*?modal=1`) use `CspPolicyBuilder.BuildForModal`. Both are identical to the default policy
+except `frame-ancestors` is `'self'`, and both send `X-Frame-Options: SAMEORIGIN` — so the page zone
+editor can embed a preview, and an entity picker can embed the target's create/edit form, in an iframe.
+A host-supplied `frame-ancestors` directive still wins. The policy strings are built once at startup.
+Every other path keeps `'none'` / `DENY`.
 
 **`script-src` deliberately allows no `'unsafe-inline'`.** Keep admin scripts in files, never in
 inline `<script>` blocks. This is why the CKEditor license key reaches the browser through a
@@ -194,7 +196,7 @@ Written on every response by the same middleware, unconditionally:
 | Header | Value |
 |---|---|
 | `X-Content-Type-Options` | `nosniff` |
-| `X-Frame-Options` | `DENY` (`SAMEORIGIN` under `/_preview` — see the preview framing exception above) |
+| `X-Frame-Options` | `DENY` (`SAMEORIGIN` under `/_preview` and `/wadmin/*?modal=1` — see the framing exceptions above) |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` |
 

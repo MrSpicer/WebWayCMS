@@ -44,16 +44,20 @@ internal static class CmsMiddlewarePipeline
         var cspHeaderName = CspPolicyBuilder.HeaderName(cspOptions);
         var cspHeaderValue = CspPolicyBuilder.Build(cspOptions);
         var previewCspHeaderValue = CspPolicyBuilder.BuildForPreview(cspOptions);
+        var modalCspHeaderValue = CspPolicyBuilder.BuildForModal(cspOptions);
 
         app.Use(async (context, next) =>
         {
-            // The draft preview is the one response the admin embeds (the page zone editor's Preview
-            // tab), so it alone may be framed — by the same origin only.
+            // Two responses may be framed by the same origin: the draft preview (the page zone editor's
+            // Preview tab) and a reference-picker modal form. Everything else denies framing.
             var isPreview = context.Request.Path.StartsWithSegments(PreviewConstants.PathPrefix);
-            var csp = isPreview ? previewCspHeaderValue : cspHeaderValue;
+            var isModal = context.Request.Query["modal"] == "1"
+                          && context.Request.Path.StartsWithSegments("/wadmin");
+            var frameable = isPreview || isModal;
+            var csp = isPreview ? previewCspHeaderValue : isModal ? modalCspHeaderValue : cspHeaderValue;
 
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["X-Frame-Options"] = isPreview ? "SAMEORIGIN" : "DENY";
+            context.Response.Headers["X-Frame-Options"] = frameable ? "SAMEORIGIN" : "DENY";
             context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
             if (csp.Length > 0)

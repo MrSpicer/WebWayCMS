@@ -25,6 +25,8 @@ internal static class CmsAdminRegistration
     {
         services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
         services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
+        // Relation declarations of every handler's upsert view model (delete policy, startup validation).
+        services.AddScoped<Services.Relations.ContentRelationRegistry>();
         services.AddScoped<Models.PageHistory.IPageHistoryModel, Models.PageHistory.PageHistoryModel>();
 
         // Replace the rendering-only published read context with the preview-aware one.
@@ -40,6 +42,7 @@ internal static class CmsAdminRegistration
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.PageControllerRegistration.PageControllerRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.CMSRoute.CMSRouteModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.FormComponentRegistration.FormComponentRegistrationModel>());
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Route.RouteModel>());
 
         // JSON content seeding (admin mode only — a rendering-only host has no IAdminHandlerRegistry).
         services.Configure<ContentSeedOptions>(configuration.GetSection(ContentSeedOptions.SectionName));

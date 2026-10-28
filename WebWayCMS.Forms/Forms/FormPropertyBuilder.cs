@@ -62,6 +62,10 @@ public static class FormPropertyBuilder
                 FormComponent = attr?.FormComponent ?? string.Empty
             };
 
+            var relation = prop.GetCustomAttribute<ContentRelationAttribute>();
+            if (relation != null)
+                ApplyRelationDefaults(propInfo, attr, relation, prop.PropertyType);
+
             // Parse dropdown options
             if (!string.IsNullOrEmpty(attr?.DropdownOptions))
             {
@@ -79,6 +83,25 @@ public static class FormPropertyBuilder
         });
 
         return properties;
+    }
+
+    /// <summary>
+    /// A <see cref="ContentRelationAttribute"/> implies an entity picker for its target type. Settings a
+    /// <see cref="FormPropertyAttribute"/> gives explicitly win; <c>Required</c> only ever adds.
+    /// </summary>
+    private static void ApplyRelationDefaults(
+        FormPropertyInfo propInfo, FormPropertyAttribute? attr, ContentRelationAttribute relation, Type propertyType)
+    {
+        if (string.IsNullOrEmpty(attr?.FormComponent))
+            propInfo.FormComponent = "EntityPicker";
+        if (string.IsNullOrEmpty(attr?.EntityType))
+            propInfo.EntityType = relation.TargetContentType;
+        if (attr == null || attr.EditorType == EditorType.Text)
+            propInfo.EditorType = EditorType.Guid;
+
+        propInfo.IsRequired |= relation.Required;
+        propInfo.IsMultiple = propertyType != typeof(Guid) && propertyType != typeof(Guid?);
+        propInfo.RelationKind = relation.Kind;
     }
 
     public static EditorType InferEditorType(Type propertyType)

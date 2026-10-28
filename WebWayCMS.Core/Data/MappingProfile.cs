@@ -6,6 +6,7 @@ using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.Image;
 using WebWayCMS.Models.Page;
+using WebWayCMS.Models.Route;
 
 namespace WebWayCMS.Data;
 
@@ -123,7 +124,7 @@ public sealed class MappingProfile : Profile
             Body = s.Body ?? string.Empty,
             Summary = s.Summary ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
-            ArticleListId = s.ArticleListNodeId,
+            ArticleListId = s.Version.TargetOf(ArticleModel.ListRelation) ?? Guid.Empty,
             IsPublished = s.Version.State == ContentVersionState.Published,
             PublicationDate = s.Version.PublishStartUtc,
             PublicationEndDate = s.Version.PublishEndUtc,
@@ -132,6 +133,7 @@ public sealed class MappingProfile : Profile
             ModificationDate = s.Version.CreatedUtc
         });
 
+        // ArticleListId is a [ContentRelation]: the mapper's relation step fills it (and writes it back).
         CreateMap<ArticleDTO, ArticleUpsertViewModel>(s => new ArticleUpsertViewModel
         {
             NodeId = s.Version.Node.Id,
@@ -141,7 +143,6 @@ public sealed class MappingProfile : Profile
             Body = s.Body ?? string.Empty,
             Summary = s.Summary ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
-            ArticleListId = s.ArticleListNodeId,
             IsPublished = s.Version.State == ContentVersionState.Published,
             PublicationDate = s.Version.PublishStartUtc,
             PublicationEndDate = s.Version.PublishEndUtc,
@@ -157,7 +158,7 @@ public sealed class MappingProfile : Profile
             Slug = s.Version.Slug ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
             IsPublished = s.Version.State == ContentVersionState.Published,
-            ArticleListId = s.ArticleListNodeId,
+            ArticleListId = s.Version.TargetOf(ArticleModel.ListRelation) ?? Guid.Empty,
             CreationDate = s.Version.Node.CreatedUtc,
             ModificationDate = s.Version.CreatedUtc
         });
@@ -167,7 +168,6 @@ public sealed class MappingProfile : Profile
             Body = s.Body ?? string.Empty,
             AuthorName = s.AuthorName ?? string.Empty,
             Summary = s.Summary ?? string.Empty,
-            ArticleListNodeId = s.ArticleListId,
             Version = NewVersion(s)
         });
 
@@ -239,6 +239,32 @@ public sealed class MappingProfile : Profile
             IsPublished = s.Version.State == ContentVersionState.Published,
             CreationDate = s.Version.Node.CreatedUtc,
             ModificationDate = s.Version.CreatedUtc
+        });
+
+        // Route item mappings
+        CreateMap<RouteDTO, RouteUpsertViewModel>(s => new RouteUpsertViewModel
+        {
+            NodeId = s.Version.Node.Id,
+            ExpectedVersionNumber = s.Version.VersionNumber,
+            IsPublished = s.Version.State == ContentVersionState.Published,
+            Mode = s.Mode,
+            Pattern = s.Pattern,
+            NavigationName = s.NavigationName,
+            Order = s.Order
+        });
+
+        CreateMap<RouteUpsertViewModel, RouteDTO>(s => new RouteDTO
+        {
+            Mode = s.Mode,
+            Pattern = s.Pattern ?? string.Empty,
+            NavigationName = s.NavigationName,
+            Order = s.Order,
+            Version = new ContentVersion
+            {
+                Node = new ContentNode { Id = s.NodeId ?? Guid.Empty },
+                Title = s.NavigationName ?? s.Pattern ?? string.Empty,
+                Slug = string.Empty
+            }
         });
 
         // CMSRoute mappings (routes are not versioned)

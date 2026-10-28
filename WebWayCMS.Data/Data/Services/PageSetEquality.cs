@@ -23,14 +23,15 @@ public static class PageSetEquality
         && a.ContentZoneNodeId == b.ContentZoneNodeId
         && a.Ordinal == b.Ordinal;
 
-    /// <summary>Equal widget, configuration and metadata; placement and active flag are ignored.</summary>
+    /// <summary>Equal widget, configuration, metadata and relations; placement and active flag are ignored.</summary>
     public static bool ItemContentEqual(ContentZoneItemDTO a, ContentZoneItemDTO b)
         => a.ComponentName == b.ComponentName
         && a.ComponentPropertiesJson == b.ComponentPropertiesJson
-        && Metadata(a.MetadataJson) == Metadata(b.MetadataJson);
+        && Metadata(a.MetadataJson) == Metadata(b.MetadataJson)
+        && ContentRelations(a) == ContentRelations(b);
 
     internal static string PageFingerprint(PageDTO page)
-        => string.Join('\u001f',
+        => WithRelations(page.Version.RelationFingerprint(), string.Join('\u001f',
             page.ControllerName,
             page.ViewName ?? string.Empty,
             page.ConfigurationJson,
@@ -38,16 +39,32 @@ public static class PageSetEquality
             page.Version.Slug,
             page.Version.PublishStartUtc?.Ticks.ToString() ?? string.Empty,
             page.Version.PublishEndUtc?.Ticks.ToString() ?? string.Empty,
-            string.Join('\u001e', page.Version.CustomFields.Select(c => System.Text.Json.JsonSerializer.Serialize(c))));
+            string.Join('\u001e', page.Version.CustomFields.Select(c => System.Text.Json.JsonSerializer.Serialize(c)))));
 
     internal static string ItemFingerprint(ContentZoneItemDTO item)
-        => string.Join('\u001f',
+        => WithRelations(ContentRelations(item), string.Join('\u001f',
             item.ComponentName,
             item.ComponentPropertiesJson,
             Metadata(item.MetadataJson),
             item.IsActive ? "1" : "0",
             item.ContentZoneNodeId.ToString(),
-            item.Ordinal.ToString());
+            item.Ordinal.ToString()));
+
+    /// <summary>
+    /// An item's relations other than its placement: the <see cref="ZoneRelations.Zone"/> relation is the
+    /// zone and ordinal, which the fingerprint carries as fields and content equality ignores.
+    /// </summary>
+    private static string ContentRelations(ContentZoneItemDTO item)
+        => item.Version.RelationFingerprint(ZoneRelations.Zone);
+
+    /// <summary>
+    /// Appends relations to a fingerprint. Nothing is appended when there are none, so content without
+    /// relations fingerprints (and hashes) exactly as it did before relations existed.
+    /// </summary>
+    private static string WithRelations(string relations, string fingerprint)
+        => relations.Length > 0
+            ? fingerprint + '\u001f' + relations
+            : fingerprint;
 
     /// <summary>
     /// A token over every current draft of a page set (the page and its zone-tree items): their version

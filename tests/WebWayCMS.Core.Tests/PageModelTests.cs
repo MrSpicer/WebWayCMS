@@ -29,6 +29,9 @@ public class PageModelTests
     private IContentZoneService _contentZoneService = null!;
     private IChangeSetScope _changeSetScope = null!;
     private IPageHistoryService _pageHistory = null!;
+    private IContentStore<RouteDTO> _routeStore = null!;
+    private ICmsTransaction _transaction = null!;
+    private ICMSRouteRegistry _routeRegistry = null!;
     private PageModel _model = null!;
 
     [SetUp]
@@ -45,8 +48,13 @@ public class PageModelTests
         _contentZoneService.PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([], []));
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _pageHistory = Substitute.For<IPageHistoryService>();
+        _routeStore = Substitute.For<IContentStore<RouteDTO>>();
+        _transaction = TestSupport.PassThroughTransaction();
+        _routeRegistry = Substitute.For<ICMSRouteRegistry>();
+        _routeStore.SaveDraftAsync(Arg.Any<RouteDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns(new ContentWriteResult(true, VersionId: Guid.NewGuid(), NodeId: Guid.NewGuid()));
         _pageHistory.GetSnapshotsReferencingVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<PageSetSnapshot>());
-        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope);
+        _model = new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
     }
 
     private static PageDTO Page(string title = "T", ContentVersionState state = ContentVersionState.Published,
@@ -88,14 +96,15 @@ public class PageModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _contentZoneService, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!, _pageHistory, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, null!), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(null!, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, null!, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, null!, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, null!, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, null!, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, null!, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, null!, _pageHistory, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, null!, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, _pageHistory, _routeStore, _transaction, _routeRegistry, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
         });
     }
 
@@ -1332,7 +1341,7 @@ public class PageModelTests
         _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((false, null));
 
-        var (success, error) = await _model.PublishPageAsync(nodeId);
+        var (success, error, _) = await _model.PublishPageAsync(nodeId);
 
         Assert.Multiple(() =>
         {
@@ -1406,7 +1415,7 @@ public class PageModelTests
     [Test]
     public void Constructor_NullPageHistory_Throws()
     {
-        Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, null!, _changeSetScope),
+        Assert.That(() => new PageModel(_store, _mapper, _registry, _viewDiscovery, _routeRegistration, _cmsRouteService, _contentZoneService, null!, _routeStore, _transaction, _routeRegistry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
             Throws.ArgumentNullException);
     }
 
@@ -1550,7 +1559,7 @@ public class PageModelTests
         _cmsRouteService.UpsertAsync(withoutMessage, Arg.Any<CancellationToken>()).Returns((false, (string?)null, (CMSRouteDTO?)null));
         _routeRegistration.RegisterContentRoutesAsync(Arg.Any<IRoutableContent>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((false, (string?)null));
 
-        var (success, error) = await _model.PublishPageAsync(nodeId);
+        var (success, error, _) = await _model.PublishPageAsync(nodeId);
 
         Assert.Multiple(() =>
         {

@@ -85,7 +85,7 @@ Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Refere
 
 ### Article / ArticleList
 
-`ArticleListDTO` is a named grouping (its own versioned content type, no extra fields). `ArticleDTO` is a top-level type holding the required `ArticleListNodeId` FK (picked with an `EntityPicker` on the article form), alongside `Body`, `AuthorName`, and `Summary`. Articles publish on their own, but one is publicly visible only while its list is also visible. The admin entry point is `/wadmin/articlelists`; each list links to `/wadmin/articles?list={nodeId}`. Deleting a list deletes its articles in the same transaction.
+`ArticleListDTO` is a named grouping (its own versioned content type, no extra fields). `ArticleDTO` is a top-level type with `Body`, `AuthorName`, and `Summary`; the list it belongs to is a required **containment relation** (`[ContentRelation("articlelists", Kind = Containment, Required = true)]` on `ArticleUpsertViewModel.ArticleListId`, picked with an `EntityPicker`), stored on the article's version rather than as a column (see [Area 17](architecture/17-content-relations.md)). Articles publish on their own, but one is publicly visible only while its list is also visible. The admin entry point is `/wadmin/articlelists`; each list links to `/wadmin/articles?list={nodeId}`. Deleting a list deletes its articles in the same transaction.
 
 ### Page
 
@@ -278,6 +278,7 @@ using WebWayCMS.Mapping;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 using MySite.Data.Models;
 
 namespace MySite.Models.MyContent;
@@ -300,8 +301,9 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
     public override string IndexViewPath => "~/Views/AdminMyContent/Index.cshtml";
     public override string UpsertViewPath => "~/Views/AdminMyContent/Upsert.cshtml";
 
-    public MyContentModel(IContentStore<MyContentDTO> store, IMapper mapper, IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+    public MyContentModel(IContentStore<MyContentDTO> store, IMapper mapper, IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder, IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
@@ -334,8 +336,9 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
             : new AdminSaveResult(false, result.ErrorMessage ?? "Save failed.");
     }
 
-    public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
-        => await _store.DeleteAsync(id, softDelete: false, ct);
+    // This node only; the base DeleteAsync deletes its relation children with it.
+    protected override Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
+        => _store.DeleteAsync(id, softDelete: false, ct);
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {

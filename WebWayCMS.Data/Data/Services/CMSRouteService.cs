@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
@@ -13,16 +11,6 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public sealed class CMSRouteService : ICMSRouteService
 {
-    // ASP.NET Core's reserved routing names. A route value with one of these names drives endpoint
-    // selection itself (a non-empty "page" makes MVC look for a Razor Page), so the dynamic CMS route
-    // would 404 instead of reaching the page controller.
-    private static readonly HashSet<string> ReservedParameterNames =
-        new(StringComparer.OrdinalIgnoreCase) { "action", "area", "controller", "handler", "page" };
-
-    // The name of each {parameter} in a pattern: after any catch-all '*'s, up to a constraint,
-    // default or optional marker.
-    private static readonly Regex ParameterNamePattern = new(@"\{\**([^}:=?]+)", RegexOptions.Compiled);
-
     private readonly CmsDbContext _context;
     private readonly ICMSRouteRegistry _registry;
 
@@ -34,7 +22,7 @@ public sealed class CMSRouteService : ICMSRouteService
 
     public Task<CMSRouteMatchResult?> MatchRouteAsync(string path, CancellationToken ct = default)
     {
-        path = NormalizePattern(path);
+        path = RoutePatternRules.Normalize(path);
 
         var activeRoutes = _registry.GetActiveRoutes();
 
@@ -92,7 +80,7 @@ public sealed class CMSRouteService : ICMSRouteService
 
     public async Task<bool> IsPatternAvailableAsync(string pattern, Guid? excludeNodeId = null, Guid? excludeRouteId = null, CancellationToken ct = default)
     {
-        pattern = NormalizePattern(pattern);
+        pattern = RoutePatternRules.Normalize(pattern);
 
         var query = _context.Set<CMSRouteDTO>()
             .Where(r => r.Pattern == pattern);
@@ -110,15 +98,10 @@ public sealed class CMSRouteService : ICMSRouteService
     {
         if (route == null) throw new ArgumentNullException(nameof(route));
 
-        route.Pattern = NormalizePattern(route.Pattern);
+        route.Pattern = RoutePatternRules.Normalize(route.Pattern);
 
-        if (FindReservedParameter(route.Pattern) is { } reserved)
-        {
-            return (false,
-                $"Route pattern '{route.Pattern}' uses the parameter name '{reserved}', which ASP.NET Core reserves for routing " +
-                "(action, area, controller, handler, page); the request would 404. Rename the parameter, e.g. '{" + reserved + "Number}'.",
-                null);
-        }
+        if (RoutePatternRules.Validate(route.Pattern) is { } patternError)
+            return (false, patternError, null);
 
         var pattern = route.Pattern;
         var owner = route.OwningContentNodeId;
@@ -134,6 +117,11 @@ public sealed class CMSRouteService : ICMSRouteService
         if (await conflictQuery.AnyAsync(ct))
             return (false, "This route pattern is already in use by another content item.", null);
 
+        // A route item has one owner: its row under another owner is that owner's URL, never replaced here.
+        if (route.RouteNodeId is { } routeNodeId
+            && await _context.Set<CMSRouteDTO>().AnyAsync(r => r.RouteNodeId == routeNodeId && r.OwningContentNodeId != owner, ct))
+            return (false, "This route belongs to another content item.", null);
+
         // Replace only this route's own row(s): same (owner, pattern) identity, plus the row being
         // edited by id (covers a pattern rename, where the old pattern no longer matches).
         var existing = new List<CMSRouteDTO>();
@@ -142,6 +130,14 @@ public sealed class CMSRouteService : ICMSRouteService
         {
             existing.AddRange(await _context.Set<CMSRouteDTO>()
                 .Where(r => r.Id == routeId)
+                .ToListAsync(ct));
+        }
+
+        // A projected row is identified by the route item it came from: a pattern edit replaces it.
+        if (route.RouteNodeId.HasValue)
+        {
+            existing.AddRange(await _context.Set<CMSRouteDTO>()
+                .Where(r => r.RouteNodeId == route.RouteNodeId.Value)
                 .ToListAsync(ct));
         }
 
@@ -162,11 +158,13 @@ public sealed class CMSRouteService : ICMSRouteService
 
         // The replace must be atomic: if the new row's insert loses a race for the pattern, the
         // delete of the old row(s) must roll back with it — otherwise the content's live route
-        // disappears and the item goes dark. Both writes therefore share one transaction.
+        // disappears and the item goes dark. Both writes therefore share one transaction: the caller's when
+        // one is open (a page publish projects all its routes in one; Npgsql has no nested transactions).
         if (route.Id == Guid.Empty)
             route.Id = Guid.NewGuid();
 
-        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        var ambient = _context.Database.CurrentTransaction != null;
+        await using var transaction = ambient ? null : await _context.Database.BeginTransactionAsync(ct);
         try
         {
             if (existing.Count > 0)
@@ -174,7 +172,8 @@ public sealed class CMSRouteService : ICMSRouteService
 
             _context.Set<CMSRouteDTO>().Add(route);
             await _context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
+            if (transaction != null)
+                await transaction.CommitAsync(ct);
         }
         catch (DbUpdateException)
         {
@@ -182,7 +181,9 @@ public sealed class CMSRouteService : ICMSRouteService
             // to the same pattern surfaces here, even though the pre-check above saw no conflict.
             // The rollback restores the rows but not the change tracker; the context is scoped and
             // shared, so the abandoned changes are detached before the next SaveChanges replays them.
-            await transaction.RollbackAsync(ct);
+            // In a caller's transaction the failed statement has aborted it, so the caller must roll back.
+            if (transaction != null)
+                await transaction.RollbackAsync(ct);
             foreach (var removed in existing)
                 _context.Entry(removed).State = EntityState.Detached;
             _context.Entry(route).State = EntityState.Detached;
@@ -204,6 +205,20 @@ public sealed class CMSRouteService : ICMSRouteService
         return true;
     }
 
+    public async Task<bool> DeleteByRouteNodeAsync(Guid routeNodeId, CancellationToken ct = default)
+    {
+        var routes = await _context.Set<CMSRouteDTO>()
+            .Where(r => r.RouteNodeId == routeNodeId)
+            .ToListAsync(ct);
+
+        if (routes.Count == 0) return false;
+
+        _context.Set<CMSRouteDTO>().RemoveRange(routes);
+        await _context.SaveChangesAsync(ct);
+        _registry.Invalidate();
+        return true;
+    }
+
     public async Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
     {
         var routes = await _context.Set<CMSRouteDTO>()
@@ -218,27 +233,10 @@ public sealed class CMSRouteService : ICMSRouteService
         return true;
     }
 
-    /// <summary>The first route parameter in <paramref name="pattern"/> with a reserved name, or null.</summary>
-    internal static string? FindReservedParameter(string pattern) =>
-        ParameterNamePattern.Matches(pattern)
-            .Select(m => m.Groups[1].Value.Trim())
-            .FirstOrDefault(ReservedParameterNames.Contains);
 
-    internal static string NormalizePattern(string pattern)
-    {
-        if (string.IsNullOrWhiteSpace(pattern))
-            return "/";
+    internal static string? FindReservedParameter(string pattern) => RoutePatternRules.FindReservedParameter(pattern);
 
-        pattern = pattern.Trim().ToLowerInvariant();
-
-        if (!pattern.StartsWith('/'))
-            pattern = "/" + pattern;
-
-        if (pattern.Length > 1 && pattern.EndsWith('/'))
-            pattern = pattern.TrimEnd('/');
-
-        return pattern;
-    }
+    internal static string NormalizePattern(string pattern) => RoutePatternRules.Normalize(pattern);
 
     internal static Dictionary<string, string>? TryMatchPattern(string pattern, string path)
     {

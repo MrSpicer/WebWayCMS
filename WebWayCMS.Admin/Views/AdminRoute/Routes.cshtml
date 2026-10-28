@@ -1,0 +1,47 @@
+@model IEnumerable<WebWayCMS.Data.Models.RouteDTO>
+@{
+    ViewData["Title"] = "Routes";
+}
+
+<div class="admin-page-header">
+    <div class="container is-fluid">
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                <nav class="breadcrumb" aria-label="breadcrumbs">
+                    <ul><li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="routes">Routes</a></li></ul>
+                </nav>
+                <h1 class="title is-5">Routes</h1>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container is-fluid admin-page-body">
+    <div class="card">
+        <div class="card-content">
+            @if (!Model.Any())
+            {
+                <p class="has-text-grey">No route drafts.</p>
+            }
+            else
+            {
+                <table class="table is-fullwidth is-hoverable">
+                    <thead>
+                        <tr><th>Pattern</th><th>Mode</th><th>Navigation name</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var route in Model.OrderBy(r => r.Order).ThenBy(r => r.Pattern))
+                        {
+                            <tr>
+                                <td>@(string.IsNullOrWhiteSpace(route.Pattern) ? "(derived)" : route.Pattern)</td>
+                                <td>@route.Mode</td>
+                                <td>@route.NavigationName</td>
+                                <td><a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="routes" asp-route-id="@route.Version.Node.Id">Edit</a></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>

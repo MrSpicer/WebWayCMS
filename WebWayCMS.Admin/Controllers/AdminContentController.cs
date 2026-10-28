@@ -61,6 +61,8 @@ public class AdminContentController : Controller
         if (handler == null) return HandlerNotFound(contentType);
 
         var vm = await handler.GetUpsertViewModelAsync(null, Request.Query, ct);
+        if (AdminModal.IsModalRequest(Request))
+            ViewData[AdminModal.ViewDataKey] = true;
         return View(handler.UpsertViewPath, vm ?? handler.CreateEmptyUpsertViewModel());
     }
 
@@ -72,6 +74,8 @@ public class AdminContentController : Controller
 
         var vm = await handler.GetUpsertViewModelAsync(id, Request.Query, ct);
         if (vm == null) return NotFound();
+        if (AdminModal.IsModalRequest(Request))
+            ViewData[AdminModal.ViewDataKey] = true;
         return View(handler.UpsertViewPath, vm);
     }
 
@@ -88,8 +92,9 @@ public class AdminContentController : Controller
         var model = handler.CreateEmptyUpsertViewModel();
         await TryUpdateModelAsync(model, model.GetType(), prefix: "");
 
+        var isModal = AdminModal.IsModalRequest(Request);
         if (!ModelState.IsValid)
-            return View(handler.UpsertViewPath, model);
+            return ModalOrView(handler, model, isModal);
 
         var result = await handler.SaveUpsertAsync(model, ct);
         if (!result.Success)
@@ -97,7 +102,15 @@ public class AdminContentController : Controller
             ModelState.AddModelError(
                 result.ErrorField ?? string.Empty,
                 result.ErrorMessage ?? "An error occurred.");
-            return View(handler.UpsertViewPath, model);
+            return ModalOrView(handler, model, isModal);
+        }
+
+        if (isModal)
+        {
+            var title = new[] { "Title", "Pattern", "NavigationName", "Name" }
+                .Select(name => model.GetType().GetProperty(name)?.GetValue(model) as string)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            return Json(new { id = result.NodeId, title = title ?? string.Empty });
         }
 
         if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase)
@@ -112,6 +125,20 @@ public class AdminContentController : Controller
         return RedirectToAction(nameof(Index), new { contentType });
     }
 
+    /// <summary>
+    /// A validation/save failure inside the picker modal re-renders the form in place with 422 (the
+    /// iframe's script swaps the document); outside it, the ordinary full-page form.
+    /// </summary>
+    private IActionResult ModalOrView(IAdminCrudHandler handler, object model, bool isModal)
+    {
+        if (!isModal)
+            return View(handler.UpsertViewPath, model);
+
+        ViewData[AdminModal.ViewDataKey] = true;
+        Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+        return View(handler.UpsertViewPath, model);
+    }
+
     [HttpPost("{contentType}/delete/{id:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(string contentType, Guid id, CancellationToken ct)
@@ -121,7 +148,11 @@ public class AdminContentController : Controller
 
         if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
 
-        await handler.DeleteAsync(id, ct);
+        var result = await handler.TryDeleteAsync(id, ct);
+        if (!result.Success)
+            TempData["Error"] = result.ErrorMessage ?? "The item could not be deleted.";
+        else if (result.DeletedDescendants > 0)
+            TempData["Success"] = $"Deleted, together with the {result.DeletedDescendants} item(s) it contained.";
         return RedirectToAction(nameof(Index), new { contentType });
     }
 
@@ -139,6 +170,8 @@ public class AdminContentController : Controller
         var result = await handler.PublishAsync(nodeId, ct);
         if (!result.Success)
             TempData["Error"] = result.ErrorMessage;
+        else if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+            TempData["Success"] = result.ErrorMessage;
 
         return RedirectAfterPublishing(contentType, returnUrl);
     }

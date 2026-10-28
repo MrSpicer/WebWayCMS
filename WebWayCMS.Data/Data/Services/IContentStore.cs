@@ -20,6 +20,12 @@ public interface IContentStore<T> where T : class, IVersionedContent
     /// <summary>The items at the read context that match <paramref name="predicate"/>, newest first.</summary>
     Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default);
 
+    /// <summary>
+    /// The items whose read-context version has relation <paramref name="name"/> to
+    /// <paramref name="targetNodeId"/>, by that relation's ordinal, then newest first.
+    /// </summary>
+    Task<List<T>> FindRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default);
+
     // version-explicit (admin/history)
     Task<T?> GetVersionAsync(Guid versionId, CancellationToken ct = default);
     Task<List<T>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct = default);
@@ -34,12 +40,21 @@ public interface IContentStore<T> where T : class, IVersionedContent
     /// <summary>The current drafts that match <paramref name="predicate"/>, newest first.</summary>
     Task<List<T>> FindCurrentDraftsAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default);
 
-    /// <summary>Counts the current drafts grouped by <paramref name="keySelector"/> (e.g. a parent FK).</summary>
+    /// <summary>The current drafts with relation <paramref name="name"/> to <paramref name="targetNodeId"/>, by ordinal, then newest first.</summary>
+    Task<List<T>> FindCurrentDraftsRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default);
+
+    /// <summary>Counts the current drafts' relation <paramref name="name"/> rows, grouped by target node.</summary>
+    Task<Dictionary<Guid, int>> CountCurrentDraftsByRelationAsync(string name, CancellationToken ct = default);
+
+    /// <summary>Counts the current drafts grouped by <paramref name="keySelector"/>.</summary>
     Task<Dictionary<TKey, int>> CountCurrentDraftsByAsync<TKey>(Expression<Func<T, TKey>> keySelector, CancellationToken ct = default)
         where TKey : notnull;
 
     // writes
     Task<ContentWriteResult> SaveDraftAsync(T entity, int? expectedVersionNumber, CancellationToken ct = default);
+    // creates the item's first draft on a node with a caller-chosen id (a deterministic id, so the node's
+    // primary key enforces uniqueness); fails with AlreadyExistsMessage when that node already exists
+    Task<ContentWriteResult> CreateWithNodeIdAsync(T entity, Guid nodeId, CancellationToken ct = default);
     Task<ContentWriteResult> PublishAsync(Guid nodeId, CancellationToken ct = default);
     Task<ContentWriteResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default);
     Task<ContentWriteResult> RevertPublishAsync(Guid nodeId, Guid publishedVersionId, Guid displacedVersionId, CancellationToken ct = default);

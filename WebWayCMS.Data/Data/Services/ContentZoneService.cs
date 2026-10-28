@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
@@ -7,7 +6,11 @@ using WebWayCMS.Data.Models;
 namespace WebWayCMS.Data.Services;
 
 /// <summary>
-/// Manages content zones: item resolution, assignment (slot) management, and item writes.
+/// Manages content zones: item resolution, owned zones (a page's or container item's slots), and item
+/// writes. The structure is relations: an item's version sits in a zone through its
+/// <see cref="ZoneRelations.Zone"/> relation (with its ordinal), and an owned zone's version names its
+/// owner and slot through <see cref="ZoneRelations.Owner"/>; an owned zone's node id is deterministic
+/// (<see cref="ZoneNodeIds"/>), so concurrent first renders can't create it twice.
 /// Zone and item versioning is delegated to the generic <see cref="IContentStore{T}"/>. Items in a
 /// zone that belongs to a page (directly or through nested zones) are written as drafts and go live
 /// only when the page is published (<see cref="PublishPageZonesAsync"/>); items in global/name-based
@@ -56,8 +59,9 @@ public sealed class ContentZoneService : IContentZoneService
         return await _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
             .AtReadContext(_readContext)
-            .Where(i => i.ContentZoneNodeId == zoneNodeId && i.IsActive)
-            .OrderBy(i => i.Ordinal)
+            .Where(ZoneRelations.InZone(zoneNodeId))
+            .Where(i => i.IsActive)
+            .OrderBy(ZoneRelations.ZoneOrdinal)
             .ToListAsync(ct);
     }
 
@@ -77,47 +81,21 @@ public sealed class ContentZoneService : IContentZoneService
             .FirstOrDefaultAsync(z => z.Name == name, ct);
     }
 
-    // ─── assignment management ────────────────────────────────────────────────
+    // ─── owned zones ──────────────────────────────────────────────────────────
 
-    public async Task<ContentZoneAssignmentDTO?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+    public async Task<OwnedZone?> GetByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
+        => await _tree.ZoneOwners()
             .FirstOrDefaultAsync(a => a.ParentPageNodeId == pageNodeId && a.SlotName == slotName, ct);
-    }
 
-    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
-    {
-        var assignment = await GetByPageSlotAsync(pageNodeId, slotName, ct);
-        if (assignment != null)
-        {
-            var zone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
-            if (zone != null)
-                return (zone, assignment);
-        }
+    public async Task<(ContentZoneDTO Zone, OwnedZone Owner)> GetOrCreateByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
+        => await GetOrCreateOwnedZoneAsync(await GetByPageSlotAsync(pageNodeId, slotName, ct), pageNodeId, slotName, ownerIsPage: true, ct);
 
-        return await ResolveOrCreateAssignmentAsync(pageNodeId, null, slotName, assignment, ct);
-    }
-
-    public async Task<ContentZoneAssignmentDTO?> GetByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+    public async Task<OwnedZone?> GetByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
+        => await _tree.ZoneOwners()
             .FirstOrDefaultAsync(a => a.ParentItemNodeId == parentItemNodeId && a.SlotName == slotName, ct);
-    }
 
-    public async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> GetOrCreateByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
-    {
-        var assignment = await GetByItemSlotAsync(parentItemNodeId, slotName, ct);
-        if (assignment != null)
-        {
-            var zone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
-            if (zone != null)
-                return (zone, assignment);
-        }
-
-        return await ResolveOrCreateAssignmentAsync(null, parentItemNodeId, slotName, assignment, ct);
-    }
+    public async Task<(ContentZoneDTO Zone, OwnedZone Owner)> GetOrCreateByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
+        => await GetOrCreateOwnedZoneAsync(await GetByItemSlotAsync(parentItemNodeId, slotName, ct), parentItemNodeId, slotName, ownerIsPage: false, ct);
 
     public async Task<ContentZoneDTO> GetOrCreateByNameAsync(string name, CancellationToken ct = default)
     {
@@ -146,22 +124,17 @@ public sealed class ContentZoneService : IContentZoneService
         }
     }
 
-    public async Task<IEnumerable<ContentZoneAssignmentDTO>> GetAllAssignmentsForPageAsync(Guid pageNodeId, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+    public async Task<List<OwnedZone>> GetOwnedZonesForPageAsync(Guid pageNodeId, CancellationToken ct = default)
+        => await _tree.ZoneOwners()
             .Where(a => a.ParentPageNodeId == pageNodeId)
             .ToListAsync(ct);
-    }
 
     public async Task<List<ContentZoneDTO>> GetAllByPageAsync(Guid pageNodeId, CancellationToken ct = default)
     {
-        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+        var nodeIds = await _tree.ZoneOwners()
             .Where(a => a.ParentPageNodeId == pageNodeId)
+            .Select(a => a.ZoneNodeId)
             .ToListAsync(ct);
-
-        var nodeIds = assignments.Select(a => a.ContentZoneNodeId).ToList();
 
         return await _context.Set<ContentZoneDTO>()
             .AsNoTracking()
@@ -174,14 +147,14 @@ public sealed class ContentZoneService : IContentZoneService
     public async Task<List<ContentZoneDTO>> GetAllByParentZoneAsync(Guid parentZoneNodeId, CancellationToken ct = default)
     {
         // A nested zone's parent zone is the zone its owning item currently sits in.
-        var itemNodeIds = _tree.CurrentDraftItems()
-            .Where(i => i.ContentZoneNodeId == parentZoneNodeId)
-            .Select(i => i.Version.NodeId);
+        var itemNodeIds = await _tree.CurrentDraftItems()
+            .Where(ZoneRelations.InZone(parentZoneNodeId))
+            .Select(i => i.Version.NodeId)
+            .ToListAsync(ct);
 
-        var nodeIds = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+        var nodeIds = await _tree.ZoneOwners()
             .Where(a => a.ParentItemNodeId != null && itemNodeIds.Contains(a.ParentItemNodeId.Value))
-            .Select(a => a.ContentZoneNodeId)
+            .Select(a => a.ZoneNodeId)
             .ToListAsync(ct);
 
         return await _context.Set<ContentZoneDTO>()
@@ -198,14 +171,15 @@ public sealed class ContentZoneService : IContentZoneService
         if (ids.Count == 0)
             return [];
 
-        var ownerItemIds = _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
+        var ownerItemIds = await _tree.ZoneOwners()
             .Where(a => a.ParentItemNodeId != null)
-            .Select(a => a.ParentItemNodeId!.Value);
+            .Select(a => a.ParentItemNodeId!.Value)
+            .ToListAsync(ct);
 
         var parentIds = await _tree.CurrentDraftItems()
-            .Where(i => ids.Contains(i.ContentZoneNodeId) && ownerItemIds.Contains(i.Version.NodeId))
-            .Select(i => i.ContentZoneNodeId)
+            .Where(ZoneRelations.InZones(ids))
+            .Where(i => ownerItemIds.Contains(i.Version.NodeId))
+            .Select(ZoneRelations.ZoneOf)
             .Distinct()
             .ToListAsync(ct);
 
@@ -214,14 +188,20 @@ public sealed class ContentZoneService : IContentZoneService
 
     public async Task<List<string>> GetOwnedSlotsWithItemsAsync(Guid itemNodeId, CancellationToken ct = default)
     {
-        // Removed (inactive) widgets count: they move with their zone, so a restore finds them in the new view.
-        var zoneIdsWithItems = _tree.CurrentDraftItems().Select(i => i.ContentZoneNodeId);
-
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentItemNodeId == itemNodeId && zoneIdsWithItems.Contains(a.ContentZoneNodeId))
-            .Select(a => a.SlotName)
+        var owned = await _tree.ZoneOwners()
+            .Where(a => a.ParentItemNodeId == itemNodeId)
             .ToListAsync(ct);
+        if (owned.Count == 0)
+            return [];
+
+        // Removed (inactive) widgets count: they move with their zone, so a restore finds them in the new view.
+        var withItems = await _tree.CurrentDraftItems()
+            .Where(ZoneRelations.InZones(owned.Select(a => a.ZoneNodeId)))
+            .Select(ZoneRelations.ZoneOf)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return owned.Where(a => withItems.Contains(a.ZoneNodeId)).Select(a => a.SlotName).ToList();
     }
 
     public async Task<List<Guid>> GetDescendantItemNodeIdsAsync(Guid containerItemNodeId, CancellationToken ct = default)
@@ -235,14 +215,15 @@ public sealed class ContentZoneService : IContentZoneService
         while (frontier.Count > 0)
         {
             var owners = frontier;
-            var zoneIds = _context.Set<ContentZoneAssignmentDTO>()
-                .AsNoTracking()
+            var zoneIds = await _tree.ZoneOwners()
                 .Where(a => a.ParentItemNodeId != null && owners.Contains(a.ParentItemNodeId.Value))
-                .Select(a => a.ContentZoneNodeId);
+                .Select(a => a.ZoneNodeId)
+                .ToListAsync(ct);
 
             var itemIds = await _context.Set<ContentZoneItemDTO>()
                 .AsNoTracking()
-                .Where(i => zoneIds.Contains(i.ContentZoneNodeId) && !i.Version.Node.IsDeleted)
+                .Where(ZoneRelations.InZones(zoneIds))
+                .Where(i => !i.Version.Node.IsDeleted)
                 .Select(i => i.Version.NodeId)
                 .Distinct()
                 .ToListAsync(ct);
@@ -261,16 +242,22 @@ public sealed class ContentZoneService : IContentZoneService
             return [];
 
         var ownerIds = owners.Keys.ToList();
-        var activeZoneIds = _tree.CurrentDraftItems().Where(i => i.IsActive).Select(i => i.ContentZoneNodeId);
-        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => a.ParentItemNodeId != null
-                     && ownerIds.Contains(a.ParentItemNodeId.Value)
-                     && activeZoneIds.Contains(a.ContentZoneNodeId))
+        var owned = await _tree.ZoneOwners()
+            .Where(a => a.ParentItemNodeId != null && ownerIds.Contains(a.ParentItemNodeId.Value))
+            .ToListAsync(ct);
+        if (owned.Count == 0)
+            return [];
+
+        var activeZoneIds = await _tree.CurrentDraftItems()
+            .Where(i => i.IsActive)
+            .Where(ZoneRelations.InZones(owned.Select(a => a.ZoneNodeId)))
+            .Select(ZoneRelations.ZoneOf)
+            .Distinct()
             .ToListAsync(ct);
 
-        return assignments
-            .Select(a => new ItemOwnedZone(a.ContentZoneNodeId, a.SlotName, owners[a.ParentItemNodeId!.Value]))
+        return owned
+            .Where(a => activeZoneIds.Contains(a.ZoneNodeId))
+            .Select(a => new ItemOwnedZone(a.ZoneNodeId, a.SlotName, owners[a.ParentItemNodeId!.Value]))
             .ToList();
     }
 
@@ -279,12 +266,13 @@ public sealed class ContentZoneService : IContentZoneService
         var ids = nodeIds.ToList();
         if (ids.Count == 0) return [];
 
-        return await _context.Set<ContentZoneAssignmentDTO>()
-            .AsNoTracking()
-            .Where(a => ids.Contains(a.ContentZoneNodeId))
-            .GroupBy(a => a.ContentZoneNodeId)
-            .Select(g => new { NodeId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.NodeId, x => x.Count, ct);
+        // A zone has at most one owner; global zones have none.
+        return (await _tree.ZoneOwners()
+                .Where(a => ids.Contains(a.ZoneNodeId))
+                .Select(a => a.ZoneNodeId)
+                .ToListAsync(ct))
+            .GroupBy(id => id)
+            .ToDictionary(g => g.Key, g => g.Count());
     }
 
     // ─── parent resolution ────────────────────────────────────────────────────
@@ -333,19 +321,21 @@ public sealed class ContentZoneService : IContentZoneService
         var zone = await _zoneStore.GetCurrentDraftAsync(zoneNodeId, ct)
             ?? throw new InvalidOperationException($"Content zone with ID {zoneNodeId} not found.");
 
-        item.ContentZoneNodeId = zoneNodeId;
-
         // New items always carry a metadata document, so the column never holds null on a write.
         if (string.IsNullOrWhiteSpace(item.MetadataJson))
             item.MetadataJson = "{}";
 
-        if (item.Ordinal == 0)
+        // A caller may place the item at an ordinal in this zone; otherwise it goes last.
+        var ordinal = item.ContentZoneNodeId == zoneNodeId ? item.Ordinal : 0;
+        if (ordinal == 0)
         {
             var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
-                .Where(i => i.ContentZoneNodeId == zoneNodeId)
-                .MaxAsync(i => (int?)i.Ordinal, ct) ?? 0;
-            item.Ordinal = maxOrdinal + 1;
+                .Where(ZoneRelations.InZone(zoneNodeId))
+                .Select(ZoneRelations.ZoneOrdinal)
+                .MaxAsync(o => (int?)o, ct) ?? 0;
+            ordinal = maxOrdinal + 1;
         }
+        ZoneRelations.Place(item.Version, zoneNodeId, ordinal);
 
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
         using (_changeSetScope.UseChangeNote($"Added to {zone.Name}"))
@@ -371,8 +361,17 @@ public sealed class ContentZoneService : IContentZoneService
         // per-item metadata edited through the zone editor's metadata dialog. A blank supplied
         // document still normalizes to "{}" so the column never holds null on a write.
         MetadataJson = string.IsNullOrWhiteSpace(item.MetadataJson) ? existing.MetadataJson ?? "{}" : item.MetadataJson,
-        IsActive = item.IsActive
-        // Ordinal and ContentZoneNodeId are preserved from the existing record.
+        IsActive = item.IsActive,
+        // The caller's relation writes (e.g. config.* ids) ride on its own copy of the version; the
+        // reloaded version would otherwise carry the old relations forward and drop them. Placement is
+        // not an update's to change (that is a reorder or move), so a Zone write is dropped and the
+        // existing zone and ordinal carry forward.
+        Version = existing.Version with
+        {
+            RelationWrites = item.Version.RelationWrites
+                .Where(w => w.Key != ZoneRelations.Zone)
+                .ToDictionary(w => w.Key, w => w.Value)
+        }
     };
 
     public Task<bool> UpdateItemAsync(ContentZoneItemDTO item, CancellationToken ct = default, int? expectedVersionNumber = null)
@@ -465,15 +464,15 @@ public sealed class ContentZoneService : IContentZoneService
             var group = groups.FirstOrDefault(g => g.ToSlot == move.ToSlot);
             if (group == null)
             {
-                var (_, assignment) = await GetOrCreateByItemSlotAsync(ownerItemNodeId, move.ToSlot, ct);
-                group = new SlotMoveGroup(move.ToSlot, assignment.ContentZoneNodeId, await ZoneOrderAsync(assignment.ContentZoneNodeId, ct), []);
+                var (_, owner) = await GetOrCreateByItemSlotAsync(ownerItemNodeId, move.ToSlot, ct);
+                group = new SlotMoveGroup(move.ToSlot, owner.ZoneNodeId, await ZoneOrderAsync(owner.ZoneNodeId, ct), []);
                 groups.Add(group);
             }
 
-            if (source.ContentZoneNodeId == group.ZoneNodeId)
+            if (source.ZoneNodeId == group.ZoneNodeId)
                 continue;
 
-            var items = await ZoneOrderAsync(source.ContentZoneNodeId, ct);
+            var items = await ZoneOrderAsync(source.ZoneNodeId, ct);
             group.Order.AddRange(items);
             group.Moved.UnionWith(items.Select(i => i.Version.NodeId));
         }
@@ -483,8 +482,8 @@ public sealed class ContentZoneService : IContentZoneService
 
     private Task<List<ContentZoneItemDTO>> ZoneOrderAsync(Guid zoneNodeId, CancellationToken ct)
         => _tree.CurrentDraftItems()
-            .Where(i => i.ContentZoneNodeId == zoneNodeId)
-            .OrderBy(i => i.Ordinal)
+            .Where(ZoneRelations.InZone(zoneNodeId))
+            .OrderBy(ZoneRelations.ZoneOrdinal)
             .ToListAsync(ct);
 
     /// <summary>Writes each target zone's new order; moved items are noted as such, renumbered ones as siblings.</summary>
@@ -550,10 +549,7 @@ public sealed class ContentZoneService : IContentZoneService
         // removal is later undone.
         var requested = resolved.Select(i => i.Version.NodeId).ToHashSet();
         var queue = new Queue<ContentZoneItemDTO>(resolved);
-        var order = (await _tree.CurrentDraftItems()
-                .Where(i => i.ContentZoneNodeId == zoneNodeId)
-                .OrderBy(i => i.Ordinal)
-                .ToListAsync(ct))
+        var order = (await ZoneOrderAsync(zoneNodeId, ct))
             .Select(i => requested.Contains(i.Version.NodeId) ? queue.Dequeue() : i)
             .ToList();
         // Only a repeated id is left over; its second save is stale, so such a request fails as a whole.
@@ -608,10 +604,9 @@ public sealed class ContentZoneService : IContentZoneService
         // The target's items with the moved one inserted. Removed (inactive) items are renumbered too, in
         // place, so they never share an ordinal with a live item if their removal is later discarded.
         // The position counts active items only, since that is the order the editor shows.
-        var siblings = await _tree.CurrentDraftItems()
-            .Where(i => i.ContentZoneNodeId == targetZoneNodeId && i.Version.NodeId != itemNodeId)
-            .OrderBy(i => i.Ordinal)
-            .ToListAsync(ct);
+        var siblings = (await ZoneOrderAsync(targetZoneNodeId, ct))
+            .Where(i => i.Version.NodeId != itemNodeId)
+            .ToList();
         var active = siblings.Where(i => i.IsActive).ToList();
         var activeIndex = Math.Clamp(position, 0, active.Count);
         var insertAt = activeIndex < active.Count
@@ -687,10 +682,9 @@ public sealed class ContentZoneService : IContentZoneService
             MetadataJson = metadataJson ?? historical.MetadataJson ?? "{}",
             IsActive = historical.IsActive
         };
-        var siblings = await _tree.CurrentDraftItems()
-            .Where(i => i.ContentZoneNodeId == targetZoneNodeId && i.Version.NodeId != itemNodeId)
-            .OrderBy(i => i.Ordinal)
-            .ToListAsync(ct);
+        var siblings = (await ZoneOrderAsync(targetZoneNodeId, ct))
+            .Where(i => i.Version.NodeId != itemNodeId)
+            .ToList();
         var insertAt = siblings.FindIndex(i => i.Ordinal >= historical.Ordinal);
         siblings.Insert(insertAt < 0 ? siblings.Count : insertAt, restored);
 
@@ -759,10 +753,7 @@ public sealed class ContentZoneService : IContentZoneService
         if (sourceZoneNodeId == targetZoneNodeId)
             return target;
 
-        var remaining = await _tree.CurrentDraftItems()
-            .Where(i => i.ContentZoneNodeId == sourceZoneNodeId)
-            .OrderBy(i => i.Ordinal)
-            .ToListAsync(ct);
+        var remaining = await ZoneOrderAsync(sourceZoneNodeId, ct);
         return await SaveZoneOrderAsync(sourceZoneNodeId, remaining, publish: false, SiblingNotes, ct);
     }
 
@@ -822,7 +813,7 @@ public sealed class ContentZoneService : IContentZoneService
             using (_changeSetScope.UseChangeNote(isPrimary ? notes.Primary!(position) : notes.ForOther(current, position)))
             {
                 save = await _itemStore.SaveDraftAsync(
-                    current with { ContentZoneNodeId = zoneNodeId, Ordinal = position },
+                    ZoneRelations.Placed(current, zoneNodeId, position),
                     current.Version.VersionNumber, ct);
             }
 
@@ -850,7 +841,7 @@ public sealed class ContentZoneService : IContentZoneService
             return [];
 
         return await PendingItems()
-            .Where(i => ids.Contains(i.ContentZoneNodeId))
+            .Where(ZoneRelations.InZones(ids))
             .Select(i => i.Version.NodeId)
             .Distinct()
             .ToListAsync(ct);
@@ -906,89 +897,59 @@ public sealed class ContentZoneService : IContentZoneService
                      && i.Version.State != ContentVersionState.Published
                      && !i.Version.Node.IsDeleted);
 
-    private async Task<(ContentZoneDTO Zone, ContentZoneAssignmentDTO Assignment)> ResolveOrCreateAssignmentAsync(
-        Guid? parentPageNodeId, Guid? parentItemNodeId, string slotName,
-        ContentZoneAssignmentDTO? assignment, CancellationToken ct)
+    /// <summary>
+    /// The owner's zone in <paramref name="slotName"/>: the existing one when <paramref name="owned"/> resolves,
+    /// else created (published at once) on its deterministic node id. A concurrent create of the same zone
+    /// loses on the node's primary key and reads the winner's zone instead. A caller's open transaction (a
+    /// container's view-change save) is joined as-is, so its rollback undoes the zone too.
+    /// </summary>
+    private async Task<(ContentZoneDTO Zone, OwnedZone Owner)> GetOrCreateOwnedZoneAsync(
+        OwnedZone? owned, Guid ownerNodeId, string slotName, bool ownerIsPage, CancellationToken ct)
     {
-        // A caller's open transaction (a container's view-change save) is joined as-is: Npgsql has no nested
-        // transactions, and the caller's rollback then undoes the zone too.
-        var ambient = _context.Database.CurrentTransaction != null;
-        using var transaction = ambient ? null : await _context.Database.BeginTransactionAsync(ct);
-        try
+        var zoneNodeId = owned?.ZoneNodeId ?? ZoneNodeIds.For(ownerNodeId, slotName);
+        owned ??= new OwnedZone
         {
-            assignment = parentPageNodeId.HasValue
-                ? await _context.Set<ContentZoneAssignmentDTO>()
-                    .FirstOrDefaultAsync(a => a.ParentPageNodeId == parentPageNodeId.Value && a.SlotName == slotName, ct)
-                : await _context.Set<ContentZoneAssignmentDTO>()
-                    .FirstOrDefaultAsync(a => a.ParentItemNodeId == parentItemNodeId!.Value && a.SlotName == slotName, ct);
+            ZoneNodeId = zoneNodeId,
+            SlotName = slotName,
+            ParentPageNodeId = ownerIsPage ? ownerNodeId : null,
+            ParentItemNodeId = ownerIsPage ? null : ownerNodeId
+        };
 
-            if (assignment != null)
-            {
-                var existingZone = await ResolveZoneAsync(assignment.ContentZoneNodeId, ct);
-                if (existingZone != null)
-                {
-                    await RollbackUnlessAmbientAsync(transaction, ct);
-                    return (existingZone, assignment);
-                }
+        var existing = await ResolveZoneAsync(zoneNodeId, ct);
+        if (existing != null)
+            return (existing, owned);
 
-                // Dangling assignment: the zone it points to no longer exists. Create a real zone and
-                // repoint the assignment instead of handing back an unpersisted Guid.Empty zone.
-                _logger.Warning(
-                    "Content zone assignment {AssignmentId} pointed at missing zone {StaleZoneNodeId} for slot '{SlotName}'; repairing.",
-                    assignment.Id, assignment.ContentZoneNodeId, slotName);
-
-                var repairedZone = await CreatePublishedZoneAsync(slotName, ct);
-                assignment.ContentZoneNodeId = repairedZone.Version.Node!.Id;
-                assignment.ContentZoneNode = repairedZone.Version.Node;
-                await _context.SaveChangesAsync(ct);
-                if (transaction != null)
-                    await transaction.CommitAsync(ct);
-                return (repairedZone, assignment);
-            }
-
-            var zone = await CreatePublishedZoneAsync(slotName, ct);
-            var newAssignment = new ContentZoneAssignmentDTO
-            {
-                Id = Guid.NewGuid(),
-                SlotName = slotName,
-                ContentZoneNodeId = zone.Version.Node!.Id,
-                ContentZoneNode = zone.Version.Node,
-                ParentPageNodeId = parentPageNodeId,
-                ParentItemNodeId = parentItemNodeId
-            };
-            _context.Set<ContentZoneAssignmentDTO>().Add(newAssignment);
-            await _context.SaveChangesAsync(ct);
-            if (transaction != null)
-                await transaction.CommitAsync(ct);
-
-            return (zone, newAssignment);
-        }
-        catch
+        var zone = NewZone(slotName);
+        ZoneRelations.Own(zone.Version, ownerNodeId, slotName);
+        var save = await _zoneStore.CreateWithNodeIdAsync(zone, zoneNodeId, ct);
+        if (!save.Success)
         {
-            await RollbackUnlessAmbientAsync(transaction, ct);
-            throw;
+            if (save.ErrorMessage == ContentStore<ContentZoneDTO>.AlreadyExistsMessage
+                && await ResolveZoneAsync(zoneNodeId, ct) is { } raced)
+                return (raced, owned);
+            throw new InvalidOperationException(save.ErrorMessage ?? "Failed to create content zone.");
         }
+
+        await _zoneStore.PublishAsync(zoneNodeId, ct);
+        return (zone, owned);
     }
 
-    /// <summary>Rolls back a transaction this method opened; a joined (ambient) one is the caller's to end.</summary>
-    private static async Task RollbackUnlessAmbientAsync(IDbContextTransaction? transaction, CancellationToken ct)
-    {
-        if (transaction != null)
-            await transaction.RollbackAsync(ct);
-    }
+    public Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => DeleteZoneCoreAsync(zoneNodeId, [], ct);
 
-    public async Task<bool> DeleteZoneAsync(Guid zoneNodeId, CancellationToken ct = default)
+    /// <summary>
+    /// Deletes one zone with its content. The zone's ownership is a relation on its own versions, so it
+    /// goes with them — and stays until then, so <paramref name="visited"/> stops a nested-zone cycle from
+    /// leading back here.
+    /// </summary>
+    private async Task<bool> DeleteZoneCoreAsync(Guid zoneNodeId, HashSet<Guid> visited, CancellationToken ct)
     {
-        // The zone's own assignment rows go first, so a nested-zone cycle can never lead back here.
-        var assignments = await _context.Set<ContentZoneAssignmentDTO>()
-            .Where(a => a.ContentZoneNodeId == zoneNodeId)
-            .ToListAsync(ct);
-        _context.Set<ContentZoneAssignmentDTO>().RemoveRange(assignments);
-        await _context.SaveChangesAsync(ct);
+        if (!visited.Add(zoneNodeId))
+            return true;
 
         var items = await _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
-            .Where(i => i.ContentZoneNodeId == zoneNodeId)
+            .Where(ZoneRelations.InZone(zoneNodeId))
             .Select(i => i.Version.NodeId)
             .Distinct()
             .ToListAsync(ct);
@@ -1019,7 +980,8 @@ public sealed class ContentZoneService : IContentZoneService
 
                 var strayVersionIds = await _context.Set<ContentZoneItemDTO>()
                     .AsNoTracking()
-                    .Where(i => i.Version.NodeId == itemNodeId && i.ContentZoneNodeId == zoneNodeId)
+                    .Where(i => i.Version.NodeId == itemNodeId)
+                    .Where(ZoneRelations.InZone(zoneNodeId))
                     .Select(i => i.VersionId)
                     .ToListAsync(ct);
                 foreach (var versionId in strayVersionIds)
@@ -1035,66 +997,44 @@ public sealed class ContentZoneService : IContentZoneService
                 continue;
             }
 
-            await DeleteItemOwnedZonesAsync(itemNodeId, ct);
-
-            // A routable widget item owns CMSRouteDTO rows keyed to its node id; sweep them before the
-            // item is hard-deleted so the route table never dangles at a deleted node.
-            await _routeService.DeleteByOwningContentAsync(itemNodeId, ct);
-            await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
+            await DeleteItemCoreAsync(itemNodeId, visited, ct);
         }
 
         return await _zoneStore.DeleteAsync(zoneNodeId, softDelete: false, ct);
     }
 
+    public Task<bool> DeleteItemAsync(Guid itemNodeId, CancellationToken ct = default)
+        => DeleteItemCoreAsync(itemNodeId, [], ct);
+
+    private async Task<bool> DeleteItemCoreAsync(Guid itemNodeId, HashSet<Guid> visited, CancellationToken ct)
+    {
+        await DeleteItemOwnedZonesAsync(itemNodeId, visited, ct);
+
+        // A routable widget item owns CMSRouteDTO rows keyed to its node id; sweep them before the
+        // item is hard-deleted so the route table never dangles at a deleted node.
+        await _routeService.DeleteByOwningContentAsync(itemNodeId, ct);
+        return await _itemStore.DeleteAsync(itemNodeId, softDelete: false, ct);
+    }
+
     public async Task DeletePageZonesAsync(Guid pageNodeId, CancellationToken ct = default)
     {
-        var assignments = (await GetAllAssignmentsForPageAsync(pageNodeId, ct)).ToList();
-        if (assignments.Count == 0)
-            return;
-
-        var zoneNodeIds = assignments.Select(a => a.ContentZoneNodeId).Distinct().ToList();
-
-        // Remove this page's own assignment rows up front (tracked), so a shared zone's node can
-        // survive while this page's row never dangles at a deleted page.
-        var tracked = await _context.Set<ContentZoneAssignmentDTO>()
-            .Where(a => a.ParentPageNodeId == pageNodeId)
-            .ToListAsync(ct);
-        _context.Set<ContentZoneAssignmentDTO>().RemoveRange(tracked);
-        await _context.SaveChangesAsync(ct);
-
-        foreach (var zoneNodeId in zoneNodeIds)
-        {
-            // A zone node is deleted exactly when nothing references it any more. Re-query after the
-            // page's own rows are gone so a zone assigned to two of this page's slots still cleans up.
-            var remaining = await _context.Set<ContentZoneAssignmentDTO>()
-                .CountAsync(a => a.ContentZoneNodeId == zoneNodeId, ct);
-            if (remaining == 0)
-                await DeleteZoneAsync(zoneNodeId, ct);
-        }
+        var visited = new HashSet<Guid>();
+        foreach (var owned in await GetOwnedZonesForPageAsync(pageNodeId, ct))
+            await DeleteZoneCoreAsync(owned.ZoneNodeId, visited, ct);
     }
 
     /// <summary>
     /// Deletes the zones nested in an item (a container widget's slots) and, through them, their own
-    /// items and nested zones. A zone still referenced by another assignment keeps its node.
+    /// items and nested zones.
     /// </summary>
-    private async Task DeleteItemOwnedZonesAsync(Guid itemNodeId, CancellationToken ct)
+    private async Task DeleteItemOwnedZonesAsync(Guid itemNodeId, HashSet<Guid> visited, CancellationToken ct)
     {
-        var owned = await _context.Set<ContentZoneAssignmentDTO>()
+        var owned = await _tree.ZoneOwners()
             .Where(a => a.ParentItemNodeId == itemNodeId)
+            .Select(a => a.ZoneNodeId)
             .ToListAsync(ct);
-        if (owned.Count == 0)
-            return;
-
-        _context.Set<ContentZoneAssignmentDTO>().RemoveRange(owned);
-        await _context.SaveChangesAsync(ct);
-
-        foreach (var childId in owned.Select(a => a.ContentZoneNodeId).Distinct())
-        {
-            var remaining = await _context.Set<ContentZoneAssignmentDTO>()
-                .CountAsync(a => a.ContentZoneNodeId == childId, ct);
-            if (remaining == 0)
-                await DeleteZoneAsync(childId, ct);
-        }
+        foreach (var childId in owned)
+            await DeleteZoneCoreAsync(childId, visited, ct);
     }
 
     /// <summary>The item's published version id when that version sits outside <paramref name="zoneNodeId"/>.</summary>
@@ -1103,7 +1043,7 @@ public sealed class ContentZoneService : IContentZoneService
             .AsNoTracking()
             .Where(i => i.Version.NodeId == itemNodeId
                      && i.Version.State == ContentVersionState.Published
-                     && i.ContentZoneNodeId != zoneNodeId)
+                     && !i.Version.Relations.Any(r => r.Name == ZoneRelations.Zone && r.TargetNodeId == zoneNodeId))
             .Select(i => (Guid?)i.VersionId)
             .FirstOrDefaultAsync(ct);
 

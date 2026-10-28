@@ -59,6 +59,7 @@ public sealed class FormFieldContext
     public string HelpText => Property.HelpText;
     public string Placeholder => Property.Placeholder;
     public bool IsRequired => Property.IsRequired;
+    public bool IsMultiple => Property.IsMultiple;
     public double? Min => Property.Min;
     public double? Max => Property.Max;
     public int? MaxLength => Property.MaxLength;

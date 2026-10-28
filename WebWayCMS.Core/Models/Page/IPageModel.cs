@@ -10,7 +10,7 @@ public interface IPageModel
     Task<bool> DeletePageAsync(Guid nodeId, CancellationToken ct = default);
     Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default);
     Task<bool> DeletePageVersionAsync(Guid id, CancellationToken ct = default);
-    Task<(bool Success, string? ErrorMessage)> PublishPageAsync(Guid nodeId, CancellationToken ct = default);
+    Task<(bool Success, string? ErrorMessage, int DescendantsUpdated)> PublishPageAsync(Guid nodeId, CancellationToken ct = default);
     Task<(bool Success, string? ErrorMessage)> UnpublishPageAsync(Guid nodeId, CancellationToken ct = default);
 
     /// <summary>

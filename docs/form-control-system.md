@@ -260,6 +260,14 @@ the discovered views as an option, so an edit load keeps the selection instead o
 
 ## Worked example: the image picker
 
+`FormEntityPicker` renders a single entity as a `<select>` and a `[ContentRelation]` with many values
+(`IEnumerable<Guid>`) as a list of chosen entries with remove/reorder controls; the stored value is a
+JSON array (config forms) or repeated indexed inputs (model-bound forms). When the current user may
+write the target type, **New**/**Edit** open the target's upsert form in an iframe modal
+(`?modal=1`): the modal form posts with `fetch`, the server answers `{ id, title }` JSON (or re-renders
+with 422), and `relation-modal.js` messages the parent, which adds or updates the picker entry. The
+source form is not saved by the modal.
+
 `FormImagePicker` is a second example (after `FormEntityPicker`) of a control selected purely by
 registry name, with **no `EditorType` value of its own**:
 

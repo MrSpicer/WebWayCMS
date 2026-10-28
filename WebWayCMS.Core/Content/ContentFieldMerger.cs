@@ -12,7 +12,12 @@ namespace WebWayCMS.Content;
 public static class ContentFieldMerger
 {
     /// <summary>Web-default (camelCase) options used for the serialize/deserialize round-trip.</summary>
-    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        // MCP and seed authors use the enum names describe_content_type / the field schema report;
+        // numbers stay accepted for clients that already send them.
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
 
     /// <summary>
     /// Produces a new instance of <paramref name="baseModel"/>'s type with the supplied

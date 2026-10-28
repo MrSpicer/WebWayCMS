@@ -29,6 +29,7 @@ public static class WebWayCmsApplicationBuilderExtensions
     public static WebApplication UseWebWayCmsAdmin(this WebApplication app, bool throwOnError = true)
     {
         app.ApplyCmsPendingMigrations(throwOnError);
+        app.EnsureContentRelationsValid(throwOnError);
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
         app.EnsureDefaultHomePage(true, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);

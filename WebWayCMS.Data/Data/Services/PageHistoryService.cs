@@ -133,7 +133,7 @@ public sealed class PageHistoryService : IPageHistoryService
 
         var zoneIds = await _tree.GetZoneTreeNodeIdsAsync(pageNodeId, ct);
         var items = await _tree.CurrentDraftItems()
-            .Where(i => zoneIds.Contains(i.ContentZoneNodeId))
+            .Where(ZoneRelations.InZones(zoneIds))
             .ToListAsync(ct);
         return new PageSetState(page, items);
     }
@@ -169,7 +169,7 @@ public sealed class PageHistoryService : IPageHistoryService
         var zoneIds = await _tree.GetZoneTreeNodeIdsAsync(snapshot.PageNodeId, ct);
         var treeItemNodeIds = await _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
-            .Where(i => zoneIds.Contains(i.ContentZoneNodeId))
+            .Where(ZoneRelations.InZones(zoneIds))
             .Select(i => i.Version.NodeId)
             .Distinct()
             .ToListAsync(ct);
@@ -329,6 +329,7 @@ public sealed class PageHistoryService : IPageHistoryService
                 CustomFields = target.Version.CustomFields.Select(c => c with { }).ToList()
             }
         };
+        reverted.Version.ReplaceAllRelationsFrom(target.Version.Relations);
 
         var save = await _pageStore.SaveDraftAsync(reverted, current.Version.VersionNumber, ct);
         return save.Success ? null : save.ErrorMessage;
@@ -346,15 +347,17 @@ public sealed class PageHistoryService : IPageHistoryService
         foreach (var target in targetItems)
         {
             var existing = currentByNode[target.Version.NodeId];
-            writes.Add((existing, existing with
+            var reverted = existing with
             {
                 ComponentName = target.ComponentName,
                 ComponentPropertiesJson = target.ComponentPropertiesJson,
                 MetadataJson = restorableMetadata(target.ComponentName, target.MetadataJson, existing.MetadataJson) ?? "{}",
                 IsActive = true,
-                ContentZoneNodeId = target.ContentZoneNodeId,
-                Ordinal = target.Ordinal
-            }));
+                Version = existing.Version with { }
+            };
+            // The target's relations include its placement (Zone + ordinal), so this also moves it back.
+            reverted.Version.ReplaceAllRelationsFrom(target.Version.Relations);
+            writes.Add((existing, reverted));
         }
 
         // Everything else in the tree is taken off the page as an inactive draft (never deleted). One that
@@ -373,7 +376,7 @@ public sealed class PageHistoryService : IPageHistoryService
             var ordinal = takenOrdinals.Contains((extra.ContentZoneNodeId, extra.Ordinal))
                 ? lastOrdinal[extra.ContentZoneNodeId] += 1
                 : extra.Ordinal;
-            writes.Add((extra, extra with { IsActive = false, Ordinal = ordinal }));
+            writes.Add((extra, ZoneRelations.Placed(extra with { IsActive = false }, extra.ContentZoneNodeId, ordinal)));
         }
 
         foreach (var (existing, reverted) in writes)

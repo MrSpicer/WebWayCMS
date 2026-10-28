@@ -1,6 +1,11 @@
+using WebWayCMS.Services.Relations;
+
 namespace WebWayCMS.Mapping;
 
-/// <summary>Resolves and invokes the registered converter for a given source/destination pair.</summary>
+/// <summary>
+/// Resolves and invokes the registered converter for a given source/destination pair, then applies the
+/// generic relation step (<see cref="RelationMapping"/>).
+/// </summary>
 internal sealed class Mapper : IMapper
 {
     private readonly IReadOnlyDictionary<(Type Source, Type Destination), Func<object, object>> _maps;
@@ -29,6 +34,8 @@ internal sealed class Mapper : IMapper
             throw new InvalidOperationException(
                 $"No mapping registered from '{sourceType.FullName}' to '{typeof(TDestination).FullName}'.");
 
-        return (TDestination)converter(source);
+        var destination = converter(source);
+        RelationMapping.Apply(source, destination);
+        return (TDestination)destination;
     }
 }

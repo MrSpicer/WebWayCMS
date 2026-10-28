@@ -18,12 +18,10 @@ public class ContentBlockContentZoneConfiguration : WidgetConfiguration
     [FormProperty(
         Label = "Content Block",
         HelpText = "Select the content block to display in this zone.",
-        EditorType = EditorType.Guid,
-        EntityType = "ContentBlock",
         IsRequired = true,
-        Order = 1,
-        FormComponent = "EntityPicker"
+        Order = 1
     )]
+    [ContentRelation("contentblocks", Required = true)]
     [Required(ErrorMessage = "Please select a content block.")]
     public Guid ContentBlockID { get; set; }
 }

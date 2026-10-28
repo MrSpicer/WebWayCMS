@@ -2,10 +2,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using WebWayCMS.ContentZones;
+using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Controllers.Api;
 
@@ -24,13 +27,15 @@ public class ContentZoneApiController : ControllerBase
     private readonly IContentZoneModel _model;
     private readonly IRouteRegistrationService _routeRegistration;
     private readonly IWidgetRegistry _widgetRegistry;
+    private readonly IRelationBinder _relationBinder;
 
-    public ContentZoneApiController(IContentZoneService service, IContentZoneModel model, IRouteRegistrationService routeRegistration, IWidgetRegistry widgetRegistry)
+    public ContentZoneApiController(IContentZoneService service, IContentZoneModel model, IRouteRegistrationService routeRegistration, IWidgetRegistry widgetRegistry, IRelationBinder relationBinder)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _model = model ?? throw new ArgumentNullException(nameof(model));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
+        _relationBinder = relationBinder ?? throw new ArgumentNullException(nameof(relationBinder));
     }
 
     /// <summary>
@@ -60,9 +65,17 @@ public class ContentZoneApiController : ControllerBase
                 return BadRequest(new { error = metadataError.ErrorMessage });
         }
 
+        // Relation ids move out of the config JSON and onto the item's version as config.* rows; the
+        // binder validates them (target exists as the declared type, Required) before anything is written.
+        var configType = WidgetConfigurationJson.ResolveConfigurationType(_widgetRegistry, request.ComponentName);
+        var (strippedJson, relations) = WidgetConfigurationJson.ExtractRelations(configType, request.ComponentPropertiesJson);
+        var relationError = await ValidateConfigRelationsAsync(configType, relations, request.ComponentName, ct);
+        if (relationError != null)
+            return BadRequest(new { error = relationError.ErrorMessage, field = relationError.ErrorField });
+
         // Rich-text config fields are rendered with @Html.Raw, so the payload is sanitized here like
         // every other zone-item write path (the child handler does the same).
-        var propertiesJson = WidgetConfigurationJson.Sanitize(_widgetRegistry, request.ComponentName, request.ComponentPropertiesJson);
+        var propertiesJson = WidgetConfigurationJson.Sanitize(_widgetRegistry, request.ComponentName, strippedJson);
 
         try
         {
@@ -111,15 +124,17 @@ public class ContentZoneApiController : ControllerBase
                     && existingItem.Version.VersionNumber != request.ExpectedVersionNumber.Value)
                     return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
 
-                // Update existing item — service preserves Ordinal and ContentZoneNodeId from existing record
+                // Update existing item — the service keeps the stored zone and ordinal
                 var item = new ContentZoneItemDTO
                 {
                     Version = new ContentVersion { Node = new ContentNode { Id = request.ItemId.Value } },
-                    ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
                     ComponentPropertiesJson = propertiesJson,
                     IsActive = true
                 };
+                // The relation writes ride on the item passed to the update: the service merges them onto
+                // the version it reloads (ContentZoneService.MergeUpdate).
+                WidgetConfigurationJson.ApplyRelations(item.Version, configType, relations);
 
                 // Through the model, so a container's view change carries its nested content along.
                 var updated = await _model.UpdateItemAsync(item, ct, request.ExpectedVersionNumber);
@@ -135,15 +150,16 @@ public class ContentZoneApiController : ControllerBase
             }
             else
             {
-                // Create new item - ID is auto-generated
+                // Create new item - ID is auto-generated; ordinal 0 makes AddItemAsync place it last
                 var item = new ContentZoneItemDTO
                 {
-                    ContentZoneNodeId = zoneNodeId,
                     ComponentName = request.ComponentName,
                     ComponentPropertiesJson = propertiesJson,
                     MetadataJson = createMetadataJson,
                     IsActive = true
                 };
+                WidgetConfigurationJson.ApplyRelations(item.Version, configType, relations);
+                ZoneRelations.Place(item.Version, zoneNodeId, 0);
 
                 var createdItem = await _service.AddItemAsync(zoneNodeId, item, ct);
 
@@ -247,11 +263,27 @@ public class ContentZoneApiController : ControllerBase
             id = item.Version.Node.Id,
             zoneId = item.ContentZoneNodeId,
             componentName = item.ComponentName,
-            componentPropertiesJson = item.ComponentPropertiesJson,
+            componentPropertiesJson = WidgetConfigurationJson.HydrateRelations(
+                WidgetConfigurationJson.ResolveConfigurationType(_widgetRegistry, item.ComponentName),
+                item.ComponentPropertiesJson,
+                item.Version.EffectiveRelations()),
             metadataJson = item.MetadataJson,
             ordinal = item.Ordinal,
             isActive = item.IsActive
         });
+    }
+
+    /// <summary>Validates extracted config relations as the config type's own declarations.</summary>
+    private async Task<AdminSaveResult?> ValidateConfigRelationsAsync(
+        Type? configType, IReadOnlyList<RelationValue> relations, string componentName, CancellationToken ct)
+    {
+        if (configType == null)
+            return null;
+
+        var config = Activator.CreateInstance(configType)!;
+        RelationProperties.Write(config, relations, ContentRelationRegistry.ConfigPrefix);
+        var displayName = _widgetRegistry.GetByName(componentName)?.DisplayName ?? componentName;
+        return await _relationBinder.ValidateAsync(config, displayName, ct);
     }
 
     /// <summary>

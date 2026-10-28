@@ -216,7 +216,7 @@ public class ContentToolsetTests
     [Test]
     public async Task DeleteContent_ReturnsHandlerResult()
     {
-        _handler.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        _handler.TryDeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null, 0));
 
         Assert.That((await _tools.DeleteContent("contentblocks", Guid.NewGuid())).Deleted, Is.True);
     }

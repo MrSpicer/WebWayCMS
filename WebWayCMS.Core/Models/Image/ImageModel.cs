@@ -5,6 +5,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.Image;
 
@@ -26,8 +27,9 @@ public sealed class ImageModel : AdminCrudModel<ImageDTO>, IImageModel
     public override string IndexViewPath => "~/Views/AdminImage/Images.cshtml";
     public override string UpsertViewPath => "~/Views/AdminImage/ImageUpsert.cshtml";
 
-    public ImageModel(IContentStore<ImageDTO> store, IMapper mapper, IMediaLibrary mediaLibrary, IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+    public ImageModel(IContentStore<ImageDTO> store, IMapper mapper, IMediaLibrary mediaLibrary, IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder, IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
@@ -91,7 +93,7 @@ public sealed class ImageModel : AdminCrudModel<ImageDTO>, IImageModel
         return (true, null);
     }
 
-    public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
+    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
     {
         return await _store.DeleteAsync(nodeId, softDelete: false, ct);
     }

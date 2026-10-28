@@ -5,19 +5,20 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.Article;
 
 /// <summary>
-/// Article lists: a named grouping that articles point at (<see cref="ArticleDTO.ArticleListNodeId"/>).
-/// The list is the admin entry point for articles — each row links to the Articles page filtered to it.
-/// Deleting a list deletes its articles in the same transaction.
+/// Article lists: a named grouping that articles belong to (the <see cref="ArticleModel.ListRelation"/>
+/// containment). The list is the admin entry point for articles — each row links to the Articles page
+/// filtered to it. Deleting a list deletes its articles in the same transaction (the relation engine's
+/// containment cascade).
 /// </summary>
 public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleListModel
 {
     private readonly IContentStore<ArticleDTO> _articleStore;
     private readonly IContentStore<ArticleListDTO> _listStore;
-    private readonly ICmsTransaction _transaction;
     private readonly IMapper _mapper;
 
     protected override IContentStore<ArticleListDTO> Store => _listStore;
@@ -35,21 +36,21 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     public ArticleListModel(
         IContentStore<ArticleListDTO> listStore,
         IContentStore<ArticleDTO> articleStore,
-        ICmsTransaction transaction,
         IMapper mapper,
-        IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+        IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder,
+        IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _listStore = listStore ?? throw new ArgumentNullException(nameof(listStore));
         _articleStore = articleStore ?? throw new ArgumentNullException(nameof(articleStore));
-        _transaction = transaction ?? throw new ArgumentNullException(nameof(transaction));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
     }
 
     public async Task<ArticleListIndexViewModel> GetArticleListIndexAsync(CancellationToken ct = default)
     {
         var lists = await _listStore.GetAllCurrentDraftsAsync(ct);
-        var counts = await _articleStore.CountCurrentDraftsByAsync(a => a.ArticleListNodeId, ct);
+        var counts = await _articleStore.CountCurrentDraftsByRelationAsync(ArticleModel.ListRelation, ct);
 
         return new ArticleListIndexViewModel
         {
@@ -82,25 +83,11 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
     }
 
     /// <summary>
-    /// Deletes the list and every article in it, as one transaction: the articles go first (their FK to
-    /// the list is <c>Restrict</c>), and any failure rolls the whole delete back.
+    /// Deletes the list and every article in it, as one transaction (the relation engine's containment
+    /// cascade); any failure rolls the whole delete back.
     /// </summary>
-    public async Task<bool> DeleteArticleListAsync(Guid nodeId, CancellationToken ct = default)
-    {
-        var list = await _listStore.GetCurrentDraftAsync(nodeId, ct);
-        if (list == null) return false;
-
-        return await _transaction.RunAsync(async token =>
-        {
-            var articles = await _articleStore.FindCurrentDraftsAsync(a => a.ArticleListNodeId == nodeId, token);
-            foreach (var article in articles)
-            {
-                if (!await _articleStore.DeleteAsync(article.Version.Node.Id, softDelete: false, token))
-                    return false;
-            }
-            return await _listStore.DeleteAsync(nodeId, softDelete: false, token);
-        }, ct);
-    }
+    public Task<bool> DeleteArticleListAsync(Guid nodeId, CancellationToken ct = default)
+        => DeleteAsync(nodeId, ct);
 
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
@@ -136,8 +123,9 @@ public sealed class ArticleListModel : AdminCrudModel<ArticleListDTO>, IArticleL
             : new AdminSaveResult(false, result.ErrorMessage);
     }
 
-    public override Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
-        => DeleteArticleListAsync(id, ct);
+    /// <summary>The list alone; its articles are deleted first by the containment cascade.</summary>
+    protected override Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
+        => _listStore.DeleteAsync(id, softDelete: false, ct);
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {

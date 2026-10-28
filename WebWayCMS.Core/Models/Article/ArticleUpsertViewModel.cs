@@ -7,12 +7,13 @@ namespace WebWayCMS.Models.Article;
 public sealed class ArticleUpsertViewModel : BaseContentViewModel
 {
     /// <summary>
-    /// The article list this article belongs to (required). The save path checks that it names an
-    /// existing list, so an empty or foreign id is rejected rather than tripping the FK.
+    /// The article list this article belongs to (required): a containment relation, so the article is
+    /// visible only while its list is, and is deleted with it. The relation binder rejects an empty or
+    /// unknown list on this field.
     /// </summary>
     [Display(Name = "Article List")]
-    [FormProperty(Label = "Article List", HelpText = "The article list this article belongs to.", EditorType = EditorType.Guid,
-        EntityType = "ArticleList", IsRequired = true, Order = 3, FormComponent = "EntityPicker")]
+    [ContentRelation("articlelists", Kind = ContentRelationKind.Containment, Required = true)]
+    [FormProperty(Label = "Article List", HelpText = "The article list this article belongs to.", Order = 3)]
     public Guid ArticleListId { get; init; }
 
     [Required]

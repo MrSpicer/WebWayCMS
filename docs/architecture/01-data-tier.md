@@ -243,6 +243,48 @@ public record CustomField
 }
 ```
 
+### `ContentRelation` — content-to-content links, owned by the source version
+
+```csharp
+public enum RelationKind { Containment = 0, Reference = 1, Owned = 2 }
+
+public record ContentRelation
+{
+    public Guid Id { get; set; }
+    public Guid SourceVersionId { get; set; }   // FK → ContentVersions (Cascade)
+    public Guid TargetNodeId { get; set; }      // a node, never a version; deliberately no DB FK
+    public RelationKind Kind { get; set; }
+    public string Name { get; set; }            // the declaring property, e.g. "ArticleListId" (max 128)
+    public int Ordinal { get; set; }            // position within (SourceVersionId, Name)
+    public string Qualifier { get; set; }       // "" unless the relation needs one (max 256)
+}
+```
+
+Table `ContentRelations`, indexed on `(SourceVersionId, Name)` and `(TargetNodeId, Name)`. Rows hang off
+`ContentVersion.Relations` (auto-included), so a relation change mints a version and is a draft until
+publish, and restore / page revert / discard / snapshot reads cover relations with no extra code. `Kind` is
+stored on the row so containment visibility works on a rendering-only host (no declarations there).
+`TargetNodeId` has no FK: a historical version may keep pointing at a deleted node, and resolves to nothing.
+
+**Writing.** A caller never edits `Relations` directly. It records `ContentVersion.RelationWrites` (not
+mapped) through `ContentVersionRelations` — `SetRelation(name, target, kind, qualifier)`,
+`SetRelations(name, targets, kind)`, `ReplaceAllRelationsFrom(rows)` — which replace the dictionary rather
+than mutate it, so a `with` copy never shares writes with its original. Reads use `TargetOf(name)`,
+`TargetsOf(name)` and `EffectiveRelations()` (stored rows with pending writes laid over them by name).
+`ContentStore` builds each new version's rows from a **baseline** (edit: the current draft's rows; restore:
+the historical version's rows; create: none) and replaces only the written names, so a save that never
+mentions a relation (e.g. a mapper-built DTO of a type without that property) keeps it.
+
+**Cross-type queries** (`IContentRelations`, registered in both modes): `GetLiveReferrersAsync(target, kind?)`,
+`GetLiveChildrenAsync(parent)`, `GetLiveOwnedTargetsAsync(source)` and `GetNodesAsync(ids)`. "Live" means a
+source's current draft or published version; historical rows are ignored (they are what the delete policy
+must not trip over).
+
+**Containment visibility** (`ContainmentVisibility`, scoped, shared by every store in a request): in
+Published mode a row is dropped when any node up its containment chain has no published version (a cycle
+fails closed); Draft skips the filter; a Snapshot read treats governed nodes as visible. Each node's answer
+is memoized for the request, one query per level.
+
 ---
 
 ## 3. Built-in DTOs
@@ -260,7 +302,8 @@ A page's URL lives on its `CMSRouteDTO`; routes are written on **Publish** (neve
 Parent container for articles. No type-specific fields.
 
 ### `ArticleDTO`
-`Body`, `AuthorName`, `Summary`, and `ArticleListNodeId` — a **real FK to `ContentNode.Id`** (replaces the soft `ArticleListMasterId`).
+`Body`, `AuthorName`, `Summary`. Its article list is the `ArticleListId` **containment relation** on the
+version (`ContentRelations`), not a column.
 
 ### `ContentBlockDTO`
 `Content` (the reusable block body).
@@ -300,19 +343,21 @@ item is unchanged (skip) or must be re-applied. See [Area 15](15-content-seeding
 depends on the read context, so items are resolved through `IContentZoneService.GetItemsAsync(zoneNodeId)`.
 
 ### `ContentZoneItemDTO`
-- `ContentZoneNodeId` — FK to the zone's `ContentNode.Id`
-- `Ordinal`, `ComponentName`, `ComponentPropertiesJson`, `IsActive`
+- `ComponentName`, `ComponentPropertiesJson`, `MetadataJson`, `IsActive`
+- `ContentZoneNodeId` / `Ordinal` — **in-memory accessors** (ignored by EF) over the version's `Zone`
+  relation: the item sits in a zone through an ordered containment owned by its version, with its position
+  in the row's `Ordinal`. Queries use `ZoneRelations.InZone` / `InZones` / `ZoneOf` / `ZoneOrdinal`; writes use
+  `ZoneRelations.Place` / `Placed`.
 
-### `ContentZoneAssignmentDTO`
-Join record scoping a zone node to a page slot or a nested zone slot:
-- `Id`, `SlotName`
-- `ContentZoneNodeId` — FK to `ContentNode.Id`
-- `ParentPageNodeId?` / `ParentItemNodeId?` — exactly one non-null (check constraint). A nested zone
-  is owned by the zone *item* that renders it (e.g. a Layout widget), so it moves with the item.
-  `ParentItemNodeId` is an FK to `ContentNode.Id` with **restrict** delete: the service deletes an item's
-  nested zone tree explicitly before hard-deleting it, and a hard delete that skips that step fails
-  instead of silently orphaning the nested zones, their items, and their routes. Unique filtered indexes on
-  `(ParentPageNodeId, SlotName)` and `(ParentItemNodeId, SlotName)`.
+### Zone ownership (the retired `ContentZoneAssignmentDTO`)
+A page's or a container item's zone names its owner through an **`Owner` containment** on the zone's own
+version (`Qualifier` = slot); a global zone has none. `PageZoneTree.ZoneOwners()` reads the current drafts'
+rows as `OwnedZone` records (`ZoneNodeId`, `SlotName`, `ParentPageNodeId` XOR `ParentItemNodeId`; an owner
+whose node is a `contentzoneitems` node is an item, any other — including a vanished one — a page). A nested
+zone is owned by the zone *item* that renders it (e.g. a Layout widget), so it moves with the item. An owned
+zone's node id is `ZoneNodeIds.For(ownerNodeId, slot)` (RFC 4122 v5, the slot hashed as given), so the
+`ContentNodes` primary key enforces one zone per (owner, slot) in place of the old unique indexes. A zone has
+exactly one owner.
 
 ---
 
@@ -326,6 +371,7 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | *(inherited from `IdentityDbContext`)* | `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, `AspNetUserClaims`, `AspNetRoleClaims`, `AspNetUserLogins`, `AspNetUserTokens` |
 | `ContentNodeEntityConfiguration` | `ContentNodes` |
 | `ContentVersionEntityConfiguration` | `ContentVersions` |
+| `ContentRelationEntityConfiguration` | `ContentRelations` |
 | `ChangeSetEntityConfiguration` | `ChangeSets` |
 | `PageSetSnapshotEntityConfiguration` / `PageSetSnapshotItemEntityConfiguration` | `PageSetSnapshots` / `PageSetSnapshotItems` |
 | `ArticleDTOEntityConfiguration` | `Articles` |
@@ -333,7 +379,6 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | `ContentBlockDTOEntityConfiguration` | `ContentBlocks` |
 | `ContentZoneDTOEntityConfiguration` | `ContentZones` |
 | `ContentZoneItemDTOEntityConfiguration` | `ContentZoneItems` |
-| `ContentZoneAssignmentDTOEntityConfiguration` | `ContentZoneAssignments` |
 | `PageDTOEntityConfiguration` | `Pages` |
 | `CMSRouteDTOEntityConfiguration` | `CMSRoutes` |
 | `WidgetRegistrationDTOEntityConfiguration` | `WidgetRegistrations` |
@@ -365,6 +410,11 @@ and is read-context aware.
 | `GetBySlugAsync(slug)` | Row at the read context matching the slug |
 | `GetChildrenAsync(parentNodeId)` | Rows whose `Node.ParentNodeId` matches |
 | `GetRootsAsync()` | Rows whose `Node.ParentNodeId` is null |
+| `FindAsync(predicate)` | Rows matching an arbitrary predicate, newest first |
+| `FindRelatedAsync(name, targetNodeId)` | Rows whose read-context version has relation `name` to the target, by that relation's `Ordinal`, then newest first |
+
+Every read in this table also applies **containment visibility** (an item whose containment parent is not
+visible in the read context is dropped; a single-row read returns null).
 
 Version selection lives in exactly one place, `ContentQueryExtensions.AtReadContext(ctx)`:
 
@@ -397,6 +447,8 @@ has sat in its zone tree. Snapshot mode without a snapshot falls back to `Publis
 | `GetCurrentDraftBySlugAsync(slug)` | The `IsCurrentDraft` row by slug (invariant variant, `IsDeleted` excluded); returns null for blank slugs |
 | `GetAllCurrentDraftsAsync()` | Every current-draft row (admin lists) — **excludes `Node.IsDeleted`** |
 | `GetCurrentDraftChildrenAsync(parentNodeId)` | Current-draft rows whose `Node.ParentNodeId` matches (null ⇒ root drafts) — **excludes `Node.IsDeleted`** — the sibling-scoped query behind the page slug-collision check |
+| `FindCurrentDraftsAsync(predicate)` / `FindCurrentDraftsRelatedAsync(name, targetNodeId)` | Current drafts by predicate / by relation (ordinal, then newest) |
+| `CountCurrentDraftsByAsync(keySelector)` / `CountCurrentDraftsByRelationAsync(name)` | Current-draft counts by key / by relation target |
 | `GetPublishedNodeIdsAsync()` | The set of node ids that have a `Published` version at the default variant — **excludes `Node.IsDeleted`** — the "has a published version" signal used by the page nav |
 
 **Writes** (return `ContentWriteResult(bool Success, string? ErrorMessage, Guid VersionId)`):
@@ -406,8 +458,8 @@ has sat in its zone tree. Snapshot mode without a snapshot falls back to `Publis
 | `SaveDraftAsync(entity, expectedVersionNumber)` | New node ⇒ v0 draft. Existing ⇒ **always** mints `VersionNumber+1` as the new current draft and clears the previous one's `IsCurrentDraft` (published or not) — no version is ever rewritten, so every save is restorable. A tracked incoming entity is detached before it is re-keyed. `VersionNumber` comes from `MAX` on the DB, never the client. `expectedVersionNumber` (a hidden form field) is compared against the current draft's number; mismatch returns the friendly stale-version message. The new version's change note is the ambient one, else "Created"/"Edited". |
 | `PublishAsync(nodeId)` | Promotes the current draft to `Published`; archives any prior published version. |
 | `UnpublishAsync(nodeId)` | Published current → `Draft`; or, with a separate draft, archives the published row and leaves the draft. |
-| `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
-| `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions, and node, and every page-history snapshot that captured one of those versions. |
+| `RestoreAsync(versionId)` | Clones the historical type-table row + `ContentVersion` (and its relations) into a new draft at the DTO level (no ViewModel round-trip, so no field is dropped). |
+| `DeleteAsync(nodeId, softDelete)` | Soft ⇒ `Node.IsDeleted = true`; hard ⇒ removes type rows, versions (their relation rows cascade), and node, and every page-history snapshot that captured one of those versions. This deletes one node only; the relation cascade (children, owned targets, references) is `ContentDeleteService`'s job, one layer up. |
 | `DeleteVersionAsync(versionId)` | Removes a single version row + its type row — **but refuses to delete the highest-numbered version** for the node, matching the admin UI which hides Delete on the latest version. A node's single version is its max, so it can never be removed this way. Snapshots that captured the version go with it (user-initiated deletes of captured versions are refused earlier, by the handlers). |
 
 **Concurrency:** the unique index `UX_ContentVersion_Number` is the backstop; `ContentStore<T>` catches
@@ -471,7 +523,7 @@ CRUD surface — `UpsertAsync`/`DeleteAsync` — alongside the reads):
 
 ## 7. `IContentZoneService`
 
-`ContentZoneService` handles zone assignments, item resolution, and item writes (zones and items are
+`ContentZoneService` handles owned zones (slots), item resolution, and item writes (zones and items are
 versioned through `IContentStore<T>`). Zone and item **reads** are read-context aware.
 
 **Draft rule.** Items in a zone that belongs to a page — directly, or through nested zones
@@ -498,12 +550,12 @@ admin child CRUD, MCP).
 |---|---|
 | `GetItemsAsync(zoneNodeId)` | The zone's active items at the read context, ordered by `Ordinal` |
 | `GetZoneByNodeAsync(nodeId)` / `GetZoneByNameAsync(name)` | Zone at the read context |
-| `GetByPageSlotAsync` / `GetOrCreateByPageSlotAsync` | Page-slot assignment (transactional create) |
-| `GetByItemSlotAsync` / `GetOrCreateByItemSlotAsync` | Nested zone assignment, keyed by the owning item's node id + slot |
+| `GetByPageSlotAsync` / `GetOrCreateByPageSlotAsync` | The page slot's `OwnedZone` / the zone plus its owner, created (published) on its deterministic node id via `IContentStore.CreateWithNodeIdAsync`; a concurrent create loses on the primary key (`AlreadyExistsMessage`) and reads the winner's zone. Joins a caller's open transaction |
+| `GetByItemSlotAsync` / `GetOrCreateByItemSlotAsync` | The same for a nested zone, keyed by the owning item's node id + slot |
 | `GetOrCreateByNameAsync(name)` | Global zone by name |
-| `GetAllAssignmentsForPageAsync` / `GetAllByPageAsync` / `GetAllByParentZoneAsync` | Assignment/queries (a nested zone's parent zone is the zone its owning item's current draft sits in) |
-| `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators |
-| `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks zone → assignment → page, or → owning item → that item's zone …, to the owning page node (null for global, orphaned, or cyclic zones) |
+| `GetOwnedZonesForPageAsync` / `GetAllByPageAsync` / `GetAllByParentZoneAsync` | Ownership queries (a nested zone's parent zone is the zone its owning item's current draft sits in) |
+| `GetZoneNodeIdsWithChildrenAsync` / `GetAssignmentCountsByNodeIdAsync` | Admin indicators (the count is the zone's owners: 1, or 0 for a global zone) |
+| `GetParentPageNodeForZoneAsync(zoneNodeId)` | Walks zone → owner → page, or → owning item → that item's zone …, to the owning page node (null for global, orphaned, or cyclic zones) |
 | `GetItemByNodeIdAsync` / `AddItemAsync` / `UpdateItemAsync` / `RemoveItemAsync` | Item CRUD (node-keyed). `UpdateItemAsync(item, expectedVersionNumber)` and the removal save reject the write with the shared stale-version message when the item changed since the caller read it; a null/whitespace `MetadataJson` never reaches the column as NULL (an omitted update keeps the stored document, a blank one stores `"{}"`). The metadata API normalizes a blank body as `{}` against the stored document, so clearing keeps a grandfathered List. |
 | `ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder)` | Validates up front that every id resolves and belongs to `zoneNodeId`, then writes new versions of the reordered items in one ChangeSet (no in-place `Ordinal` mutation). The client sends only the active items: every other current draft in the zone (removed items above all) keeps its place and the requested items fill the positions they held, so the whole zone is renumbered and no two items share an ordinal. A repeated id fails the reorder. Each save carries the version the item was read with, so a concurrent edit to a sibling fails the whole reorder instead of being silently reverted. The saves run in one DB transaction (a failure rolls back and clears the change tracker), so a missing/foreign id or a failed save returns `false` with no partial reorder. |
 | `MoveItemAsync(itemNodeId, targetZoneNodeId, position, expectedVersionNumber)` | Moves an item to a 0-based (clamped) position among the target's active items, in one ChangeSet. Removed (inactive) items in the target are renumbered in place too, so no two items share an ordinal if a removal is later discarded, and a cross-zone move renumbers the source zone's remaining items. `expectedVersionNumber` (the moved item's version as the client rendered it) rejects the move with `StaleVersionMessage` when the widget changed since the page loaded; sibling saves carry their read versions, so a concurrent edit fails the move (also `StaleVersionMessage`; the API maps it to 409). Both zones' renumbering commits in one DB transaction, so a failed source renumber never leaves the widget half-moved. A missing or inactive item returns `IContentZoneService.ItemNotFoundMessage` (the API maps it to 404). Same zone = reorder; another zone only within the same page's zone tree, never into the item's own nested zones. Returns `(Success, ErrorMessage)`. A draft until the page is published (global zones auto-publish). See [04 → Moving Items](04-content-zone-framework.md#8a-moving-items-drag-and-drop). |
@@ -512,8 +564,9 @@ admin child CRUD, MCP).
 | `GetOwnedSlotsWithItemsAsync(itemNodeId)` | Slot names of the item's own zones holding any current draft (removed ones count) — the remap's fast-path check |
 | `GetDescendantItemNodeIdsAsync(containerItemNodeId)` | Every item with any version in a zone nested under the container, at any depth (breadth-first, cycle-guarded, deleted nodes excluded) — the combined history timeline |
 | `GetItemOwnedZonesForPageAsync(pageNodeId)` | `ItemOwnedZone`s (zone, slot, owner draft) owned by the page's active widgets and holding an active current draft — the Unplaced panel's candidates |
-| `DeleteZoneAsync(zoneNodeId)` | Removes the zone's assignments, its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back (if its current draft sits here, a new version restoring the published one — "Returned to its published zone") and only its versions in this zone are dropped. If sending it back or dropping one of those versions fails, the delete stops and returns `false` (logged) instead of deleting a zone a current draft still points at. Nested zones hang off items, so deleting a zone's items recurses into them (the zone's own assignment rows go first, so a cycle can't lead back); nested zones still referenced elsewhere survive. |
-| `DeletePageZonesAsync(pageNodeId)` | Removes the page's own assignment rows, then for each distinct zone node re-queries the remaining assignment count and calls `DeleteZoneAsync` when it is `0`. A zone node is deleted exactly when nothing references it any more — whether it is shared with another page or parent, or assigned to two of the same page's slots. This is what stops page deletion from orphaning `ContentZoneAssignments` rows or zone nodes. |
+| `DeleteZoneAsync(zoneNodeId)` | Removes the zone (its ownership goes with its versions), its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back (if its current draft sits here, a new version restoring the published one — "Returned to its published zone") and only its versions in this zone are dropped. If sending it back or dropping one of those versions fails, the delete stops and returns `false` (logged) instead of deleting a zone a current draft still points at. Nested zones hang off items, so deleting a zone's items recurses into them (a visited set stops a nested-zone cycle from leading back). |
+| `DeleteItemAsync(itemNodeId)` | Hard-deletes one item: the zones it owns (with their content), its widget routes, then the item. The delete cascade's `ZoneItemDeleter` calls it |
+| `DeletePageZonesAsync(pageNodeId)` | Deletes each zone the page owns (`DeleteZoneAsync`). A page delete now reaches its zones and items through the relation cascade first, so this is a safety net |
 
 **Breaking API note (for package hosts):** this change removes `IContentStore<T>.DiscardDraftAsync`
 and `IContentZoneService.DiscardPageZoneDraftsAsync` (a "discard" is now a page-history revert to what

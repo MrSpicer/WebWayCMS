@@ -1,5 +1,31 @@
 @model WebWayCMS.Forms.FormFieldContext
+@using System.Collections
 <dl>
     <dt class="has-text-grey is-size-7">@Model.Label</dt>
-    <dd>@Model.StringValue</dd>
+    <dd>
+        @if (Model.IsMultiple)
+        {
+            var values = Model.Value is IEnumerable sequence && Model.Value is not string
+                ? sequence.Cast<object?>().Select(v => v?.ToString() ?? string.Empty).Where(v => v.Length > 0).ToList()
+                : new List<string>();
+
+            if (values.Count == 0)
+            {
+                <span class="has-text-grey">&mdash;</span>
+            }
+            else
+            {
+                <ul>
+                    @foreach (var value in values)
+                    {
+                        <li>@value</li>
+                    }
+                </ul>
+            }
+        }
+        else
+        {
+            @Model.StringValue
+        }
+    </dd>
 </dl>

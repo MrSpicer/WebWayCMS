@@ -137,6 +137,18 @@ public class FormPropertyInfo
     public string FormComponent { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets a value indicating whether this field holds many values (a many
+    /// <see cref="ContentRelationAttribute"/> relation, an <c>IEnumerable&lt;Guid&gt;</c>).
+    /// </summary>
+    public bool IsMultiple { get; set; }
+
+    /// <summary>
+    /// Gets or sets the relation kind when this field is a <see cref="ContentRelationAttribute"/>
+    /// relation; null otherwise.
+    /// </summary>
+    public ContentRelationKind? RelationKind { get; set; }
+
+    /// <summary>
     /// Gets or sets the default value for this property (as a string for JSON serialization).
     /// </summary>
     public object? DefaultValue { get; set; }

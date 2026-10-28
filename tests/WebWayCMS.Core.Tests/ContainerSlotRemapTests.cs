@@ -73,7 +73,7 @@ public class ContainerSlotRemapTests
         _discovery = Substitute.For<IWidgetSlotDiscovery>();
         _model = new ContentZoneModel(_service, Substitute.For<IContentStore<ContentZoneDTO>>(), _itemStore, _registry,
             Substitute.For<IViewDiscoveryService>(), Substitute.For<ICMSRouteService>(), Substitute.For<IRouteRegistrationService>(),
-            Substitute.For<IPageHistoryService>(), _discovery, Substitute.For<IChangeSetScope>());
+            Substitute.For<IPageHistoryService>(), _discovery, Substitute.For<IChangeSetScope>(), TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         _layoutId = Guid.NewGuid();
         _service.GetOwnedSlotsWithItemsAsync(_layoutId, Arg.Any<CancellationToken>()).Returns(new List<string> { "Hero", "Column1" });
@@ -235,7 +235,7 @@ public class ContainerSlotRemapTests
     {
         Assert.That(() => new ContentZoneModel(_service, Substitute.For<IContentStore<ContentZoneDTO>>(), _itemStore, _registry,
             Substitute.For<IViewDiscoveryService>(), Substitute.For<ICMSRouteService>(), Substitute.For<IRouteRegistrationService>(),
-            Substitute.For<IPageHistoryService>(), null!, Substitute.For<IChangeSetScope>()), Throws.ArgumentNullException);
+            Substitute.For<IPageHistoryService>(), null!, Substitute.For<IChangeSetScope>(), TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
     }
 
     // --- combined history ---

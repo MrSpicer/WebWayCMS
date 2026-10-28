@@ -47,5 +47,8 @@ public sealed class ContentVersionEntityConfiguration : IEntityTypeConfiguration
         entity.ToTable("ContentVersions");
 
         entity.OwnsMany(v => v.CustomFields, cf => cf.ToJson());
+
+        entity.Navigation(v => v.Relations).AutoInclude();
+        entity.Ignore(v => v.RelationWrites);
     }
 }

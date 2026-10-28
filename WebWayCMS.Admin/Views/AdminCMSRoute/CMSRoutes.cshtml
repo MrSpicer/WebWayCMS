@@ -52,7 +52,15 @@
                         {
                             <tr>
                                 <td class="admin-list-main">
-                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="cmsroutes" asp-route-id="@route.Id" class="admin-list-title"><code>@route.Pattern</code></a>
+                                    @if (route.RouteNodeId != null)
+                                    {
+                                        <code>@route.Pattern</code>
+                                        <span class="tag is-info is-light ml-2">Projected</span>
+                                    }
+                                    else
+                                    {
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="cmsroutes" asp-route-id="@route.Id" class="admin-list-title"><code>@route.Pattern</code></a>
+                                    }
                                 </td>
                                 <td class="is-hidden-mobile">
                                     @if (string.IsNullOrWhiteSpace(route.NavigationName))
@@ -64,7 +72,16 @@
                                         @route.NavigationName
                                     }
                                 </td>
-                                <td class="is-hidden-mobile">@route.OwningContentType</td>
+                                <td class="is-hidden-mobile">
+                                    @if (route.RouteNodeId != null && route.OwningContentNodeId.HasValue)
+                                    {
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="@(route.OwningContentType?.ToLowerInvariant() ?? "pages")" asp-route-id="@route.OwningContentNodeId">Owned by @(route.OwnerTitle ?? "content")</a>
+                                    }
+                                    else
+                                    {
+                                        @route.OwningContentType
+                                    }
+                                </td>
                                 <td>
                                     @if (route.IsReserved)
                                     {
@@ -72,39 +89,46 @@
                                     }
                                 </td>
                                 <td>
-                                    <div class="admin-row-actions">
-                                        @if (!route.IsReserved && !route.Pattern.Contains('{') && !route.Pattern.StartsWith("/wadmin", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            <a href="@route.Pattern" target="_blank" rel="noopener" class="button is-small is-light">
-                                                <span class="icon"><i class="fas fa-external-link-alt" aria-hidden="true"></i></span>
-                                                <span>View</span>
+                                    @if (route.RouteNodeId != null)
+                                    {
+                                        <span class="has-text-grey is-size-7">Edit from its owner</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="admin-row-actions">
+                                            @if (!route.IsReserved && !route.Pattern.Contains('{') && !route.Pattern.StartsWith("/wadmin", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <a href="@route.Pattern" target="_blank" rel="noopener" class="button is-small is-light">
+                                                    <span class="icon"><i class="fas fa-external-link-alt" aria-hidden="true"></i></span>
+                                                    <span>View</span>
+                                                </a>
+                                            }
+                                            <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="cmsroutes" asp-route-id="@route.Id" class="button is-small">
+                                                <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                                <span>Edit</span>
                                             </a>
-                                        }
-                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="cmsroutes" asp-route-id="@route.Id" class="button is-small">
-                                            <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
-                                            <span>Edit</span>
-                                        </a>
-                                        <div class="dropdown is-right admin-row-menu">
-                                            <div class="dropdown-trigger">
-                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
-                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@route.Id"
-                                                        aria-label="More actions for @route.Pattern">
-                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
-                                                </button>
-                                            </div>
-                                            <div class="dropdown-menu" id="row-menu-@route.Id" role="menu">
-                                                <div class="dropdown-content">
-                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
-                                                            data-delete-trigger
-                                                            data-delete-name="@route.Pattern"
-                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "cmsroutes", id = route.Id })">
-                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                                        <span>Delete</span>
+                                            <div class="dropdown is-right admin-row-menu">
+                                                <div class="dropdown-trigger">
+                                                    <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                                                            aria-haspopup="true" aria-expanded="false"
+                                                            aria-label="More actions for @route.Pattern">
+                                                        <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
                                                     </button>
+                                                </div>
+                                                <div class="dropdown-menu" role="menu">
+                                                    <div class="dropdown-content">
+                                                        <button type="button" class="dropdown-item is-danger" role="menuitem"
+                                                                data-delete-trigger
+                                                                data-delete-name="@route.Pattern"
+                                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "cmsroutes", id = route.Id })">
+                                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                                            <span>Delete</span>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
+                                    }
                                 </td>
                             </tr>
                         }

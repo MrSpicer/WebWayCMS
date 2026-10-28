@@ -32,5 +32,11 @@ public record CMSRouteDTO
 
     public string? OwningContentType { get; set; }
 
+    /// <summary>
+    /// The route item this row was projected from; null for widget, code-based and manual rows.
+    /// Projected rows are read-only in the admin and edited through their owner.
+    /// </summary>
+    public Guid? RouteNodeId { get; set; }
+
     public bool IsReserved { get; set; }
 }

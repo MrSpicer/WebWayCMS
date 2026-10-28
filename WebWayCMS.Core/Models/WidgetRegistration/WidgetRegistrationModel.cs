@@ -12,6 +12,7 @@ using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.WidgetRegistration;
 
@@ -39,8 +40,10 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
         IContentStore<WidgetRegistrationDTO> store,
         IWidgetRegistry widgetRegistry,
         IViewDiscoveryService viewDiscoveryService,
-        IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+        IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder,
+        IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
@@ -149,7 +152,7 @@ public sealed class WidgetRegistrationModel : AdminCrudModel<WidgetRegistrationD
         return new AdminSaveResult(true, NodeId: result.NodeId);
     }
 
-    public override async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    protected override async Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
     {
         var result = await _store.DeleteAsync(id, softDelete: false, ct);
         if (result)

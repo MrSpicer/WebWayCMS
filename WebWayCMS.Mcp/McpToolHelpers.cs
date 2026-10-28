@@ -10,6 +10,7 @@ using ModelContextProtocol;
 using WebWayCMS.Attributes;
 using WebWayCMS.Content;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Forms;
 
 namespace WebWayCMS.Mcp;
 
@@ -78,28 +79,43 @@ internal static class McpToolHelpers
     }
 
     /// <summary>
-    /// Reflects the editable, non-hidden <c>[FormProperty]</c> fields of a content type's upsert
-    /// view model, using camelCase names that match <see cref="Merge"/>'s binding contract.
+    /// Reflects the editable, non-hidden <c>[FormProperty]</c> and <c>[ContentRelation]</c> fields of a
+    /// content type's upsert view model, using camelCase names that match <see cref="Merge"/>'s binding
+    /// contract. A relation field carries its <see cref="McpRelationDescription"/>.
     /// </summary>
     public static IReadOnlyList<McpFieldInfo> DescribeFields(object upsertViewModel)
     {
         var fields = new List<McpFieldInfo>();
+        var relations = RelationProperties.Describe(upsertViewModel.GetType());
 
         foreach (var prop in upsertViewModel.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
+            // A [ContentRelation] is a form field on its own (it implies the entity picker).
             var form = prop.GetCustomAttribute<FormPropertyAttribute>();
-            if (form == null || form.EditorType == EditorType.Hidden)
+            var relation = relations.FirstOrDefault(r => r.Property.Name == prop.Name);
+            if ((form == null && relation == null) || form?.EditorType == EditorType.Hidden)
                 continue;
 
-            var required = form.IsRequired || prop.GetCustomAttribute<System.ComponentModel.DataAnnotations.RequiredAttribute>() != null;
+            var required = form?.IsRequired == true
+                || relation?.Attribute.Required == true
+                || prop.GetCustomAttribute<System.ComponentModel.DataAnnotations.RequiredAttribute>() != null;
 
             fields.Add(new McpFieldInfo(
                 Name: JsonNamingPolicy.CamelCase.ConvertName(prop.Name),
-                Label: string.IsNullOrEmpty(form.Label) ? prop.Name : form.Label,
-                EditorType: form.EditorType.ToString(),
+                Label: string.IsNullOrEmpty(form?.Label) ? prop.Name : form.Label,
+                EditorType: relation != null && (form == null || form.EditorType == EditorType.Text)
+                    ? nameof(EditorType.Guid)
+                    : form!.EditorType.ToString(),
                 Required: required,
-                HelpText: string.IsNullOrEmpty(form.HelpText) ? null : form.HelpText,
-                Order: form.Order));
+                HelpText: string.IsNullOrEmpty(form?.HelpText) ? null : form.HelpText,
+                Order: form?.Order ?? 0,
+                Relation: relation == null
+                    ? null
+                    : new McpRelationDescription(
+                        JsonNamingPolicy.CamelCase.ConvertName(relation.Attribute.Kind.ToString()),
+                        relation.Attribute.TargetContentType,
+                        relation.IsMany,
+                        relation.Attribute.Required)));
         }
 
         return fields.OrderBy(f => f.Order).ToList();

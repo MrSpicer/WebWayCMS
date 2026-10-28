@@ -86,7 +86,8 @@ captured (`PageHistoryMessages.VersionInHistory`).
 - `GetIndexViewModelAsync(IQueryCollection)` — default implementation delegates to the parameterless overload; override to support filtering via query string
 - `GetUpsertViewModelAsync(null, ...)` — returns an empty create form; non-null `id` returns the edit form, or `null` if not found (triggers 404)
 - `CreateEmptyUpsertViewModel()` — returns a fresh ViewModel instance for `TryUpdateModelAsync` binding; must match the type `SaveUpsertAsync` expects
-- `SaveUpsertAsync` — receives the model-bound ViewModel; returns `AdminSaveResult(true)` on success or `AdminSaveResult(false, message, field?)` on failure
+- `SaveUpsertAsync` — receives the model-bound ViewModel; returns `AdminSaveResult(true)` on success or `AdminSaveResult(false, message, field?)` on failure. In `AdminCrudModel` it sanitizes rich text, runs `ModelValidator`, then the **relation binder** (`IRelationBinder`: every `[ContentRelation]` target must be a current draft of the declared type, and `Required` ones set — a field error on the property otherwise), before `SaveUpsertCoreAsync`
+- `DeleteAsync` / `TryDeleteAsync` — `TryDeleteAsync` (default: `DeleteAsync` with no reason and no count) returns `(Success, ErrorMessage, DeletedDescendants)`. `AdminCrudModel` implements both through `IContentDeleteService` (the relation engine: containment descendants deepest first and owned targets in one transaction; a `Restrict` reference from outside refuses with "'{title}' is used by n item(s): …", a `Detach` one is removed by saving its referrer) and leaves a model only `DeleteSelfAsync` (its own node). The admin `Delete` action shows the refusal as `TempData["Error"]` and a cascade as `TempData["Success"]`; MCP `delete_content` returns `deletedDescendants` and throws the refusal
 - `GetApiListAsync` — returns `[ { id, title } ]` used by GUID entity pickers in admin forms
 - `HasSecondaryApiList` / `GetSecondaryApiListAsync(key)` — extension for handlers needing multiple named lists (none of the built-in handlers uses it; prefer a separate content type with its own `GetApiListAsync`)
 - `GetIndexViewModelAsync(IQueryCollection query)` — a default-implemented overload the controller calls with the request query; a handler re-implements it (explicitly, re-listing `IAdminCrudHandler`) to filter its index — e.g. `ArticleModel` honours `?list={nodeId}`, `ContentZoneModel` `?pageId=`/`?zoneId=`
@@ -291,7 +292,7 @@ Handles the admin inline zone editing views. Delegates to `IContentZoneModel` fo
 | POST | `/wadmin/contentzones/page/{pageNodeId:guid}/discard` | `DiscardPageZones` — `IPageHistoryService.DiscardUnpublishedChangesAsync` (return to what is live, recorded in page history), then back to the editor |
 
 **Page zone editor.** Opened from a page's title (or its **Edit zones** button) on the Pages list. It lists the page's
-zone assignments (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in
+owned zones (`IContentZoneModel.GetPageZoneSlotsAsync`, ordered by slot name) and renders each in
 the unchanged `ContentZone` editor (`editMode: true`), one box per slot; nested zones inside Layout
 widgets are editable inline as usual. Widgets can be dragged (grip handle; mouse or touch) within a zone
 and between any of the page's zones, nested columns included, or moved with ArrowUp/ArrowDown on a
@@ -343,7 +344,10 @@ Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidg
 
 ## 12. Registering a New Content Type
 
-1. Create the domain model extending `AdminCrudModel<TDto>` (see [Area 5](05-content-domain-models.md))
+1. Create the domain model extending `AdminCrudModel<TDto>` (see [Area 5](05-content-domain-models.md)).
+   Its constructor passes `(IChangeSetScope, IRelationBinder, IContentDeleteService)` to the base, and it
+   implements `DeleteSelfAsync` (delete this one node; the base `DeleteAsync` adds the relation cascade).
+   A link to other content is a `[ContentRelation]` property on the upsert view model, not a column.
 2. Register in DI — in `Program.cs` or a custom extension method:
    ```csharp
    services.AddScoped<MyThingModel>();

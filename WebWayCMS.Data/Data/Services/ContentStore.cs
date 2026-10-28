@@ -16,6 +16,7 @@ namespace WebWayCMS.Data.Services;
 public class ContentStore<T> : IContentStore<T> where T : class, IVersionedContent
 {
     public const string StaleVersionMessage = "This item was changed by someone else since you opened it.";
+    public const string AlreadyExistsMessage = "An item with this id already exists.";
     internal const string NotFoundMessage = "Content item not found.";
 
     private readonly CmsDbContext _context;
@@ -26,19 +27,25 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     private readonly IChangeSetScope _changeSetScope;
     private readonly IContentUserContext _userContext;
     private readonly string _contentTypeKey;
+    private readonly ContainmentVisibility _visibility;
 
+    /// <param name="visibility">
+    /// The request's shared containment filter; when omitted the store uses its own (same rule, its own memo).
+    /// </param>
     public ContentStore(
         CmsDbContext context,
         IContentReadContext readContext,
         IChangeSetScope changeSetScope,
         IContentUserContext userContext,
-        string contentTypeKey)
+        string contentTypeKey,
+        ContainmentVisibility? visibility = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _readContext = readContext ?? throw new ArgumentNullException(nameof(readContext));
         _changeSetScope = changeSetScope ?? throw new ArgumentNullException(nameof(changeSetScope));
         _userContext = userContext ?? throw new ArgumentNullException(nameof(userContext));
         _contentTypeKey = contentTypeKey ?? throw new ArgumentNullException(nameof(contentTypeKey));
+        _visibility = visibility ?? new ContainmentVisibility(context, readContext);
 
         _set = _context.Set<T>();
         _versions = _context.Set<ContentVersion>();
@@ -46,47 +53,61 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     }
 
     // ─── read-context aware ───────────────────────────────────────────────────
+    // Every read here also drops items whose containment parent is not visible in the read context.
 
-    public Task<T?> GetAsync(Guid nodeId, CancellationToken ct = default)
-        => _set.AsNoTracking()
+    public async Task<T?> GetAsync(Guid nodeId, CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
-               .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId, ct);
+               .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId, ct), ct);
 
-    public Task<List<T>> GetAllAsync(CancellationToken ct = default)
-        => _set.AsNoTracking()
+    public async Task<List<T>> GetAllAsync(CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
                .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
+               .ToListAsync(ct), ct);
 
-    public Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default)
+    public async Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(slug))
-            return Task.FromResult<T?>(null);
-        return _set.AsNoTracking()
+            return null;
+        // Slugs are unique only between current drafts, so several versions in this read context can share
+        // one: filter every candidate, or a hidden first match would hide a visible one.
+        var visible = await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                    .AtReadContext(_readContext)
-                   .FirstOrDefaultAsync(e => e.Version.Slug == slug, ct);
+                   .Where(e => e.Version.Slug == slug)
+                   .OrderByDescending(e => e.Version.CreatedUtc)
+                   .ToListAsync(ct), ct);
+        return visible.FirstOrDefault();
     }
 
-    public Task<List<T>> GetChildrenAsync(Guid parentNodeId, CancellationToken ct = default)
-        => _set.AsNoTracking()
+    public async Task<List<T>> GetChildrenAsync(Guid parentNodeId, CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
                .Where(e => e.Version.Node.ParentNodeId == parentNodeId)
                .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
+               .ToListAsync(ct), ct);
 
-    public Task<List<T>> GetRootsAsync(CancellationToken ct = default)
-        => _set.AsNoTracking()
+    public async Task<List<T>> GetRootsAsync(CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
                .Where(e => e.Version.Node.ParentNodeId == null)
                .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
+               .ToListAsync(ct), ct);
 
-    public Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
-        => _set.AsNoTracking()
+    public async Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
                .Where(predicate)
                .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
+               .ToListAsync(ct), ct);
+
+    public async Task<List<T>> FindRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default)
+        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
+               .AtReadContext(_readContext)
+               .Where(RelationPredicates.RelatesTo<T>(name, targetNodeId))
+               .OrderBy(RelationPredicates.OrdinalOf<T>(name, targetNodeId))
+               .ThenByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct), ct);
 
     // ─── version-explicit ─────────────────────────────────────────────────────
 
@@ -131,6 +152,21 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                .Where(predicate)
                .OrderByDescending(e => e.Version.CreatedUtc)
                .ToListAsync(ct);
+
+    public Task<List<T>> FindCurrentDraftsRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default)
+        => CurrentDrafts()
+               .Where(RelationPredicates.RelatesTo<T>(name, targetNodeId))
+               .OrderBy(RelationPredicates.OrdinalOf<T>(name, targetNodeId))
+               .ThenByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
+    public Task<Dictionary<Guid, int>> CountCurrentDraftsByRelationAsync(string name, CancellationToken ct = default)
+        => CurrentDrafts()
+               .SelectMany(e => e.Version.Relations)
+               .Where(r => r.Name == name)
+               .GroupBy(r => r.TargetNodeId)
+               .Select(g => new { g.Key, Count = g.Count() })
+               .ToDictionaryAsync(g => g.Key, g => g.Count, ct);
 
     public Task<Dictionary<TKey, int>> CountCurrentDraftsByAsync<TKey>(
         Expression<Func<T, TKey>> keySelector, CancellationToken ct = default)
@@ -349,14 +385,18 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
         var newNumber = maxNumber + 1;
 
+        // A restore brings back exactly the historical relations (a loaded version has no pending writes).
         var newVersion = BuildVersion(
-            historical.Version, nodeId, newNumber,
+            historical.Version, historical.Version.Relations, nodeId, newNumber,
             ContentVersionState.Draft, isCurrentDraft: true, now,
             defaultNote: $"Restored from version {historical.Version.VersionNumber}");
 
         // Clone the historical type-table row at the DTO level by detaching it and re-inserting
-        // with a new key — no round-trip through a ViewModel, so every DTO field survives.
+        // with a new key — no round-trip through a ViewModel, so every DTO field survives. Its relation
+        // rows are detached too, so EF never tries to re-parent them onto the new version.
         _context.Entry(historical).State = EntityState.Detached;
+        foreach (var relation in historical.Version.Relations)
+            _context.Entry(relation).State = EntityState.Detached;
         _context.Entry(historical.Version).State = EntityState.Detached;
 
         historical.VersionId = newVersion.Id;
@@ -487,12 +527,37 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
     // ─── helpers ──────────────────────────────────────────────────────────────
 
-    private async Task<ContentWriteResult> CreateDraftAsync(T entity, CancellationToken ct)
+    public async Task<ContentWriteResult> CreateWithNodeIdAsync(T entity, Guid nodeId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        if (nodeId == Guid.Empty) throw new ArgumentException("A node id is required.", nameof(nodeId));
+
+        using var _ = EnsureScope(ChangeSetKind.Save, nodeId);
+        if (await _nodes.AnyAsync(n => n.Id == nodeId, ct))
+            return new ContentWriteResult(false, AlreadyExistsMessage);
+
+        try
+        {
+            return await CreateDraftAsync(entity, ct, nodeId);
+        }
+        // A concurrent create of the same node: Postgres reports the primary key (DbUpdateException); the
+        // InMemory provider throws from its store or the change tracker instead.
+        catch (Exception ex) when (ex is DbUpdateException or ArgumentException or InvalidOperationException)
+        {
+            _context.Entry(entity).State = EntityState.Detached;
+            _context.Entry(entity.Version).State = EntityState.Detached;
+            if (entity.Version.Node != null)
+                _context.Entry(entity.Version.Node).State = EntityState.Detached;
+            return new ContentWriteResult(false, AlreadyExistsMessage);
+        }
+    }
+
+    private async Task<ContentWriteResult> CreateDraftAsync(T entity, CancellationToken ct, Guid? nodeId = null)
     {
         var now = DateTime.UtcNow;
         var node = new ContentNode
         {
-            Id = Guid.NewGuid(),
+            Id = nodeId ?? Guid.NewGuid(),
             ContentTypeKey = _contentTypeKey,
             ParentNodeId = entity.Version.Node?.ParentNodeId,
             SiteId = entity.Version.Node?.SiteId,
@@ -503,7 +568,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             CreatedBy = _userContext.CurrentUserId
         };
 
-        var version = BuildVersion(entity.Version, node.Id, 0, ContentVersionState.Draft, isCurrentDraft: true, now, defaultNote: "Created");
+        var version = BuildVersion(entity.Version, [], node.Id, 0, ContentVersionState.Draft, isCurrentDraft: true, now, defaultNote: "Created");
         version.Node = node;
 
         entity.Version = version;
@@ -538,8 +603,9 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                      && e.Version.Segment == string.Empty)
             .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
 
-        var newVersion = BuildVersion(entity.Version, nodeId, maxNumber + 1, ContentVersionState.Draft,
-            isCurrentDraft: true, now, defaultNote: "Edited");
+        // The current draft's relations carry forward; only the names the caller wrote change.
+        var newVersion = BuildVersion(entity.Version, currentDraft.Version.Relations, nodeId, maxNumber + 1,
+            ContentVersionState.Draft, isCurrentDraft: true, now, defaultNote: "Edited");
 
         // A caller may hand back an instance the context already tracks (identity resolution can even
         // make it the same instance as currentDraft). It is re-keyed as a new row, so it must be
@@ -601,19 +667,24 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     /// <summary>
     /// A new version row carrying <paramref name="source"/>'s fields. Its change note is the ambient one
     /// (<see cref="IChangeSetScope.UseChangeNote"/>), else <paramref name="defaultNote"/> — never the
-    /// source's, so a note describes only the save that wrote it.
+    /// source's, so a note describes only the save that wrote it. Its relations are
+    /// <paramref name="baseline"/>'s, with the names in <paramref name="source"/>'s
+    /// <see cref="ContentVersion.RelationWrites"/> replaced by what was written.
     /// </summary>
     private ContentVersion BuildVersion(
         ContentVersion source,
+        IReadOnlyCollection<ContentRelation> baseline,
         Guid nodeId,
         int versionNumber,
         ContentVersionState state,
         bool isCurrentDraft,
         DateTime now,
         string defaultNote)
-        => new()
+    {
+        var id = Guid.NewGuid();
+        return new()
         {
-            Id = Guid.NewGuid(),
+            Id = id,
             NodeId = nodeId,
             VersionNumber = versionNumber,
             Culture = string.Empty,
@@ -628,8 +699,10 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             PublishEndUtc = source.PublishEndUtc,
             ChangeNote = string.IsNullOrEmpty(_changeSetScope.CurrentChangeNote) ? defaultNote : _changeSetScope.CurrentChangeNote,
             ChangeSetId = _changeSetScope.Current,
-            CustomFields = source.CustomFields.Select(c => c with { }).ToList()
+            CustomFields = source.CustomFields.Select(c => c with { }).ToList(),
+            Relations = ContentVersionRelations.Overlay(baseline, source.RelationWrites, id)
         };
+    }
 
     private Task<ContentVersion?> FindCurrentDraftAsync(Guid nodeId, CancellationToken ct)
         => _versions.FirstOrDefaultAsync(

@@ -46,17 +46,15 @@ public class PageHistoryModelTests
         };
 
     private static ContentZoneItemDTO Item(Guid nodeId, Guid zone, int ordinal = 1, string props = "{}", string? metadata = null, bool active = true)
-        => new()
+        => new ContentZoneItemDTO
         {
             VersionId = Guid.NewGuid(),
-            ContentZoneNodeId = zone,
-            Ordinal = ordinal,
             ComponentName = "Text",
             ComponentPropertiesJson = props,
             MetadataJson = metadata,
             IsActive = active,
             Version = new ContentVersion { NodeId = nodeId, VersionNumber = 1 }
-        };
+        }.In(zone, ordinal);
 
     private PageSetSnapshot Entry(DateTime created, Guid pageVersionId, params (Guid Node, Guid Version)[] items)
         => new()
@@ -414,16 +412,14 @@ public class PageSetComparerTests
     private static readonly Guid Zone = Guid.NewGuid();
 
     private static ContentZoneItemDTO Item(Guid node, Guid? zone = null, int ordinal = 1, string props = "{}", bool active = true)
-        => new()
+        => new ContentZoneItemDTO
         {
             VersionId = Guid.NewGuid(),
-            ContentZoneNodeId = zone ?? Zone,
-            Ordinal = ordinal,
             ComponentName = "Text",
             ComponentPropertiesJson = props,
             IsActive = active,
             Version = new ContentVersion { NodeId = node }
-        };
+        }.In(zone ?? Zone, ordinal);
 
     private static PageDTO Page(string title) => new() { ControllerName = "GenericPage", Version = new ContentVersion { Title = title } };
 

@@ -101,17 +101,17 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 - **ContentType:** `"articlelists"`
 - **DisplayName:** `"Article List"`
-- **Handler:** Full `IAdminCrudHandler`; no child handler. Its index (the admin entry point for articles) shows each list's article count (`IContentStore.CountCurrentDraftsByAsync`) and links to `/wadmin/articles?list={nodeId}`
-- **Domain methods:** `GetArticleListIndexAsync`, `GetArticleListUpsertAsync`, `SaveArticleListUpsertAsync`, `DeleteArticleListAsync` — deletes the list's articles, then the list, in one transaction (`ICmsTransaction`)
+- **Handler:** Full `IAdminCrudHandler`; no child handler. Its index (the admin entry point for articles) shows each list's article count (`IContentStore.CountCurrentDraftsByRelationAsync(ArticleModel.ListRelation)`) and links to `/wadmin/articles?list={nodeId}`
+- **Domain methods:** `GetArticleListIndexAsync`, `GetArticleListUpsertAsync`, `SaveArticleListUpsertAsync`, `DeleteArticleListAsync` — the base `DeleteAsync`: the relation engine deletes the list's articles (its containment children: any article whose current draft or published version is in the list), then the list (`DeleteSelfAsync`), in one transaction. An article moved to another list and live there is not touched
 - **API list:** `GetApiListAsync` returns the lists, so an `EntityType = "ArticleList"` picker resolves to `/wadmin/articlelists/api/list`
 
 ### `ArticleModel`
 
 - **ContentType:** `"articles"`, **DisplayName:** `"Article"`, `WriteRoles = ["Admin", "Editor"]`
 - **Handler:** Full `IAdminCrudHandler` (draft → publish, version history, restore from the base class); also registered as `IArticleModel` for the widget's public reads
-- **List membership:** the required `ArticleListId` field (an `EntityPicker`) maps to the `ArticleListNodeId` FK. The save path rejects an empty or unknown list and a slug another article's current draft already uses
+- **List membership:** `ArticleUpsertViewModel.ArticleListId` is `[ContentRelation("articlelists", Kind = Containment, Required = true)]` (relation name `ArticleModel.ListRelation`), which implies the `EntityPicker`; the mapper stores it on the version and the relation binder rejects an empty or unknown list. The save path itself rejects a slug another article's current draft already uses
 - **Admin index** honours `?list={nodeId}` (`ListQueryKey`) through the query-aware `IAdminCrudHandler.GetIndexViewModelAsync` overload; create preselects the same list
-- **Public reads** (`IArticleModel`): `GetViewModelAsync`, `GetBySlugAsync`, `GetListAsync(listNodeId, maxItems, sortOrder)` — each returns nothing unless the article's list is visible in the current read context
+- **Public reads** (`IArticleModel`): `GetViewModelAsync`, `GetBySlugAsync`, `GetListAsync(listNodeId, maxItems, sortOrder)` (`FindRelatedAsync`) — the store's containment filter returns nothing unless the article's list is visible in the current read context
 
 ### `ContentBlockModel`
 

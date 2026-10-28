@@ -33,7 +33,7 @@ public class PageControllerRegistrationModelTests
         _store = Substitute.For<IContentStore<PageControllerRegistrationDTO>>();
         _registry = Substitute.For<IPageControllerRegistry>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
-        _model = new PageControllerRegistrationModel(_store, _registry, _changeSetScope);
+        _model = new PageControllerRegistrationModel(_store, _registry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
     }
 
     private static PageControllerRegistrationDTO Dto(
@@ -77,11 +77,11 @@ public class PageControllerRegistrationModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new PageControllerRegistrationModel(null!, _registry, _changeSetScope),
+            Assert.That(() => new PageControllerRegistrationModel(null!, _registry, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
-            Assert.That(() => new PageControllerRegistrationModel(_store, null!, _changeSetScope),
+            Assert.That(() => new PageControllerRegistrationModel(_store, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
-            Assert.That(() => new PageControllerRegistrationModel(_store, _registry, null!),
+            Assert.That(() => new PageControllerRegistrationModel(_store, _registry, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
         });
     }

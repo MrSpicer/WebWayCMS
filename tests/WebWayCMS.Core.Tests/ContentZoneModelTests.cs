@@ -59,7 +59,7 @@ public class ContentZoneModelTests
         _pageHistory = Substitute.For<IPageHistoryService>();
         _slotDiscovery = Substitute.For<IWidgetSlotDiscovery>();
         _pageHistory.GetSnapshotsReferencingVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<PageSetSnapshot>());
-        _model = new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope);
+        _model = new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         _service.GetItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO>());
         _service.GetOwnedSlotsWithItemsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<string>());
@@ -89,10 +89,8 @@ public class ContentZoneModelTests
         return new ContentZoneItemDTO
         {
             VersionId = Guid.NewGuid(),
-            ContentZoneNodeId = Guid.NewGuid(),
             ComponentName = component,
             ComponentPropertiesJson = json,
-            Ordinal = ordinal,
             IsActive = true,
             Version = new ContentVersion
             {
@@ -101,7 +99,7 @@ public class ContentZoneModelTests
                 VersionNumber = 0,
                 State = ContentVersionState.Draft
             }
-        };
+        }.In(Guid.NewGuid(), ordinal);
     }
 
     private static ViewDataDictionary NewViewData() => new(new EmptyModelMetadataProvider(), new ModelStateDictionary());
@@ -111,14 +109,14 @@ public class ContentZoneModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentZoneModel(null!, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, null!, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, null!, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, null!, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, null!, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, null!, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, null!, _pageHistory, _slotDiscovery, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(null!, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, null!, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, null!, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, null!, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, null!, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, null!, _routeRegistration, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, null!, _pageHistory, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, _pageHistory, _slotDiscovery, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
         });
     }
 
@@ -266,8 +264,8 @@ public class ContentZoneModelTests
     {
         var zone = Zone();
         _service.GetOrCreateByNameAsync("G", Arg.Any<CancellationToken>()).Returns(zone);
-        _service.GetOrCreateByPageSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
-        _service.GetOrCreateByItemSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new ContentZoneAssignmentDTO()));
+        _service.GetOrCreateByPageSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new OwnedZone()));
+        _service.GetOrCreateByItemSlotAsync(Arg.Any<Guid>(), "S", Arg.Any<CancellationToken>()).Returns((zone, new OwnedZone()));
 
         Assert.Multiple(async () =>
         {
@@ -297,12 +295,12 @@ public class ContentZoneModelTests
     public async Task GetViewModelByPageSlot_NullAssignment_NullZone_AndFound()
     {
         var pageNodeId = Guid.NewGuid();
-        _service.GetByPageSlotAsync(pageNodeId, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
+        _service.GetByPageSlotAsync(pageNodeId, "none", Arg.Any<CancellationToken>()).Returns((OwnedZone?)null);
         Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "none"), Is.Null);
 
-        var assignment = new ContentZoneAssignmentDTO { ContentZoneNodeId = Guid.NewGuid() };
+        var assignment = new OwnedZone { ZoneNodeId = Guid.NewGuid() };
         _service.GetByPageSlotAsync(pageNodeId, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
-        _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, Zone());
+        _service.GetZoneByNodeAsync(assignment.ZoneNodeId, Arg.Any<CancellationToken>()).Returns((ContentZoneDTO?)null, Zone());
         Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "slot"), Is.Null);
         Assert.That(await _model.GetViewModelByPageSlotAsync(pageNodeId, "slot"), Is.Not.Null);
     }
@@ -311,12 +309,12 @@ public class ContentZoneModelTests
     public async Task GetViewModelByItemSlot_NullAssignment_AndFound()
     {
         var parent = Guid.NewGuid();
-        _service.GetByItemSlotAsync(parent, "none", Arg.Any<CancellationToken>()).Returns((ContentZoneAssignmentDTO?)null);
+        _service.GetByItemSlotAsync(parent, "none", Arg.Any<CancellationToken>()).Returns((OwnedZone?)null);
         Assert.That(await _model.GetViewModelByItemSlotAsync(parent, "none"), Is.Null);
 
-        var assignment = new ContentZoneAssignmentDTO { ContentZoneNodeId = Guid.NewGuid() };
+        var assignment = new OwnedZone { ZoneNodeId = Guid.NewGuid() };
         _service.GetByItemSlotAsync(parent, "slot", Arg.Any<CancellationToken>()).Returns(assignment);
-        _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns(Zone());
+        _service.GetZoneByNodeAsync(assignment.ZoneNodeId, Arg.Any<CancellationToken>()).Returns(Zone());
         Assert.That(await _model.GetViewModelByItemSlotAsync(parent, "slot"), Is.Not.Null);
     }
 
@@ -911,7 +909,7 @@ public class ContentZoneModelTests
     [Test]
     public void Constructor_NullPageHistory_Throws()
     {
-        Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, null!, _slotDiscovery, _changeSetScope),
+        Assert.That(() => new ContentZoneModel(_service, _zoneStore, _itemStore, _registry, _viewDiscovery, _routeService, _routeRegistration, null!, _slotDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
             Throws.ArgumentNullException);
     }
 
@@ -1263,10 +1261,10 @@ public class ContentZoneModelTests
     {
         var pageId = Guid.NewGuid();
         Guid main = Guid.NewGuid(), aside = Guid.NewGuid();
-        _service.GetAllAssignmentsForPageAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneAssignmentDTO>
+        _service.GetOwnedZonesForPageAsync(pageId, Arg.Any<CancellationToken>()).Returns(new List<OwnedZone>
         {
-            new() { SlotName = "main", ContentZoneNodeId = main, ParentPageNodeId = pageId },
-            new() { SlotName = "Aside", ContentZoneNodeId = aside, ParentPageNodeId = pageId },
+            new() { SlotName = "main", ZoneNodeId = main, ParentPageNodeId = pageId },
+            new() { SlotName = "Aside", ZoneNodeId = aside, ParentPageNodeId = pageId },
         });
 
         var slots = await _model.GetPageZoneSlotsAsync(pageId);

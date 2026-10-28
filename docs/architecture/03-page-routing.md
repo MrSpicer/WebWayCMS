@@ -11,8 +11,10 @@
 **Depends on:** Data Tier (`ICMSRouteService`, `IContentStore<PageDTO>`), Form Generation Metadata (`FormPropertyBuilder`), ASP.NET Core Routing
 **Consumed by:** All page controllers (Web project + CMS built-ins), Content Zone `ViewComponent` (`CMS:PageData` from `HttpContext`), Admin page-edit UI (page-type dropdown populated from the registry)
 
-> **Versioning note (Node/Version model):** routes are **plain, unversioned** rows written by
-> **Publish, never Save**. A draft that changes a slug does not touch the route table until published.
+> **Versioning note (Node/Version model):** a page's URLs are versioned `routes` content items owned by
+> the page. **Publish** publishes them and projects the live ones into the plain `CMSRoutes` table, so a
+> draft slug or route change does not touch the live table until published. Projected rows are read-only
+> in `/wadmin/cmsroutes`; edit them from the page.
 > The route transformer resolves pages through `IContentStore<PageDTO>.GetAsync(nodeId)` (read-context
 > aware — a rendering-only host serves published rows only). See
 > [01-data-tier](01-data-tier.md) for the model.
@@ -174,7 +176,7 @@ returns, and a non-empty `page` (for example) makes endpoint selection look for 
 request 404s before the page controller runs. Use another name (`{pageNumber:int}`). Every route write
 goes through `UpsertAsync` (widget routes, code-based `[CmsRoute]` seeding, the admin route form), so a
 widget's rejected route surfaces as a publish error and a code route as a startup warning. That includes
-the rollback in `PageModel.PublishPageAsync`: when a republish's new route fails to register, the previous
+the rollback in `PageModel.PublishPageAsync` for a page with no route items: when a republish's new route fails to register, the previous
 routes are re-upserted, and one that is now rejected (a legacy pattern stored before this check, which
 404'd anyway) is appended to the publish error ("The previous route could not be restored: …") rather than
 dropped silently.
@@ -203,6 +205,18 @@ Task<(bool Success, string? ErrorMessage, CMSRouteDTO? Route)> UpsertAsync(CMSRo
    `SaveChangesAsync`; it is caught and mapped to the same collision result as the pre-check.
 4. **Owner-less rows** are treated as their own owner (`OwningContentNodeId == null`), used by
    code-based and reserved routes.
+5. **One owner per route item** — a projected row (`RouteNodeId` set) whose route item already has a
+   row under a *different* owner fails with `"This route belongs to another content item."`, leaving
+   that row alone. The page save refuses the same thing earlier: a `RouteIds` entry that another page's
+   current draft owns fails with a field error on `RouteIds`. (The Routes picker still lists every
+   route: its list endpoint has no page context.)
+6. **Ambient transaction** — the replace joins a transaction the caller already opened (a page
+   publish projects all its rows in one), else opens its own. In a caller's transaction a lost insert
+   race has aborted that transaction (Postgres), so the caller must roll back, which the page publish does.
+
+An explicit route's save (`RouteModel`) checks its pattern with its **own** projected row excluded
+(`IsPatternAvailableAsync(pattern, excludeRouteId: <its row>)`), so editing only the navigation name or
+order of a published explicit route is not a collision with itself.
 
 `IsPatternAvailableAsync` excludes rows owned by `excludeNodeId` — using explicit null handling
 (`OwningContentNodeId == null || OwningContentNodeId != excludeNodeId`), so a NULL-owner row is
@@ -386,6 +400,10 @@ Pages no longer store a route. `PageDTO` has no `Route` column — the URL is de
 **On publish**, `DeriveRoutePatternForPublishAsync` derives the prefix from the **parent node's**
 route (`GetByOwningContentAsync(parentNodeId)`), falling back to the page's own existing route, then
 to no prefix — so a first publish of a child under `/docs` lands at `/docs/child`, not `/child`.
+A page can own several rows (a Derived route plus Explicit aliases), so the prefix is taken from its
+**Derived** row (`PrefixRoute`: projected rows carry a `RouteMode` data token; a row with no route item
+is a generated one and counts as Derived), else the first by `Order`, then pattern. A parent at `/about`
+with an alias `/company` always gives `/about/team`.
 
 **Slug-collision check.** `PageModel.IsSlugAvailableAsync(slug, parentNodeId, excludeNodeId)` runs on
 *both* save and publish. It checks (a) that no sibling *current draft* under the same parent already
@@ -395,13 +413,21 @@ patterns. A collision fails the save (or publish) with
 `"A page with this slug already exists at this location."` on the `Slug` field rather than silently
 stealing a URL.
 
-`PublishPageAsync` validates the slug (via `IsSlugAvailableAsync`) and derives the route pattern
-**before** calling `PublishAsync`, then replaces the page's existing route (`UnregisterContentRoutesAsync`
-followed by `RegisterContentRoutesAsync`, so a slug rename drops the old pattern rather than
-accumulating a second one). If route registration fails after the state flip, `PublishPageAsync`
-rolls the publish back (`UnpublishAsync`) and re-upserts the snapshotted previous route(s) so a
-republish whose new pattern collides still resolves at its old URL — a page is never left Published
-with no route. `UnpublishPageAsync` calls `UnregisterContentRoutesAsync` (which hard-deletes the
+`PublishPageAsync` validates the slug (via `IsSlugAvailableAsync`) first. A page with **route items**
+(every page since phase 3) then publishes in **one `ICmsTransaction`**: the page's publish, the publish
+of each related route item, their projection into `CMSRoutes` (stale owner rows removed), and — when its
+Derived pattern changed — the re-projection of every **live** descendant's Derived routes, from the
+descendant's **published** page and route versions (a never-published child gets no URL; a live child's
+draft slug change stays a draft). Any failure rolls all of it back and the publish reports it: a
+collision, a related route item that no longer exists (`"Route '/docs' no longer exists; edit the page's
+routes and publish again."` — a revert/discard can restore a relation whose item an earlier publish
+deleted), or a descendant whose moved URL collides (`"The publish was rolled back: the child URL '…'
+could not be moved. …"`). The route cache is invalidated again after the transaction, since the route
+service invalidates before the commit. Zone items are published, and page history captured, only after
+it commits. A page with **no** route items (hand-built/legacy) keeps the older path: it publishes, then
+replaces its route (`UnregisterContentRoutesAsync` + `RegisterContentRoutesAsync`); if that fails it
+reverts the publish (`RevertPublishAsync`) and re-upserts the snapshotted previous route(s). Either way a
+page is never left Published with no route. `UnpublishPageAsync` calls `UnregisterContentRoutesAsync` (which hard-deletes the
 page's routes). Unpublishing a page therefore removes its URL without deleting the page. A draft slug
 change does not touch the route table until published.
 

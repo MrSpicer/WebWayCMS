@@ -10,8 +10,7 @@ using WebWayCMS.Models.Shared;
 namespace WebWayCMS.Mcp;
 
 /// <summary>
-/// MCP tools for child entities of a content type (e.g. articles within an article list, items
-/// within a content zone). Mirrors the child routes on <c>AdminContentController</c>, including the
+/// MCP tools for child entities of a content type (items within a content zone). Mirrors the child routes on <c>AdminContentController</c>, including the
 /// child-type match, reorder, and version-history guards.
 /// </summary>
 [McpServerToolType]
@@ -39,10 +38,10 @@ public sealed class ChildContentToolset
     }
 
     [McpServerTool(Name = "list_children", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists the child entities under a parent. parentKey is the parent's slug or Guid (e.g. an article list slug, or a content zone id).")]
+    [Description("Lists the child entities under a parent. parentKey is the parent's slug or Guid (e.g. a content zone id). Articles are not children: they are top-level content with an articleListId field.")]
     public async Task<object> ListChildren(
-        [Description("The parent content type, e.g. \"articles\" or \"contentzones\".")] string contentType,
-        [Description("The child type, e.g. \"articles\" or \"items\".")] string childType,
+        [Description("The parent content type, e.g. \"contentzones\".")] string contentType,
+        [Description("The child type, e.g. \"items\".")] string childType,
         [Description("The parent key (slug or Guid).")] string parentKey,
         CancellationToken ct = default)
     {

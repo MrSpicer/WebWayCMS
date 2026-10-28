@@ -40,7 +40,7 @@ public sealed class ContentToolset
             .ToList();
 
     [McpServerTool(Name = "describe_content_type", ReadOnly = true, OpenWorld = false)]
-    [Description("Describes the editable fields (name, label, editor type, whether required) for a content type's create/edit form. Call this before create_content or update_content to learn which fields to send.")]
+    [Description("Describes the editable fields (name, label, editor type, whether required) for a content type's create/edit form. A field that links to other content carries a relation block { kind, target, many, required }: send the target item's id (or an array of ids when many). Call this before create_content or update_content to learn which fields to send.")]
     public McpContentTypeDescription DescribeContentType(
         [Description("The content type, e.g. \"contentblocks\" or \"pages\".")] string contentType)
     {
@@ -53,7 +53,7 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "list_content", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists existing items of a content type as { id, title } entries. For \"articles\" this returns the individual articles; the article *lists* they belong to are a separate secondary list (see list_secondary_content with key \"articlelists\").")]
+    [Description("Lists existing items of a content type as { id, title } entries. Articles and the article lists they belong to are separate types: list \"articles\" for articles and \"articlelists\" for lists.")]
     public async Task<IEnumerable<object>> ListContent(
         [Description("The content type to list.")] string contentType,
         CancellationToken ct = default)
@@ -63,7 +63,7 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "list_secondary_content", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists a content type's additional named list as { id, title } entries. Use list_content_types to discover which keys a content type exposes (e.g. \"articles\" exposes \"articlelists\", while its primary list_content returns the articles themselves).")]
+    [Description("Lists a content type's additional named list as { id, title } entries. Use list_content_types to discover which keys a content type exposes (secondaryApiListKeys).")]
     public async Task<IEnumerable<object>> ListSecondaryContent(
         [Description("The content type that owns the secondary list.")] string contentType,
         [Description("The secondary list key, e.g. \"articlelists\".")] string key,
@@ -123,14 +123,17 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "delete_content", OpenWorld = false)] // Destructive left at its true default: deletes an item permanently
-    [Description("Deletes a content item by id.")]
+    [Description("Deletes a content item by id, together with the items it contains (e.g. an article list's articles); deletedDescendants counts them. A delete is refused, with the reason, while another item still references it.")]
     public async Task<McpDeleteResult> DeleteContent(
         [Description("The content type.")] string contentType,
         [Description("The id of the item to delete.")] Guid id,
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
-        return new McpDeleteResult(await handler.DeleteAsync(id, ct));
+        var result = await handler.TryDeleteAsync(id, ct);
+        if (!result.Success && result.ErrorMessage != null)
+            throw new McpException(result.ErrorMessage);
+        return new McpDeleteResult(result.Success, result.DeletedDescendants);
     }
 
     [McpServerTool(Name = "publish_content", Idempotent = true, OpenWorld = false)] // Destructive left at its true default: swaps what the live site serves

@@ -9,10 +9,12 @@ using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Security;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Models.ContentZone;
 
@@ -56,8 +58,10 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         IRouteRegistrationService routeRegistration,
         IPageHistoryService pageHistory,
         IWidgetSlotDiscovery slotDiscovery,
-        IChangeSetScope changeSetScope)
-        : base(changeSetScope)
+        IChangeSetScope changeSetScope,
+        IRelationBinder relationBinder,
+        IContentDeleteService deletes)
+        : base(changeSetScope, relationBinder, deletes)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _slotDiscovery = slotDiscovery ?? throw new ArgumentNullException(nameof(slotDiscovery));
@@ -173,11 +177,11 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public async Task<ContentZoneViewModel?> GetViewModelByPageSlotAsync(Guid pageNodeId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _service.GetByPageSlotAsync(pageNodeId, slotName, ct);
-        if (assignment == null)
+        var owned = await _service.GetByPageSlotAsync(pageNodeId, slotName, ct);
+        if (owned == null)
             return null;
 
-        var zone = await _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, ct);
+        var zone = await _service.GetZoneByNodeAsync(owned.ZoneNodeId, ct);
         return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
@@ -189,11 +193,11 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public async Task<ContentZoneViewModel?> GetViewModelByItemSlotAsync(Guid parentItemNodeId, string slotName, CancellationToken ct = default)
     {
-        var assignment = await _service.GetByItemSlotAsync(parentItemNodeId, slotName, ct);
-        if (assignment == null)
+        var owned = await _service.GetByItemSlotAsync(parentItemNodeId, slotName, ct);
+        if (owned == null)
             return null;
 
-        var zone = await _service.GetZoneByNodeAsync(assignment.ContentZoneNodeId, ct);
+        var zone = await _service.GetZoneByNodeAsync(owned.ZoneNodeId, ct);
         return zone == null ? null : await MapToViewModelAsync(zone, ct);
     }
 
@@ -205,10 +209,10 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     public async Task<IReadOnlyList<PageZoneSlot>> GetPageZoneSlotsAsync(Guid pageNodeId, CancellationToken ct = default)
     {
-        var assignments = await _service.GetAllAssignmentsForPageAsync(pageNodeId, ct);
-        return assignments
+        var owned = await _service.GetOwnedZonesForPageAsync(pageNodeId, ct);
+        return owned
             .OrderBy(a => a.SlotName, StringComparer.OrdinalIgnoreCase)
-            .Select(a => new PageZoneSlot(a.SlotName, a.ContentZoneNodeId))
+            .Select(a => new PageZoneSlot(a.SlotName, a.ZoneNodeId))
             .ToList();
     }
 
@@ -247,7 +251,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         return await _itemStore.DeleteVersionAsync(versionId, ct);
     }
 
-    public override async Task<bool> DeleteAsync(Guid nodeId, CancellationToken ct = default)
+    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
     {
         await _service.DeleteZoneAsync(nodeId, ct);
         return true;
@@ -496,7 +500,8 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     /// </summary>
     private object BuildComponentProperties(ContentZoneItemDTO item)
     {
-        var properties = DeserializePropertiesToConfigType(item.ComponentName, item.ComponentPropertiesJson);
+        var properties = DeserializePropertiesToConfigType(
+            item.ComponentName, item.ComponentPropertiesJson, item.Version.EffectiveRelations());
         if (properties is WidgetConfiguration widgetConfig)
         {
             widgetConfig.Metadata = EffectiveMetadata(item);
@@ -513,40 +518,89 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     internal string SanitizeProperties(string componentName, string? json)
         => WidgetConfigurationJson.Sanitize(_registry, componentName, json);
 
+    /// <summary>Lifts the configuration type's <c>[ContentRelation]</c> ids out of the stored JSON.</summary>
+    internal (string StrippedJson, IReadOnlyList<RelationValue> Relations) ExtractConfigRelations(
+        string componentName, string? json)
+        => WidgetConfigurationJson.ExtractRelations(_registry, componentName, json);
+
+    /// <summary>Validates extracted config relations (target existence, type and required) as a field error.</summary>
+    internal Task<AdminSaveResult?> ValidateConfigRelationsAsync(
+        string componentName, IReadOnlyList<RelationValue> relations, CancellationToken ct)
+    {
+        var configType = WidgetConfigurationJson.ResolveConfigurationType(_registry, componentName);
+        if (configType == null)
+            return Task.FromResult<AdminSaveResult?>(null);
+
+        var config = Activator.CreateInstance(configType)!;
+        RelationProperties.Write(config, relations, ContentRelationRegistry.ConfigPrefix);
+        var displayName = _registry.GetByName(componentName)?.DisplayName ?? componentName;
+        return RelationBinder.ValidateAsync(config, displayName, ct);
+    }
+
+    /// <summary>Stores extracted config relations as <c>config.*</c> rows on the item's new version.</summary>
+    internal void ApplyConfigRelations(ContentVersion version, string componentName, IReadOnlyList<RelationValue> relations)
+        => WidgetConfigurationJson.ApplyRelations(
+            version, WidgetConfigurationJson.ResolveConfigurationType(_registry, componentName), relations);
+
+    /// <summary>The stored configuration JSON with the item's relation values written back in.</summary>
+    internal string HydratePropertiesJson(
+        string componentName, string? json, IEnumerable<ContentRelation> relations)
+        => WidgetConfigurationJson.HydrateRelations(
+            WidgetConfigurationJson.ResolveConfigurationType(_registry, componentName), json, relations);
+
     /// <summary>
     /// Deserializes properties JSON into the actual configuration type for the component.
     /// Falls back to a dictionary if the component type is not registered.
     /// </summary>
-    private object DeserializePropertiesToConfigType(string componentName, string json)
+    private object DeserializePropertiesToConfigType(
+        string componentName, string json, IEnumerable<ContentRelation> relations)
     {
+        object config;
         if (string.IsNullOrWhiteSpace(json) || json == "{}")
         {
             var defaultConfig = _registry.CreateDefaultConfiguration(componentName);
-            if (defaultConfig != null)
-                return defaultConfig;
-            return new { };
+            if (defaultConfig == null)
+                return new { };
+            config = defaultConfig;
         }
-
-        try
+        else
         {
-            var configType = ResolveType(_registry.GetByName(componentName)?.ConfigurationTypeName);
-            if (configType != null)
+            try
             {
-                var config = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
+                var configType = ResolveType(_registry.GetByName(componentName)?.ConfigurationTypeName);
+                if (configType != null)
                 {
-                    PropertyNameCaseInsensitive = true
-                });
-                if (config != null)
-                    return config;
-            }
+                    var deserialized = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    if (deserialized != null)
+                    {
+                        config = deserialized;
+                        WriteRelationValues(config, relations);
+                        return config;
+                    }
+                }
 
-            var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            return dict ?? new Dictionary<string, object>();
+                var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+                return dict ?? new Dictionary<string, object>();
+            }
+            catch
+            {
+                return new { };
+            }
         }
-        catch
-        {
-            return new { };
-        }
+
+        WriteRelationValues(config, relations);
+        return config;
+    }
+
+    private static void WriteRelationValues(object config, IEnumerable<ContentRelation> relations)
+    {
+        RelationProperties.Write(
+            config,
+            relations.Select(r => new RelationValue(r.Name, r.TargetNodeId, r.Ordinal, r.Qualifier)),
+            ContentRelationRegistry.ConfigPrefix);
     }
 
     private static Type? ResolveType(string? typeName) => WidgetConfigurationJson.ResolveType(typeName);
@@ -604,7 +658,8 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ContentZoneNodeId = item.ContentZoneNodeId,
             ExpectedVersionNumber = item.Version.VersionNumber,
             ComponentName = item.ComponentName,
-            ComponentPropertiesJson = item.ComponentPropertiesJson,
+            ComponentPropertiesJson = _model.HydratePropertiesJson(
+                item.ComponentName, item.ComponentPropertiesJson, item.Version.EffectiveRelations()),
             MetadataJson = item.MetadataJson,
             IsActive = item.IsActive,
         };
@@ -653,14 +708,21 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             if (!Guid.TryParse(parentKey, out var zoneNodeId))
                 return new AdminSaveResult(false, "A valid content zone id is required.");
 
+            var (strippedJson, relations) = _model.ExtractConfigRelations(vm.ComponentName, vm.ComponentPropertiesJson);
+            var relationError = await _model.ValidateConfigRelationsAsync(vm.ComponentName, relations, ct);
+            if (relationError != null)
+                return relationError;
+
+            // Placed at ordinal 0, which AddItemAsync turns into last in the zone.
             var newItem = new ContentZoneItemDTO
             {
-                ContentZoneNodeId = zoneNodeId,
                 ComponentName = vm.ComponentName,
-                ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, vm.ComponentPropertiesJson),
+                ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, strippedJson),
                 MetadataJson = metadataJson,
                 IsActive = vm.IsActive,
             };
+            _model.ApplyConfigRelations(newItem.Version, newItem.ComponentName, relations);
+            ZoneRelations.Place(newItem.Version, zoneNodeId, 0);
             var createdItem = await _model.AddItemAsync(zoneNodeId, newItem, ct);
             await _model.RegisterWidgetRouteIfRoutableAsync(
                 createdItem.ComponentName, createdItem.Version.Node!.Id, zoneNodeId,
@@ -675,15 +737,21 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
         if (vm.ExpectedVersionNumber.HasValue && existing.Version.VersionNumber != vm.ExpectedVersionNumber.Value)
             return new AdminSaveResult(false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage);
 
+        var (updateStrippedJson, updateRelations) = _model.ExtractConfigRelations(vm.ComponentName, vm.ComponentPropertiesJson);
+        var updateRelationError = await _model.ValidateConfigRelationsAsync(vm.ComponentName, updateRelations, ct);
+        if (updateRelationError != null)
+            return updateRelationError;
+
         var updated = existing with
         {
             ComponentName = vm.ComponentName,
-            ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, vm.ComponentPropertiesJson),
+            ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, updateStrippedJson),
             // Not supplied: keep the existing metadata so a content-config save never wipes the
             // per-item metadata dialog's values.
             MetadataJson = metadataJson ?? existing.MetadataJson,
             IsActive = vm.IsActive,
         };
+        _model.ApplyConfigRelations(updated.Version, updated.ComponentName, updateRelations);
         var ok = await _model.UpdateItemAsync(updated, ct, vm.ExpectedVersionNumber);
         if (!ok)
         {
@@ -813,7 +881,8 @@ internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
             ContentZoneNodeId = historical.ContentZoneNodeId,
             ExpectedVersionNumber = current.Version.VersionNumber,
             ComponentName = historical.ComponentName,
-            ComponentPropertiesJson = historical.ComponentPropertiesJson,
+            ComponentPropertiesJson = _model.HydratePropertiesJson(
+                historical.ComponentName, historical.ComponentPropertiesJson, historical.Version.EffectiveRelations()),
             MetadataJson = WidgetMetadataJson.Restorable(historical.MetadataJson, _model.GetWidget(historical.ComponentName), current.MetadataJson),
             IsActive = historical.IsActive,
         };

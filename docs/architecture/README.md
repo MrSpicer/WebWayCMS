@@ -117,7 +117,7 @@ Project references between them (nothing else — dependencies only flow downwar
 ## Area Summaries
 
 ### [Area 1: Data Tier](01-data-tier.md)
-A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. It declares no `DbSet`s — entities are discovered through `IEntityTypeConfiguration<T>` classes and reached via `Set<T>()`. Identity (`ContentNode`) is split from version (`ContentVersion`); content types compose a `ContentVersion` via `IVersionedContent`. `IContentStore<T>` provides generic versioned CRUD; `IContentZoneService` manages zones, items, and assignment-based slot resolution with transaction-safe lazy zone creation; `ICMSRouteService` owns URL patterns.
+A single unified EF Core `DbContext` (`CmsDbContext`) holds all CMS and Identity tables. It declares no `DbSet`s — entities are discovered through `IEntityTypeConfiguration<T>` classes and reached via `Set<T>()`. Identity (`ContentNode`) is split from version (`ContentVersion`); content types compose a `ContentVersion` via `IVersionedContent`. `IContentStore<T>` provides generic versioned CRUD; `IContentZoneService` manages zones, items, and relation-based slot resolution (an item's `Zone` and a zone's `Owner` relation) with race-safe lazy zone creation on deterministic node ids; `ICMSRouteService` owns URL patterns.
 
 ### [Area 2: Form Generation & Configuration Metadata](02-form-generation.md)
 Pure-reflection subsystem that drives all admin form rendering from C# attributes. `[FormProperty]` decorates config class properties with editor type, validation hints, and layout options. `FormPropertyBuilder` reflects these into `List<FormPropertyInfo>`. `FormFieldsTagHelper` (`<form-fields for="@Model">`) renders Bulma-styled HTML from that list — no per-type Razor form boilerplate needed.
@@ -160,6 +160,9 @@ A package host can add its own EF-backed content type without touching CMS sourc
 
 ### [Area 15: JSON Content Seeding](15-content-seeding.md)
 A host (or a satellite content DLL) can ship a JSON file of serialized content that is discovered at startup (embedded resources, a configured disk folder, or `IWebWayCmsBuilder` registration) and created or updated in the database, then published. It reuses the admin CRUD dispatch generically and tracks each item's stable seed id through the `ContentSeedRecords` ledger, re-applying only when the content hash changes. Admin mode only.
+
+### [Area 17: Content Relations (phase 1 implemented)](17-content-relations.md)
+A single version-owned `ContentRelation` record that replaces every content-to-content link (article lists, zone items and ownership, page parents, config pickers, routes). Relations are declared with one `[ContentRelation]` attribute and come in three kinds: containment, reference and owned. One engine supplies storage, versioning, validation, delete policy, read visibility, admin editing, MCP and seeding. Phase 1 (the engine, with Article → Article List moved onto it) is implemented; the other links follow in later phases.
 
 ---
 

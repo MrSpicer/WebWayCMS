@@ -40,7 +40,7 @@ public class WidgetRegistrationModelTests
         _registry = Substitute.For<IWidgetRegistry>();
         _viewDiscovery = Substitute.For<IViewDiscoveryService>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
-        _model = new WidgetRegistrationModel(_store, _registry, _viewDiscovery, _changeSetScope);
+        _model = new WidgetRegistrationModel(_store, _registry, _viewDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
     }
 
     private static WidgetRegistrationDTO Dto(
@@ -82,13 +82,13 @@ public class WidgetRegistrationModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new WidgetRegistrationModel(null!, _registry, _viewDiscovery, _changeSetScope),
+            Assert.That(() => new WidgetRegistrationModel(null!, _registry, _viewDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
-            Assert.That(() => new WidgetRegistrationModel(_store, null!, _viewDiscovery, _changeSetScope),
+            Assert.That(() => new WidgetRegistrationModel(_store, null!, _viewDiscovery, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
-            Assert.That(() => new WidgetRegistrationModel(_store, _registry, null!, _changeSetScope),
+            Assert.That(() => new WidgetRegistrationModel(_store, _registry, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
-            Assert.That(() => new WidgetRegistrationModel(_store, _registry, _viewDiscovery, null!),
+            Assert.That(() => new WidgetRegistrationModel(_store, _registry, _viewDiscovery, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()),
                 Throws.ArgumentNullException);
         });
     }

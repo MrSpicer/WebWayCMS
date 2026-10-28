@@ -12,6 +12,7 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
 {
     private readonly ICMSRouteService _routeService;
     private readonly IMapper _mapper;
+    private readonly IContentRelations? _relations;
 
     public string ContentType => "cmsroutes";
     public string DisplayName => "CMS Route";
@@ -21,15 +22,22 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
     public string IndexViewPath => "~/Views/AdminCMSRoute/CMSRoutes.cshtml";
     public string UpsertViewPath => "~/Views/AdminCMSRoute/CMSRouteUpsert.cshtml";
 
-    public CMSRouteModel(ICMSRouteService routeService, IMapper mapper)
+    public CMSRouteModel(ICMSRouteService routeService, IMapper mapper, IContentRelations? relations = null)
     {
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+        _relations = relations;
     }
 
     public async Task<CMSRouteIndexViewModel> GetRouteIndexAsync(CancellationToken ct = default)
     {
         var routes = await _routeService.GetActiveRoutesAsync(ct);
+        var owners = routes.Where(r => r.OwningContentNodeId.HasValue)
+            .Select(r => r.OwningContentNodeId!.Value).Distinct().ToList();
+        IReadOnlyDictionary<Guid, RelationNode> nodes = _relations == null || owners.Count == 0
+            ? new Dictionary<Guid, RelationNode>()
+            : await _relations.GetNodesAsync(owners, ct);
+
         return new CMSRouteIndexViewModel
         {
             Routes = routes.Select(r => new CMSRouteItemViewModel
@@ -38,6 +46,11 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
                 Pattern = r.Pattern,
                 NavigationName = r.NavigationName,
                 OwningContentType = r.OwningContentType,
+                OwningContentNodeId = r.OwningContentNodeId,
+                RouteNodeId = r.RouteNodeId,
+                OwnerTitle = r.OwningContentNodeId.HasValue && nodes.TryGetValue(r.OwningContentNodeId.Value, out var node)
+                    ? node.Title
+                    : null,
                 IsReserved = r.IsReserved
             }).ToList()
         };
@@ -57,6 +70,12 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
     public async Task<(bool Success, string? ErrorMessage)> SaveRouteUpsertAsync(CMSRouteUpsertViewModel model, CancellationToken ct = default)
     {
         if (model == null) throw new ArgumentNullException(nameof(model));
+        if (model.Id.HasValue && model.Id != Guid.Empty)
+        {
+            var current = await _routeService.GetByIdAsync(model.Id.Value, ct);
+            if (current?.RouteNodeId != null)
+                return (false, "Edit this route from its page.");
+        }
 
         var excludeRouteId = model.Id.HasValue && model.Id != Guid.Empty ? model.Id : null;
         var available = await _routeService.IsPatternAvailableAsync(model.Pattern, excludeRouteId: excludeRouteId, ct: ct);
@@ -72,6 +91,9 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
 
     public async Task<bool> DeleteRouteAsync(Guid id, CancellationToken ct = default)
     {
+        var current = await _routeService.GetByIdAsync(id, ct);
+        if (current?.RouteNodeId != null)
+            return false;
         return await _routeService.DeleteAsync(id, ct);
     }
 

@@ -17,6 +17,7 @@ public sealed class CMSRouteDTOEntityConfiguration : IEntityTypeConfiguration<CM
         entity.Property(e => e.ConstraintsJson).HasMaxLength(2000);
         entity.Property(e => e.DataTokensJson).HasMaxLength(2000);
         entity.HasIndex(e => e.OwningContentNodeId);
+        entity.HasIndex(e => e.RouteNodeId);
         entity.ToTable("CMSRoutes");
     }
 }

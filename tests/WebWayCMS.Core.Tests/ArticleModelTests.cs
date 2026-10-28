@@ -12,6 +12,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -34,13 +35,17 @@ public class ArticleModelTests
         _listStore = Substitute.For<IContentStore<ArticleListDTO>>();
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _mapper = TestSupport.CreateMapper();
-        _model = new ArticleModel(_store, _listStore, _mapper, _changeSetScope);
+        _model = new ArticleModel(_store, _listStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
 
         _articles = new List<ArticleDTO>();
         _store.FindAsync(Arg.Any<Expression<Func<ArticleDTO, bool>>>(), Arg.Any<CancellationToken>())
             .Returns(c => _articles.Where(c.Arg<Expression<Func<ArticleDTO, bool>>>().Compile()).ToList());
         _store.FindCurrentDraftsAsync(Arg.Any<Expression<Func<ArticleDTO, bool>>>(), Arg.Any<CancellationToken>())
             .Returns(c => _articles.Where(c.Arg<Expression<Func<ArticleDTO, bool>>>().Compile()).ToList());
+        _store.FindRelatedAsync(ArticleModel.ListRelation, Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(c => _articles.Where(a => a.Version.TargetOf(ArticleModel.ListRelation) == c.ArgAt<Guid>(1)).ToList());
+        _store.FindCurrentDraftsRelatedAsync(ArticleModel.ListRelation, Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(c => _articles.Where(a => a.Version.TargetOf(ArticleModel.ListRelation) == c.ArgAt<Guid>(1)).ToList());
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(_ => _articles.ToList());
         _listStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ArticleListDTO>());
     }
@@ -48,21 +53,23 @@ public class ArticleModelTests
     private static ArticleDTO Article(Guid listNodeId, string title = "T", string slug = "s", Guid? nodeId = null,
         int version = 0, DateTime? created = null, DateTime? published = null)
     {
+        var versionId = Guid.NewGuid();
         return new ArticleDTO
         {
-            VersionId = Guid.NewGuid(),
+            VersionId = versionId,
             Body = "b",
             AuthorName = "a",
             Summary = "sum",
-            ArticleListNodeId = listNodeId,
             Version = new ContentVersion
             {
+                Id = versionId,
                 Node = new ContentNode { Id = nodeId ?? Guid.NewGuid(), CreatedUtc = created ?? DateTime.UtcNow },
                 Title = title,
                 Slug = slug,
                 VersionNumber = version,
                 PublishStartUtc = published,
-                State = ContentVersionState.Draft
+                State = ContentVersionState.Draft,
+                Relations = [new ContentRelation { SourceVersionId = versionId, TargetNodeId = listNodeId, Name = ArticleModel.ListRelation, Kind = RelationKind.Containment }]
             }
         };
     }
@@ -101,10 +108,10 @@ public class ArticleModelTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ArticleModel(null!, _listStore, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleModel(_store, null!, _mapper, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleModel(_store, _listStore, null!, _changeSetScope), Throws.ArgumentNullException);
-            Assert.That(() => new ArticleModel(_store, _listStore, _mapper, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleModel(null!, _listStore, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleModel(_store, null!, _mapper, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleModel(_store, _listStore, null!, _changeSetScope, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
+            Assert.That(() => new ArticleModel(_store, _listStore, _mapper, null!, TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes()), Throws.ArgumentNullException);
         });
     }
 
@@ -127,36 +134,33 @@ public class ArticleModelTests
 
     // ─── public reads ─────────────────────────────────────────────────────────
 
+    // An article whose list is not visible is hidden by the store (containment visibility, covered by
+    // the Data tests), so the model maps whatever the store returns.
+
     [Test]
-    public async Task GetViewModelAsync_VisibleOnlyWithItsList()
+    public async Task GetViewModelAsync_MapsTheStoreResult()
     {
         var listId = Guid.NewGuid();
         var article = Article(listId);
         var nodeId = article.Version.Node.Id;
         _store.GetAsync(nodeId, Arg.Any<CancellationToken>()).Returns(article);
 
-        Assert.That(await _model.GetViewModelAsync(nodeId), Is.Null, "list not visible");
-
-        _listStore.GetAsync(listId, Arg.Any<CancellationToken>()).Returns(List(listId));
         var vm = await _model.GetViewModelAsync(nodeId);
 
         Assert.Multiple(async () =>
         {
             Assert.That(vm!.NodeId, Is.EqualTo(nodeId));
             Assert.That(vm.Summary, Is.EqualTo("sum"));
-            Assert.That(await _model.GetViewModelAsync(Guid.NewGuid()), Is.Null, "article missing");
+            Assert.That(vm.ArticleListId, Is.EqualTo(listId));
+            Assert.That(await _model.GetViewModelAsync(Guid.NewGuid()), Is.Null, "article missing or hidden");
         });
     }
 
     [Test]
-    public async Task GetBySlugAsync_VisibleOnlyWithItsList()
+    public async Task GetBySlugAsync_MapsTheStoreResult()
     {
-        var listId = Guid.NewGuid();
-        _store.GetBySlugAsync("post", Arg.Any<CancellationToken>()).Returns(Article(listId, slug: "post"));
+        _store.GetBySlugAsync("post", Arg.Any<CancellationToken>()).Returns(Article(Guid.NewGuid(), slug: "post"));
 
-        Assert.That(await _model.GetBySlugAsync("post"), Is.Null);
-
-        _listStore.GetAsync(listId, Arg.Any<CancellationToken>()).Returns(List(listId));
         Assert.Multiple(async () =>
         {
             Assert.That((await _model.GetBySlugAsync("post"))!.Slug, Is.EqualTo("post"));
@@ -344,7 +348,7 @@ public class ArticleModelTests
             Assert.That(result.Success, Is.True);
             Assert.That(result.NodeId, Is.EqualTo(nodeId));
             Assert.That(vm.NodeId, Is.EqualTo(nodeId));
-            Assert.That(saved!.ArticleListNodeId, Is.EqualTo(listId));
+            Assert.That(saved!.Version.TargetOf(ArticleModel.ListRelation), Is.EqualTo(listId));
             await _store.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         });
     }
@@ -378,13 +382,20 @@ public class ArticleModelTests
     [Test]
     public async Task SaveUpsertAsync_EmptyOrUnknownList_RejectedOnTheListField()
     {
-        var empty = await _model.SaveUpsertAsync(ValidUpsert(Guid.Empty));
-        var unknown = await _model.SaveUpsertAsync(ValidUpsert(Guid.NewGuid()));
+        // The real relation binder: the [ContentRelation] on ArticleListId is what rejects these.
+        var relations = Substitute.For<IContentRelations>();
+        relations.GetNodesAsync(Arg.Any<IEnumerable<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<Guid, RelationNode>());
+        var model = new ArticleModel(_store, _listStore, _mapper, _changeSetScope, new RelationBinder(relations), TestSupport.PassThroughDeletes());
+
+        var empty = await model.SaveUpsertAsync(ValidUpsert(Guid.Empty));
+        var unknown = await model.SaveUpsertAsync(ValidUpsert(Guid.NewGuid()));
 
         Assert.Multiple(async () =>
         {
             Assert.That(empty.Success, Is.False);
             Assert.That(empty.ErrorField, Is.EqualTo(nameof(ArticleUpsertViewModel.ArticleListId)));
+            Assert.That(empty.ErrorMessage, Is.EqualTo("Choose the article list this article belongs to."));
             Assert.That(unknown.Success, Is.False);
             Assert.That(unknown.ErrorField, Is.EqualTo(nameof(ArticleUpsertViewModel.ArticleListId)));
             await _store.DidNotReceive().SaveDraftAsync(Arg.Any<ArticleDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());

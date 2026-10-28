@@ -12,11 +12,5 @@ public sealed class ArticleDTOEntityConfiguration : IEntityTypeConfiguration<Art
     {
         entity.ConfigureContentLink();
         entity.ToTable("Articles");
-
-        entity.HasOne<ContentNode>()
-              .WithMany()
-              .HasForeignKey(e => e.ArticleListNodeId)
-              .OnDelete(DeleteBehavior.Restrict);
-        entity.HasIndex(e => e.ArticleListNodeId);
     }
 }
