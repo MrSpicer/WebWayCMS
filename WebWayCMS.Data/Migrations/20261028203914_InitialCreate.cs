@@ -94,7 +94,6 @@ namespace WebWayCMS.Data.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     ContentTypeKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    ParentNodeId = table.Column<Guid>(type: "uuid", nullable: true),
                     SiteId = table.Column<Guid>(type: "uuid", nullable: true),
                     CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<Guid>(type: "uuid", nullable: true),
@@ -687,11 +686,6 @@ namespace WebWayCMS.Data.Migrations
                 name: "IX_CMSRoutes_RouteNodeId",
                 table: "CMSRoutes",
                 column: "RouteNodeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ContentNodes_ParentNodeId",
-                table: "ContentNodes",
-                column: "ParentNodeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ContentNodes_SiteId",

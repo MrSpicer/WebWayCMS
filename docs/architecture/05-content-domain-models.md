@@ -13,7 +13,7 @@
 - `WebWayCMS.Data` — `MappingProfile`
 - `MySite` — `MappingProfile`
 
-**Depends on:** Data Tier (services consumed — now `IContentStore<T>`), Admin CRUD Framework interfaces (`IAdminCrudHandler`, `IAdminCrudChildHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
+**Depends on:** Data Tier (services consumed — now `IContentStore<T>`), Admin CRUD Framework interfaces (`IAdminCrudHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
 
 > **Versioning note (Node/Version model):** `VersionedModel<T>`/`AdminCrudModel<T>` are now generic over
 > `IVersionedContent` and backed by `IContentStore<T>`. `AdminCrudModel<T>` opens a change-set scope around
@@ -76,7 +76,8 @@ subclass implements. This single choke point is what makes stored rich text safe
 | `HasSecondaryApiList` | `false` |
 | `GetSecondaryApiListAsync` | Returns empty |
 | `RegistryHandler` | `null` |
-| `ChildHandler` | `null` |
+| `GetRelatedChildrenAsync` / `ReorderRelatedAsync` / `MoveRelatedAsync` | Generic over the upsert view model's containments (see [06 §3](06-admin-crud-framework.md#3-containment--children-reorder-move)) |
+| `RestoreVersionAsync(versionId, expectedVersionNumber)` | Refuses a stale restore, then the plain restore |
 | `SupportsVersionHistory` | `true` |
 | `GetVersionHistoryViewModelAsync` | Calls `BuildVersionHistoryAsync` |
 | `DeleteVersionAsync` | Calls `DeleteVersionCoreAsync` |
@@ -93,7 +94,8 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - **DisplayName:** `"Page"`
 - **Also implements:** `IRoutableContent` (`RouteContentType => "Page"`)
 - **Handler:** Full `IAdminCrudHandler`; also exposes `IAdminRegistryHandler` via `PageRegistryHandler` (delegates to `IPageControllerRegistry` to supply page-type metadata and available views to the admin page-edit UI)
-- **Domain methods:** `GetPageIndexAsync` (builds the `PageTreeNode` hierarchy by joining pages to their `CMSRoutes` patterns), `SavePageUpsertAsync`, `DeletePageAsync`
+- **Domain methods:** `GetPageIndexAsync` (builds the `PageTreeNode` hierarchy by joining pages to their `CMSRoutes` patterns, with each page's `DescendantCount`), `SavePageUpsertAsync`; `DeleteSelfAsync` deletes one page (its routes and zones) after the relation engine has deleted its child pages
+- **Parent:** `PageUpsertViewModel.ParentNodeId` is a `[ContentRelation("pages", Kind = Containment)]` (`PageModel.ParentRelation`), the form's Parent Page picker; a move is a versioned draft, and its publish re-derives the URLs
 - **URL handling:** the page's route pattern is derived from its Slug (`DeriveRoutePatternFromSlug`) and written through `IRouteRegistrationService` on save; `ICMSRouteService.IsPatternAvailableAsync` guards uniqueness and produces the `"A page with this slug already exists at this location."` error on the `Slug` field. Saving an unpublished page unregisters its route instead
 - **Version restore:** Copies historical version, sets `Id`/`Version` to the latest version's values so saving creates a new version on top
 
@@ -101,7 +103,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 - **ContentType:** `"articlelists"`
 - **DisplayName:** `"Article List"`
-- **Handler:** Full `IAdminCrudHandler`; no child handler. Its index (the admin entry point for articles) shows each list's article count (`IContentStore.CountCurrentDraftsByRelationAsync(ArticleModel.ListRelation)`) and links to `/wadmin/articles?list={nodeId}`
+- **Handler:** Full `IAdminCrudHandler`; its edit screen lists its articles (the generic children panel, with **New Article** preselecting the list). Its index (the admin entry point for articles) shows each list's article count (`IContentStore.CountCurrentDraftsByRelationAsync(ArticleModel.ListRelation)`) and links to `/wadmin/articles?list={nodeId}`
 - **Domain methods:** `GetArticleListIndexAsync`, `GetArticleListUpsertAsync`, `SaveArticleListUpsertAsync`, `DeleteArticleListAsync` — the base `DeleteAsync`: the relation engine deletes the list's articles (its containment children: any article whose current draft or published version is in the list), then the list (`DeleteSelfAsync`), in one transaction. An article moved to another list and live there is not touched
 - **API list:** `GetApiListAsync` returns the lists, so an `EntityType = "ArticleList"` picker resolves to `/wadmin/articlelists/api/list`
 
@@ -110,24 +112,31 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - **ContentType:** `"articles"`, **DisplayName:** `"Article"`, `WriteRoles = ["Admin", "Editor"]`
 - **Handler:** Full `IAdminCrudHandler` (draft → publish, version history, restore from the base class); also registered as `IArticleModel` for the widget's public reads
 - **List membership:** `ArticleUpsertViewModel.ArticleListId` is `[ContentRelation("articlelists", Kind = Containment, Required = true)]` (relation name `ArticleModel.ListRelation`), which implies the `EntityPicker`; the mapper stores it on the version and the relation binder rejects an empty or unknown list. The save path itself rejects a slug another article's current draft already uses
-- **Admin index** honours `?list={nodeId}` (`ListQueryKey`) through the query-aware `IAdminCrudHandler.GetIndexViewModelAsync` overload; create preselects the same list
+- **Admin index** honours `?list={nodeId}` (`ListQueryKey`) through the query-aware `IAdminCrudHandler.GetIndexViewModelAsync` overload; its **New Article** link preselects the same list with `?ArticleListId=` (the controller's generic `RelationPreselect`)
 - **Public reads** (`IArticleModel`): `GetViewModelAsync`, `GetBySlugAsync`, `GetListAsync(listNodeId, maxItems, sortOrder)` (`FindRelatedAsync`) — the store's containment filter returns nothing unless the article's list is visible in the current read context
 
 ### `ContentBlockModel`
 
 - **ContentType:** `"contentblocks"`
 - **DisplayName:** `"Content Block"`
-- **Handler:** Full `IAdminCrudHandler`; no child handler; no registry handler
+- **Handler:** Full `IAdminCrudHandler`; no registry handler
 - Domain methods: `GetIndexViewModelAsync`, `GetUpsertViewModelAsync`, `SaveUpsertAsync`, `DeleteAsync`
 
 ### `ContentZoneModel`
 
 - **ContentType:** `"contentzones"`
-- Manages both zones (parent) and zone items (child, `ChildType = "items"`) via `ContentZoneChildHandler`
+- Manages zones; zone items have their own handler, `ContentZoneItemModel` (below), which delegates every write to this model
 - Exposes `IContentZoneModel` which is consumed by `ContentZoneViewComponent`
 - Exposes `IAdminRegistryHandler` via `ContentZoneRegistryHandler`, backed by `IWidgetRegistry`
 - Domain methods: `GetOrCreateViewModelAsync`, `GetOrCreateViewModelByPageSlotAsync`, `GetOrCreateViewModelByItemSlotAsync`, `GetViewModelByIdAsync`, `MoveItemAsync`
 - Also calls `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` for zone-item writes; routes for items in a page's zones are registered by the page publish cascade (see [03-page-routing.md](03-page-routing.md))
+
+### `ContentZoneItemModel`
+
+- **ContentType:** `"contentzoneitems"` — **DisplayName:** `"Content Zone Item"`; Admin only; `SupportsPublishing = false` (items go live with their page, or at once in a global zone)
+- Its upsert view model's `ContentZoneNodeId` is the ordered `Zone` containment (hidden, `ShowInParentAdmin = false`); create places the item last in that zone, an update never moves it
+- `DeleteAsync` **removes** the item (an inactive version); `MoveRelatedAsync`/`ReorderRelatedAsync` are the zone service's move/reorder; restore is one step (content, metadata, active state, zone and position); a version in page history cannot be deleted; a container's history is the combined timeline
+- Index: one zone's items (`/wadmin/contentzoneitems?ContentZoneNodeId={zone}`)
 
 ### `WidgetRegistrationModel`
 
@@ -153,13 +162,16 @@ Subclasses override what they need; everything else inherits the sensible defaul
 
 ---
 
-## 5. Top-level vs Child Resource Pattern
+## 5. Parent and Child Content
 
-**Top-level** resources have their own admin list/edit routes (`/wadmin/{contentType}/`). They extend `AdminCrudModel<TDto>` and are registered as `IAdminCrudHandler`.
-
-**Child** resources live under a parent (`/wadmin/{contentType}/{parentKey}/{childType}/`). They do **not** extend `AdminCrudModel<TDto>`; instead their parent's model creates an inner class implementing `IAdminCrudChildHandler` and exposes it via `ChildHandler`. The child handler itself is not registered in DI — it is created as part of the parent model.
-
-Example: `ContentZoneChildHandler` is an internal sealed class inside `ContentZoneModel.cs`, instantiated in `ContentZoneModel`'s constructor and returned via `override IAdminCrudChildHandler? ChildHandler => _childHandler`. It is the only child handler: articles used to be children of article lists but are now a top-level type that references its list through an ordinary FK field.
+Every admin resource is **top-level**: it has its own admin list/edit routes (`/wadmin/{contentType}/`),
+extends `AdminCrudModel<TDto>` (or implements `IAdminCrudHandler` directly, like `ContentZoneItemModel`) and is
+registered as `IAdminCrudHandler`. A child is placed under its parent by a **containment** relation on its own
+upsert view model (an article's list, a page's parent page, a zone item's zone); the parent's edit screen lists
+it through the generic children panel, and MCP's child tools address it through that relation (see
+[06 §3](06-admin-crud-framework.md#3-containment--children-reorder-move) and
+[17](17-content-relations.md)). The old `IAdminCrudChildHandler` (an inner child handler on the parent's model)
+is gone.
 
 ---
 

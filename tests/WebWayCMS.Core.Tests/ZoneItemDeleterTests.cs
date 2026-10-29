@@ -74,7 +74,8 @@ public class ZoneItemDeleterTests
 
         Assert.Multiple(async () =>
         {
-            Assert.That(result, Is.EqualTo((true, (string?)null, 4)));
+            // Zones and items are structure, not counted: a page delete reports its child pages.
+            Assert.That(result, Is.EqualTo((true, (string?)null, 0)));
             Assert.That(deleted, Is.EqualTo(new[] { text, column, container, zone, page }));
             await transaction.Received(1).RunAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>());
         });

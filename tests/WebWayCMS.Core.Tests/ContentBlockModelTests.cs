@@ -71,7 +71,6 @@ public class ContentBlockModelTests
             Assert.That(_model.PublishRoles, Is.Null);
             Assert.That(_model.HasSecondaryApiList, Is.False);
             Assert.That(_model.RegistryHandler, Is.Null);
-            Assert.That(_model.ChildHandler, Is.Null);
         });
     }
 

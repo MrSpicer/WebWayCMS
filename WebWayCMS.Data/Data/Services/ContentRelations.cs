@@ -57,6 +57,20 @@ public sealed class ContentRelations : IContentRelations
             .Distinct()
             .ToListAsync(ct);
 
+    public async Task<Guid?> GetCurrentDraftTargetAsync(Guid sourceNodeId, string name, CancellationToken ct = default)
+        => await _context.Set<ContentVersion>()
+            .AsNoTracking()
+            .IgnoreAutoIncludes()
+            .Where(v => v.NodeId == sourceNodeId
+                     && v.Culture == string.Empty
+                     && v.Segment == string.Empty
+                     && v.IsCurrentDraft
+                     && !v.Node.IsDeleted)
+            .SelectMany(v => v.Relations.Where(r => r.Name == name))
+            .OrderBy(r => r.Ordinal)
+            .Select(r => (Guid?)r.TargetNodeId)
+            .FirstOrDefaultAsync(ct);
+
     public async Task<IReadOnlyDictionary<Guid, RelationNode>> GetNodesAsync(IEnumerable<Guid> nodeIds, CancellationToken ct = default)
     {
         var ids = nodeIds.Distinct().ToList();

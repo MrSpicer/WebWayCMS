@@ -170,6 +170,8 @@
                                         <button type="button" class="dropdown-item is-danger" role="menuitem"
                                                 data-delete-trigger
                                                 data-delete-name="@node.Title"
+                                                data-delete-descendants="@node.DescendantCount"
+                                                data-delete-descendant-label="child page"
                                                 data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageNodeId })">
                                             <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
                                             <span>Delete</span>

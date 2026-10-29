@@ -82,8 +82,8 @@ Zone items store their widget configuration as JSON (`ComponentPropertiesJson`),
 view-model choke point, yet widgets render their `RichText` config fields with `@Html.Raw`. Every
 zone-item write therefore passes the payload through `WidgetConfigurationJson.Sanitize`
 (`WebWayCMS.Core/Models/ContentZone/`): the zone editor API (`POST /api/contentzones/items`, create and
-update) and `ContentZoneChildHandler` (admin child form, MCP `create_child`/`update_child`, the content
-seeder, version restore). It resolves the component's configuration type and rewrites **only** the
+update) and `ContentZoneItemModel` (the `contentzoneitems` admin form, MCP `create_child`/`update_child`,
+the content seeder, version restore). It resolves the component's configuration type and rewrites **only** the
 values of its `RichText` string properties (matched case-insensitively, honouring `[JsonPropertyName]`)
 in place: keys the type doesn't declare are kept, a payload with nothing to clean is stored verbatim,
 and a rewritten one is serialized with relaxed escaping so markup isn't inflated to `\u003C` against

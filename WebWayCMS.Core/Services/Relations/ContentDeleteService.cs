@@ -46,9 +46,10 @@ public sealed class ContentDeleteService : IContentDeleteService
     {
         ArgumentNullException.ThrowIfNull(deleteSelf);
 
-        var (order, descendants) = await CollectAsync(nodeId, ct);
+        var (order, descendantIds) = await CollectAsync(nodeId, ct);
         var deleting = order.ToHashSet();
         var nodes = await _relations.GetNodesAsync(order, ct);
+        var descendants = descendantIds.Count(id => !IsZoneStructure(nodes.GetValueOrDefault(id)?.ContentTypeKey));
 
         // References into the set from outside it: Restrict blocks the whole delete, Detach is undone below.
         var registry = _services.GetService<ContentRelationRegistry>();
@@ -117,14 +118,24 @@ public sealed class ContentDeleteService : IContentDeleteService
     }
 
     /// <summary>
-    /// The deletion set in breadth-first order (the node first): its containment descendants and the
-    /// owned targets of every node in the set. The count is the containment descendants only.
+    /// Zones and zone items are a page's (or container's) structure, not content of their own: they go
+    /// with their owner but are not counted, so a page delete reports the child pages it took.
     /// </summary>
-    private async Task<(List<Guid> Order, int Descendants)> CollectAsync(Guid nodeId, CancellationToken ct)
+    private static bool IsZoneStructure(string? contentTypeKey)
+        => string.Equals(contentTypeKey, ContentZoneTypeKey, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(contentTypeKey, ContentRelationRegistry.ContentZoneItemContentType, StringComparison.OrdinalIgnoreCase);
+
+    private const string ContentZoneTypeKey = "contentzones";
+
+    /// <summary>
+    /// The deletion set in breadth-first order (the node first): its containment descendants and the
+    /// owned targets of every node in the set, plus the containment descendants on their own.
+    /// </summary>
+    private async Task<(List<Guid> Order, List<Guid> Descendants)> CollectAsync(Guid nodeId, CancellationToken ct)
     {
         var order = new List<Guid> { nodeId };
         var seen = new HashSet<Guid> { nodeId };
-        var descendants = 0;
+        var descendants = new List<Guid>();
         for (var i = 0; i < order.Count; i++)
         {
             foreach (var child in await _relations.GetLiveChildrenAsync(order[i], ct))
@@ -132,7 +143,7 @@ public sealed class ContentDeleteService : IContentDeleteService
                 if (seen.Add(child.SourceNodeId))
                 {
                     order.Add(child.SourceNodeId);
-                    descendants++;
+                    descendants.Add(child.SourceNodeId);
                 }
             }
             foreach (var owned in await _relations.GetLiveOwnedTargetsAsync(order[i], ct))

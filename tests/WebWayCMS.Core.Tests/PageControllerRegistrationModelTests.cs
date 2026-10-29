@@ -99,7 +99,6 @@ public class PageControllerRegistrationModelTests
             Assert.That(_model.WriteRoles, Is.Null);
             Assert.That(_model.HasSecondaryApiList, Is.False);
             Assert.That(_model.RegistryHandler, Is.Null);
-            Assert.That(_model.ChildHandler, Is.Null);
         });
     }
 

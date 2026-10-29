@@ -139,5 +139,4 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
         => Task.FromResult(Enumerable.Empty<object>());
 
     public IAdminRegistryHandler? RegistryHandler => null;
-    public IAdminCrudChildHandler? ChildHandler => null;
 }

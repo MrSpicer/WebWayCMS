@@ -38,6 +38,8 @@ internal static class CmsAdminRegistration
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Article.ArticleListModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Article.ArticleModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.ContentZone.ContentZoneModel>());
+        services.AddScoped<Models.ContentZone.ContentZoneItemModel>();
+        services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.ContentZone.ContentZoneItemModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.WidgetRegistration.WidgetRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.PageControllerRegistration.PageControllerRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.CMSRoute.CMSRouteModel>());

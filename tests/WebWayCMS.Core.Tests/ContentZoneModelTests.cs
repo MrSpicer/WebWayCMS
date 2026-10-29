@@ -17,6 +17,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Models.Shared;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
@@ -44,6 +45,20 @@ public class ContentZoneModelTests
     private IPageHistoryService _pageHistory = null!;
     private IWidgetSlotDiscovery _slotDiscovery = null!;
     private ContentZoneModel _model = null!;
+
+    /// <summary>The zone item handler over this fixture's model (the old zone child handler's home).</summary>
+    private ContentZoneItemModel Items => new(_model);
+
+    private static readonly Microsoft.AspNetCore.Http.IQueryCollection NoQuery = new Microsoft.AspNetCore.Http.QueryCollection();
+
+    /// <summary>Creates an item in <paramref name="zoneId"/> (stubbed as an existing zone) through the item handler.</summary>
+    private Task<AdminSaveResult> CreateInZoneAsync(Guid zoneId, ContentZoneItemUpsertViewModel vm)
+    {
+        _zoneStore.GetCurrentDraftAsync(zoneId, Arg.Any<CancellationToken>())
+            .Returns(new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = zoneId } } });
+        RelationProperties.Write(vm, [new RelationValue(nameof(ContentZoneItemUpsertViewModel.ContentZoneNodeId), zoneId, 0, string.Empty)]);
+        return Items.SaveUpsertAsync(vm);
+    }
 
     [SetUp]
     public void SetUp()
@@ -132,7 +147,6 @@ public class ContentZoneModelTests
             Assert.That(_model.WriteRoles, Is.Null);
             Assert.That(_model.HasSecondaryApiList, Is.False);
             Assert.That(_model.RegistryHandler, Is.Not.Null);
-            Assert.That(_model.ChildHandler, Is.Not.Null);
         });
     }
 
@@ -475,27 +489,41 @@ public class ContentZoneModelTests
     // --- Child handler ---
 
     [Test]
-    public async Task ChildHandler_Metadata()
-    {
-        var child = _model.ChildHandler!;
+    public void ItemModel_Constructor_NullModel_Throws()
+        => Assert.That(() => new ContentZoneItemModel(null!), Throws.ArgumentNullException);
 
-        Assert.Multiple(() =>
+    [Test]
+    public async Task ItemModel_Metadata()
+    {
+        IAdminCrudHandler child = Items;
+
+        Assert.Multiple(async () =>
         {
-            Assert.That(child.ChildType, Is.EqualTo("items"));
-            Assert.That(child.ChildDisplayName, Is.EqualTo("Content Zone Item"));
+            Assert.That(child.ContentType, Is.EqualTo("contentzoneitems"));
+            Assert.That(child.DisplayName, Is.EqualTo("Content Zone Item"));
             Assert.That(child.WriteRoles, Is.Null);
-            Assert.That(child.ChildIndexViewPath, Does.Contain("ContentZoneItems.cshtml"));
-            Assert.That(child.ChildUpsertViewPath, Does.Contain("ContentZoneItemUpsert.cshtml"));
-            Assert.That(child.SupportsReorder, Is.True);
+            Assert.That(child.SupportsPublishing, Is.False);
+            Assert.That(child.IndexViewPath, Does.Contain("ContentZoneItems.cshtml"));
+            Assert.That(child.UpsertViewPath, Does.Contain("ContentZoneItemUpsert.cshtml"));
             Assert.That(child.SupportsVersionHistory, Is.True);
-            Assert.That(child.CreateEmptyChildUpsertViewModel(), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
+            Assert.That(child.HasSecondaryApiList, Is.False);
+            Assert.That(child.RegistryHandler, Is.Null);
+            Assert.That(child.CreateEmptyUpsertViewModel(), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
+            Assert.That(await child.GetApiListAsync(), Is.Empty);
+            Assert.That(await child.GetSecondaryApiListAsync("x"), Is.Empty);
+            Assert.That(await child.GetIndexViewModelAsync(), Is.InstanceOf<ContentZoneItemsIndexViewModel>());
         });
     }
 
+    private static Microsoft.AspNetCore.Http.IQueryCollection ZoneQuery(string value)
+        => new Microsoft.AspNetCore.Http.QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+        {
+            ["contentzonenodeid"] = value
+        });
+
     [Test]
-    public async Task ChildHandler_GetChildIndex_Variants()
+    public async Task ItemModel_Index_ListsTheNamedZonesItems()
     {
-        var child = _model.ChildHandler!;
         var zone = Zone();
         var item = Item("C", "{}");
         _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
@@ -503,11 +531,11 @@ public class ContentZoneModelTests
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await child.GetChildIndexViewModelAsync("not-a-guid"), Is.Null);
+            Assert.That(((ContentZoneItemsIndexViewModel)await Items.GetIndexViewModelAsync(NoQuery)).ZoneId, Is.EqualTo(Guid.Empty));
+            Assert.That(((ContentZoneItemsIndexViewModel)await Items.GetIndexViewModelAsync(ZoneQuery("not-a-guid"))).ZoneId, Is.EqualTo(Guid.Empty));
+            Assert.That(((ContentZoneItemsIndexViewModel)await Items.GetIndexViewModelAsync(ZoneQuery(Guid.NewGuid().ToString()))).ZoneId, Is.EqualTo(Guid.Empty));
 
-            var vm = await child.GetChildIndexViewModelAsync(zone.Version.Node.Id.ToString());
-            Assert.That(vm, Is.InstanceOf<ContentZoneItemsIndexViewModel>());
-            var index = (ContentZoneItemsIndexViewModel)vm!;
+            var index = (ContentZoneItemsIndexViewModel)await Items.GetIndexViewModelAsync(ZoneQuery(zone.Version.Node.Id.ToString()));
             Assert.That(index.ZoneId, Is.EqualTo(zone.Version.Node.Id));
             Assert.That(index.ZoneName, Is.EqualTo("Zone"));
             Assert.That(index.Items.Single().Id, Is.EqualTo(item.Version.Node.Id));
@@ -515,37 +543,57 @@ public class ContentZoneModelTests
     }
 
     [Test]
-    public async Task ChildHandler_Reorder_DelegatesToService()
+    public async Task ItemModel_RelatedChildren_AreTheZonesActiveCurrentDrafts()
     {
-        var child = _model.ChildHandler!;
         var zoneId = Guid.NewGuid();
-        var ids = new List<Guid> { Guid.NewGuid() };
-        _service.ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>()).Returns(true);
+        var item = Item("C", "{}");
+        var removed = Item("Removed", "{}") with { IsActive = false };
+        _itemStore.FindCurrentDraftsRelatedAsync(ZoneRelations.Zone, zoneId, Arg.Any<CancellationToken>())
+            .Returns(new List<ContentZoneItemDTO> { item, removed });
 
-        Assert.Multiple(async () =>
+        var children = await Items.GetRelatedChildrenAsync(ZoneRelations.Zone, zoneId);
+        var other = await Items.GetRelatedChildrenAsync("Other", zoneId);
+
+        Assert.Multiple(() =>
         {
-            Assert.That(await child.ReorderAsync("not-a-guid", ids),
-                Is.EqualTo((false, (string?)"The parent key must be a content zone id.")));
-            Assert.That(await child.ReorderAsync(zoneId.ToString(), ids), Is.EqualTo((true, (string?)null)));
+            Assert.That(children.Single().Id, Is.EqualTo(item.Version.Node.Id));
+            Assert.That(children.Single().Title, Is.EqualTo("C"));
+            Assert.That(other, Is.Empty);
         });
-        await _service.Received(1).ReorderItemsAsync(zoneId, ids, Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task ChildHandler_Move_DelegatesToService()
+    public async Task ItemModel_Reorder_DelegatesToService()
     {
-        var child = _model.ChildHandler!;
-        var itemId = Guid.NewGuid();
         var zoneId = Guid.NewGuid();
-        _service.MoveItemAsync(itemId, zoneId, 2, Arg.Any<CancellationToken>()).Returns((true, (string?)null));
+        var ids = new List<Guid> { Guid.NewGuid() };
+        _service.ReorderItemsAsync(zoneId, Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>()).Returns(true, false);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(child.SupportsMove, Is.True);
-            Assert.That(await child.MoveAsync(itemId, "not-a-guid", 2), Is.EqualTo((false, "The target parent key must be a content zone id.")));
-            Assert.That(await child.MoveAsync(itemId, zoneId.ToString(), 2), Is.EqualTo((true, (string?)null)));
+            Assert.That(await Items.ReorderRelatedAsync("Other", zoneId, ids),
+                Is.EqualTo((false, (string?)IAdminCrudHandler.ReorderNotSupportedMessage)));
+            Assert.That(await Items.ReorderRelatedAsync(ZoneRelations.Zone, zoneId, ids), Is.EqualTo((true, (string?)null)));
+            Assert.That(await Items.ReorderRelatedAsync(ZoneRelations.Zone, zoneId, ids), Is.EqualTo((false, (string?)"Failed to reorder the items.")));
         });
-        await _service.Received(1).MoveItemAsync(itemId, zoneId, 2, Arg.Any<CancellationToken>());
+        await _service.Received(2).ReorderItemsAsync(zoneId, Arg.Is<List<Guid>>(l => l.SequenceEqual(ids)), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ItemModel_Move_DelegatesToServiceWithTheExpectedVersion()
+    {
+        var itemId = Guid.NewGuid();
+        var zoneId = Guid.NewGuid();
+        _service.MoveItemAsync(itemId, zoneId, Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns((true, (string?)null));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await Items.MoveRelatedAsync("Other", itemId, zoneId, 2, null), Is.EqualTo((false, IAdminCrudHandler.MoveNotSupportedMessage)));
+            Assert.That(await Items.MoveRelatedAsync(ZoneRelations.Zone, itemId, zoneId, 2, 7), Is.EqualTo((true, (string?)null)));
+            Assert.That(await Items.MoveRelatedAsync(ZoneRelations.Zone, itemId, zoneId, null, null), Is.EqualTo((true, (string?)null)));
+        });
+        await _service.Received(1).MoveItemAsync(itemId, zoneId, 2, Arg.Any<CancellationToken>(), 7);
+        await _service.Received(1).MoveItemAsync(itemId, zoneId, int.MaxValue, Arg.Any<CancellationToken>(), null);
     }
 
     [Test]
@@ -559,45 +607,69 @@ public class ContentZoneModelTests
     }
 
     [Test]
-    public async Task ChildHandler_GetChildUpsert_Variants()
+    public async Task ItemModel_GetUpsert_Variants()
     {
-        var child = _model.ChildHandler!;
         var item = Item("C", "{}");
+        var zone = Zone(item.ContentZoneNodeId, "Main");
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
+        _zoneStore.GetCurrentDraftAsync(item.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns(zone, (ContentZoneDTO?)null);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await child.GetChildUpsertViewModelAsync("k", null), Is.Null);
-            Assert.That(await child.GetChildUpsertViewModelAsync("k", item.Version.Node.Id), Is.Not.Null);
+            Assert.That(await Items.GetUpsertViewModelAsync(null, NoQuery), Is.InstanceOf<ContentZoneItemUpsertViewModel>());
+            Assert.That(((ContentZoneItemUpsertViewModel)(await Items.GetUpsertViewModelAsync(item.Version.Node.Id, NoQuery))!).ZoneName, Is.EqualTo("Main"));
+            Assert.That(((ContentZoneItemUpsertViewModel)(await Items.GetUpsertViewModelAsync(item.Version.Node.Id, NoQuery))!).ZoneName, Is.Null);
         });
     }
 
     [Test]
-    public async Task ChildHandler_GetChildUpsert_MissingItem_ReturnsNull()
+    public async Task ItemModel_GetUpsert_MissingItem_ReturnsNull()
     {
         _itemStore.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
 
-        Assert.That(await _model.ChildHandler!.GetChildUpsertViewModelAsync("k", Guid.NewGuid()), Is.Null);
+        Assert.That(await Items.GetUpsertViewModelAsync(Guid.NewGuid(), NoQuery), Is.Null);
     }
 
     [Test]
-    public async Task ChildHandler_SetViewData_Variants()
+    public async Task ItemModel_Create_UnknownOrMissingZone_IsAFieldError()
     {
-        var child = _model.ChildHandler!;
-        var zone = Zone();
-        _zoneStore.GetCurrentDraftAsync(zone.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(zone);
-        var viewData = NewViewData();
+        var unknown = await Items.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { ComponentName = "C", ContentZoneNodeId = Guid.NewGuid() });
+        var missing = await Items.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { ComponentName = "C" });
 
-        await child.SetChildUpsertViewDataAsync(viewData, "not-a-guid");
-        await child.SetChildUpsertViewDataAsync(viewData, zone.Version.Node.Id.ToString());
+        Assert.Multiple(() =>
+        {
+            Assert.That(unknown.ErrorField, Is.EqualTo(nameof(ContentZoneItemUpsertViewModel.ContentZoneNodeId)));
+            Assert.That(missing.ErrorField, Is.EqualTo(nameof(ContentZoneItemUpsertViewModel.ContentZoneNodeId)));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+    }
 
-        Assert.That(viewData["ZoneId"], Is.EqualTo(zone.Version.Node.Id.ToString()));
+    [Test]
+    public async Task ItemModel_RestoreWithoutAnExpectedVersion_IsTheCheckedRestoreWithNone()
+    {
+        _itemStore.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
+
+        var result = await Items.RestoreVersionAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.EqualTo(new AdminSaveResult(false, IAdminCrudHandler.VersionNotFoundMessage)));
+    }
+
+    [Test]
+    public async Task ItemModel_TryDelete_ReportsAMissingItem()
+    {
+        _service.RemoveItemAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await Items.TryDeleteAsync(Guid.NewGuid()), Is.EqualTo((true, (string?)null, 0)));
+            Assert.That(await Items.TryDeleteAsync(Guid.NewGuid()), Is.EqualTo((false, (string?)IContentZoneService.ItemNotFoundMessage, 0)));
+        });
     }
 
     [Test]
     public async Task ChildHandler_SaveChildUpsert_Variants()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}");
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true, false);
@@ -605,24 +677,24 @@ public class ContentZoneModelTests
         Assert.Multiple(async () =>
         {
             // no id and invalid parent key -> error
-            Assert.That((await child.SaveChildUpsertAsync("not-a-guid", new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "C" })).Success, Is.False);
+            Assert.That((await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "C" })).Success, Is.False);
             // id but item missing -> error
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid(), ComponentName = "C" })).Success, Is.False);
+            Assert.That((await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid(), ComponentName = "C" })).Success, Is.False);
             // update success then failure
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.True);
-            Assert.That((await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.False);
+            Assert.That((await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.True);
+            Assert.That((await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" })).Success, Is.False);
         });
     }
 
     [Test]
     public async Task ChildHandler_SaveChildUpsert_StaleExpectedVersion_IsRejectedBeforeSaving()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}");
         item.Version.VersionNumber = 3;
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C", ExpectedVersionNumber = 2 });
+        var result = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C", ExpectedVersionNumber = 2 });
 
         Assert.Multiple(() =>
         {
@@ -635,16 +707,16 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_ExpectedVersion_IsPassedToTheStore()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}");
         item.Version.VersionNumber = 3;
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), 3).Returns(true, false);
         var vm = new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C", ExpectedVersionNumber = 3 };
 
-        var saved = await child.SaveChildUpsertAsync("k", vm);
+        var saved = await child.SaveUpsertAsync(vm);
         // A concurrent write the store's own version check caught.
-        var raced = await child.SaveChildUpsertAsync("k", vm);
+        var raced = await child.SaveUpsertAsync(vm);
 
         Assert.Multiple(() =>
         {
@@ -657,7 +729,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_ReturnsItemNodeId_OnCreateAndUpdate()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var zoneId = Guid.NewGuid();
         var createdNodeId = Guid.NewGuid();
         var item = Item("C", "{}");
@@ -671,8 +743,8 @@ public class ContentZoneModelTests
                 return added;
             });
 
-        var created = await child.SaveChildUpsertAsync(zoneId.ToString(), new ContentZoneItemUpsertViewModel { ComponentName = "C" });
-        var updated = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" });
+        var created = await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel { ComponentName = "C" });
+        var updated = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = item.Version.Node.Id, ComponentName = "C" });
 
         Assert.Multiple(() =>
         {
@@ -684,9 +756,9 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_MissingComponentName_ReturnsValidationError()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
 
-        var result = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid() });
+        var result = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel { NodeId = Guid.NewGuid() });
 
         Assert.Multiple(() =>
         {
@@ -701,7 +773,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_CreatesNewItem_WhenNoId()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var zoneId = Guid.NewGuid();
         ContentZoneItemDTO? captured = null;
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
@@ -713,8 +785,7 @@ public class ContentZoneModelTests
             });
         _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        var created = await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "{\"ContentBlockID\":\"x\"}", IsActive = true });
+        var created = await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "{\"ContentBlockID\":\"x\"}", IsActive = true });
 
         Assert.Multiple(() =>
         {
@@ -725,8 +796,7 @@ public class ContentZoneModelTests
             Assert.That(captured!.IsActive, Is.True);
         });
 
-        var createdBlank = await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "  " });
+        var createdBlank = await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel { NodeId = null, ComponentName = "ContentBlock", ComponentPropertiesJson = "  " });
 
         Assert.Multiple(() =>
         {
@@ -738,7 +808,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_Create_StoresCanonicalMetadata()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var zoneId = Guid.NewGuid();
         ContentZoneItemDTO? captured = null;
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
@@ -749,7 +819,7 @@ public class ContentZoneModelTests
                 return captured;
             });
 
-        var result = await child.SaveChildUpsertAsync(zoneId.ToString(), new ContentZoneItemUpsertViewModel
+        var result = await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel
         {
             ComponentName = "ContentBlock",
             MetadataJson = "{\"anchorId\":\"intro\",\"adminNote\":null}"
@@ -765,14 +835,14 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_InvalidMetadata_RejectedBeforeAnyWrite()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
 
-        var created = await child.SaveChildUpsertAsync(Guid.NewGuid().ToString(), new ContentZoneItemUpsertViewModel
+        var created = await CreateInZoneAsync(Guid.NewGuid(), new ContentZoneItemUpsertViewModel
         {
             ComponentName = "ContentBlock",
             MetadataJson = "{\"anchorId\":\"a onmouseover=alert(1)\"}"
         });
-        var updated = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        var updated = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel
         {
             NodeId = Guid.NewGuid(),
             ComponentName = "ContentBlock",
@@ -793,17 +863,17 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_Update_ReplacesOrKeepsMetadata()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}") with { MetadataJson = "{\"AdminLabel\":\"Old\"}" };
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
         var saved = new List<ContentZoneItemDTO>();
         _service.UpdateItemAsync(Arg.Do<ContentZoneItemDTO>(saved.Add), Arg.Any<CancellationToken>()).Returns(true);
 
-        await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel
         {
             NodeId = item.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"adminLabel\":\"New\"}"
         });
-        await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel
         {
             NodeId = item.Version.Node.Id, ComponentName = "C", MetadataJson = "  "
         });
@@ -818,7 +888,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_SaveChildUpsert_Update_StoredListOnWidgetThatDroppedListSupport_IsKept()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
         var listItem = Item("C", "{}") with { MetadataJson = "{\"DisplayMode\":\"List\"}" };
         var singleItem = Item("C", "{}");
@@ -827,12 +897,12 @@ public class ContentZoneModelTests
         _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>()).Returns(true);
 
         // An item already stored as List can be re-saved unchanged (e.g. an MCP update_child).
-        var kept = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        var kept = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel
         {
             NodeId = listItem.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"DisplayMode\":\"List\"}"
         });
         // Newly choosing List on a Single item is still rejected.
-        var chosen = await child.SaveChildUpsertAsync("k", new ContentZoneItemUpsertViewModel
+        var chosen = await child.SaveUpsertAsync(new ContentZoneItemUpsertViewModel
         {
             NodeId = singleItem.Version.Node.Id, ComponentName = "C", MetadataJson = "{\"DisplayMode\":\"List\"}"
         });
@@ -848,7 +918,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_GetChildRestore_HistoricalListOnWidgetWithoutListSupport_RestoresAsSingle()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
         _registry.GetByName("L").Returns(new WidgetRegistrationInfo { Name = "L", SupportsList = true });
 
@@ -858,7 +928,7 @@ public class ContentZoneModelTests
             var current = historical with { VersionId = Guid.NewGuid(), MetadataJson = currentJson };
             _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
             _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(current);
-            var vm = (ContentZoneItemUpsertViewModel)(await child.GetChildRestoreVersionViewModelAsync("k", historical.VersionId))!;
+            var vm = (ContentZoneItemUpsertViewModel)(await child.GetRestoreVersionViewModelAsync(historical.VersionId))!;
             return vm.MetadataJson;
         }
 
@@ -884,24 +954,23 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_DeleteChild_And_VersionHistory_Restore_DeleteVersion()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}");
         _itemStore.GetCurrentDraftAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(item);
         _service.RemoveItemAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(true);
         _service.GetParentPageNodeForZoneAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        Assert.That(await child.DeleteChildAsync(item.Version.Node.Id), Is.True);
+        Assert.That(await child.DeleteAsync(item.Version.Node.Id), Is.True);
 
         _itemStore.GetAllVersionsAsync(item.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
-        Assert.That(await child.GetChildVersionHistoryViewModelAsync("k", item.Version.Node.Id), Is.Not.Null);
+        Assert.That(await child.GetVersionHistoryViewModelAsync(item.Version.Node.Id), Is.Not.Null);
 
         _itemStore.GetVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(item);
-        Assert.That(await child.GetChildRestoreVersionViewModelAsync("k", item.VersionId), Is.Not.Null);
+        Assert.That(await child.GetRestoreVersionViewModelAsync(item.VersionId), Is.Not.Null);
 
         _itemStore.DeleteVersionAsync(item.VersionId, Arg.Any<CancellationToken>()).Returns(true);
-        Assert.That(await child.DeleteChildVersionAsync(item.VersionId), Is.True);
+        Assert.That(await child.DeleteVersionAsync(item.VersionId), Is.True);
 
-        Assert.That(await child.ReorderAsync("k", new List<Guid>()), Is.EqualTo((false, (string?)"The parent key must be a content zone id.")));
     }
 
     // --- Page history: one-step restore, history guard ---
@@ -916,7 +985,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_VersionHistory_ReportsTheCurrentDraftsVersionNumber()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var archived = Item("C", "{}") with { };
         archived.Version.IsCurrentDraft = false;
         var current = Item("C", "{}");
@@ -926,8 +995,8 @@ public class ContentZoneModelTests
         _itemStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(new List<ContentZoneItemDTO> { current, archived }, new List<ContentZoneItemDTO> { archived });
 
-        var withDraft = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
-        var withoutDraft = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
+        var withDraft = await child.GetVersionHistoryViewModelAsync(nodeId);
+        var withoutDraft = await child.GetVersionHistoryViewModelAsync(nodeId);
 
         Assert.Multiple(() =>
         {
@@ -941,13 +1010,13 @@ public class ContentZoneModelTests
     [TestCase("", "{}", "C")]
     public async Task ChildHandler_VersionHistory_TitleFallsBackToAdminLabelThenComponent(string title, string? metadata, string expected)
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var item = Item("C", "{}") with { MetadataJson = metadata };
         item.Version.Title = title;
         var nodeId = Guid.NewGuid();
         _itemStore.GetAllVersionsAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { item });
 
-        var vm = await child.GetChildVersionHistoryViewModelAsync("k", nodeId);
+        var vm = await child.GetVersionHistoryViewModelAsync(nodeId);
 
         Assert.That(vm!.ItemTitle, Is.EqualTo(expected));
     }
@@ -955,18 +1024,18 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_RestoreChildVersion_UnknownVersionOrItem_IsReported()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var historical = Item("C", "{}");
         _itemStore.GetVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
-        var unknownVersion = await child.RestoreChildVersionAsync("k", Guid.NewGuid(), null);
+        var unknownVersion = await child.RestoreVersionAsync(Guid.NewGuid(), null);
 
         _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
         _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns((ContentZoneItemDTO?)null);
-        var unknownItem = await child.RestoreChildVersionAsync("k", historical.VersionId, null);
+        var unknownItem = await child.RestoreVersionAsync(historical.VersionId, null);
 
         Assert.Multiple(() =>
         {
-            Assert.That(unknownVersion, Is.EqualTo(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage)));
+            Assert.That(unknownVersion, Is.EqualTo(new AdminSaveResult(false, IAdminCrudHandler.VersionNotFoundMessage)));
             Assert.That(unknownItem, Is.EqualTo(new AdminSaveResult(false, IContentZoneService.ItemNotFoundMessage)));
         });
         await _service.DidNotReceive().RestoreItemVersionAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
@@ -975,7 +1044,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_RestoreChildVersion_RestoresWithNormalizedMetadata_ThenSyncsGlobalRoutes()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         _registry.GetByName("C").Returns(new WidgetRegistrationInfo { Name = "C", SupportsList = false });
         var historical = Item("C", "{}") with { MetadataJson = "{\"DisplayMode\":\"List\"}" };
         var current = historical with { VersionId = Guid.NewGuid(), MetadataJson = "{}" };
@@ -985,7 +1054,7 @@ public class ContentZoneModelTests
             .Returns((true, (string?)null));
         _service.GetParentPageNodeForZoneAsync(historical.ContentZoneNodeId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        var result = await child.RestoreChildVersionAsync("k", historical.VersionId, 2);
+        var result = await child.RestoreVersionAsync(historical.VersionId, 2);
 
         Assert.That(result, Is.EqualTo(new AdminSaveResult(true, NodeId: historical.Version.Node.Id)));
         await _service.Received(1).RestoreItemVersionAsync(historical.VersionId,
@@ -996,14 +1065,14 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_RestoreChildVersion_Refused_ReturnsTheReasonAndTouchesNoRoutes()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var historical = Item("C", "{}");
         _itemStore.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
         _itemStore.GetCurrentDraftAsync(historical.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(historical);
         _service.RestoreItemVersionAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns((false, IContentZoneService.RestoreZoneMissingMessage));
 
-        var result = await child.RestoreChildVersionAsync("k", historical.VersionId, null);
+        var result = await child.RestoreVersionAsync(historical.VersionId, null);
 
         Assert.That(result, Is.EqualTo(new AdminSaveResult(false, IContentZoneService.RestoreZoneMissingMessage)));
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
@@ -1013,13 +1082,13 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_TryDeleteChildVersion_InPageHistory_IsRefused()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var versionId = Guid.NewGuid();
         var entry = new PageSetSnapshot { Id = Guid.NewGuid(), CreatedUtc = DateTime.UtcNow };
         _pageHistory.GetSnapshotsReferencingVersionAsync(versionId, Arg.Any<CancellationToken>()).Returns([entry]);
 
-        var (success, error) = await child.TryDeleteChildVersionAsync(versionId);
-        var deleted = await child.DeleteChildVersionAsync(versionId);
+        var (success, error) = await child.TryDeleteVersionAsync(versionId);
+        var deleted = await child.DeleteVersionAsync(versionId);
 
         Assert.Multiple(() =>
         {
@@ -1033,11 +1102,11 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_TryDeleteChildVersion_NotInHistory_DeletesOrExplains()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         _itemStore.DeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true, false);
 
-        var deleted = await child.TryDeleteChildVersionAsync(Guid.NewGuid());
-        var refused = await child.TryDeleteChildVersionAsync(Guid.NewGuid());
+        var deleted = await child.TryDeleteVersionAsync(Guid.NewGuid());
+        var refused = await child.TryDeleteVersionAsync(Guid.NewGuid());
 
         Assert.Multiple(() =>
         {
@@ -1275,7 +1344,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_PageZoneItem_DefersRouteRegistrationToPagePublish()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var zoneId = Guid.NewGuid();
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
             .Returns(c =>
@@ -1286,8 +1355,7 @@ public class ContentZoneModelTests
             });
         _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns(Guid.NewGuid());
 
-        var created = await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
+        var created = await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
 
         Assert.That(created.Success, Is.True);
         await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
@@ -1297,7 +1365,7 @@ public class ContentZoneModelTests
     [Test]
     public async Task ChildHandler_GlobalZoneItem_RegistersRoutesWithoutAPage()
     {
-        var child = _model.ChildHandler!;
+        var child = Items;
         var zoneId = Guid.NewGuid();
         var itemNodeId = Guid.NewGuid();
         _service.AddItemAsync(zoneId, Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
@@ -1309,8 +1377,7 @@ public class ContentZoneModelTests
             });
         _service.GetParentPageNodeForZoneAsync(zoneId, Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        await child.SaveChildUpsertAsync(zoneId.ToString(),
-            new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
+        await CreateInZoneAsync(zoneId, new ContentZoneItemUpsertViewModel { ComponentName = "ContentBlock", ComponentPropertiesJson = "{}", IsActive = true });
 
         await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync("ContentBlock", itemNodeId, null, true, null, Arg.Any<CancellationToken>());
     }

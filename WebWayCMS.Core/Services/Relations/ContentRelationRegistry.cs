@@ -60,6 +60,17 @@ public sealed class ContentRelationRegistry
     public RelationDeletePolicy GetPolicy(string sourceContentType, string name)
         => Find(sourceContentType, name)?.Attribute.OnTargetDelete ?? RelationDeletePolicy.Restrict;
 
+    /// <summary>
+    /// Every containment declared by an admin content type whose target is <paramref name="contentType"/>
+    /// (the key or its singular, as the entity picker resolves it): the kinds of children it can hold.
+    /// </summary>
+    public IReadOnlyList<ContentRelationDeclaration> GetContainmentsTargeting(string contentType)
+        => Declarations().Values
+            .SelectMany(d => d)
+            .Where(d => d.Attribute.Kind == ContentRelationKind.Containment
+                     && RelationBinder.IsTargetType(contentType, d.Attribute.TargetContentType))
+            .ToList();
+
     /// <summary>Builds the registry now, throwing on the first invalid declaration.</summary>
     public void Validate() => Declarations();
 
@@ -125,6 +136,8 @@ public sealed class ContentRelationRegistry
             throw Invalid(declaration, "is a containment, so it must be a single Guid (a child has exactly one parent)");
         if (attr.Ordered && !isContainment)
             throw Invalid(declaration, "sets Ordered, which only a containment may set");
+        if (!attr.ShowInParentAdmin && !isContainment)
+            throw Invalid(declaration, "turns off ShowInParentAdmin, which only a containment has");
         if (attr.IsOnTargetDeleteSet && isContainment)
             throw Invalid(declaration, "sets OnTargetDelete, which a containment may not set (its children are deleted with it)");
         if (_handlers.GetHandler(attr.TargetContentType) == null && _handlers.GetHandler(attr.TargetContentType + "s") == null)

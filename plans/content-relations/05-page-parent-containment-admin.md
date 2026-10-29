@@ -157,3 +157,61 @@ Get approval for changes to:
      `reorder_children` on a zone.
   8. Boot with the unchanged seed files: the alias works and logs the deprecation warning once per
      item.
+
+## Outcome (2026-10-28)
+
+Implemented in one session (the user chose not to split it), with these decisions and deviations:
+
+- **Decisions taken with the user:** all of phase 5 at once; the stored zone relation was **renamed** to
+  `ContentZoneNodeId` (`ZoneRelations.Zone`) so the item view model property can declare it; `DeletedDescendants`
+  counts **pages only** — implemented generically as "containment descendants other than zones and zone items",
+  so an article list still counts its articles; the listed test changes were approved.
+- **Delete confirm** uses the shared delete modal (`admin.js`, `data-delete-descendants` +
+  `data-delete-descendant-label`), not a Pages-only script. `PageTreeNode.DescendantCount` follows the parent
+  relation, not the URL. `DeletePageAsync` left `IPageModel`; its body is `PageModel.DeleteSelfAsync`.
+- **Cycle guard** applies to every containment (one extra query per save), reading the source id from
+  `BaseContentViewModel.NodeId`; new `IContentRelations.GetCurrentDraftTargetAsync`.
+- **Children panel** reorder is Up/Down buttons, not drag (no ordered containment is shown in a panel today:
+  zone items opt out). Heading is the pluralized display name. The panel is rendered by `_AdminLayout` from
+  `ViewData`, so no upsert view changed.
+- **Preselect** is applied by `AdminContentController.Create` (`RelationPreselect.Apply`), for every handler.
+  `?list=` stays as the Articles index filter only.
+- **Handler surface** added beyond the plan: `IAdminCrudHandler.MoveRelatedAsync` (generic move; zone items use
+  `MoveItemAsync` with the expected version) and `RestoreVersionAsync(versionId, expectedVersionNumber)` (the
+  child restore's version check, now on the top-level history route). `VersionHistory`, `RestoreVersion`,
+  `VersionDelete`, `EditPost` and `Delete` accept a local `returnUrl`.
+- **`ContentZoneItemModel`** is an `IAdminCrudHandler` (not an `AdminCrudModel`), Admin-only,
+  `SupportsPublishing = false`; its `GetRelatedChildrenAsync` reads **current drafts** (active), unlike the old
+  `list_children`, which read the published view. Delete is still a removal.
+- **MCP:** `list_content_types` reports `childTypes` (was `hasChildren`/`childType`); `move_child` gained
+  `expectedVersionNumber` and an optional `position`. `describe_content_type contentzoneitems` does **not** list
+  `contentZoneNodeId` (hidden fields are skipped, which `RelationToolTests` pins); use `create_child`.
+- **Seeder:** the alias warning is de-duplicated per run (`SeedRun.WarnedLegacyZoneItems`); a `zone` locator on a
+  non-zone-item type is skipped with a warning.
+- **Not removed:** `NotReservedConstraint` is now unused but still registered (its tests weren't in scope).
+- **Known limitation:** a mapper-based type with an `Ordered` containment would reset its ordinal to 0 on an
+  ordinary edit (the mapper writes ordinals by list position). No such type exists; zone items don't use the mapper.
+
+**Tests changed (approved):** `InterfaceDefaultsTests` (child-handler defaults → containment/restore defaults),
+`AdminContentControllerTests` (constructor; child-route tests replaced by preselect/panel/reorder/returnUrl/restore
+tests), `AdminModalTests` + `ContentRelationEngineTests` (controller constructor, `Delete` signature),
+`ContentZoneModelTests` / `ContentZoneConfigRelationTests` / `ContainerSlotRemapTests` (child handler →
+`ContentZoneItemModel`), `JsonContentSeederZoneTests` (top-level dispatch; locator zone now in the saved field),
+`ArticleModelTests.GetUpsertViewModelAsync_Create_*` (preselect moved to the controller), `PageModelTests` /
+`PageRouteProjectionTests` / `MappingTests` (parent relation; `DeletePageAsync` → `DeleteSelfAsync`),
+`ContentStoreTests` + `ContentRelationTests` (removed store queries), `CMSRouteTransformerTests` (two
+invisible-page tests now expect 404), `ZoneItemDeleterTests` (count 4 → 0), `ServiceCollectionExtensionsTests`
+(11 → 12 handlers), `ChildContentToolsetTests` (rewritten), `ContentToolsetTests` (`childTypes`),
+`McpToolHelpersTests` (`ResolveChild` tests removed); one-line `ChildHandler, Is.Null` asserts dropped from
+five model tests. Fixture edits: `FixtureFaqUpsertViewModel.FaqTopicId` is `Ordered`, its profile maps
+`ExpectedVersionNumber`.
+
+**Verification:** build clean (no new warnings); `RunTests.sh` green, 100% line + branch everywhere; the
+integration host boots with the seed applied (16 deprecation warnings, one per legacy zone item); MCP smoke
+(list/describe, page create → update → publish); items 1–8 all pass (move intro under guides: URL unchanged
+until publish, then `/guides/intro` and `/guides/intro/step` resolve and `/docs/intro` 404s; cycle refused on
+`ParentNodeId`; unpublishing docs 404s its children; docs delete confirm "and its 2 child pages", MCP
+`deletedDescendants: 2`, no nodes/routes/orphan relation rows left — only Intro's historical version still
+names docs, by design; Article List panel + preselected New Article; zone item index/edit/history/restore with
+`returnUrl`; MCP `list_children`, `create_child`, stale `move_child` refused, `reorder_children`). Playwright:
+93 pass, 10 fail — the 10 known stale specs (5 CSP, 5 FAQ escaping), unchanged.

@@ -347,8 +347,6 @@ public class ContentStoreRelationTests
             Assert.That(await store.GetBySlugAsync("visible"), Is.Not.Null);
             Assert.That(await store.FindAsync(a => a.Body == "b"), Has.Count.EqualTo(1));
             Assert.That(await store.FindRelatedAsync(ListRelation, hiddenList), Is.Empty);
-            Assert.That(await store.GetRootsAsync(), Has.Count.EqualTo(1));
-            Assert.That(await store.GetChildrenAsync(Guid.NewGuid()), Is.Empty);
             Assert.That(await draftStore.GetAsync(hidden), Is.Not.Null, "a draft read never filters");
         });
     }
@@ -556,6 +554,26 @@ public class ContentRelationsTests
         });
 
         Assert.That(await Relations().GetLiveOwnedTargetsAsync(source), Is.EqualTo(new[] { owned }));
+    }
+
+    [Test]
+    public async Task GetCurrentDraftTarget_ReadsTheCurrentDraftsFirstTarget()
+    {
+        var oldParent = Guid.NewGuid();
+        var parent = Guid.NewGuid();
+        var moved = await ArticleAsync("moved", v => v.SetRelation("Parent", oldParent, RelationKind.Containment), publish: true);
+        await SaveAsync(moved, v => v.SetRelation("Parent", parent, RelationKind.Containment));
+        var root = await ArticleAsync("root");
+        var deleted = await ArticleAsync("deleted", v => v.SetRelation("Parent", parent, RelationKind.Containment));
+        await Articles().DeleteAsync(deleted, softDelete: true);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await Relations().GetCurrentDraftTargetAsync(moved, "Parent"), Is.EqualTo(parent), "the draft, not the published version");
+            Assert.That(await Relations().GetCurrentDraftTargetAsync(root, "Parent"), Is.Null);
+            Assert.That(await Relations().GetCurrentDraftTargetAsync(deleted, "Parent"), Is.Null);
+            Assert.That(await Relations().GetCurrentDraftTargetAsync(Guid.NewGuid(), "Parent"), Is.Null);
+        });
     }
 
     [Test]

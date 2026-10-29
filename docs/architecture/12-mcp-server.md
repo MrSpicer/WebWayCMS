@@ -118,14 +118,14 @@ running the app. The toolset logic is unit-tested to the 100% gate.
 
 | Tool | Purpose |
 |---|---|
-| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s (including each type's `secondaryApiListKeys`) |
+| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s (including each type's `secondaryApiListKeys` and `childTypes`: the types a containment places under it) |
 | `describe_content_type` | Field/metadata description for one type. A `[ContentRelation]` field carries `relation: { kind, target, many, required }` (kind `containment`/`reference`/`owned`); its value is the target's node id, or an array of ids when `many` |
 | `list_content` | List items of a type |
 | `list_secondary_content` | List a type's additional named list, keyed by one of its `secondaryApiListKeys` |
 | `get_content` | Fetch a single item |
 | `create_content` | Create an item |
 | `update_content` | Update an item |
-| `delete_content` | Delete an item, with everything it contains (e.g. an article list's articles): returns `{ deleted, deletedDescendants }`; a delete the relation engine refuses (the item is still referenced) throws with the reason |
+| `delete_content` | Delete an item, with everything it contains (an article list's articles; a page's whole subtree of child pages with their zones and routes): returns `{ deleted, deletedDescendants }` (zones and zone items are not counted); a delete the relation engine refuses (the item is still referenced) throws with the reason |
 | `publish_content` | Publish the current draft of an item (gated on `SupportsPublishing`) |
 | `unpublish_content` | Unpublish the published version of an item |
 | `get_content_state` | Report an item's published/draft/current-version state |
@@ -147,34 +147,42 @@ items and after every publish; see [04 → History in the Zone Editor](04-conten
 | `revert_page_to_entry(pageNodeId, entryId, stateToken)` | Revert the page and every zone item to the entry as drafts (non-destructive; refused when the page changed since the token) — publish with `publish_content("pages", …)` |
 | `delete_page_history_entry(pageNodeId, entryId)` | Delete the entry record (its versions are kept) |
 
-**`ChildContentToolset`** — `list_children`, `get_child`, `get_child_version`, `create_child`,
-`update_child`, `delete_child`, `reorder_children`, `move_child`, `list_child_versions`,
-`restore_child_version`, `delete_child_version`. A zone item's `create_child`/`update_child` result
-carries the item's `nodeId`, so an agent can address the new item without listing the zone. A zone item's
-`update_child` merges over the stored item, whose `expectedVersionNumber` is its current version; an agent
-that passes the version it read gets `StaleVersionMessage` instead of overwriting a newer edit.
-`update_child` and `restore_child_version` on a container (e.g. a Layout) whose view changes move its
-nested widgets into the new view's zones, like the zone editor (see
+**`ChildContentToolset`** — generic over **containment** (a child is ordinary content of its own type,
+placed under a parent by a `[ContentRelation(Kind = Containment)]`; there is no child-handler contract):
+
+| Tool | Arguments | Purpose |
+|---|---|---|
+| `list_children` | `parentType`, `parentKey`, `childType`, `relation?` | The parent's children as `{ id, title, state, ordinal }` (current drafts, by position) |
+| `create_child` | `parentType`, `parentKey`, `childType`, `fields`, `relation?` | `create_content` on the child type with its containment set to the parent (the argument wins over `fields`) |
+| `reorder_children` | `parentType`, `parentKey`, `childType`, `orderedIds`, `relation?` | Ordered containments only; every child once |
+| `move_child` | `parentType`, `targetParentKey`, `childType`, `childId`, `position?`, `expectedVersionNumber?`, `relation?` | Re-parent (a new draft), at `position` for an ordered containment; refused with the stale message when the child changed since `expectedVersionNumber` |
+| `get_child`, `update_child`, `delete_child` | `childType`, `id` (+ `fields`) | The child type's ordinary handler operations |
+| `list_child_versions`, `get_child_version`, `restore_child_version`, `delete_child_version` | `childType`, `nodeId` / `versionId` (+ `expectedVersionNumber?` on restore) | The child type's version history |
+
+`parentKey`/`targetParentKey` are node ids. `relation` (the child's relation field name, case-insensitive) is
+needed only when the child type has several containments to the parent type; otherwise the one containment
+is used, and an unrelated pair is refused. This was a hard break of the old `contentType` + `childType: "items"`
++ string `parentKey` arguments (pre-release). Examples: `articlelists` + `articles`, `pages` + `pages`
+(child pages), `contentzones` + `contentzoneitems` (a zone's items).
+
+Zone items (`contentzoneitems`, `ContentZoneItemModel`): `create_child`/`update_child` results carry the item's
+`nodeId`. `update_child` merges over the stored item, whose `expectedVersionNumber` is its current version; an
+agent that passes the version it read gets `StaleVersionMessage` instead of overwriting a newer edit, and an
+update never moves the item (use `move_child`). `update_child` and `restore_child_version` on a container (e.g. a
+Layout) whose view changes move its nested widgets into the new view's zones, like the zone editor (see
 [04 → Changing a container's view](04-content-zone-framework.md#changing-a-containers-view)).
-`list_child_versions` on a container returns its combined timeline: its versions plus every nested
-widget's, newest first, each row with its `nodeId` and `widgetLabel` (`isCombined: true`).
+`list_child_versions` on a container returns its combined timeline: its versions plus every nested widget's,
+newest first, each row with its `nodeId` and `widgetLabel` (`isCombined: true`). `restore_child_version` is the
+same one-step restore as the admin history page (`IAdminCrudHandler.RestoreVersionAsync(versionId, expected)`):
+the widget, configuration, settings, active state, zone and position come back, refused (a failed save result)
+when the old zone no longer exists on the page; an unknown version throws. `move_child` moves a zone item only
+between zones of one page (never into its own nested zones; `position` default last). `delete_child` on a zone
+item **removes** it (an inactive version), so a restore or page revert brings it back.
 
-`restore_child_version(contentType, childType, parentKey, versionId, expectedVersionNumber?)` is the
-same one-step restore as the admin history page (`IAdminCrudChildHandler.RestoreChildVersionAsync`): for
-a zone item, its widget, configuration, settings, active state, zone and position come back, and it is
-refused (returned as a failed save result) when the old zone no longer exists on the page. An unknown
-version still throws.
+`reorder_children` and `move_child` surface a handler failure as a thrown `McpException` carrying the
+handler's message, never as a bare `false` result.
 
-`move_child(contentType, childType, childId, targetParentKey, position)` moves a child to a 0-based
-position (clamped) under a possibly different parent. It is gated on the optional
-`IAdminCrudChildHandler.SupportsMove` (default `false`, like `SupportsReorder`); `contentzones` items
-support it, with the target zone's node id as `targetParentKey`. Zone items can move only between
-zones of one page (and never into their own nested zones); a refused move throws with the reason.
-
-`reorder_children` and `move_child` both surface a handler failure as a thrown `McpException` carrying
-the handler's message (a bad parent key, a rejected reorder), never as a bare `false` result.
-
-Child writes on `contentzones` items follow the zone draft rule: in a zone that belongs to a page they
+Child writes on zone items follow the zone draft rule: in a zone that belongs to a page they
 create **drafts** that go live only when the page is published (`publish_content("pages", nodeId)`
 publishes the page and every pending zone item under it); in a global zone they go live immediately.
 
@@ -187,13 +195,14 @@ non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_c
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
 are exactly the admin URL segments: `pages`, `contentblocks`, `images`, `articlelists`, `articles`,
-`contentzones`, `widgets`, `pagetypes`, `formcomponents`, `cmsroutes`.
+`contentzones`, `contentzoneitems`, `widgets`, `pagetypes`, `formcomponents`, `cmsroutes`, `routes`.
 
 Articles and article lists are two ordinary top-level types: create a list with
 `create_content("articlelists", …)`, then an article with `create_content("articles", …)` whose `fields`
 include `articleListId` (the list's node id — required; an empty or unknown id is rejected on that field),
-and `publish_content` each. Articles have no child tools; zone items (`contentzones` / `items`) are the only
-child type.
+and `publish_content` each, or create the article with `create_child("articlelists", listId, "articles", …)`.
+A page's parent is its `parentNodeId` field (a containment; empty for a root page): `update_content` with a new
+`parentNodeId` moves it as a draft, and its publish re-derives its URL and its live descendants'.
 
 ---
 

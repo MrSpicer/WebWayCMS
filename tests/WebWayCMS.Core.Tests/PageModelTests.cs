@@ -14,6 +14,7 @@ using WebWayCMS.Models.Page;
 using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Pages;
 using WebWayCMS.Services;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
@@ -253,24 +254,24 @@ public class PageModelTests
     }
 
     [Test]
-    public async Task DeletePageAsync_DelegatesAndUnregistersRoute()
+    public async Task DeleteSelfAsync_DeletesThePageItsZonesAndRoutes()
     {
         var page = Page();
         _store.GetCurrentDraftAsync(page.Version.Node.Id, Arg.Any<CancellationToken>()).Returns(page);
         _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
 
-        Assert.That(await _model.DeletePageAsync(page.Version.Node.Id), Is.True);
+        Assert.That(await ((IContentDeleter)_model).DeleteSelfAsync(page.Version.Node.Id, default), Is.True);
         await _routeRegistration.Received(1).UnregisterContentRoutesAsync(page.Version.Node.Id, Arg.Any<CancellationToken>());
         await _contentZoneService.Received(1).DeletePageZonesAsync(page.Version.Node.Id, Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task DeletePageAsync_NotFound_StillDeletesWithoutUnregistering()
+    public async Task DeleteSelfAsync_NotFound_StillDeletesWithoutUnregistering()
     {
         _store.GetCurrentDraftAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((PageDTO?)null);
         _store.DeleteAsync(Arg.Any<Guid>(), false, Arg.Any<CancellationToken>()).Returns(true);
 
-        Assert.That(await _model.DeletePageAsync(Guid.NewGuid()), Is.True);
+        Assert.That(await ((IContentDeleter)_model).DeleteSelfAsync(Guid.NewGuid(), default), Is.True);
         await _routeRegistration.DidNotReceive().UnregisterContentRoutesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _contentZoneService.DidNotReceive().DeletePageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
@@ -307,7 +308,7 @@ public class PageModelTests
     {
         var historical = Page();
         var parentNodeId = Guid.NewGuid();
-        historical.Version.Node.ParentNodeId = parentNodeId;
+        historical.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         _store.GetVersionAsync(historical.VersionId, Arg.Any<CancellationToken>()).Returns(historical);
         var current = Page(nodeId: historical.Version.Node.Id);
@@ -351,7 +352,7 @@ public class PageModelTests
         var nodeId = Guid.NewGuid();
         var parentNodeId = Guid.NewGuid();
         var page = Page(nodeId: nodeId);
-        page.Version.Node.ParentNodeId = parentNodeId;
+        page.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>())
@@ -459,9 +460,9 @@ public class PageModelTests
     {
         var parentNodeId = Guid.NewGuid();
         var sibling = Page(title: "Child");
-        sibling.Version.Node.ParentNodeId = parentNodeId;
+        sibling.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
-        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+        _store.FindCurrentDraftsRelatedAsync(PageModel.ParentRelation, parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
@@ -485,7 +486,7 @@ public class PageModelTests
         var sibling = Page(title: "Dup Title Page");
         sibling.Version.Slug = "dup-title-page";
 
-        _store.GetCurrentDraftChildrenAsync(null, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+        _store.FindCurrentDraftsWithoutRelationAsync(PageModel.ParentRelation, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
 
         var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
         {
@@ -695,7 +696,7 @@ public class PageModelTests
         var nodeId = Guid.NewGuid();
         var parentNodeId = Guid.NewGuid();
         var page = Page(title: "Child", nodeId: nodeId);
-        page.Version.Node.ParentNodeId = parentNodeId;
+        page.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
         _store.PublishAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
@@ -796,14 +797,14 @@ public class PageModelTests
         var nodeId = Guid.NewGuid();
         var parentNodeId = Guid.NewGuid();
         var page = Page(title: "Child", nodeId: nodeId);
-        page.Version.Node.ParentNodeId = parentNodeId;
+        page.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         var sibling = Page(title: "Sibling");
-        sibling.Version.Node.ParentNodeId = parentNodeId;
+        sibling.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
         sibling.Version.Slug = "child";
 
         _store.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(page);
-        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page, sibling });
+        _store.FindCurrentDraftsRelatedAsync(PageModel.ParentRelation, parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { page, sibling });
 
         var result = await _model.PublishPageAsync(nodeId);
 
@@ -1011,7 +1012,7 @@ public class PageModelTests
         var parentNodeId = Guid.NewGuid();
         var parent = Page(title: "Docs", nodeId: parentNodeId);
         var child = Page(title: "Child");
-        child.Version.Node.ParentNodeId = parentNodeId;
+        child.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { parent, child });
         _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
@@ -1027,12 +1028,47 @@ public class PageModelTests
     }
 
     [Test]
+    public async Task GetPageIndexAsync_DescendantCount_CountsChildPagesAtEveryDepth_ByTheParentRelation()
+    {
+        var docs = Page(title: "Docs");
+        var guide = Page(title: "Guide");
+        var step = Page(title: "Step");
+        var other = Page(title: "Other");
+        guide.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = docs.Version.Node.Id, Kind = RelationKind.Containment });
+        step.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = guide.Version.Node.Id, Kind = RelationKind.Containment });
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { docs, guide, step, other });
+        _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(docs.Version.Node.Id, "/docs"),
+            // An explicit URL elsewhere: the count follows the relation, not the path.
+            RouteFor(step.Version.Node.Id, "/elsewhere/step"),
+        });
+
+        var vm = await _model.GetPageIndexAsync();
+
+        var nodes = Flatten(vm.Pages).Where(n => n.PageNodeId.HasValue).ToDictionary(n => n.PageNodeId!.Value);
+        Assert.Multiple(() =>
+        {
+            Assert.That(nodes[docs.Version.Node.Id].DescendantCount, Is.EqualTo(2));
+            Assert.That(nodes[guide.Version.Node.Id].DescendantCount, Is.EqualTo(1));
+            Assert.That(nodes[step.Version.Node.Id].DescendantCount, Is.EqualTo(0));
+            Assert.That(nodes[other.Version.Node.Id].DescendantCount, Is.EqualTo(0));
+            Assert.That(Flatten(vm.Pages).Single(n => n.Path == "/elsewhere").DescendantCount, Is.EqualTo(0), "a path-only node has none");
+        });
+    }
+
+    private static IEnumerable<PageTreeNode> Flatten(IEnumerable<PageTreeNode> nodes)
+        => nodes.SelectMany(n => new[] { n }.Concat(Flatten(n.Children)));
+
+    [Test]
     public async Task GetPageIndexAsync_UnpublishedChildUnderRoot_ResolvesUnderSlash()
     {
         var rootNodeId = Guid.NewGuid();
         var root = Page(title: "Home", nodeId: rootNodeId);
         var child = Page(title: "Child");
-        child.Version.Node.ParentNodeId = rootNodeId;
+        child.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = rootNodeId, Kind = RelationKind.Containment });
 
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { root, child });
         _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
@@ -1207,8 +1243,8 @@ public class PageModelTests
     {
         var a = Page(title: "A");
         var b = Page(title: "B");
-        a.Version.Node.ParentNodeId = b.Version.Node.Id;
-        b.Version.Node.ParentNodeId = a.Version.Node.Id;
+        a.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = b.Version.Node.Id, Kind = RelationKind.Containment });
+        b.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = a.Version.Node.Id, Kind = RelationKind.Containment });
 
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { a, b });
         _store.GetPublishedNodeIdsAsync(Arg.Any<CancellationToken>()).Returns(new HashSet<Guid>());
@@ -1216,7 +1252,12 @@ public class PageModelTests
 
         var vm = await _model.GetPageIndexAsync();
 
-        Assert.That(vm.Pages, Has.Count.EqualTo(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(vm.Pages, Has.Count.EqualTo(2));
+            // A parent cycle counts each page once.
+            Assert.That(vm.Pages.Select(p => p.DescendantCount), Is.EqualTo(new[] { 1, 1 }));
+        });
     }
 
     // --- Sibling-scoped slug query + encoded-slug round-trip (#10 / #7) ---
@@ -1225,7 +1266,7 @@ public class PageModelTests
     public async Task IsSlugAvailableAsync_QueriesOnlyDirectSiblings_NotAllPages()
     {
         var parentNodeId = Guid.NewGuid();
-        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
+        _store.FindCurrentDraftsRelatedAsync(PageModel.ParentRelation, parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO>());
         _cmsRouteService.GetByOwningContentAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
         _store.SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
@@ -1239,7 +1280,7 @@ public class PageModelTests
         });
 
         Assert.That(result.Success, Is.True);
-        await _store.Received(1).GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>());
+        await _store.Received(1).FindCurrentDraftsRelatedAsync(PageModel.ParentRelation, parentNodeId, Arg.Any<CancellationToken>());
         await _store.DidNotReceive().GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>());
     }
 
@@ -1249,12 +1290,12 @@ public class PageModelTests
         var parentNodeId = Guid.NewGuid();
         var sibling = Page(title: "Hello World");
         sibling.Version.Slug = Uri.EscapeDataString(sibling.Version.Slug);
-        sibling.Version.Node.ParentNodeId = parentNodeId;
+        sibling.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentNodeId, Kind = RelationKind.Containment });
 
         var decodedVm = _mapper.Map<PageUpsertViewModel>(sibling);
         Assert.That(decodedVm.Slug, Is.EqualTo("hello world"));
 
-        _store.GetCurrentDraftChildrenAsync(parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
+        _store.FindCurrentDraftsRelatedAsync(PageModel.ParentRelation, parentNodeId, Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { sibling });
         _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _model.SaveUpsertAsync(new PageUpsertViewModel

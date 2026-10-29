@@ -5,6 +5,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Mcp;
 
@@ -17,15 +18,20 @@ public sealed class ContentToolset
 {
     private readonly IAdminHandlerRegistry _registry;
     private readonly IEnumerable<IAdminCrudHandler> _handlers;
+    private readonly ContentRelationRegistry? _relations;
 
-    public ContentToolset(IAdminHandlerRegistry registry, IEnumerable<IAdminCrudHandler> handlers)
+    public ContentToolset(
+        IAdminHandlerRegistry registry,
+        IEnumerable<IAdminCrudHandler> handlers,
+        ContentRelationRegistry? relations = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
+        _relations = relations;
     }
 
     [McpServerTool(Name = "list_content_types", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, publishing, child entities, or a component registry.")]
+    [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, publishing or a component registry, and its childTypes: the content types that can be placed under it (list_children / create_child).")]
     public IReadOnlyList<McpContentTypeInfo> ListContentTypes() =>
         _handlers
             .Select(h => new McpContentTypeInfo(
@@ -33,8 +39,10 @@ public sealed class ContentToolset
                 h.DisplayName,
                 h.SupportsVersionHistory,
                 h.SupportsPublishing,
-                h.ChildHandler != null,
-                h.ChildHandler?.ChildType,
+                _relations?.GetContainmentsTargeting(h.ContentType)
+                    .Select(d => d.SourceContentType)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList() ?? [],
                 h.RegistryHandler != null,
                 h.SecondaryApiListKeys))
             .ToList();
@@ -123,7 +131,7 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "delete_content", OpenWorld = false)] // Destructive left at its true default: deletes an item permanently
-    [Description("Deletes a content item by id, together with the items it contains (e.g. an article list's articles); deletedDescendants counts them. A delete is refused, with the reason, while another item still references it.")]
+    [Description("Deletes a content item by id, together with the items it contains (an article list's articles; a page's whole subtree of child pages, with their zones and routes); deletedDescendants counts them, leaving out zones and widgets. A delete is refused, with the reason, while another item still references it.")]
     public async Task<McpDeleteResult> DeleteContent(
         [Description("The content type.")] string contentType,
         [Description("The id of the item to delete.")] Guid id,

@@ -42,40 +42,6 @@ public class McpToolHelpersTests
     }
 
     [Test]
-    public void ResolveChild_WhenMatching_ReturnsChild()
-    {
-        var handler = Substitute.For<IAdminCrudHandler>();
-        var child = Substitute.For<IAdminCrudChildHandler>();
-        child.ChildType.Returns("items");
-        handler.ChildHandler.Returns(child);
-
-        Assert.That(McpToolHelpers.ResolveChild(handler, "ITEMS"), Is.SameAs(child));
-    }
-
-    [Test]
-    public void ResolveChild_WhenNoChildHandler_Throws()
-    {
-        var handler = Substitute.For<IAdminCrudHandler>();
-        handler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
-
-        Assert.That(() => McpToolHelpers.ResolveChild(handler, "items"),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public void ResolveChild_WhenTypeMismatch_Throws()
-    {
-        var handler = Substitute.For<IAdminCrudHandler>();
-        var child = Substitute.For<IAdminCrudChildHandler>();
-        child.ChildType.Returns("items");
-        handler.ChildHandler.Returns(child);
-        handler.ContentType.Returns("contentzones");
-
-        Assert.That(() => McpToolHelpers.ResolveChild(handler, "articles"),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
     public void Unwrap_ExtractsValueFromJsonAndObjectResults_AndNullOtherwise()
     {
         Assert.Multiple(() =>

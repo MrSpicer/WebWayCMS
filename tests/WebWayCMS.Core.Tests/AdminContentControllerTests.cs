@@ -4,16 +4,32 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Core.Tests;
 
 public sealed class FakeUpsert
 {
     public string? Name { get; set; }
+}
+
+/// <summary>A child type placed under "ct" by an ordered containment, for the children panel.</summary>
+public sealed class FakeChildUpsert
+{
+    [ContentRelation("ct", Kind = ContentRelationKind.Containment, Ordered = true)]
+    public Guid ParentId { get; set; }
+}
+
+/// <summary>A child type whose containment under "ct" opts out of the parent's admin.</summary>
+public sealed class FakeHiddenChildUpsert
+{
+    [ContentRelation("ct", Kind = ContentRelationKind.Containment, ShowInParentAdmin = false)]
+    public Guid ParentId { get; set; }
 }
 
 [TestFixture]
@@ -23,7 +39,7 @@ public class AdminContentControllerTests
     private IAdminHandlerRegistry _registry = null!;
     private IWidgetRegistry _widgetRegistry = null!;
     private IAdminCrudHandler _handler = null!;
-    private IAdminCrudChildHandler _child = null!;
+    private IAdminCrudHandler _child = null!;
     private IAdminRegistryHandler _registryHandler = null!;
     private AdminContentController _controller = null!;
 
@@ -34,7 +50,7 @@ public class AdminContentControllerTests
         _registry = Substitute.For<IAdminHandlerRegistry>();
         _widgetRegistry = Substitute.For<IWidgetRegistry>();
         _handler = Substitute.For<IAdminCrudHandler>();
-        _child = Substitute.For<IAdminCrudChildHandler>();
+        _child = Substitute.For<IAdminCrudHandler>();
         _registryHandler = Substitute.For<IAdminRegistryHandler>();
 
         _handler.IndexViewPath.Returns("~/Index.cshtml");
@@ -42,18 +58,14 @@ public class AdminContentControllerTests
         _handler.CreateEmptyUpsertViewModel().Returns(_ => new FakeUpsert());
         _handler.WriteRoles.Returns((string[]?)null);
         // NSubstitute recursively mocks interface returns; force the "not found" / "absent" defaults.
-        _handler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
         _handler.RegistryHandler.Returns((IAdminRegistryHandler?)null);
         _registry.GetHandler(Arg.Any<string>()).Returns((IAdminCrudHandler?)null);
         _registry.GetHandler("ct").Returns(_handler);
 
-        _child.ChildType.Returns("items");
-        _child.ChildIndexViewPath.Returns("~/Child.cshtml");
-        _child.ChildUpsertViewPath.Returns("~/ChildUpsert.cshtml");
-        _child.CreateEmptyChildUpsertViewModel().Returns(_ => new FakeUpsert());
-        _child.WriteRoles.Returns((string[]?)null);
+        _handler.ContentType.Returns("ct");
+        _registry.All.Returns([_handler]);
 
-        _controller = new AdminContentController(_registry, _widgetRegistry);
+        _controller = new AdminContentController(_registry, _widgetRegistry, new ContentRelationRegistry(_registry));
         _harness.Configure(_controller, new[] { "Admin" });
     }
 
@@ -62,8 +74,10 @@ public class AdminContentControllerTests
     [Test]
     public void Constructor_Null_Throws()
     {
-        Assert.That(() => new AdminContentController(null!, _widgetRegistry), Throws.ArgumentNullException);
-        Assert.That(() => new AdminContentController(_registry, null!), Throws.ArgumentNullException);
+        var relations = new ContentRelationRegistry(_registry);
+        Assert.That(() => new AdminContentController(null!, _widgetRegistry, relations), Throws.ArgumentNullException);
+        Assert.That(() => new AdminContentController(_registry, null!, relations), Throws.ArgumentNullException);
+        Assert.That(() => new AdminContentController(_registry, _widgetRegistry, null!), Throws.ArgumentNullException);
     }
 
     [Test]
@@ -146,13 +160,13 @@ public class AdminContentControllerTests
     [Test]
     public async Task Delete_NotFound_Forbidden_Success()
     {
-        Assert.That(await _controller.Delete("missing", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
+        Assert.That(await _controller.Delete("missing", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
 
         AsRoles("Viewer");
-        Assert.That(await _controller.Delete("ct", Guid.NewGuid(), default), Is.InstanceOf<ForbidResult>());
+        Assert.That(await _controller.Delete("ct", Guid.NewGuid(), null, default), Is.InstanceOf<ForbidResult>());
 
         AsRoles("Admin");
-        Assert.That(await _controller.Delete("ct", Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
+        Assert.That(await _controller.Delete("ct", Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
     }
 
     [Test]
@@ -209,15 +223,15 @@ public class AdminContentControllerTests
     [Test]
     public async Task VersionHistory_NotFound_Unsupported_NullVm_View()
     {
-        Assert.That(await _controller.VersionHistory("missing", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
+        Assert.That(await _controller.VersionHistory("missing", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
 
         _handler.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
 
         _handler.SupportsVersionHistory.Returns(true);
         _handler.GetVersionHistoryViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((VersionHistoryViewModel?)null, new VersionHistoryViewModel());
-        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
+        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.VersionHistory("ct", Guid.NewGuid(), null, default), Is.InstanceOf<ViewResult>());
     }
 
     [Test]
@@ -237,17 +251,17 @@ public class AdminContentControllerTests
     [Test]
     public async Task VersionDelete_NotFound_Unsupported_Forbidden_Redirect()
     {
-        Assert.That(await _controller.VersionDelete("missing", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
+        Assert.That(await _controller.VersionDelete("missing", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
 
         _handler.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
 
         _handler.SupportsVersionHistory.Returns(true);
         AsRoles("Viewer");
-        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<ForbidResult>());
+        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<ForbidResult>());
 
         AsRoles("Admin");
-        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
+        Assert.That(await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
     }
 
     [Test]
@@ -256,7 +270,7 @@ public class AdminContentControllerTests
         _handler.SupportsVersionHistory.Returns(true);
         _handler.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((false, "in history"));
 
-        var result = await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), default);
+        var result = await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), null, default);
 
         Assert.Multiple(() =>
         {
@@ -303,168 +317,169 @@ public class AdminContentControllerTests
         Assert.That(_controller.Response.Headers.ContainsKey("Set-Cookie"), Is.False);
     }
 
-    // --- Child actions ---
-
-    private void WireChild() => _handler.ChildHandler.Returns(_child);
+    // --- Containment: preselect, children panel, reorder ---
 
     [Test]
-    public async Task ChildIndex_NotFound_TypeMismatch_NullVm_View()
+    public async Task Create_QueryNamesARelation_PreselectsIt()
     {
-        Assert.That(await _controller.ChildIndex("missing", "p", "items", default), Is.InstanceOf<NotFoundObjectResult>());
+        var parent = Guid.NewGuid();
+        _handler.GetUpsertViewModelAsync(null, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new FakeChildUpsert());
+        _harness.Configure(_controller, new[] { "Admin" },
+            new Microsoft.AspNetCore.Http.QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { ["parentid"] = parent.ToString() }));
 
-        // child null
-        Assert.That(await _controller.ChildIndex("ct", "p", "items", default), Is.InstanceOf<NotFoundResult>());
+        var view = (ViewResult)await _controller.Create("ct", default);
 
-        // type mismatch
-        WireChild();
-        Assert.That(await _controller.ChildIndex("ct", "p", "wrong", default), Is.InstanceOf<NotFoundResult>());
-
-        // vm null
-        _child.GetChildIndexViewModelAsync("p", Arg.Any<CancellationToken>()).Returns((object?)null, new FakeUpsert());
-        Assert.That(await _controller.ChildIndex("ct", "p", "items", default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildIndex("ct", "p", "items", default), Is.InstanceOf<ViewResult>());
+        Assert.That(((FakeChildUpsert)view.Model!).ParentId, Is.EqualTo(parent));
     }
 
-    [Test]
-    public async Task ChildCreate_NullVm_And_View()
+    private void WireChildren()
     {
-        WireChild();
-        Assert.That(await _controller.ChildCreate("missing", "p", "items", default), Is.InstanceOf<NotFoundObjectResult>());
-
-        _child.GetChildUpsertViewModelAsync("p", null, Arg.Any<CancellationToken>()).Returns((object?)null, new FakeUpsert());
-        Assert.That(await _controller.ChildCreate("ct", "p", "items", default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildCreate("ct", "p", "items", default), Is.InstanceOf<ViewResult>());
-    }
-
-    [Test]
-    public async Task ChildEdit_NullVm_And_View()
-    {
-        WireChild();
-        _child.GetChildUpsertViewModelAsync("p", Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns((object?)null, new FakeUpsert());
-
-        Assert.That(await _controller.ChildEdit("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildEdit("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<ViewResult>());
-    }
-
-    [Test]
-    public async Task ChildEditPost_Forbidden_Invalid_Fail_Success()
-    {
-        WireChild();
-        Assert.That(await _controller.ChildEditPost("missing", "p", "items", null, default), Is.InstanceOf<NotFoundObjectResult>());
-
-        AsRoles("Viewer");
-        Assert.That(await _controller.ChildEditPost("ct", "p", "items", null, default), Is.InstanceOf<ForbidResult>());
-
-        AsRoles("Admin");
-        _controller.ModelState.AddModelError("x", "bad");
-        Assert.That(await _controller.ChildEditPost("ct", "p", "items", null, default), Is.InstanceOf<ViewResult>());
-
-        _controller.ModelState.Clear();
+        var hidden = Substitute.For<IAdminCrudHandler>();
+        hidden.ContentType.Returns("hidden");
+        hidden.CreateEmptyUpsertViewModel().Returns(_ => new FakeHiddenChildUpsert());
+        _child.ContentType.Returns("kids");
+        _child.DisplayName.Returns("Kid");
+        _child.WriteRoles.Returns(new[] { "Editor" });
+        _child.CreateEmptyUpsertViewModel().Returns(_ => new FakeChildUpsert());
+        _registry.GetHandler("kids").Returns(_child);
+        _registry.All.Returns([_handler, _child, hidden]);
+        _controller = new AdminContentController(_registry, _widgetRegistry, new ContentRelationRegistry(_registry));
         _harness.Configure(_controller, new[] { "Admin" });
-        _child.SaveChildUpsertAsync("p", Arg.Any<object>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(false, "e"));
-        Assert.That(await _controller.ChildEditPost("ct", "p", "items", null, default), Is.InstanceOf<ViewResult>());
-
-        _harness.Configure(_controller, new[] { "Admin" });
-        _child.SaveChildUpsertAsync("p", Arg.Any<object>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
-        Assert.That(await _controller.ChildEditPost("ct", "p", "items", null, default), Is.InstanceOf<RedirectToActionResult>());
     }
 
     [Test]
-    public async Task ChildDelete_Forbidden_And_Redirect()
+    public async Task Edit_ListsTheChildrenOfEachShownContainment()
     {
-        WireChild();
+        WireChildren();
+        AsRoles("Editor");
+        var parent = Guid.NewGuid();
+        var kid = new RelatedChild(Guid.NewGuid(), "Kid 1", Data.Models.ContentVersionState.Draft, 0);
+        _handler.GetUpsertViewModelAsync(parent, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new FakeUpsert());
+        _child.GetRelatedChildrenAsync(nameof(FakeChildUpsert.ParentId), parent, Arg.Any<CancellationToken>())
+            .Returns([kid]);
+
+        var view = (ViewResult)await _controller.Edit("ct", parent, default);
+
+        var panels = (IReadOnlyList<RelationChildrenPanelViewModel>)view.ViewData[RelationChildrenPanelViewModel.ViewDataKey]!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(panels, Has.Count.EqualTo(1), "the ShowInParentAdmin = false containment is left out");
+            Assert.That(panels[0].ChildContentType, Is.EqualTo("kids"));
+            Assert.That(panels[0].ChildDisplayName, Is.EqualTo("Kid"));
+            Assert.That(panels[0].RelationName, Is.EqualTo(nameof(FakeChildUpsert.ParentId)));
+            Assert.That(panels[0].ParentNodeId, Is.EqualTo(parent));
+            Assert.That(panels[0].Ordered, Is.True);
+            Assert.That(panels[0].CanWrite, Is.True);
+            Assert.That(panels[0].Children, Is.EqualTo(new[] { kid }));
+        });
+    }
+
+    [Test]
+    public async Task Edit_ChildTypeWithoutHandlerOrAdminOnlyWrites_HandledPerViewer()
+    {
+        WireChildren();
+        _child.WriteRoles.Returns((string[]?)null);
+        AsRoles("Editor");
+        _handler.GetUpsertViewModelAsync(Arg.Any<Guid?>(), Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new FakeUpsert());
+
+        // The controller's ViewData is shared by both results, so each is read before the next call.
+        var editorView = (ViewResult)await _controller.Edit("ct", Guid.NewGuid(), default);
+        var editorPanels = (IReadOnlyList<RelationChildrenPanelViewModel>)editorView.ViewData[RelationChildrenPanelViewModel.ViewDataKey]!;
+        _registry.GetHandler("kids").Returns((IAdminCrudHandler?)null);
+        var orphanView = (ViewResult)await _controller.Edit("ct", Guid.NewGuid(), default);
+        var orphanPanels = (IReadOnlyList<RelationChildrenPanelViewModel>)orphanView.ViewData[RelationChildrenPanelViewModel.ViewDataKey]!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(editorPanels[0].CanWrite, Is.False);
+            Assert.That(orphanPanels, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Edit_InTheModal_ListsNoChildren()
+    {
+        WireChildren();
+        _handler.GetUpsertViewModelAsync(Arg.Any<Guid?>(), Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new FakeUpsert());
+        _harness.Configure(_controller, new[] { "Admin" },
+            new Microsoft.AspNetCore.Http.QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { ["modal"] = "1" }));
+
+        var view = (ViewResult)await _controller.Edit("ct", Guid.NewGuid(), default);
+
+        Assert.That(view.ViewData.ContainsKey(RelationChildrenPanelViewModel.ViewDataKey), Is.False);
+    }
+
+    [Test]
+    public async Task ReorderRelated_NotFound_Forbidden_FailureAndSuccess()
+    {
+        var parent = Guid.NewGuid();
+        var order = new List<Guid> { Guid.NewGuid() };
+        Assert.That(await _controller.ReorderRelated("missing", "R", parent, order, default), Is.InstanceOf<NotFoundObjectResult>());
+
         AsRoles("Viewer");
-        Assert.That(await _controller.ChildDelete("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<ForbidResult>());
+        Assert.That(await _controller.ReorderRelated("ct", "R", parent, order, default), Is.InstanceOf<ForbidResult>());
 
         AsRoles("Admin");
-        Assert.That(await _controller.ChildDelete("ct", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<RedirectToActionResult>());
+        _handler.ReorderRelatedAsync("R", parent, Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, "no"), (false, (string?)null));
+        Assert.That(await _controller.ReorderRelated("ct", "R", parent, order, default), Is.InstanceOf<OkResult>());
+        Assert.That(await _controller.ReorderRelated("ct", "R", parent, order, default), Is.InstanceOf<BadRequestObjectResult>());
+        Assert.That(await _controller.ReorderRelated("ct", "R", parent, null!, default), Is.InstanceOf<BadRequestObjectResult>());
+        await _handler.Received(1).ReorderRelatedAsync("R", parent, Arg.Is<IReadOnlyList<Guid>>(l => l.Count == 0), Arg.Any<CancellationToken>());
     }
 
-    [Test]
-    public async Task ChildReorder_Forbidden_Unsupported_OkAnd500()
-    {
-        WireChild();
-        AsRoles("Viewer");
-        Assert.That(await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default), Is.InstanceOf<ForbidResult>());
-
-        AsRoles("Admin");
-        _child.SupportsReorder.Returns(false);
-        Assert.That(await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default), Is.InstanceOf<BadRequestObjectResult>());
-
-        _child.SupportsReorder.Returns(true);
-        _child.ReorderAsync("p", Arg.Any<List<Guid>>(), Arg.Any<CancellationToken>())
-            .Returns((true, (string?)null), (false, (string?)null));
-        Assert.That(await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default), Is.InstanceOf<OkResult>());
-        var failed = (ObjectResult)await _controller.ChildReorder("ct", "p", "items", new List<Guid>(), default);
-        Assert.That(failed.StatusCode, Is.EqualTo(500));
-    }
-
-    [Test]
-    public async Task ChildVersionHistory_Unsupported_NullVm_View()
-    {
-        WireChild();
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "wrong", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
-
-        _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
-
-        _child.SupportsVersionHistory.Returns(true);
-        _child.GetChildVersionHistoryViewModelAsync("p", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((VersionHistoryViewModel?)null, new VersionHistoryViewModel());
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
-        Assert.That(await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<ViewResult>());
-    }
+    // --- Return URLs and the expected version on the top-level history routes ---
 
     [TestCase("/wadmin/contentzones/page/abc", "/wadmin/contentzones/page/abc")]
     [TestCase("https://evil.example/", null)]
     [TestCase("", null)]
-    public async Task ChildVersionHistory_ReturnUrl_ReplacesBackLinkOnlyWhenLocal(string returnUrl, string? expected)
+    public async Task VersionHistory_ReturnUrl_ReplacesBackLinkOnlyWhenLocal(string returnUrl, string? expected)
     {
-        WireChild();
         _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
-        _child.SupportsVersionHistory.Returns(true);
-        _child.GetChildVersionHistoryViewModelAsync("p", Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(new VersionHistoryViewModel { BackUrl = "/wadmin/contentzones" });
+        _handler.SupportsVersionHistory.Returns(true);
+        _handler.GetVersionHistoryViewModelAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new VersionHistoryViewModel { BackUrl = "/wadmin/ct" });
 
-        var view = (ViewResult)await _controller.ChildVersionHistory("ct", "p", "items", Guid.NewGuid(), returnUrl, default);
+        var view = (ViewResult)await _controller.VersionHistory("ct", Guid.NewGuid(), returnUrl, default);
 
         var vm = (VersionHistoryViewModel)view.Model!;
         Assert.Multiple(() =>
         {
             Assert.That(vm.ReturnUrl, Is.EqualTo(expected));
-            Assert.That(vm.BackUrl, Is.EqualTo(expected ?? "/wadmin/contentzones"));
+            Assert.That(vm.BackUrl, Is.EqualTo(expected ?? "/wadmin/ct"));
         });
     }
 
     [Test]
-    public async Task ChildVersionRestore_Unsupported_Forbidden_SuccessAndFailure()
+    public async Task RestoreVersion_NotFound_Unsupported_Forbidden_SuccessAndFailure()
     {
-        Assert.That(await _controller.ChildVersionRestore("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundObjectResult>());
+        Assert.That(await _controller.RestoreVersion("missing", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundObjectResult>());
 
-        WireChild();
         _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
-        Assert.That(await _controller.ChildVersionRestore("ct", "p", "wrong", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundResult>());
+        _handler.SupportsVersionHistory.Returns(false);
+        Assert.That(await _controller.RestoreVersion("ct", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundResult>());
 
-        _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<NotFoundResult>());
-
-        _child.SupportsVersionHistory.Returns(true);
+        _handler.SupportsVersionHistory.Returns(true);
         AsRoles("Viewer");
-        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
-        Assert.That(await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<ForbidResult>());
+        Assert.That(await _controller.RestoreVersion("ct", Guid.NewGuid(), Guid.NewGuid(), null, null, default), Is.InstanceOf<ForbidResult>());
 
         AsRoles("Admin");
         _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
         var versionId = Guid.NewGuid();
-        _child.RestoreChildVersionAsync("p", versionId, 3, Arg.Any<CancellationToken>())
+        _handler.RestoreVersionAsync(versionId, 3, Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(true), new AdminSaveResult(false, "stale"));
 
-        var ok = (RedirectToActionResult)await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), versionId, 3, "/wadmin/x", default);
+        var ok = (RedirectToActionResult)await _controller.RestoreVersion("ct", Guid.NewGuid(), versionId, 3, "/wadmin/x", default);
         var okMessage = _controller.TempData["Success"];
-        var failed = (RedirectToActionResult)await _controller.ChildVersionRestore("ct", "p", "items", Guid.NewGuid(), versionId, 3, "https://evil.example/", default);
+        var failed = (RedirectToActionResult)await _controller.RestoreVersion("ct", Guid.NewGuid(), versionId, 3, "https://evil.example/", default);
 
         Assert.Multiple(() =>
         {
-            Assert.That(ok.ActionName, Is.EqualTo(nameof(AdminContentController.ChildVersionHistory)));
+            Assert.That(ok.ActionName, Is.EqualTo(nameof(AdminContentController.VersionHistory)));
             Assert.That(ok.RouteValues!["returnUrl"], Is.EqualTo("/wadmin/x"));
             Assert.That(okMessage, Is.Not.Null);
             Assert.That(failed.RouteValues!["returnUrl"], Is.Null);
@@ -473,36 +488,33 @@ public class AdminContentControllerTests
     }
 
     [Test]
-    public async Task ChildVersionDelete_Unsupported_Forbidden_Redirect()
+    public async Task VersionDelete_CarriesALocalReturnUrl()
     {
-        WireChild();
-        _child.SupportsVersionHistory.Returns(false);
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundResult>());
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        _handler.SupportsVersionHistory.Returns(true);
+        _handler.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null));
 
-        _child.SupportsVersionHistory.Returns(true);
-        AsRoles("Viewer");
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<ForbidResult>());
+        var result = (RedirectToActionResult)await _controller.VersionDelete("ct", Guid.NewGuid(), Guid.NewGuid(), "/wadmin/x", default);
 
-        AsRoles("Admin");
-        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((true, (string?)null), (false, "in history"));
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
-        Assert.That(_controller.TempData.ContainsKey("Error"), Is.False);
-        Assert.That(await _controller.ChildVersionDelete("ct", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<RedirectToActionResult>());
-        Assert.That(_controller.TempData["Error"], Is.EqualTo("in history"));
+        Assert.That(result.RouteValues!["returnUrl"], Is.EqualTo("/wadmin/x"));
     }
 
     [Test]
-    public async Task ChildActions_HandlerMissingReturnsNotFound()
+    public async Task DeleteAndEditPost_LocalReturnUrl_RedirectsBackThere()
     {
-        Assert.Multiple(async () =>
+        _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
+        _handler.TryDeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null, 0));
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+
+        var deleted = await _controller.Delete("ct", Guid.NewGuid(), "/wadmin/zone-items", default);
+        var saved = await _controller.EditPost("ct", null, default, returnUrl: "/wadmin/zone-items");
+        var foreign = await _controller.EditPost("ct", null, default, returnUrl: "https://evil.example/");
+
+        Assert.Multiple(() =>
         {
-            Assert.That(await _controller.ChildCreate("missing", "p", "items", default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildEdit("missing", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildDelete("missing", "p", "items", Guid.NewGuid(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildReorder("missing", "p", "items", new List<Guid>(), default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildVersionHistory("missing", "p", "items", Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
-            Assert.That(await _controller.ChildVersionDelete("missing", "p", "items", Guid.NewGuid(), Guid.NewGuid(), null, default), Is.InstanceOf<NotFoundObjectResult>());
+            Assert.That(((LocalRedirectResult)deleted).Url, Is.EqualTo("/wadmin/zone-items"));
+            Assert.That(((LocalRedirectResult)saved).Url, Is.EqualTo("/wadmin/zone-items"));
+            Assert.That(foreign, Is.InstanceOf<RedirectToActionResult>());
         });
     }
 }
@@ -525,7 +537,7 @@ public class AdminContentControllerPublishRedirectTests
         _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
         _handler.UnpublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
         registry.GetHandler("pages").Returns(_handler);
-        _controller = new AdminContentController(registry, Substitute.For<IWidgetRegistry>());
+        _controller = new AdminContentController(registry, Substitute.For<IWidgetRegistry>(), new ContentRelationRegistry(registry));
         _harness.Configure(_controller, new[] { "Admin" });
         _controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(_controller.ControllerContext);
     }

@@ -22,7 +22,7 @@ The page system drives dynamic URL routing — every database-managed page is di
 ## System Overview
 
 Routing is database-backed. A page's URL is a row in the `CMSRoutes` table, derived from the page's
-**Slug** (plus `ContentNode.ParentNodeId`) and written when the page is **published** — never on save.
+**Slug** (plus its parent page, a versioned containment relation) and written when the page is **published** — never on save.
 
 On every request, `CMSRouteTransformer` (a `DynamicRouteValueTransformer`) intercepts the catch-all
 route `{**slug}` registered by the CMS inside `UseWebWayCms()`. It:
@@ -230,7 +230,7 @@ Shared fields are read through `CurrentPage.Version` (or `CurrentPage.Version.No
 |---|---|---|
 | `Node.Id` | `Guid` | Stable identifier across all versions of the page |
 | `Title` | `string` | Page title |
-| `Slug` | `string` | URL segment; the page's route pattern is derived from this (plus `Node.ParentNodeId`) |
+| `Slug` | `string` | URL segment; the page's route pattern is derived from this (plus the parent page, `ParentNodeId` on the form: a containment relation, so a move is a draft until publish) |
 | `State` | `ContentVersionState` | `Published`/`Draft`/`Archived`/…; the page's route is written on publish |
 | `Node.IsHidden` | `bool` | Hidden from navigation but still accessible |
 | `VersionNumber` | `int` | Monotonically increasing version number |

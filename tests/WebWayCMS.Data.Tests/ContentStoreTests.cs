@@ -160,33 +160,6 @@ public class ContentStoreTests
     }
 
     [Test]
-    public async Task GetChildrenAsync_And_GetRootsAsync()
-    {
-        var ctx = NewContext();
-        var store = NewStore(ctx);
-        var child = NewBlock("Child");
-        child.Version.Node!.ParentNodeId = Guid.NewGuid();
-        await store.SaveDraftAsync(child, null);
-        await store.PublishAsync(child.Version.Node.Id);
-
-        var root = NewBlock("Root");
-        await store.SaveDraftAsync(root, null);
-        await store.PublishAsync(root.Version.Node.Id);
-
-        var children = await store.GetChildrenAsync(child.Version.Node.ParentNodeId.Value);
-        var roots = await store.GetRootsAsync();
-        Assert.Multiple(() =>
-        {
-            Assert.That(children, Has.Count.EqualTo(1));
-            Assert.That(children[0].Version.Title, Is.EqualTo("Child"));
-            Assert.That(roots, Has.Count.EqualTo(1));
-            Assert.That(roots[0].Version.Title, Is.EqualTo("Root"));
-        });
-    }
-
-    // ─── version-explicit ─────────────────────────────────────────────────────
-
-    [Test]
     public async Task GetVersionAsync_And_GetAllVersionsAsync()
     {
         var nodeId = await CreatePublishedAsync("v0");
@@ -275,37 +248,7 @@ public class ContentStoreTests
     }
 
     [Test]
-    public async Task GetCurrentDraftChildrenAsync_MatchesParentAndDraftFilters_ReturnsOnlyMatchingChildren()
-    {
-        var ctx = NewContext();
-        var store = NewStore(ctx);
-        var parentA = Guid.NewGuid();
-        var parentB = Guid.NewGuid();
-
-        var childA = NewBlock("A");
-        childA.Version.Node!.ParentNodeId = parentA;
-        await store.SaveDraftAsync(childA, null);
-
-        var childB = NewBlock("B");
-        childB.Version.Node!.ParentNodeId = parentB;
-        await store.SaveDraftAsync(childB, null);
-
-        var deleted = NewBlock("A-deleted");
-        deleted.Version.Node!.ParentNodeId = parentA;
-        await store.SaveDraftAsync(deleted, null);
-        await store.DeleteAsync(deleted.Version.Node.Id, softDelete: true);
-
-        var children = await store.GetCurrentDraftChildrenAsync(parentA);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(children, Has.Count.EqualTo(1));
-            Assert.That(children[0].Version.Title, Is.EqualTo("A"));
-        });
-    }
-
-    [Test]
-    public async Task GetCurrentDraftChildrenAsync_NullParent_ReturnsRootDrafts()
+    public async Task FindCurrentDraftsWithoutRelationAsync_ReturnsDraftsLackingTheRelation_NewestFirst()
     {
         var ctx = NewContext();
         var store = NewStore(ctx);
@@ -314,30 +257,37 @@ public class ContentStoreTests
         await store.SaveDraftAsync(root, null);
 
         var child = NewBlock("Child");
-        child.Version.Node!.ParentNodeId = Guid.NewGuid();
+        child.Version.SetRelation("Parent", root.Version.Node!.Id, RelationKind.Containment);
         await store.SaveDraftAsync(child, null);
 
-        var roots = await store.GetCurrentDraftChildrenAsync(null);
+        var otherRelation = NewBlock("Other");
+        otherRelation.Version.SetRelation("Other", Guid.NewGuid(), RelationKind.Reference);
+        await store.SaveDraftAsync(otherRelation, null);
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(roots, Has.Count.EqualTo(1));
-            Assert.That(roots[0].Version.Title, Is.EqualTo("Root"));
-        });
+        var deleted = NewBlock("Deleted");
+        await store.SaveDraftAsync(deleted, null);
+        await store.DeleteAsync(deleted.Version.Node!.Id, softDelete: true);
+
+        var roots = await store.FindCurrentDraftsWithoutRelationAsync("Parent");
+
+        Assert.That(roots.Select(r => r.Version.Title), Is.EqualTo(new[] { "Other", "Root" }));
     }
 
     [Test]
-    public async Task GetCurrentDraftChildrenAsync_NoMatches_ReturnsEmptyList()
+    public async Task FindCurrentDraftsWithoutRelationAsync_RelationOnlyOnAnOlderVersion_CountsTheCurrentDraft()
     {
         var store = NewStore();
+        var block = NewBlock("Moved to root");
+        block.Version.SetRelation("Parent", Guid.NewGuid(), RelationKind.Containment);
+        await store.SaveDraftAsync(block, null);
 
-        var child = NewBlock("Child");
-        child.Version.Node!.ParentNodeId = Guid.NewGuid();
-        await store.SaveDraftAsync(child, null);
+        var draft = await store.GetCurrentDraftAsync(block.Version.Node!.Id);
+        draft!.Version.SetRelation("Parent", null, RelationKind.Containment);
+        await store.SaveDraftAsync(draft, draft.Version.VersionNumber);
 
-        var children = await store.GetCurrentDraftChildrenAsync(Guid.NewGuid());
+        var roots = await store.FindCurrentDraftsWithoutRelationAsync("Parent");
 
-        Assert.That(children, Is.Empty);
+        Assert.That(roots, Has.Count.EqualTo(1));
     }
 
     [Test]

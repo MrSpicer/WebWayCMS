@@ -19,7 +19,7 @@ namespace WebWayCMS.Models.Article;
 /// </summary>
 public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IAdminCrudHandler
 {
-    /// <summary>The query-string key the admin index and create form read the list filter from.</summary>
+    /// <summary>The query-string key the admin index reads its list filter from (a new article preselects its list with <c>?ArticleListId=</c>).</summary>
     public const string ListQueryKey = "list";
 
     /// <summary>The article → article list containment relation's name.</summary>
@@ -122,7 +122,7 @@ public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IA
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
     {
         if (id == null || id == Guid.Empty)
-            return new ArticleUpsertViewModel { ArticleListId = ParseListFilter(query) ?? Guid.Empty };
+            return new ArticleUpsertViewModel();
 
         var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
         return dto == null ? null : _mapper.Map<ArticleUpsertViewModel>(dto);

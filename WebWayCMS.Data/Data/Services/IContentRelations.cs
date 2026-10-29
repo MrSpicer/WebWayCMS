@@ -20,6 +20,12 @@ public interface IContentRelations
     /// <summary>The live owned targets of <paramref name="sourceNodeId"/>'s current draft and published version.</summary>
     Task<IReadOnlyList<Guid>> GetLiveOwnedTargetsAsync(Guid sourceNodeId, CancellationToken ct = default);
 
+    /// <summary>
+    /// The target of <paramref name="sourceNodeId"/>'s current draft's relation <paramref name="name"/> (the
+    /// first by ordinal), or null when the node has no current draft or no such relation.
+    /// </summary>
+    Task<Guid?> GetCurrentDraftTargetAsync(Guid sourceNodeId, string name, CancellationToken ct = default);
+
     /// <summary>The nodes among <paramref name="nodeIds"/> that have a current draft (not deleted), with their type and title.</summary>
     Task<IReadOnlyDictionary<Guid, RelationNode>> GetNodesAsync(IEnumerable<Guid> nodeIds, CancellationToken ct = default);
 }

@@ -1,0 +1,89 @@
+@using WebWayCMS.Models.Shared
+@model IReadOnlyList<RelationChildrenPanelViewModel>
+
+@*
+    One card per containment that can place items under this one (e.g. an article list's articles, a
+    page's child pages). Rows link to the child's own edit screen; "New" opens its create form with the
+    relation preselected. An ordered relation can be reordered with the Up/Down buttons
+    (relation-children.js posts the whole order).
+*@
+<div class="container admin-page-body admin-relation-children">
+    @foreach (var panel in Model)
+    {
+        var headingId = $"relation-children-{panel.ChildContentType}-{panel.RelationName}";
+        var plural = panel.ChildDisplayName.EndsWith('s') ? panel.ChildDisplayName : panel.ChildDisplayName + "s";
+        <section class="card mb-4" aria-labelledby="@headingId"
+                 data-relation-children
+                 data-reorder-url="@(panel.Ordered && panel.CanWrite ? Url.Action("ReorderRelated", "AdminContent", new { contentType = panel.ChildContentType, relationName = panel.RelationName, parentNodeId = panel.ParentNodeId }) : null)">
+            <header class="card-header">
+                <h2 class="card-header-title" id="@headingId">
+                    @plural <span class="tag ml-2">@panel.Children.Count</span>
+                </h2>
+                @if (panel.CanWrite)
+                {
+                    <div class="card-header-icon">
+                        <a class="button is-small is-primary"
+                           href="@Url.Action("Create", "AdminContent", new { contentType = panel.ChildContentType })?@(Uri.EscapeDataString(panel.RelationName))=@panel.ParentNodeId">
+                            <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                            <span>New @panel.ChildDisplayName</span>
+                        </a>
+                    </div>
+                }
+            </header>
+            <div class="card-content">
+                @if (panel.Children.Count == 0)
+                {
+                    <p class="has-text-grey">Nothing here yet.</p>
+                }
+                else
+                {
+                    <table class="table is-fullwidth is-narrow admin-list-table">
+                        <caption class="is-sr-only">@plural</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Title</th>
+                                <th scope="col">State</th>
+                                @if (panel.Ordered && panel.CanWrite)
+                                {
+                                    <th scope="col"><span class="is-sr-only">Order</span></th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var child in panel.Children)
+                            {
+                                <tr data-child-id="@child.Id">
+                                    <td>
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="@panel.ChildContentType" asp-route-id="@child.Id">
+                                            @(string.IsNullOrWhiteSpace(child.Title) ? "(untitled)" : child.Title)
+                                        </a>
+                                    </td>
+                                    <td><span class="tag">@child.State</span></td>
+                                    @if (panel.Ordered && panel.CanWrite)
+                                    {
+                                        <td class="has-text-right">
+                                            <div class="buttons are-small is-right">
+                                                <button type="button" class="button" data-move="up" aria-label="Move @child.Title up">
+                                                    <span class="icon"><i class="fas fa-arrow-up" aria-hidden="true"></i></span>
+                                                </button>
+                                                <button type="button" class="button" data-move="down" aria-label="Move @child.Title down">
+                                                    <span class="icon"><i class="fas fa-arrow-down" aria-hidden="true"></i></span>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <p class="help is-danger is-hidden" role="alert" data-reorder-error></p>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@if (Model.Any(p => p.Ordered && p.CanWrite))
+{
+    <script src="~/_content/WebWayCMS.Admin/js/relation-children.js" asp-append-version="true"></script>
+}

@@ -28,6 +28,12 @@ public sealed class ContentRelationAttribute : Attribute
     /// <summary>Containment only: the children are kept in an explicit order.</summary>
     public bool Ordered { get; set; }
 
+    /// <summary>
+    /// Containment only: the parent's edit screen lists these children (with a "New" link and, when
+    /// <see cref="Ordered"/>, reorder). Off for structure with its own editor, such as zone items.
+    /// </summary>
+    public bool ShowInParentAdmin { get; set; } = true;
+
     /// <summary>Reference only: what deleting the target does to this source. Defaults to <see cref="RelationDeletePolicy.Restrict"/>.</summary>
     public RelationDeletePolicy OnTargetDelete
     {

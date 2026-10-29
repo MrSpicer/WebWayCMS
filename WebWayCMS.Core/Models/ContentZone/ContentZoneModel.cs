@@ -26,7 +26,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     private readonly IWidgetRegistry _registry;
     private readonly ICMSRouteService _routeService;
     private readonly IRouteRegistrationService _routeRegistration;
-    private readonly ContentZoneChildHandler _childHandler;
     private readonly ContentZoneRegistryHandler _registryHandler;
     private readonly IWidgetSlotDiscovery _slotDiscovery;
     private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<ContentZoneModel>();
@@ -46,7 +45,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public override string IndexViewPath => "~/Views/AdminContentZone/ContentZones.cshtml";
     public override string UpsertViewPath => "~/Views/AdminContentZone/ContentZoneUpsert.cshtml";
     public override IAdminRegistryHandler? RegistryHandler => _registryHandler;
-    public override IAdminCrudChildHandler? ChildHandler => _childHandler;
 
     public ContentZoneModel(
         IContentZoneService service,
@@ -71,7 +69,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _routeRegistration = routeRegistration ?? throw new ArgumentNullException(nameof(routeRegistration));
-        _childHandler = new ContentZoneChildHandler(this);
         _registryHandler = new ContentZoneRegistryHandler(
             registry,
             viewDiscoveryService ?? throw new ArgumentNullException(nameof(viewDiscoveryService)));
@@ -280,8 +277,9 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     public async Task<bool> ReorderItemsAsync(Guid zoneNodeId, List<Guid> itemNodeIdsInOrder, CancellationToken ct = default)
         => await _service.ReorderItemsAsync(zoneNodeId, itemNodeIdsInOrder, ct);
 
-    public async Task<(bool Success, string? ErrorMessage)> MoveItemAsync(Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default)
-        => await _service.MoveItemAsync(itemNodeId, targetZoneNodeId, position, ct);
+    public async Task<(bool Success, string? ErrorMessage)> MoveItemAsync(
+        Guid itemNodeId, Guid targetZoneNodeId, int position, CancellationToken ct = default, int? expectedVersionNumber = null)
+        => await _service.MoveItemAsync(itemNodeId, targetZoneNodeId, position, ct, expectedVersionNumber);
 
     public async Task<List<ContentZoneItemDTO>> GetAllItemVersionsAsync(Guid itemNodeId, CancellationToken ct = default)
         => await _itemStore.GetAllVersionsAsync(itemNodeId, ct);
@@ -289,6 +287,10 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     /// <summary><see cref="IContentZoneService.GetDescendantItemNodeIdsAsync"/>.</summary>
     internal Task<List<Guid>> GetDescendantItemNodeIdsAsync(Guid containerItemNodeId, CancellationToken ct = default)
         => _service.GetDescendantItemNodeIdsAsync(containerItemNodeId, ct);
+
+    /// <summary>The zone's active items as current drafts (what the editor and the next publish see), by position.</summary>
+    internal async Task<List<ContentZoneItemDTO>> GetCurrentDraftItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => (await _itemStore.FindCurrentDraftsRelatedAsync(ZoneRelations.Zone, zoneNodeId, ct)).Where(i => i.IsActive).ToList();
 
     public async Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
         => await _service.GetItemsAsync(zoneNodeId, ct);
@@ -604,330 +606,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     }
 
     private static Type? ResolveType(string? typeName) => WidgetConfigurationJson.ResolveType(typeName);
-}
-
-/// <summary>Manages items within a content zone (child entities).</summary>
-internal sealed class ContentZoneChildHandler : IAdminCrudChildHandler
-{
-    private readonly ContentZoneModel _model;
-
-    public ContentZoneChildHandler(ContentZoneModel model)
-    {
-        _model = model;
-    }
-
-    public string ChildType => "items";
-    public string ChildDisplayName => "Content Zone Item";
-    public string[]? WriteRoles => null;
-
-    public string ChildIndexViewPath => "~/Views/AdminContentZone/ContentZoneItems.cshtml";
-    public string ChildUpsertViewPath => "~/Views/AdminContentZone/ContentZoneItemUpsert.cshtml";
-
-    public async Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(parentKey, out var zoneNodeId)) return null;
-        var zone = await _model.GetByIdAsync(zoneNodeId, ct);
-        if (zone == null) return null;
-        var items = await _model.GetItemsAsync(zoneNodeId, ct);
-        return new ContentZoneItemsIndexViewModel
-        {
-            ZoneId = zone.Version.Node.Id,
-            ZoneName = zone.Name,
-            ZoneDescription = zone.Description,
-            Items = items.Select(i => new ContentZoneItemViewModel
-            {
-                Id = i.Version.Node.Id,
-                ZoneId = i.ContentZoneNodeId,
-                ComponentName = i.ComponentName,
-                ComponentPropertiesJson = i.ComponentPropertiesJson,
-                MetadataJson = i.MetadataJson,
-                Ordinal = i.Ordinal,
-                IsActive = i.IsActive
-            }).ToList()
-        };
-    }
-
-    public async Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default)
-    {
-        if (id == null || id == Guid.Empty) return null;
-        var item = await _model.GetItemByNodeIdAsync(id.Value, ct);
-        if (item == null) return null;
-        return new ContentZoneItemUpsertViewModel
-        {
-            NodeId = item.Version.Node.Id,
-            ContentZoneNodeId = item.ContentZoneNodeId,
-            ExpectedVersionNumber = item.Version.VersionNumber,
-            ComponentName = item.ComponentName,
-            ComponentPropertiesJson = _model.HydratePropertiesJson(
-                item.ComponentName, item.ComponentPropertiesJson, item.Version.EffectiveRelations()),
-            MetadataJson = item.MetadataJson,
-            IsActive = item.IsActive,
-        };
-    }
-
-    public async Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(parentKey, out var zoneNodeId)) return;
-        var zone = await _model.GetByIdAsync(zoneNodeId, ct);
-        viewData["ZoneName"] = zone?.Name ?? zone?.Version.Title ?? parentKey;
-        viewData["ZoneId"] = parentKey;
-    }
-
-    public object CreateEmptyChildUpsertViewModel() => new ContentZoneItemUpsertViewModel();
-
-    public async Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
-    {
-        var vm = (ContentZoneItemUpsertViewModel)model;
-
-        var validation = ModelValidator.Validate(vm);
-        if (validation != null)
-            return validation;
-
-        // Loaded up front for the stored display mode; a missing item is reported after metadata
-        // validation, keeping validation errors ahead of "not found".
-        var isCreate = vm.NodeId == null || vm.NodeId == Guid.Empty;
-        var existing = isCreate ? null : await _model.GetItemByNodeIdAsync(vm.NodeId!.Value, ct);
-
-        // Null/empty metadata means "not supplied": a create stores "{}" and an update keeps the
-        // existing value. Supplied metadata is validated and stored in canonical form; an item that
-        // already stores List keeps it even if its widget has since dropped list support.
-        string? metadataJson = null;
-        if (!string.IsNullOrWhiteSpace(vm.MetadataJson))
-        {
-            var metadataError = WidgetMetadataJson.Normalize(
-                vm.MetadataJson,
-                _model.GetWidget(vm.ComponentName),
-                WidgetMetadataJson.StoresList(existing?.MetadataJson),
-                out metadataJson);
-            if (metadataError != null)
-                return metadataError;
-        }
-
-        if (isCreate)
-        {
-            if (!Guid.TryParse(parentKey, out var zoneNodeId))
-                return new AdminSaveResult(false, "A valid content zone id is required.");
-
-            var (strippedJson, relations) = _model.ExtractConfigRelations(vm.ComponentName, vm.ComponentPropertiesJson);
-            var relationError = await _model.ValidateConfigRelationsAsync(vm.ComponentName, relations, ct);
-            if (relationError != null)
-                return relationError;
-
-            // Placed at ordinal 0, which AddItemAsync turns into last in the zone.
-            var newItem = new ContentZoneItemDTO
-            {
-                ComponentName = vm.ComponentName,
-                ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, strippedJson),
-                MetadataJson = metadataJson,
-                IsActive = vm.IsActive,
-            };
-            _model.ApplyConfigRelations(newItem.Version, newItem.ComponentName, relations);
-            ZoneRelations.Place(newItem.Version, zoneNodeId, 0);
-            var createdItem = await _model.AddItemAsync(zoneNodeId, newItem, ct);
-            await _model.RegisterWidgetRouteIfRoutableAsync(
-                createdItem.ComponentName, createdItem.Version.Node!.Id, zoneNodeId,
-                createdItem.IsActive, ct);
-            return new AdminSaveResult(true, NodeId: createdItem.Version.Node!.Id);
-        }
-
-        if (existing == null)
-            return new AdminSaveResult(false, "Content zone item not found.");
-
-        // The caller's view of the item: an edit made since it was loaded is never silently overwritten.
-        if (vm.ExpectedVersionNumber.HasValue && existing.Version.VersionNumber != vm.ExpectedVersionNumber.Value)
-            return new AdminSaveResult(false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage);
-
-        var (updateStrippedJson, updateRelations) = _model.ExtractConfigRelations(vm.ComponentName, vm.ComponentPropertiesJson);
-        var updateRelationError = await _model.ValidateConfigRelationsAsync(vm.ComponentName, updateRelations, ct);
-        if (updateRelationError != null)
-            return updateRelationError;
-
-        var updated = existing with
-        {
-            ComponentName = vm.ComponentName,
-            ComponentPropertiesJson = _model.SanitizeProperties(vm.ComponentName, updateStrippedJson),
-            // Not supplied: keep the existing metadata so a content-config save never wipes the
-            // per-item metadata dialog's values.
-            MetadataJson = metadataJson ?? existing.MetadataJson,
-            IsActive = vm.IsActive,
-        };
-        _model.ApplyConfigRelations(updated.Version, updated.ComponentName, updateRelations);
-        var ok = await _model.UpdateItemAsync(updated, ct, vm.ExpectedVersionNumber);
-        if (!ok)
-        {
-            // With an expected version, a rejection past the pre-check is a concurrent write the store caught.
-            return new AdminSaveResult(false, vm.ExpectedVersionNumber.HasValue
-                ? ContentStore<ContentZoneItemDTO>.StaleVersionMessage
-                : "Update failed.");
-        }
-
-        await _model.RegisterWidgetRouteIfRoutableAsync(
-            updated.ComponentName, existing.Version.Node.Id, existing.ContentZoneNodeId,
-            updated.IsActive, ct);
-        return new AdminSaveResult(true, NodeId: existing.Version.Node.Id);
-    }
-
-    public async Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default)
-    {
-        var item = await _model.GetItemByNodeIdAsync(id, ct);
-        if (item != null)
-        {
-            await _model.RegisterWidgetRouteIfRoutableAsync(
-                item.ComponentName, item.Version.Node.Id, item.ContentZoneNodeId,
-                false, ct);
-        }
-        return await _model.RemoveItemAsync(id, ct);
-    }
-
-    public bool SupportsReorder => true;
-
-    public async Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(parentKey, out var zoneNodeId))
-            return (false, "The parent key must be a content zone id.");
-        return await _model.ReorderItemsAsync(zoneNodeId, orderedIds, ct)
-            ? (true, null)
-            : (false, "Failed to reorder the items.");
-    }
-
-    public bool SupportsMove => true;
-
-    public async Task<(bool Success, string? ErrorMessage)> MoveAsync(Guid childId, string targetParentKey, int position, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(targetParentKey, out var targetZoneNodeId))
-            return (false, "The target parent key must be a content zone id.");
-        return await _model.MoveItemAsync(childId, targetZoneNodeId, position, ct);
-    }
-
-    public bool SupportsVersionHistory => true;
-
-    /// <summary>
-    /// The item's versions. A container's page also lists every version of every widget inside it (nested
-    /// containers included), newest first, each row labelled with its widget and restorable on its own.
-    /// </summary>
-    public async Task<VersionHistoryViewModel?> GetChildVersionHistoryViewModelAsync(string parentKey, Guid nodeId, CancellationToken ct = default)
-    {
-        var versions = await _model.GetAllItemVersionsAsync(nodeId, ct);
-        if (!versions.Any()) return null;
-
-        var title = ItemTitle(versions.First());
-        var rows = VersionRows(versions, $"{title} (this container)");
-        foreach (var descendantId in await _model.GetDescendantItemNodeIdsAsync(nodeId, ct))
-        {
-            var nested = await _model.GetAllItemVersionsAsync(descendantId, ct);
-            if (nested.Count > 0)
-                rows.AddRange(VersionRows(nested, ItemTitle(nested.First())));
-        }
-
-        var isCombined = rows.Count > versions.Count;
-        return new VersionHistoryViewModel
-        {
-            ContentType = "contentzones",
-            NodeId = nodeId,
-            ItemTitle = title,
-            BackUrl = "/wadmin/contentzones",
-            CurrentVersionNumber = versions.FirstOrDefault(v => v.Version.IsCurrentDraft)?.Version.VersionNumber,
-            ParentKey = parentKey,
-            ChildType = "items",
-            IsCombined = isCombined,
-            Versions = isCombined
-                ? rows.OrderByDescending(r => r.ModificationDate).ThenByDescending(r => r.Version).ToList()
-                : rows
-        };
-    }
-
-    /// <summary>One widget's history rows; latest and current version are per widget.</summary>
-    private static List<VersionItemViewModel> VersionRows(List<ContentZoneItemDTO> versions, string widgetLabel)
-    {
-        var maxVersion = versions.Max(v => v.Version.VersionNumber);
-        var currentVersion = versions.FirstOrDefault(v => v.Version.IsCurrentDraft)?.Version.VersionNumber;
-        return versions.Select(v => new VersionItemViewModel
-        {
-            Id = v.VersionId,
-            Version = v.Version.VersionNumber,
-            Title = v.ComponentName,
-            CreationDate = v.Version.Node.CreatedUtc,
-            ModificationDate = v.Version.CreatedUtc,
-            IsPublished = v.Version.State == ContentVersionState.Published,
-            IsDeleted = v.Version.Node.IsDeleted,
-            IsLatest = v.Version.VersionNumber == maxVersion,
-            CreatedBy = v.Version.CreatedBy,
-            ChangeNote = v.Version.ChangeNote,
-            State = v.Version.State,
-            ChangeSetId = v.Version.ChangeSetId,
-            NodeId = v.Version.Node.Id,
-            WidgetLabel = widgetLabel,
-            NodeCurrentVersionNumber = currentVersion
-        }).ToList();
-    }
-
-    /// <summary>
-    /// The history page's heading: the version title, else (zone items saved by the editor carry none)
-    /// the widget's admin label, else its component name.
-    /// </summary>
-    private static string ItemTitle(ContentZoneItemDTO item)
-        => !string.IsNullOrWhiteSpace(item.Version.Title) ? item.Version.Title
-         : ContentZoneModel.ItemLabel(item);
-
-    public async Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
-    {
-        var historical = await _model.GetItemVersionAsync(historicalId, ct);
-        if (historical == null) return null;
-        var current = await _model.GetItemByNodeIdAsync(historical.Version.Node.Id, ct);
-        if (current == null) return null;
-        return new ContentZoneItemUpsertViewModel
-        {
-            NodeId = historical.Version.Node.Id,
-            ContentZoneNodeId = historical.ContentZoneNodeId,
-            ExpectedVersionNumber = current.Version.VersionNumber,
-            ComponentName = historical.ComponentName,
-            ComponentPropertiesJson = _model.HydratePropertiesJson(
-                historical.ComponentName, historical.ComponentPropertiesJson, historical.Version.EffectiveRelations()),
-            MetadataJson = WidgetMetadataJson.Restorable(historical.MetadataJson, _model.GetWidget(historical.ComponentName), current.MetadataJson),
-            IsActive = historical.IsActive,
-        };
-    }
-
-    /// <summary>
-    /// One-step restore: the version's content, metadata (List→Single where the widget no longer
-    /// supports lists), active state, zone and ordinal, as a draft until the page publishes. A
-    /// global-zone item goes live now, so its widget routes follow.
-    /// </summary>
-    public async Task<AdminSaveResult> RestoreChildVersionAsync(string parentKey, Guid versionId, int? expectedVersionNumber, CancellationToken ct = default)
-    {
-        var historical = await _model.GetItemVersionAsync(versionId, ct);
-        if (historical == null)
-            return new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage);
-
-        var nodeId = historical.Version.Node.Id;
-        var current = await _model.GetItemByNodeIdAsync(nodeId, ct);
-        if (current == null)
-            return new AdminSaveResult(false, IContentZoneService.ItemNotFoundMessage);
-
-        var metadataJson = WidgetMetadataJson.Restorable(historical.MetadataJson, _model.GetWidget(historical.ComponentName), current.MetadataJson);
-        var (success, error) = await _model.RestoreItemVersionAsync(versionId, metadataJson, expectedVersionNumber, ct);
-        if (!success)
-            return new AdminSaveResult(false, error);
-
-        await _model.RegisterWidgetRouteIfRoutableAsync(
-            historical.ComponentName, nodeId, historical.ContentZoneNodeId, historical.IsActive, ct);
-        return new AdminSaveResult(true, NodeId: nodeId);
-    }
-
-    public async Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default)
-        => (await TryDeleteChildVersionAsync(id, ct)).Success;
-
-    /// <summary>A version a page-history entry captured cannot be deleted while that entry exists.</summary>
-    public async Task<(bool Success, string? ErrorMessage)> TryDeleteChildVersionAsync(Guid id, CancellationToken ct = default)
-    {
-        var entries = await _model.PageHistory.GetSnapshotsReferencingVersionAsync(id, ct);
-        if (entries.Count > 0)
-            return (false, PageHistoryMessages.VersionInHistory(entries[0]));
-
-        return await _model.DeleteItemVersionAsync(id, ct)
-            ? (true, null)
-            : (false, IAdminCrudHandler.VersionNotDeletedMessage);
-    }
 }
 
 /// <summary>Exposes the content zone component registry as admin JSON endpoints.</summary>

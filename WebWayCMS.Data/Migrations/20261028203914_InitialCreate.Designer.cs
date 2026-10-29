@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20261028200302_InitialCreate")]
+    [Migration("20261028203914_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -401,15 +401,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsHidden")
                         .HasColumnType("boolean");
 
-                    b.Property<Guid?>("ParentNodeId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid?>("SiteId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ParentNodeId");
 
                     b.HasIndex("SiteId");
 

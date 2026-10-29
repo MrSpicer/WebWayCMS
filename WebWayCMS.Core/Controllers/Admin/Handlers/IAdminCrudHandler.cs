@@ -73,6 +73,17 @@ public interface IAdminCrudHandler
     Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, CancellationToken ct = default)
         => Task.FromResult(new AdminSaveResult(false, "Restoring versions is not supported."));
 
+    /// <summary>
+    /// <see cref="RestoreVersionAsync(Guid, CancellationToken)"/>, refused when the item's current version is
+    /// no longer <paramref name="expectedVersionNumber"/> (the admin history page and MCP
+    /// <c>restore_child_version</c> pass what they last read). The default ignores the expected version.
+    /// </summary>
+    Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, int? expectedVersionNumber, CancellationToken ct = default)
+        => RestoreVersionAsync(versionId, ct);
+
+    /// <summary>A restore's error when the version does not exist.</summary>
+    const string VersionNotFoundMessage = "Version not found.";
+
     /// <summary>Returns [ { id, title } ] for entity picker dropdowns.</summary>
     Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 
@@ -85,11 +96,41 @@ public interface IAdminCrudHandler
     /// <summary>Returns a secondary named list, keyed by an arbitrary string.</summary>
     Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default);
 
+    /// <summary>
+    /// The current drafts that relation <paramref name="relationName"/> (a containment this type declares)
+    /// places under <paramref name="parentNodeId"/>, by position, then newest first.
+    /// </summary>
+    Task<IReadOnlyList<RelatedChild>> GetRelatedChildrenAsync(string relationName, Guid parentNodeId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<RelatedChild>>([]);
+
+    /// <summary>
+    /// Puts the children of <paramref name="parentNodeId"/> through the ordered containment
+    /// <paramref name="relationName"/> in the order of <paramref name="orderedNodeIds"/> (every child, once);
+    /// only the children that moved get a new version.
+    /// </summary>
+    Task<(bool Success, string? ErrorMessage)> ReorderRelatedAsync(
+        string relationName, Guid parentNodeId, IReadOnlyList<Guid> orderedNodeIds, CancellationToken ct = default)
+        => Task.FromResult<(bool Success, string? ErrorMessage)>((false, ReorderNotSupportedMessage));
+
+    /// <summary><see cref="ReorderRelatedAsync"/>'s error for a relation that is not an ordered containment.</summary>
+    const string ReorderNotSupportedMessage = "Reorder is not supported for this relation.";
+
+    /// <summary>
+    /// Moves <paramref name="childNodeId"/> under <paramref name="targetParentNodeId"/> through the containment
+    /// <paramref name="relationName"/> (a new draft), at <paramref name="position"/> (0-based, clamped) when
+    /// the relation is ordered. Refused when the child's current version is no longer
+    /// <paramref name="expectedVersionNumber"/>.
+    /// </summary>
+    Task<(bool Success, string? ErrorMessage)> MoveRelatedAsync(
+        string relationName, Guid childNodeId, Guid targetParentNodeId, int? position, int? expectedVersionNumber,
+        CancellationToken ct = default)
+        => Task.FromResult<(bool Success, string? ErrorMessage)>((false, MoveNotSupportedMessage));
+
+    /// <summary><see cref="MoveRelatedAsync"/>'s error for a relation that is not a containment of this type.</summary>
+    const string MoveNotSupportedMessage = "Move is not supported for this relation.";
+
     /// <summary>Optional: exposes GET /wadmin/{contentType}/registry endpoints.</summary>
     IAdminRegistryHandler? RegistryHandler { get; }
-
-    /// <summary>Optional: manages child entities (articles, zone items).</summary>
-    IAdminCrudChildHandler? ChildHandler { get; }
 
     bool SupportsVersionHistory => false;
 

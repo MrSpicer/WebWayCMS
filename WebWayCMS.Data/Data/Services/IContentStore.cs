@@ -14,8 +14,6 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<T?> GetAsync(Guid nodeId, CancellationToken ct = default);
     Task<List<T>> GetAllAsync(CancellationToken ct = default);
     Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default);
-    Task<List<T>> GetChildrenAsync(Guid parentNodeId, CancellationToken ct = default);
-    Task<List<T>> GetRootsAsync(CancellationToken ct = default);
 
     /// <summary>The items at the read context that match <paramref name="predicate"/>, newest first.</summary>
     Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default);
@@ -34,7 +32,6 @@ public interface IContentStore<T> where T : class, IVersionedContent
     Task<T?> GetCurrentDraftAsync(Guid nodeId, CancellationToken ct = default);
     Task<T?> GetCurrentDraftBySlugAsync(string slug, CancellationToken ct = default);
     Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default);
-    Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default);
     Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default);
 
     /// <summary>The current drafts that match <paramref name="predicate"/>, newest first.</summary>
@@ -42,6 +39,9 @@ public interface IContentStore<T> where T : class, IVersionedContent
 
     /// <summary>The current drafts with relation <paramref name="name"/> to <paramref name="targetNodeId"/>, by ordinal, then newest first.</summary>
     Task<List<T>> FindCurrentDraftsRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default);
+
+    /// <summary>The current drafts with no relation <paramref name="name"/> (e.g. root pages: no parent), newest first.</summary>
+    Task<List<T>> FindCurrentDraftsWithoutRelationAsync(string name, CancellationToken ct = default);
 
     /// <summary>Counts the current drafts' relation <paramref name="name"/> rows, grouped by target node.</summary>
     Task<Dictionary<Guid, int>> CountCurrentDraftsByRelationAsync(string name, CancellationToken ct = default);

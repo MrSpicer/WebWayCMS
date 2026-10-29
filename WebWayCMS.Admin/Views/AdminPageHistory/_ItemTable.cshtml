@@ -40,7 +40,7 @@ else
                         <td><partial name="_ChangeTag" model="row.Change" view-data='new ViewDataDictionary(ViewData) { ["Since"] = Model.Since }' /></td>
                         <td>
                             <a class="button is-small"
-                               href="@Url.Action("ChildVersionHistory", "AdminContent", new { contentType = "contentzones", parentKey = row.ZoneNodeId.ToString(), childType = "items", nodeId = row.ItemNodeId, returnUrl })">
+                               href="@Url.Action("VersionHistory", "AdminContent", new { contentType = "contentzoneitems", nodeId = row.ItemNodeId, returnUrl })">
                                 <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
                                 <span>Widget history</span>
                             </a>

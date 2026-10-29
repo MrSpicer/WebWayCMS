@@ -69,7 +69,7 @@ One shape, no variants:
   warning and the item is skipped. Duplicate ids across all sources in one run are a warning; last
   write wins.
 - `contentType` — required, must match a **versioned** `IAdminCrudHandler.ContentType` (`pages`,
-  `contentblocks`, `articles`, `contentzones`, `widgets`, `pagetypes`, or any host key such as the
+  `contentblocks`, `articles`, `contentzones`, `contentzoneitems` (zone items, §10), `widgets`, `pagetypes`, or any host key such as the
   TestHost's `faqs`). Non-versioned types with no node identity (`cmsroutes`, `formcomponents`) are
   warned-and-skipped. Unknown ⇒ warning, item skipped.
 - `publish` — optional, defaults to `true`. Ignored when `handler.SupportsPublishing` is false.
@@ -225,14 +225,20 @@ An unversioned entity (modelled on `CMSRouteDTO`), keyed by the seed id:
 ## 10. Zone Items
 
 A seed item with a `zone` locator is a **zone item** (a widget placed in a content zone). It uses
-`"contentType": "contentzones"` and is saved through that handler's child dispatch
-(`IAdminCrudChildHandler.SaveChildUpsertAsync`), so it gets the same metadata normalization and
-widget-route registration as a zone item created in the zone editor or over MCP.
+`"contentType": "contentzoneitems"` and is saved through the ordinary top-level dispatch of that handler
+(`ContentZoneItemModel.SaveUpsertAsync`), with the zone the locator resolves to written into its
+`contentZoneNodeId` field (any value the file gives there is dropped), so it gets the same metadata
+normalization and widget-route registration as a zone item created in the zone editor or over MCP.
+
+**Legacy form.** Before zone items became their own content type they were seeded as
+`"contentType": "contentzones"` with a `zone` locator. That form is still accepted as an alias for
+`contentzoneitems`, with a warning ("uses the deprecated contentType…") once per item per seed run; a
+`zone` locator on any other content type is skipped with a warning.
 
 ```json
 {
   "id": "44444444-0000-4000-8000-000000000002",
-  "contentType": "contentzones",
+  "contentType": "contentzoneitems",
   "zone": { "page": "@seed:22222222-0000-4000-8000-000000000001", "slot": "Main" },
   "fields": {
     "componentName": "Faq",
@@ -266,7 +272,7 @@ widget-route registration as a zone item created in the zone editor or over MCP.
   later item naming the same zone (same raw locator) defers with it, so a zone's items are always added in
   file order. Re-applying a changed item updates it in place and keeps its position.
 - **Changed locator** — an item whose locator now names another zone of the **same page** is moved there
-  (`MoveAsync`, to the end) *before* it is saved. A move to another page, or into or out of a global zone,
+  (`MoveRelatedAsync` on the `Zone` containment, to the end) *before* it is saved. A move to another page, or into or out of a global zone,
   is not possible (zone moves stay within one page), and neither is a rejected move (e.g. into the item's
   own nested zone): the item is left untouched — nothing saved, nothing recorded — and a warning repeats
   every boot until the seed is fixed. To place content on another page, give it a new seed id.

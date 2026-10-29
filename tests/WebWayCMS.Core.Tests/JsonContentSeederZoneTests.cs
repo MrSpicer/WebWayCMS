@@ -30,8 +30,7 @@ public class JsonContentSeederZoneTests
     private IAdminHandlerRegistry _registry = null!;
     private IContentSeedRecordService _records = null!;
     private IContentZoneService _zones = null!;
-    private IAdminCrudHandler _zoneHandler = null!;
-    private IAdminCrudChildHandler _child = null!;
+    private IAdminCrudHandler _child = null!;
     private IAdminCrudHandler _pages = null!;
     private IPageModel _pageModel = null!;
     private Dictionary<Guid, ContentSeedRecordDTO> _ledger = null!;
@@ -44,8 +43,7 @@ public class JsonContentSeederZoneTests
         _registry = Substitute.For<IAdminHandlerRegistry>();
         _records = Substitute.For<IContentSeedRecordService>();
         _zones = Substitute.For<IContentZoneService>();
-        _zoneHandler = Substitute.For<IAdminCrudHandler>();
-        _child = Substitute.For<IAdminCrudChildHandler>();
+        _child = Substitute.For<IAdminCrudHandler>();
         _pages = Substitute.For<IAdminCrudHandler>();
         _pageModel = Substitute.For<IPageModel>();
 
@@ -65,9 +63,10 @@ public class JsonContentSeederZoneTests
             });
 
         _registry.GetHandler(Arg.Any<string>()).Returns((IAdminCrudHandler?)null);
-        _registry.GetHandler("contentzones").Returns(_zoneHandler);
+        _registry.GetHandler("contentzoneitems").Returns(_child);
         _registry.GetHandler("pages").Returns(_pages);
-        _zoneHandler.ChildHandler.Returns(_child);
+        _child.ContentType.Returns("contentzoneitems");
+        _pages.ContentType.Returns("pages");
         _pages.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
 
         // Every page exists and is live unless a test says otherwise.
@@ -75,10 +74,10 @@ public class JsonContentSeederZoneTests
         _pageModel.PublishZoneItemsAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new PageZonePublishResult([], []));
 
-        _child.CreateEmptyChildUpsertViewModel().Returns(_ => new ContentZoneItemUpsertViewModel());
-        _child.SaveChildUpsertAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+        _child.CreateEmptyUpsertViewModel().Returns(_ => new ContentZoneItemUpsertViewModel());
+        _child.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(true, NodeId: ItemNodeId))
-            .AndDoes(c => _saved.Add((ContentZoneItemUpsertViewModel)c.ArgAt<object>(1)));
+            .AndDoes(c => _saved.Add((ContentZoneItemUpsertViewModel)c.ArgAt<object>(0)));
 
         _zones.GetOrCreateByPageSlotAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((Zone(ZoneNodeId), new OwnedZone()));
@@ -110,7 +109,7 @@ public class JsonContentSeederZoneTests
         string? zone = null,
         string fields = "{\"componentName\":\"FaqCount\",\"isActive\":true}",
         string? publish = null,
-        string contentType = "contentzones") =>
+        string contentType = "contentzoneitems") =>
         "{\"id\":\"" + (id ?? ItemSeedId) + "\",\"contentType\":\"" + contentType + "\"" +
         (publish == null ? string.Empty : ",\"publish\":" + publish) +
         ",\"zone\":" + (zone ?? PageZone()) +
@@ -133,14 +132,14 @@ public class JsonContentSeederZoneTests
     private void SaveReturns(params Guid[] nodeIds)
     {
         var results = nodeIds.Select(id => new AdminSaveResult(true, NodeId: id)).ToArray();
-        _child.SaveChildUpsertAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+        _child.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(results[0], results.Skip(1).ToArray())
-            .AndDoes(c => _saved.Add((ContentZoneItemUpsertViewModel)c.ArgAt<object>(1)));
+            .AndDoes(c => _saved.Add((ContentZoneItemUpsertViewModel)c.ArgAt<object>(0)));
     }
 
     private void AssertNothingSaved()
     {
-        _ = _child.DidNotReceive().SaveChildUpsertAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>());
+        _ = _child.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
         Assert.That(_upserts.Where(r => r.SeedId != PageSeedId), Is.Empty);
     }
 
@@ -150,19 +149,19 @@ public class JsonContentSeederZoneTests
         await Seeder(Document(ZoneItem(fields: "{\"componentName\":\"FaqCount\",\"componentPropertiesJson\":\"{}\",\"isActive\":true,\"contentZoneNodeId\":\"" + Guid.NewGuid() + "\"}"))).SeedAsync();
 
         await _zones.Received(1).GetOrCreateByPageSlotAsync(PageNodeId, "Main", Arg.Any<CancellationToken>());
-        await _child.Received(1).SaveChildUpsertAsync(ZoneNodeId.ToString(), Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _child.Received(1).SaveUpsertAsync(Arg.Is<object>(m => ((ContentZoneItemUpsertViewModel)m).ContentZoneNodeId == ZoneNodeId), Arg.Any<CancellationToken>());
         await _pageModel.Received(1).PublishZoneItemsAsync(
             PageNodeId, Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { ItemNodeId })), Arg.Any<CancellationToken>());
         // The page itself is never (re)published, so its other drafts stay pending.
         await _pages.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _pageModel.DidNotReceive().PublishPageAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
-        await _child.DidNotReceive().MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _child.DidNotReceive().MoveRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         Assert.Multiple(() =>
         {
             Assert.That(_saved.Single().ComponentName, Is.EqualTo("FaqCount"));
             Assert.That(_saved.Single().IsActive, Is.True);
             // Placement comes from the locator, never from the fields.
-            Assert.That(_saved.Single().ContentZoneNodeId, Is.EqualTo(Guid.Empty));
+            Assert.That(_saved.Single().ContentZoneNodeId, Is.EqualTo(ZoneNodeId));
             // Recorded first with an empty hash (draft), then with the real hash once the item published.
             Assert.That(_upserts.Select(r => r.ContentHash.Length == 0), Is.EqualTo(new[] { true, false }));
             Assert.That(_upserts.All(r => r.NodeId == ItemNodeId && r.SeedId == ItemSeedId), Is.True);
@@ -431,13 +430,24 @@ public class JsonContentSeederZoneTests
     }
 
     [Test]
-    public async Task Seed_HandlerWithoutChildHandler_IsSkipped()
+    public async Task Seed_ZoneLocatorOnAnotherContentType_IsSkipped()
     {
-        _zoneHandler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
-
-        await Seeder(Document(ZoneItem())).SeedAsync();
+        await Seeder(Document(ZoneItem(contentType: "pages"))).SeedAsync();
 
         AssertNothingSaved();
+        await _pages.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Seed_LegacyContentZonesType_AppliesAsAZoneItem()
+    {
+        await Seeder(Document(ZoneItem(contentType: "contentzones"))).SeedAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_saved.Single().ContentZoneNodeId, Is.EqualTo(ZoneNodeId));
+            Assert.That(_ledger.ContainsKey(ItemSeedId), Is.True);
+        });
     }
 
     [Test]
@@ -467,7 +477,7 @@ public class JsonContentSeederZoneTests
     [Test]
     public async Task Seed_SaveFails_IsNotRecorded()
     {
-        _child.SaveChildUpsertAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+        _child.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(false, "bad"));
 
         await Seeder(Document(ZoneItem())).SeedAsync();
@@ -479,7 +489,7 @@ public class JsonContentSeederZoneTests
     [Test]
     public async Task Seed_SaveReturnsNoNodeId_IsNotRecorded()
     {
-        _child.SaveChildUpsertAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+        _child.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(true), new AdminSaveResult(true, NodeId: Guid.Empty));
 
         await Seeder(Document(ZoneItem(), ZoneItem(id: ItemSeedId2))).SeedAsync();
@@ -491,7 +501,7 @@ public class JsonContentSeederZoneTests
     public async Task Seed_ChangedExistingItem_MergesOverStoredItem()
     {
         _ledger[ItemSeedId] = new ContentSeedRecordDTO { SeedId = ItemSeedId, NodeId = ItemNodeId, ContentHash = "old" };
-        _child.GetChildUpsertViewModelAsync(ZoneNodeId.ToString(), ItemNodeId, Arg.Any<CancellationToken>())
+        _child.GetUpsertViewModelAsync(ItemNodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
             .Returns(new ContentZoneItemUpsertViewModel { NodeId = ItemNodeId, ContentZoneNodeId = ZoneNodeId, ExpectedVersionNumber = 4, ComponentPropertiesJson = "{\"a\":1}" });
 
         await Seeder(Document(ZoneItem())).SeedAsync();
@@ -514,8 +524,8 @@ public class JsonContentSeederZoneTests
 
         await Seeder(Document(ZoneItem())).SeedAsync();
 
-        _child.Received(1).CreateEmptyChildUpsertViewModel();
-        await _child.DidNotReceive().MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _child.Received(1).CreateEmptyUpsertViewModel();
+        await _child.DidNotReceive().MoveRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         Assert.That(_saved.Single().NodeId, Is.Null);
     }
 
@@ -526,16 +536,16 @@ public class JsonContentSeederZoneTests
         _ledger[ItemSeedId] = new ContentSeedRecordDTO { SeedId = ItemSeedId, NodeId = ItemNodeId, ContentHash = "old" };
         _zones.GetItemByNodeIdAsync(ItemNodeId, Arg.Any<CancellationToken>()).Returns(Item(ItemNodeId, otherZone));
         _zones.GetParentPageNodeForZoneAsync(otherZone, Arg.Any<CancellationToken>()).Returns((Guid?)PageNodeId);
-        _child.MoveAsync(ItemNodeId, ZoneNodeId.ToString(), int.MaxValue, Arg.Any<CancellationToken>())
+        _child.MoveRelatedAsync(ZoneRelations.Zone, ItemNodeId, ZoneNodeId, int.MaxValue, null, Arg.Any<CancellationToken>())
             .Returns((true, (string?)null));
 
         await Seeder(Document(ZoneItem())).SeedAsync();
 
         Received.InOrder(() =>
         {
-            _child.MoveAsync(ItemNodeId, ZoneNodeId.ToString(), int.MaxValue, Arg.Any<CancellationToken>());
-            _child.GetChildUpsertViewModelAsync(ZoneNodeId.ToString(), ItemNodeId, Arg.Any<CancellationToken>());
-            _child.SaveChildUpsertAsync(ZoneNodeId.ToString(), Arg.Any<object>(), Arg.Any<CancellationToken>());
+            _child.MoveRelatedAsync(ZoneRelations.Zone, ItemNodeId, ZoneNodeId, int.MaxValue, null, Arg.Any<CancellationToken>());
+            _child.GetUpsertViewModelAsync(ItemNodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>());
+            _child.SaveUpsertAsync(Arg.Is<object>(m => ((ContentZoneItemUpsertViewModel)m).ContentZoneNodeId == ZoneNodeId), Arg.Any<CancellationToken>());
         });
         Assert.That(_ledger[ItemSeedId].ContentHash, Is.Not.Empty);
     }
@@ -552,7 +562,7 @@ public class JsonContentSeederZoneTests
 
         await Seeder(Document(ZoneItem())).SeedAsync();
 
-        await _child.DidNotReceive().MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _child.DidNotReceive().MoveRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         AssertNothingSaved();
         Assert.That(_ledger[ItemSeedId].ContentHash, Is.EqualTo("old"));
     }
@@ -564,7 +574,7 @@ public class JsonContentSeederZoneTests
         _ledger[ItemSeedId] = new ContentSeedRecordDTO { SeedId = ItemSeedId, NodeId = ItemNodeId, ContentHash = "old" };
         _zones.GetItemByNodeIdAsync(ItemNodeId, Arg.Any<CancellationToken>()).Returns(Item(ItemNodeId, otherZone));
         _zones.GetParentPageNodeForZoneAsync(otherZone, Arg.Any<CancellationToken>()).Returns((Guid?)PageNodeId);
-        _child.MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _child.MoveRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns((false, "A widget cannot be moved into itself."));
 
         await Seeder(Document(ZoneItem())).SeedAsync();

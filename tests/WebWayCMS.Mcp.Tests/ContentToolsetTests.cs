@@ -10,6 +10,7 @@ using NSubstitute;
 using NUnit.Framework;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Services.Relations;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Models.Shared;
 
@@ -51,9 +52,13 @@ public class ContentToolsetTests
     [Test]
     public void ListContentTypes_ProjectsHandlerMetadata()
     {
-        var child = Substitute.For<IAdminCrudChildHandler>();
-        child.ChildType.Returns("articles");
-        _handler.ChildHandler.Returns(child);
+        // A child type placed under contentblocks by a containment (twice: listed once).
+        var child = Substitute.For<IAdminCrudHandler>();
+        child.ContentType.Returns("notes");
+        child.CreateEmptyUpsertViewModel().Returns(_ => new ContainedNote());
+        _handler.CreateEmptyUpsertViewModel().Returns(_ => new FakeUpsertViewModel());
+        _registry.All.Returns([_handler, child]);
+        _tools = new ContentToolset(_registry, new[] { _handler }, new ContentRelationRegistry(_registry));
         _handler.RegistryHandler.Returns(Substitute.For<IAdminRegistryHandler>());
         _handler.SupportsVersionHistory.Returns(true);
         _handler.SupportsPublishing.Returns(true);
@@ -67,8 +72,7 @@ public class ContentToolsetTests
             Assert.That(info.DisplayName, Is.EqualTo("Content Block"));
             Assert.That(info.SupportsVersionHistory, Is.True);
             Assert.That(info.SupportsPublishing, Is.True);
-            Assert.That(info.HasChildren, Is.True);
-            Assert.That(info.ChildType, Is.EqualTo("articles"));
+            Assert.That(info.ChildTypes, Is.EqualTo(new[] { "notes" }));
             Assert.That(info.HasRegistry, Is.True);
             Assert.That(info.SecondaryApiListKeys, Is.EqualTo(new[] { "articlelists" }));
         });
@@ -77,7 +81,6 @@ public class ContentToolsetTests
     [Test]
     public void ListContentTypes_WithoutChildOrRegistry_FlagsAreFalse()
     {
-        _handler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
         _handler.RegistryHandler.Returns((IAdminRegistryHandler?)null);
 
         var info = _tools.ListContentTypes().Single();
@@ -86,8 +89,7 @@ public class ContentToolsetTests
         {
             Assert.That(info.SupportsVersionHistory, Is.False);
             Assert.That(info.SupportsPublishing, Is.False);
-            Assert.That(info.HasChildren, Is.False);
-            Assert.That(info.ChildType, Is.Null);
+            Assert.That(info.ChildTypes, Is.Empty);
             Assert.That(info.HasRegistry, Is.False);
         });
     }

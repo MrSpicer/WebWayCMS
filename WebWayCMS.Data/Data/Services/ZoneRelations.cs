@@ -13,8 +13,11 @@ namespace WebWayCMS.Data.Services;
 /// </summary>
 public static class ZoneRelations
 {
-    /// <summary>Item → zone (ordered containment).</summary>
-    public const string Zone = "Zone";
+    /// <summary>
+    /// Item → zone (ordered containment). Named after the zone item upsert view model's
+    /// <c>ContentZoneNodeId</c> property, which declares it.
+    /// </summary>
+    public const string Zone = "ContentZoneNodeId";
 
     /// <summary>Zone → page or container item (containment, slot in the qualifier).</summary>
     public const string Owner = "Owner";

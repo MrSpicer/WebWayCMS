@@ -2,9 +2,12 @@
 @model ContentZoneItemUpsertViewModel
 
 @{
-    ViewData["Title"] = "Edit Item";
-    var zoneName = ViewData["ZoneName"] as string ?? "Zone";
-    var zoneId = ViewData["ZoneId"] as string ?? "";
+    var isNew = Model.NodeId == null || Model.NodeId == Guid.Empty;
+    ViewData["Title"] = isNew ? "New Item" : "Edit Item";
+    var zoneName = Model.ZoneName ?? "Zone";
+    var zoneItemsUrl = Url.Action("Index", "AdminContent", new { contentType = "contentzoneitems" })
+        + "?" + ContentZoneItemModel.ZoneQueryKey + "=" + Model.ContentZoneNodeId;
+    var returnUrl = Context.Request.Query["returnUrl"].FirstOrDefault() is { } r && Url.IsLocalUrl(r) ? r : zoneItemsUrl;
 }
 
 <div class="admin-page-header">
@@ -14,18 +17,19 @@
                 <nav class="breadcrumb" aria-label="breadcrumbs">
                     <ul>
                         <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
-                        <li><a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items">@zoneName</a></li>
+                        <li><a href="@zoneItemsUrl">@zoneName</a></li>
                     </ul>
                 </nav>
-                <h1 class="title is-5">Edit Item</h1>
+                <h1 class="title is-5">@ViewData["Title"]</h1>
             </div>
         </div>
     </div>
 </div>
 
 <div class="container admin-page-body">
-        <form asp-action="ChildEdit" asp-controller="AdminContent" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items" method="post" novalidate>
+        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="contentzoneitems" method="post" novalidate>
             @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
             <div role="alert" aria-live="polite">
                 @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
             </div>
@@ -36,7 +40,7 @@
                 <footer class="card-footer">
                     <div class="card-footer-item is-justify-content-flex-start">
                         <button type="submit" class="button is-primary mr-3">Save</button>
-                        <a asp-action="ChildIndex" asp-controller="AdminContent" asp-route-contentType="contentzones" asp-route-parentKey="@zoneId" asp-route-childType="items" class="button">Cancel</a>
+                        <a href="@returnUrl" class="button">Cancel</a>
                     </div>
                 </footer>
             </div>

@@ -28,3 +28,23 @@ public sealed class FakeUpsertViewModel
     // No FormProperty -> excluded from describe output.
     public int Ignored { get; set; }
 }
+/// <summary>A child type placed under "contentblocks" by two containments (for the child tools' relation choice).</summary>
+public sealed class ContainedNote
+{
+    [ContentRelation("contentblocks", Kind = ContentRelationKind.Containment)]
+    public Guid BlockId { get; set; }
+
+    [ContentRelation("contentblocks", Kind = ContentRelationKind.Containment)]
+    public Guid? OtherBlockId { get; set; }
+
+    public string? Title { get; set; }
+}
+
+/// <summary>A child type placed under "lists" by one containment.</summary>
+public sealed class ListedItem
+{
+    [ContentRelation("lists", Kind = ContentRelationKind.Containment, Ordered = true)]
+    public Guid ListId { get; set; }
+
+    public string? Title { get; set; }
+}

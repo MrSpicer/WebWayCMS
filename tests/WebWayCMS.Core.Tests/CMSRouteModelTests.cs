@@ -75,7 +75,6 @@ public class CMSRouteModelTests
         Assert.Multiple(() =>
         {
             Assert.That(_model.RegistryHandler, Is.Null);
-            Assert.That(_model.ChildHandler, Is.Null);
         });
     }
 

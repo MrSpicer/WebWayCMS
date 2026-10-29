@@ -1,8 +1,8 @@
 # Area 17: Content Relations
 
-> **Status: phases 1–2 of 6 implemented** — the engine (§2–§6), the Article → Article List row of §7,
-> config pickers and the picker/modal UX (§7 config row, §9 reference UX). The other §7 rows, routes as
-> content (§8), the containment admin (§9) and the generic child tools (§10) are still the target design. Sections marked *today* describe the code before relations; sections marked
+> **Status: phases 1–5 of 6 implemented** — the engine (§2–§6), every row of §7, routes as content
+> (§8), both admin UXes (§9) and the generic child tools and zone-item seeding (§10). Phase 6 (the TestHost
+> moving onto relations) remains. Sections marked *today* describe the code before relations; sections marked
 > **Implemented** describe the code as it is. Decisions already agreed are stated as settled; the
 > questions raised during review are recorded as [resolved](#14-resolved-questions). The implementation
 > plan is in [plans/content-relations](../../plans/content-relations/README.md).
@@ -287,9 +287,9 @@ The target is deleted with its source and published with it. Routes use this (§
 | Link | Kind | Owned by (source version) | Target | Notes |
 |---|---|---|---|---|
 | Article → Article List | Containment | article | list node | **Implemented** (phase 1): `ArticleListNodeId` dropped; the list delete cascade and visibility rule are generic |
-| Zone item → zone | Containment, `Ordered` | zone item | zone node | **Implemented** (phase 4): relation `Zone`; `ContentZoneNodeId` + `Ordinal` are in-memory accessors |
+| Zone item → zone | Containment, `Ordered` | zone item | zone node | **Implemented** (phase 4): relation `ZoneRelations.Zone`; `ContentZoneNodeId` + `Ordinal` are in-memory accessors. Phase 5 declares it on `ContentZoneItemUpsertViewModel.ContentZoneNodeId` (`ShowInParentAdmin = false`), so the stored name became `ContentZoneNodeId` |
 | Owner → zone (slot) | Containment | zone | page or zone-item node | **Implemented** (phase 4): relation `Owner`, `Qualifier` = slot; `ContentZoneAssignments` dropped; deterministic zone ids |
-| Page → parent page | Containment | page | parent page node | drops `ContentNode.ParentNodeId`; a page move becomes versioned |
+| Page → parent page | Containment | page | parent page node | **Implemented** (phase 5): `ContentNode.ParentNodeId` dropped; `PageUpsertViewModel.ParentNodeId` is the relation (the page form's Parent Page picker), so a move is a versioned draft; the binder's cycle guard refuses a page under itself or a descendant; a page delete cascades to its subtree |
 | Widget / page config pickers | Reference | zone item / page | picked node | **Implemented** (phase 2): the id leaves the config JSON and is stored as `config.*` |
 | Routable content → route | Reference (see §8) | owner | route node | replaces the `CMSRoutes` ownership columns |
 
@@ -355,11 +355,16 @@ public record RouteDTO : IVersionedContent
 
 ### Containment: children on the parent's screen
 
+> **Implemented** (phase 5) — see [Area 6 §3](06-admin-crud-framework.md#3-containment--children-reorder-move).
+> Reorder is Up/Down buttons (keyboard-accessible) rather than drag; moving a child to another parent is
+> its relation field on its own form (or MCP `move_child`), not a panel action. Content zone items became the
+> top-level `contentzoneitems` handler, with their containment hidden from the panel.
+
 - A generic **children panel** on the parent's edit screen is driven by the declarations that target
   the parent's type. It lists the children, offers "New {child}", and supports reorder when `Ordered`
   and move to another parent.
 - It replaces `IAdminCrudChildHandler` and the `/wadmin/{contentType}/{parentKey}/{childType}/…`
-  routes, which today only zones implement.
+  routes, which only zones implemented (both are gone).
 - **Articles:** the Article List edit screen lists its articles, so the `?list=` filtered index is no
   longer needed for nested editing (it may stay as a filter).
 - **Zones:** the zone editor keeps its own drag-and-drop UI, built on the engine.
@@ -377,6 +382,11 @@ public record RouteDTO : IVersionedContent
   CSP).
 
 ## 10. MCP and Seeding
+
+> **Implemented** (phase 5) — see [Area 12 §5](12-mcp-server.md#5-tool-surface) and
+> [Area 15 §10](15-content-seeding.md#10-zone-items). Zone items seed as `contentzoneitems` (the old
+> `contentzones` + `zone` form is a deprecated alias); "any containment child" seeds through its relation
+> field like any other top-level item.
 
 - **MCP:** relations are ordinary `Guid` / `Guid[]` fields of the upsert view model, so
   `create_content`, `update_content` and `get_content` cover them with no new tools.

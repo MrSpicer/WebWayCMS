@@ -78,7 +78,8 @@ public record ContentNode
 {
     public Guid Id { get; set; }              // stable identity (replaces the old MasterId)
     public string ContentTypeKey { get; set; } // "pages", "articles", "contentzones", ...
-    public Guid? ParentNodeId { get; set; }
+    // no parent column: parentage is a containment relation on the version (a page's parent page, an
+    // article's list, a zone item's zone), so it is versioned like any other field
     public Guid? SiteId { get; set; }          // multi-site seam; null = default site
     public DateTime CreatedUtc { get; set; }
     public Guid? CreatedBy { get; set; }
@@ -276,7 +277,9 @@ the historical version's rows; create: none) and replaces only the written names
 mentions a relation (e.g. a mapper-built DTO of a type without that property) keeps it.
 
 **Cross-type queries** (`IContentRelations`, registered in both modes): `GetLiveReferrersAsync(target, kind?)`,
-`GetLiveChildrenAsync(parent)`, `GetLiveOwnedTargetsAsync(source)` and `GetNodesAsync(ids)`. "Live" means a
+`GetLiveChildrenAsync(parent)`, `GetLiveOwnedTargetsAsync(source)`, `GetNodesAsync(ids)` and
+`GetCurrentDraftTargetAsync(source, name)` (the current draft's first target of a relation; the relation
+binder walks it for the containment cycle guard). "Live" means a
 source's current draft or published version; historical rows are ignored (they are what the delete policy
 must not trip over).
 
@@ -408,8 +411,6 @@ and is read-context aware.
 | `GetAsync(nodeId)` | The single row selected by the read context for that node |
 | `GetAllAsync()` | One row per node, at the read context |
 | `GetBySlugAsync(slug)` | Row at the read context matching the slug |
-| `GetChildrenAsync(parentNodeId)` | Rows whose `Node.ParentNodeId` matches |
-| `GetRootsAsync()` | Rows whose `Node.ParentNodeId` is null |
 | `FindAsync(predicate)` | Rows matching an arbitrary predicate, newest first |
 | `FindRelatedAsync(name, targetNodeId)` | Rows whose read-context version has relation `name` to the target, by that relation's `Ordinal`, then newest first |
 
@@ -446,8 +447,8 @@ has sat in its zone tree. Snapshot mode without a snapshot falls back to `Publis
 | `GetCurrentDraftAsync(nodeId)` | The `IsCurrentDraft` row (invariant variant) — **excludes `Node.IsDeleted`** (matching `AtReadContext`), so soft-deleted items never leak into admin lists |
 | `GetCurrentDraftBySlugAsync(slug)` | The `IsCurrentDraft` row by slug (invariant variant, `IsDeleted` excluded); returns null for blank slugs |
 | `GetAllCurrentDraftsAsync()` | Every current-draft row (admin lists) — **excludes `Node.IsDeleted`** |
-| `GetCurrentDraftChildrenAsync(parentNodeId)` | Current-draft rows whose `Node.ParentNodeId` matches (null ⇒ root drafts) — **excludes `Node.IsDeleted`** — the sibling-scoped query behind the page slug-collision check |
-| `FindCurrentDraftsAsync(predicate)` / `FindCurrentDraftsRelatedAsync(name, targetNodeId)` | Current drafts by predicate / by relation (ordinal, then newest) |
+| `FindCurrentDraftsAsync(predicate)` / `FindCurrentDraftsRelatedAsync(name, targetNodeId)` | Current drafts by predicate / by relation (ordinal, then newest) — the relation form is the sibling query behind the page slug-collision check (`PageModel.ParentRelation`) |
+| `FindCurrentDraftsWithoutRelationAsync(name)` | Current drafts with no relation `name`, newest first (root pages: no parent) |
 | `CountCurrentDraftsByAsync(keySelector)` / `CountCurrentDraftsByRelationAsync(name)` | Current-draft counts by key / by relation target |
 | `GetPublishedNodeIdsAsync()` | The set of node ids that have a `Published` version at the default variant — **excludes `Node.IsDeleted`** — the "has a published version" signal used by the page nav |
 

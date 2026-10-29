@@ -49,6 +49,18 @@
   `DeleteSelfAsync` (its own node only) instead of `DeleteAsync` (now the base's, through the relation engine).
 - A host `AdminCrudModel<T>` registered as `IAdminCrudHandler` is served by `AdminContentController`
   and MCP-visible for free. Two handlers sharing a `ContentType` key throw at first registry resolution.
+- **Containment is the parent–child mechanism** (`IAdminCrudChildHandler` and the `/{parentKey}/{childType}`
+  routes are gone). A containment shows on the parent's edit screen as a **children panel**
+  (`_RelationChildren.cshtml`, rendered by `_AdminLayout` from `RelationChildrenPanelViewModel`s the Edit GET
+  builds via `ContentRelationRegistry.GetContainmentsTargeting`; not in the modal; `ShowInParentAdmin = false`
+  opts out): the children (`IAdminCrudHandler.GetRelatedChildrenAsync`), a **New** link that preselects the
+  parent (`/wadmin/{child}/create?{RelationName}={parent}` — `RelationPreselect.Apply` fills any relation
+  property named in the create query), and Up/Down reorder for an `Ordered` one (`relation-children.js` →
+  `POST /wadmin/{child}/relations/{relation}/{parent}/reorder` → `ReorderRelatedAsync`). `AdminCrudModel`
+  implements children/reorder/`MoveRelatedAsync` generically. Content zone items are the top-level handler
+  `ContentZoneItemModel` (`contentzoneitems`; its `ContentZoneNodeId` is the ordered `Zone` containment,
+  hidden and `ShowInParentAdmin = false`); Edit/Delete/history accept a local `returnUrl`, and the top-level
+  restore takes `expectedVersionNumber` (`IAdminCrudHandler.RestoreVersionAsync(versionId, expected)`).
 - A host content type is an `EntityPicker` target via `EntityType = "<contentTypeKey>"`: the list
   endpoint is resolved server-side (`EntityPickerEndpoint.Resolve` over `IAdminHandlerRegistry` —
   exact key, plural, then secondary list key) and emitted as `data-endpoint`; `form-components.js`
@@ -58,7 +70,7 @@
 ## Content Versioning (Node/Version model)
 
 - Content identity and version are **split**. A logical item is one `ContentNode`
-  (`Id`, `ContentTypeKey`, `ParentNodeId`, `SiteId`, `CreatedUtc`, `CreatedBy`, `IsDeleted/IsArchived/IsHidden`);
+  (`Id`, `ContentTypeKey`, `SiteId`, `CreatedUtc`, `CreatedBy`, `IsDeleted/IsArchived/IsHidden`);
   its mutable data lives on `ContentVersion` rows (`NodeId`, `VersionNumber`, `Culture`, `Segment`,
   `State` (`Draft/InReview/Approved/Published/Archived`), `IsCurrentDraft`, `Title`, `Slug`,
   `PublishStartUtc/EndUtc` (scheduling seam, not yet filtered), `ChangeNote`, `ChangeSetId`, `CustomFields`).
@@ -81,18 +93,20 @@
   changed", "Moved to Side (position 2)", "Position changed (moved by another widget)", "Removed",
   "Restored from version n"), else "Created"/"Edited"/"Restored from version n" — never copied from the
   previous version. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
-- **Content relations** (phase 1 of [doc 17](docs/architecture/17-content-relations.md); only Article → Article
-  List uses them so far): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
+- **Content relations** (phases 1–5 of [doc 17](docs/architecture/17-content-relations.md): Article → Article
+  List, config pickers, page routes, the zone structure, and page → parent page): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
   property, `Ordinal`, `Qualifier`, `Kind` Containment/Reference/Owned) is **owned by the source's version**
   (auto-included with `ContentVersion.Relations`; no DB FK on `TargetNodeId`), so a relation change mints a
   version and is a draft until publish. Declared with `[ContentRelation(target, Kind, Required, Ordered,
-  OnTargetDelete)]` (Forms; implies the EntityPicker). Writes go through `ContentVersion.RelationWrites`
+  OnTargetDelete, ShowInParentAdmin)]` (Forms; implies the EntityPicker). Writes go through `ContentVersion.RelationWrites`
   (`SetRelation`/`SetRelations`/`ReplaceAllRelationsFrom` in `ContentVersionRelations`): `ContentStore`
   starts each new version from a baseline (edit = current draft's rows, restore = the historical rows,
   create = none) and replaces only the written names, so a save that never mentions a relation keeps it.
   The **mapper** moves `[ContentRelation]` properties to/from the version for every profile mapping (no
   per-type code); `AdminCrudModel.SaveUpsertAsync` runs `RelationBinder` after `ModelValidator` (target must
-  be a current draft of the declared type, `Required`; field error on the property). **Containment
+  be a current draft of the declared type, `Required`; field error on the property; a containment whose
+  target's current-draft chain reaches the source — "can't be placed under itself or one of its descendants" —
+  is refused). **Containment
   visibility:** every read-context `ContentStore` read drops an item whose containment chain isn't visible
   (`ContainmentVisibility`, scoped, memoized per request; skipped in Draft; snapshot-governed nodes pass).
   **Delete:** `AdminCrudModel.DeleteAsync`/`TryDeleteAsync` → `ContentDeleteService`: containment descendants
@@ -103,7 +117,8 @@
   `RelationWrites` onto the reloaded version);
   only **current draft and published** versions count (`IContentRelations`), historical rows resolve to
   nothing. Descendants are deleted by `IContentDeleter` (every `AdminCrudModel`, plus explicit registrations).
-  The result's `DeletedDescendants` reaches the admin flash and MCP `delete_content`. `ContentRelationRegistry`
+  The result's `DeletedDescendants` (containment descendants, leaving out zones and zone items, so a page
+  delete counts its child pages) reaches the admin flash and MCP `delete_content`. `ContentRelationRegistry`
   (admin) validates every declaration at boot. Page revert/discard copy relations; `PageSetEquality`
   compares them. **Config relations (phase 2):** a `[ContentRelation]` on a widget or page configuration
   type is stored as `config.*` rows owned by the zone item's or page's version: `WidgetConfigurationJson`
@@ -140,13 +155,21 @@
   the route items as drafts; deleting the page deletes its route items. Projected `cmsroutes` rows are
   read-only (edit them from their owner). Publish/unpublish are
   `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`. Restore is one-step (`RestoreVersionAsync`,
-  DTO-level clone); a child (zone item) restore is one-step too (`ChildVersionRestore` POST →
-  `IAdminCrudChildHandler.RestoreChildVersionAsync` → `IContentZoneService.RestoreItemVersionAsync`: content,
+  DTO-level clone); a zone item restore is one-step too (`RestoreVersion` POST on `contentzoneitems` →
+  `ContentZoneItemModel.RestoreVersionAsync` → `IContentZoneService.RestoreItemVersionAsync`: content,
   metadata (List→Single via `WidgetMetadataJson.Restorable`), active state, **zone and ordinal**, re-inserted
-  at the old position as a draft; refused when the old zone is gone or on another page). There is no child
-  restore-edit form; MCP `restore_child_version` uses the same path. A page's parent is persisted on `ContentNode.ParentNodeId` (not a route prefix);
-  the publish-time slug-collision check (`PageModel.IsSlugAvailableAsync`) and the admin tree both
-  derive nested URLs from it.
+  at the old position as a draft; refused when the old zone is gone or on another page). There is no zone item
+  restore-edit form; MCP `restore_child_version` uses the same path. **A page's parent is a versioned
+  containment** (`[ContentRelation("pages", Kind = Containment)] PageUpsertViewModel.ParentNodeId`, relation
+  `PageModel.ParentRelation`; `ContentNode` has no parent column): the page form's **Parent Page** picker
+  moves a page as an ordinary edit, a draft until publish, whose publish re-derives its URL and re-projects its
+  live descendants'. Siblings are `FindCurrentDraftsRelatedAsync(ParentRelation, parent)` (roots:
+  `FindCurrentDraftsWithoutRelationAsync`); the publish-time slug check (`PageModel.IsSlugAvailableAsync`) and
+  the admin tree both derive nested URLs from it. A published child of an unpublished parent is hidden by
+  containment visibility, so `CMSRouteTransformer` answers **404** when a route's owning page (or a widget
+  route's `ParentPageNodeId` page) reads as null. **Deleting a page deletes its subtree** (child pages
+  deepest first, each with its zones and routes, one transaction): the Pages list confirm names the count
+  (`PageTreeNode.DescendantCount`, all depths, via the shared delete modal's `data-delete-descendants`).
 - **Preview renders the current draft with no route row.** `GET /wadmin/{contentType}/preview/{nodeId}`
   (gated on `IAdminCrudHandler.SupportsPreview`, `true` only for `PageModel`) only redirects to
   `/_preview/{nodeId}` — Admins only, since the controller requires the Admin role; an **Editor**
@@ -165,7 +188,7 @@
   `WebWayCMS.Routing` (namespace `WebWayCMS`).
 - Zone **items in a page's zones** (directly or via nested zones — `GetParentPageNodeForZoneAsync`
   resolves to a page) are **drafts until the page is published**, whichever path wrote them (zone editor,
-  child CRUD, MCP). **Removing an item is never a delete:** it saves an `IsActive=false` version (published at
+  item form, MCP). **Removing an item is never a delete:** it saves an `IsActive=false` version (published at
   once in a global zone), so its history stays and a restore or page revert brings it back (a removed
   container keeps its nested items, hidden). Reorder saves new ordinals only for items that moved; removed items keep their places in the order, so no two
   items share an ordinal. Items in
@@ -202,7 +225,7 @@
   itself recorded. **Discard changes** = `IPageHistoryService.DiscardUnpublishedChangesAsync`: the same
   mechanics with what is live as the target (never-live items become inactive drafts), recorded, so it can
   be undone; refused (button hidden) when the page is not published. Each zone item's toolbar has a History
-  link to its child history page with a local `returnUrl`. MCP: `list_page_history`,
+  link to its history page (`/wadmin/contentzoneitems/versions/{id}`) with a local `returnUrl`. MCP: `list_page_history`,
   `get_page_history_entry`, `revert_page_to_entry`, `delete_page_history_entry`.
 - **Page zone editor:** `GET /wadmin/contentzones/page/{pageNodeId}` (Pages list → page title or **Edit zones**) stacks
   every zone assigned to the page (`IContentZoneModel.GetPageZoneSlotsAsync`) in the unchanged zone
@@ -220,7 +243,7 @@
   back or removed. Removing a widget that holds widgets confirms with the nested count (`edit.js`).
 - **The zone structure is relations (phase 4; `ContentZoneAssignments` and the items' `ContentZoneNodeId`/
   `Ordinal` columns are gone).** An item's version sits in a zone through an ordered **`Zone` containment**
-  (`ZoneRelations.Zone`; the row's `Ordinal` is its position), and a page's or container item's zone names
+  (`ZoneRelations.Zone`, named `ContentZoneNodeId` after the item form property that declares it; the row's `Ordinal` is its position), and a page's or container item's zone names
   its owner through an **`Owner` containment** on the zone's version (`ZoneRelations.Owner`; `Qualifier` =
   slot). `ContentZoneItemDTO.ContentZoneNodeId`/`Ordinal` are **in-memory accessors** over the `Zone`
   relation, ignored by EF: queries use `ZoneRelations.InZone/InZones/ZoneOf/ZoneOrdinal`, writes
@@ -250,7 +273,7 @@
   which invokes the widget with a `SlotDiscoveryRecorder` in ViewData — `ContentZoneViewComponent` records
   each top-level zone it owns and renders nothing, and `WidgetViewComponent.GetContextMode` uses the public
   `view.*`/`list.*` variant. `ContentZoneModel.UpdateItemAsync`/`RestoreItemVersionAsync` (every write path:
-  zone editor config + cog, child form, MCP `update_child`/`restore_child_version`, the seeder) plan a
+  zone editor config + cog, item form, MCP `update_child`/`restore_child_version`, the seeder) plan a
   remap (`SlotRemapPlanner`: same slot name keeps its content, the rest pair by position, leftovers append
   to the new view's last slot) when the item owns a zone holding widgets (a fast path skips the render
   otherwise) and is still active, then call the service's `SlotRemapPlan` overloads: the container's save
@@ -262,7 +285,7 @@
   version of every widget ever inside it (`GetDescendantItemNodeIdsAsync`), newest first, each row labelled
   with its widget (`VersionHistoryViewModel.IsCombined`) and restored against its own current version.
 - **Moving items:** `IContentZoneService.MoveItemAsync(item, targetZone, position, expectedVersionNumber)` (API
-  `POST /api/contentzones/items/{id}/move`, MCP `move_child` via optional `IAdminCrudChildHandler.SupportsMove`).
+  `POST /api/contentzones/items/{id}/move`, MCP `move_child` via `ContentZoneItemModel.MoveRelatedAsync`).
   Same zone = reorder; cross-zone only within one page's zone tree and never into the item's own nested
   zones (a cross-zone move also renumbers the source zone's remaining ordinals); a draft until the page
   publishes. `expectedVersionNumber` (the moved item's version as the client rendered it, `data-version` on
@@ -276,8 +299,8 @@
 - **Zone-item writes carry an expected version.** `UpdateItemAsync(item, expectedVersionNumber)` backs the
   config save (`POST /api/contentzones/items`) and the metadata save (`PUT .../metadata`); the controllers
   pre-check the version against the loaded item and answer 409 with `StaleVersionMessage` when it mismatched
-  (or when the store's own check rejects a write that raced past the pre-check). The child handler's update
-  (admin child form, MCP `update_child`, the seeder) does the same with `ExpectedVersionNumber`. The edit view renders
+  (or when the store's own check rejects a write that raced past the pre-check). The zone item handler's update
+  (`ContentZoneItemModel`: admin item form, MCP `update_child`, the seeder) does the same with `ExpectedVersionNumber`. The edit view renders
   `data-version`; `content-zone-edit.js`/`content-zone-drag.js` read it via `czItemVersion` and send it as
   `expectedVersionNumber` on the config save, the metadata save and the move.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
@@ -327,7 +350,7 @@
   properties). View pickers list only the views that exist for the field's render mode; a stored
   value for a missing/renamed view stays selectable rather than being dropped.
 - **Per-item metadata** is a `MetadataJson` column on the zone item (4000 chars, normalized to
-  `"{}"`, null/whitespace on a child update keeps the existing value). Every write is validated and
+  `"{}"`, null/whitespace on an item update keeps the existing value). Every write is validated and
   re-serialized through `WidgetMetadataJson.Normalize` (never stored verbatim). The zone editor's settings (cog)
   button edits it via `POST /wadmin/widgets/registry/{name}/metadata-form` (render the form) +
   `PUT /api/contentzones/items/{id}/metadata` (save); `ContentZoneModel` deserializes it into
@@ -386,8 +409,8 @@
   **article list** (`ArticleListModel`, key `articlelists`) through a **containment relation**:
   `[ContentRelation("articlelists", Kind = Containment, Required = true)] ArticleUpsertViewModel.ArticleListId`
   (relation name `ArticleModel.ListRelation`; there is no `ArticleListNodeId` column). Moving an article to
-  another list is a new version, a draft until published. There is no article child handler — content zones
-  are the only `IAdminCrudChildHandler`.
+  another list is a new version, a draft until published. The Article List edit screen lists its articles (the
+  generic children panel) and its **New Article** link preselects the list (`?ArticleListId=`).
 - The relation binder rejects an empty/unknown list (field error on `ArticleListId`); the article save path
   rejects a slug another article's current draft already uses (slugs are global: the widget resolves
   `/{page}/{slug}` across every list).
@@ -431,7 +454,9 @@
   (including cycles) are not saved or hash-recorded and retry next boot.
 - **Zone items** are seeded too: an item with a `zone` locator (`{ "page": "@seed:…", "slot": "Main" }`,
   `{ "item": "@seed:…", "slot": "Left" }` for a nested zone, or `{ "name": "SiteFooter" }`) and
-  `contentType: "contentzones"` goes through the zone child handler into that zone (created on demand).
+  `contentType: "contentzoneitems"` is saved through the ordinary top-level dispatch with the locator's zone in
+  its `contentZoneNodeId` field (created on demand; the old `"contentzones"` + `zone` form is accepted as an
+  alias with a deprecation warning, once per item per run).
   Zone items apply after all top-level items (one shared retry loop), in file order per zone. **The page's
   own publish state is respected:** the seeder never publishes a page; on a live page only the
   `publish: true` items are published (`IPageModel.PublishZoneItemsAsync`, so admin drafts stay pending),
@@ -487,7 +512,11 @@
 ## MCP Server
 
 - `WebWayCMS.Mcp` exposes the admin feature set (content CRUD, child entities, version history,
-  registries) to AI agents over MCP. Its tools delegate to the same `IAdminHandlerRegistry` /
+  registries) to AI agents over MCP. The child tools are generic over containment: `list_children`,
+  `create_child`, `reorder_children`, `move_child` take `parentType` + `parentKey` (node id) + `childType`
+  (+ `relation` when the child type has several containments to that parent); `get_child`, `update_child`,
+  `delete_child`, `list_child_versions`, `restore_child_version`, `delete_child_version` take `childType` + id.
+  `list_content_types` reports each type's `childTypes`. Its tools delegate to the same `IAdminHandlerRegistry` /
   `IAdminCrudHandler` dispatch the admin UI uses, so every current and future content type is covered
   generically — there is no per-type tool code.
 - Wired into the host in `WebWayCMS/ServiceCollectionExtensions.cs` (`AddWebWayCmsMcp`, called from
@@ -531,7 +560,7 @@
   MCP tools, on every `string`
   property marked `[FormProperty(EditorType = EditorType.RichText)]`.
   Stored content is therefore safe to render with `@Html.Raw`. Zone-item widget config JSON is outside
-  that choke point, so every zone-item write (zone editor API + `ContentZoneChildHandler`) runs
+  that choke point, so every zone-item write (zone editor API + `ContentZoneItemModel`) runs
   `WidgetConfigurationJson.Sanitize`: it rewrites only the config type's RichText values in place
   (other keys kept, unreadable JSON fails closed to `{}`). The same write runs `ExtractRelations`,
   which removes the configuration type's `[ContentRelation]` ids and stores them as `config.*` version

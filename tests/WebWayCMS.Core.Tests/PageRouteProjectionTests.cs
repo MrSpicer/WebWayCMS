@@ -40,7 +40,9 @@ public class PageRouteProjectionTests
 
         _store.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(true, VersionId: Guid.NewGuid()));
-        _store.GetCurrentDraftChildrenAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        _store.FindCurrentDraftsRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<PageDTO>());
+        _store.FindCurrentDraftsWithoutRelationAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<PageDTO>());
         _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<PageDTO>());
@@ -73,7 +75,7 @@ public class PageRouteProjectionTests
             ConfigurationJson = "{}",
             Version = new ContentVersion
             {
-                Node = new ContentNode { Id = id, ParentNodeId = parentId },
+                Node = new ContentNode { Id = id },
                 Title = "Docs",
                 Slug = slug,
                 VersionNumber = 1,
@@ -88,6 +90,8 @@ public class PageRouteProjectionTests
             Ordinal = i,
             Kind = RelationKind.Owned
         }).ToList();
+        if (parentId.HasValue)
+            page.Version.Relations.Add(new ContentRelation { Name = PageModel.ParentRelation, TargetNodeId = parentId.Value, Kind = RelationKind.Containment });
         return page;
     }
 
@@ -370,7 +374,7 @@ public class PageRouteProjectionTests
     /// <summary>A parent renamed from /old to /docs, with <paramref name="children"/> under it.</summary>
     private Guid RenamedParent(params PageDTO[] children)
     {
-        var pageId = children.Length > 0 ? children[0].Version.Node.ParentNodeId!.Value : Guid.NewGuid();
+        var pageId = children.Length > 0 ? children[0].Version.TargetOf(PageModel.ParentRelation)!.Value : Guid.NewGuid();
         var routeId = Guid.NewGuid();
         var page = Page(pageId, routeIds: [routeId]);
         _store.GetCurrentDraftAsync(pageId, Arg.Any<CancellationToken>()).Returns(page);

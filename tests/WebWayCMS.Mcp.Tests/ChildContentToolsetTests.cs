@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+using Microsoft.AspNetCore.Http;
+
 using ModelContextProtocol;
 
 using NSubstitute;
@@ -7,7 +9,9 @@ using NSubstitute;
 using NUnit.Framework;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Models;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Mcp.Tests;
 
@@ -15,285 +19,263 @@ namespace WebWayCMS.Mcp.Tests;
 public class ChildContentToolsetTests
 {
     private IAdminHandlerRegistry _registry = null!;
-    private IAdminCrudHandler _handler = null!;
-    private IAdminCrudChildHandler _child = null!;
+    private IAdminCrudHandler _lists = null!;
+    private IAdminCrudHandler _items = null!;
+    private IAdminCrudHandler _blocks = null!;
+    private IAdminCrudHandler _notes = null!;
     private ChildContentToolset _tools = null!;
 
     private static JsonElement Json(string raw) => JsonSerializer.Deserialize<JsonElement>(raw);
+
+    private static IAdminCrudHandler Handler(string contentType, Func<object> emptyModel)
+    {
+        var handler = Substitute.For<IAdminCrudHandler>();
+        handler.ContentType.Returns(contentType);
+        handler.SupportsVersionHistory.Returns(true);
+        handler.CreateEmptyUpsertViewModel().Returns(_ => emptyModel());
+        return handler;
+    }
 
     [SetUp]
     public void SetUp()
     {
         _registry = Substitute.For<IAdminHandlerRegistry>();
-        _handler = Substitute.For<IAdminCrudHandler>();
-        _child = Substitute.For<IAdminCrudChildHandler>();
-        _handler.ContentType.Returns("articles");
-        _child.ChildType.Returns("items");
-        _child.SupportsReorder.Returns(true);
-        _child.SupportsVersionHistory.Returns(true);
-        _handler.ChildHandler.Returns(_child);
+        _lists = Handler("lists", () => new FakeUpsertViewModel());
+        _items = Handler("items", () => new ListedItem());
+        _blocks = Handler("contentblocks", () => new FakeUpsertViewModel());
+        _notes = Handler("notes", () => new ContainedNote());
         _registry.GetHandler(Arg.Any<string>()).Returns((IAdminCrudHandler?)null);
-        _registry.GetHandler("articles").Returns(_handler);
-        _tools = new ChildContentToolset(_registry);
+        foreach (var handler in new[] { _lists, _items, _blocks, _notes })
+            _registry.GetHandler(handler.ContentType).Returns(handler);
+        _registry.All.Returns([_lists, _items, _blocks, _notes]);
+        _tools = new ChildContentToolset(_registry, new ContentRelationRegistry(_registry));
     }
 
     [Test]
-    public void Constructor_NullRegistry_Throws() =>
-        Assert.That(() => new ChildContentToolset(null!), Throws.ArgumentNullException);
-
-    [Test]
-    public void Resolve_WhenContentTypeUnknown_Throws() =>
-        Assert.That(async () => await _tools.ListChildren("nope", "items", "parent"),
-            Throws.TypeOf<McpException>());
-
-    [Test]
-    public async Task ListChildren_WhenFound_ReturnsViewModel()
+    public void Constructor_NullArguments_Throw()
     {
-        var vm = new object();
-        _child.GetChildIndexViewModelAsync("parent", Arg.Any<CancellationToken>()).Returns(vm);
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => new ChildContentToolset(null!, new ContentRelationRegistry(_registry)), Throws.ArgumentNullException);
+            Assert.That(() => new ChildContentToolset(_registry, null!), Throws.ArgumentNullException);
+        });
+    }
 
-        Assert.That(await _tools.ListChildren("articles", "items", "parent"), Is.SameAs(vm));
+    // --- containment resolution ---
+
+    [Test]
+    public async Task ListChildren_ResolvesTheOneContainment()
+    {
+        var parent = Guid.NewGuid();
+        var child = new RelatedChild(Guid.NewGuid(), "Item", ContentVersionState.Draft, 0);
+        _items.GetRelatedChildrenAsync(nameof(ListedItem.ListId), parent, Arg.Any<CancellationToken>()).Returns([child]);
+
+        Assert.That(await _tools.ListChildren("lists", parent, "items"), Is.EqualTo(new[] { child }));
     }
 
     [Test]
-    public void ListChildren_WhenParentMissing_Throws()
+    public void ResolveContainment_UnknownTypes_Throw()
     {
-        _child.GetChildIndexViewModelAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((object?)null);
-
-        Assert.That(async () => await _tools.ListChildren("articles", "items", "parent"),
-            Throws.TypeOf<McpException>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(async () => await _tools.ListChildren("nope", Guid.NewGuid(), "items"), Throws.TypeOf<McpException>());
+            Assert.That(async () => await _tools.ListChildren("lists", Guid.NewGuid(), "nope"), Throws.TypeOf<McpException>());
+        });
     }
 
     [Test]
-    public async Task GetChild_WhenFound_ReturnsViewModel()
-    {
-        var vm = new FakeUpsertViewModel();
-        _child.GetChildUpsertViewModelAsync("parent", Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(vm);
+    public void ResolveContainment_NoContainmentBetweenTheTypes_Throws()
+        => Assert.That(async () => await _tools.ListChildren("contentblocks", Guid.NewGuid(), "items"),
+            Throws.TypeOf<McpException>().With.Message.Contains("not placed under"));
 
-        Assert.That(await _tools.GetChild("articles", "items", "parent", Guid.NewGuid()), Is.SameAs(vm));
+    [Test]
+    public void ResolveContainment_Several_RequiresTheRelation()
+        => Assert.That(async () => await _tools.ListChildren("contentblocks", Guid.NewGuid(), "notes"),
+            Throws.TypeOf<McpException>().With.Message.Contains("BlockId, OtherBlockId"));
+
+    [Test]
+    public async Task ResolveContainment_NamedRelation_PicksIt_CaseInsensitively()
+    {
+        var parent = Guid.NewGuid();
+
+        await _tools.ListChildren("contentblocks", parent, "notes", relation: "otherblockid");
+
+        await _notes.Received(1).GetRelatedChildrenAsync(nameof(ContainedNote.OtherBlockId), parent, Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public void GetChild_WhenMissing_Throws()
-    {
-        _child.GetChildUpsertViewModelAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns((object?)null);
+    public void ResolveContainment_UnknownRelation_Throws()
+        => Assert.That(async () => await _tools.ListChildren("contentblocks", Guid.NewGuid(), "notes", relation: "Nope"),
+            Throws.TypeOf<McpException>().With.Message.Contains("no containment 'Nope'"));
 
-        Assert.That(async () => await _tools.GetChild("articles", "items", "parent", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
-    }
+    // --- create / get / update / delete ---
 
     [Test]
-    public async Task GetChildVersion_WhenFound_ReturnsViewModel()
+    public async Task CreateChild_MergesFieldsAndSetsTheParent()
     {
-        var vm = new FakeUpsertViewModel();
-        _child.GetChildRestoreVersionViewModelAsync("parent", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
+        var parent = Guid.NewGuid();
+        object? saved = null;
+        _items.SaveUpsertAsync(Arg.Do<object>(m => saved = m), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
 
-        Assert.That(await _tools.GetChildVersion("articles", "items", "parent", Guid.NewGuid()), Is.SameAs(vm));
-    }
-
-    [Test]
-    public void GetChildVersion_WhenMissing_Throws()
-    {
-        _child.GetChildRestoreVersionViewModelAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((object?)null);
-
-        Assert.That(async () => await _tools.GetChildVersion("articles", "items", "parent", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public async Task CreateChild_MergesFieldsAndSaves()
-    {
-        _child.CreateEmptyChildUpsertViewModel().Returns(new FakeUpsertViewModel());
-        FakeUpsertViewModel? saved = null;
-        _child.SaveChildUpsertAsync("parent", Arg.Do<object>(o => saved = (FakeUpsertViewModel)o), Arg.Any<CancellationToken>())
-            .Returns(new AdminSaveResult(true));
-
-        var result = await _tools.CreateChild("articles", "items", "parent", Json("{\"title\":\"New\"}"));
+        // The parent argument wins over a parent named in the fields.
+        var result = await _tools.CreateChild("lists", parent, "items", Json($"{{\"title\":\"T\",\"listId\":\"{Guid.NewGuid()}\"}}"));
 
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
-            Assert.That(saved!.Title, Is.EqualTo("New"));
+            Assert.That(((ListedItem)saved!).Title, Is.EqualTo("T"));
+            Assert.That(((ListedItem)saved!).ListId, Is.EqualTo(parent));
         });
     }
 
     [Test]
-    public async Task UpdateChild_WhenFound_MergesOntoExistingAndSaves()
+    public async Task GetChild_WhenFound_ReturnsViewModel_ElseThrows()
     {
-        _child.GetChildUpsertViewModelAsync("parent", Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(new FakeUpsertViewModel { Title = "old", Body = "keep" });
-        FakeUpsertViewModel? saved = null;
-        _child.SaveChildUpsertAsync("parent", Arg.Do<object>(o => saved = (FakeUpsertViewModel)o), Arg.Any<CancellationToken>())
-            .Returns(new AdminSaveResult(true));
+        var id = Guid.NewGuid();
+        var vm = new ListedItem();
+        _items.GetUpsertViewModelAsync(id, Arg.Any<IQueryCollection>(), Arg.Any<CancellationToken>()).Returns(vm);
 
-        await _tools.UpdateChild("articles", "items", "parent", Guid.NewGuid(), Json("{\"title\":\"changed\"}"));
-
-        Assert.Multiple(() =>
+        Assert.Multiple(async () =>
         {
-            Assert.That(saved!.Title, Is.EqualTo("changed"));
-            Assert.That(saved.Body, Is.EqualTo("keep"));
+            Assert.That(await _tools.GetChild("items", id), Is.SameAs(vm));
+            Assert.That(async () => await _tools.GetChild("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
         });
     }
 
     [Test]
-    public void UpdateChild_WhenMissing_Throws()
+    public async Task UpdateChild_MergesOntoExistingAndSaves_ElseThrows()
     {
-        _child.GetChildUpsertViewModelAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns((object?)null);
+        var id = Guid.NewGuid();
+        _items.GetUpsertViewModelAsync(id, Arg.Any<IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new ListedItem { Title = "Old", ListId = Guid.NewGuid() });
+        object? saved = null;
+        _items.SaveUpsertAsync(Arg.Do<object>(m => saved = m), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
 
-        Assert.That(async () => await _tools.UpdateChild("articles", "items", "parent", Guid.NewGuid(), Json("{}")),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public async Task DeleteChild_ReturnsHandlerResult()
-    {
-        _child.DeleteChildAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
-
-        Assert.That((await _tools.DeleteChild("articles", "items", Guid.NewGuid())).Deleted, Is.True);
-    }
-
-    [Test]
-    public async Task ReorderChildren_WhenSupported_ReturnsResult()
-    {
-        var ids = new List<Guid> { Guid.NewGuid() };
-        _child.ReorderAsync("parent", ids, Arg.Any<CancellationToken>()).Returns((true, (string?)null), (false, "boom"));
-
-        Assert.That((await _tools.ReorderChildren("articles", "items", "parent", ids)).Reordered, Is.True);
-        Assert.That(async () => await _tools.ReorderChildren("articles", "items", "parent", ids),
-            Throws.TypeOf<McpException>().With.Message.EqualTo("boom"));
-    }
-
-    [Test]
-    public void ReorderChildren_WhenUnsupported_Throws()
-    {
-        _child.SupportsReorder.Returns(false);
-
-        Assert.That(async () => await _tools.ReorderChildren("articles", "items", "parent", new List<Guid>()),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public async Task MoveChild_WhenSupported_ReturnsResult()
-    {
-        var childId = Guid.NewGuid();
-        _child.SupportsMove.Returns(true);
-        _child.MoveAsync(childId, "zone", 1, Arg.Any<CancellationToken>()).Returns((true, (string?)null));
-
-        Assert.That((await _tools.MoveChild("articles", "items", childId, "zone", 1)).Moved, Is.True);
-    }
-
-    [Test]
-    public void MoveChild_WhenUnsupported_Throws()
-    {
-        _child.SupportsMove.Returns(false);
-
-        Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public void MoveChild_WhenRejected_ThrowsWithTheReason()
-    {
-        _child.SupportsMove.Returns(true);
-        _child.MoveAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns((false, "nope"), (false, (string?)null));
+        await _tools.UpdateChild("items", id, Json("{\"title\":\"New\"}"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
-                Throws.TypeOf<McpException>().With.Message.EqualTo("nope"));
-            Assert.That(async () => await _tools.MoveChild("articles", "items", Guid.NewGuid(), "zone", 0),
+            Assert.That(((ListedItem)saved!).Title, Is.EqualTo("New"));
+            Assert.That(async () => await _tools.UpdateChild("items", Guid.NewGuid(), Json("{}")), Throws.TypeOf<McpException>());
+        });
+    }
+
+    [Test]
+    public async Task DeleteChild_ReportsTheOutcome()
+    {
+        _items.TryDeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null, 2), (false, (string?)null, 0), (false, (string?)"in use", 0));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _tools.DeleteChild("items", Guid.NewGuid()), Is.EqualTo(new McpDeleteResult(true, 2)));
+            Assert.That(await _tools.DeleteChild("items", Guid.NewGuid()), Is.EqualTo(new McpDeleteResult(false, 0)));
+            Assert.That(async () => await _tools.DeleteChild("items", Guid.NewGuid()),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("in use"));
+        });
+    }
+
+    // --- reorder / move ---
+
+    [Test]
+    public async Task ReorderChildren_DelegatesToTheChildType()
+    {
+        var parent = Guid.NewGuid();
+        var order = new List<Guid> { Guid.NewGuid() };
+        _items.ReorderRelatedAsync(nameof(ListedItem.ListId), parent, order, Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, (string?)"bad order"), (false, (string?)null));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _tools.ReorderChildren("lists", parent, "items", order), Is.EqualTo(new McpReorderResult(true)));
+            Assert.That(async () => await _tools.ReorderChildren("lists", parent, "items", order),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("bad order"));
+            Assert.That(async () => await _tools.ReorderChildren("lists", parent, "items", order),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("The reorder failed."));
+        });
+    }
+
+    [Test]
+    public async Task MoveChild_PassesPositionAndExpectedVersion()
+    {
+        var parent = Guid.NewGuid();
+        var child = Guid.NewGuid();
+        _items.MoveRelatedAsync(nameof(ListedItem.ListId), child, parent, 2, 5, Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, (string?)"stale"), (false, (string?)null));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _tools.MoveChild("lists", parent, "items", child, 2, 5), Is.EqualTo(new McpMoveResult(true)));
+            Assert.That(async () => await _tools.MoveChild("lists", parent, "items", child, 2, 5),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("stale"));
+            Assert.That(async () => await _tools.MoveChild("lists", parent, "items", child, 2, 5),
                 Throws.TypeOf<McpException>().With.Message.EqualTo("The move failed."));
         });
     }
 
-    [Test]
-    public void ChildVersionTools_WhenUnsupported_Throw()
-    {
-        _child.SupportsVersionHistory.Returns(false);
+    // --- versions ---
 
-        Assert.That(async () => await _tools.ListChildVersions("articles", "items", "parent", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
+    [Test]
+    public void VersionTools_ChildTypeWithoutHistory_Throw()
+    {
+        _items.SupportsVersionHistory.Returns(false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(async () => await _tools.ListChildVersions("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+            Assert.That(async () => await _tools.GetChildVersion("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+            Assert.That(async () => await _tools.RestoreChildVersion("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+            Assert.That(async () => await _tools.DeleteChildVersion("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+        });
     }
 
     [Test]
-    public async Task ListChildVersions_WhenFound_ReturnsHistory()
+    public async Task ListChildVersions_And_GetChildVersion_WhenFound_ElseThrow()
     {
-        var vm = new VersionHistoryViewModel { NodeId = Guid.NewGuid() };
-        _child.GetChildVersionHistoryViewModelAsync("parent", Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(vm);
+        var nodeId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var history = new VersionHistoryViewModel();
+        var version = new ListedItem();
+        _items.GetVersionHistoryViewModelAsync(nodeId, Arg.Any<CancellationToken>()).Returns(history);
+        _items.GetRestoreVersionViewModelAsync(versionId, Arg.Any<CancellationToken>()).Returns(version);
 
-        Assert.That(await _tools.ListChildVersions("articles", "items", "parent", vm.NodeId), Is.SameAs(vm));
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _tools.ListChildVersions("items", nodeId), Is.SameAs(history));
+            Assert.That(await _tools.GetChildVersion("items", versionId), Is.SameAs(version));
+            Assert.That(async () => await _tools.ListChildVersions("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+            Assert.That(async () => await _tools.GetChildVersion("items", Guid.NewGuid()), Throws.TypeOf<McpException>());
+        });
     }
 
     [Test]
-    public void ListChildVersions_WhenMissing_Throws()
-    {
-        _child.GetChildVersionHistoryViewModelAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((VersionHistoryViewModel?)null);
-
-        Assert.That(async () => await _tools.ListChildVersions("articles", "items", "parent", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public async Task RestoreChildVersion_WhenFound_SavesRestoredModel()
+    public async Task RestoreChildVersion_PassesTheExpectedVersion_AndReportsAMissingVersion()
     {
         var versionId = Guid.NewGuid();
-        _child.RestoreChildVersionAsync("parent", versionId, 4, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+        _items.RestoreVersionAsync(versionId, 4, Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true), new AdminSaveResult(false, "stale"), new AdminSaveResult(false, IAdminCrudHandler.VersionNotFoundMessage));
 
-        var result = await _tools.RestoreChildVersion("articles", "items", "parent", versionId, 4);
-
-        Assert.That(result.Success, Is.True);
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await _tools.RestoreChildVersion("items", versionId, 4)).Success, Is.True);
+            Assert.That((await _tools.RestoreChildVersion("items", versionId, 4)).ErrorMessage, Is.EqualTo("stale"));
+            Assert.That(async () => await _tools.RestoreChildVersion("items", versionId, 4),
+                Throws.TypeOf<McpException>().With.Message.Contains(versionId.ToString()));
+        });
     }
 
     [Test]
-    public void RestoreChildVersion_WhenMissing_Throws()
+    public async Task DeleteChildVersion_ReportsTheOutcome()
     {
-        _child.RestoreChildVersionAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
-            .Returns(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage));
+        _items.TryDeleteVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null), (false, (string?)IAdminCrudHandler.VersionNotDeletedMessage), (false, (string?)"in history"));
 
-        Assert.That(async () => await _tools.RestoreChildVersion("articles", "items", "parent", Guid.NewGuid()),
-            Throws.TypeOf<McpException>());
-    }
-
-    [Test]
-    public async Task RestoreChildVersion_OtherFailure_IsReturnedNotThrown()
-    {
-        _child.RestoreChildVersionAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
-            .Returns(new AdminSaveResult(false, "zone gone"));
-
-        var result = await _tools.RestoreChildVersion("articles", "items", "parent", Guid.NewGuid());
-
-        Assert.That(result, Is.EqualTo(new AdminSaveResult(false, "zone gone")));
-    }
-
-    [Test]
-    public async Task DeleteChildVersion_ReturnsHandlerResult()
-    {
-        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((true, (string?)null));
-
-        Assert.That((await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid())).Deleted, Is.True);
-    }
-
-    [Test]
-    public async Task DeleteChildVersion_LatestVersion_ReturnsNotDeleted()
-    {
-        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((false, IAdminCrudHandler.VersionNotDeletedMessage));
-
-        Assert.That((await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid())).Deleted, Is.False);
-    }
-
-    [Test]
-    public void DeleteChildVersion_VersionInPageHistory_ThrowsWithTheReason()
-    {
-        _child.TryDeleteChildVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((false, "part of page history"));
-
-        Assert.That(async () => await _tools.DeleteChildVersion("articles", "items", Guid.NewGuid()),
-            Throws.TypeOf<McpException>().With.Message.EqualTo("part of page history"));
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _tools.DeleteChildVersion("items", Guid.NewGuid()), Is.EqualTo(new McpDeleteResult(true)));
+            Assert.That(await _tools.DeleteChildVersion("items", Guid.NewGuid()), Is.EqualTo(new McpDeleteResult(false)));
+            Assert.That(async () => await _tools.DeleteChildVersion("items", Guid.NewGuid()),
+                Throws.TypeOf<McpException>().With.Message.EqualTo("in history"));
+        });
     }
 }

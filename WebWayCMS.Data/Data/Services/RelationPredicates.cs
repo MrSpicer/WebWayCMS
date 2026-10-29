@@ -11,6 +11,10 @@ public static class RelationPredicates
     public static Expression<Func<T, bool>> RelatesTo<T>(string name, Guid target) where T : class, IVersionedContent
         => e => e.Version.Relations.Any(r => r.Name == name && r.TargetNodeId == target);
 
+    /// <summary>The item's version has no relation <paramref name="name"/>.</summary>
+    public static Expression<Func<T, bool>> Lacks<T>(string name) where T : class, IVersionedContent
+        => e => !e.Version.Relations.Any(r => r.Name == name);
+
     /// <summary>The ordinal of the item's relation <paramref name="name"/> to <paramref name="target"/>, for ordering.</summary>
     public static Expression<Func<T, int>> OrdinalOf<T>(string name, Guid target) where T : class, IVersionedContent
         => e => e.Version.Relations

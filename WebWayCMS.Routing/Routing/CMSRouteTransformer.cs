@@ -76,9 +76,13 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         {
             PageDTO? page = null;
 
+            // A route that names its page renders only while that page is visible: a page hidden by
+            // containment (e.g. under an unpublished parent) is a 404, never the bare controller.
             if (route.OwningContentType == "Page" && route.OwningContentNodeId.HasValue)
             {
                 page = await _pageStore.GetAsync(route.OwningContentNodeId.Value);
+                if (page == null)
+                    return null!;
             }
             else
             {
@@ -88,6 +92,8 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
                     && Guid.TryParse(pageNodeStr, out var pageNodeId))
                 {
                     page = await _pageStore.GetAsync(pageNodeId);
+                    if (page == null)
+                        return null!;
                 }
             }
 

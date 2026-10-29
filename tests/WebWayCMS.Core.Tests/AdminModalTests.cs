@@ -35,11 +35,11 @@ public class AdminModalTests
         _handler.UpsertViewPath.Returns("~/Upsert.cshtml");
         _handler.CreateEmptyUpsertViewModel().Returns(_ => new ModalModel());
         _handler.WriteRoles.Returns((string[]?)null);
-        _handler.ChildHandler.Returns((IAdminCrudChildHandler?)null);
         _handler.RegistryHandler.Returns((IAdminRegistryHandler?)null);
         _registry.GetHandler("notes").Returns(_handler);
 
-        _controller = new AdminContentController(_registry, Substitute.For<IWidgetRegistry>());
+        _registry.All.Returns([_handler]);
+        _controller = new AdminContentController(_registry, Substitute.For<IWidgetRegistry>(), new WebWayCMS.Services.Relations.ContentRelationRegistry(_registry));
         _harness.Configure(_controller, new[] { "Admin" }, Query(modal: true));
     }
 

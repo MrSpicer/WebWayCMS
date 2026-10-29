@@ -52,9 +52,9 @@ IAdminCrudHandler  (interface)
     └── driven by AdminContentController (single controller, all content types)
 ```
 
-**Top-level vs child model types:**
-- **Top-level** types extend `AdminCrudModel<TDto>`. They get their own admin list/edit UI and are registered as `IAdminCrudHandler` so `AdminHandlerRegistry` picks them up automatically.
-- **Child** resources are managed through a parent model's inner child handler (`IAdminCrudChildHandler`). They do not register as `IAdminCrudHandler` and have no standalone admin UI. Zone items (`ContentZoneChildHandler`) are the only child resource; a type that merely belongs to another — an article to its list — is top-level with an ordinary FK field instead.
+**Parent and child types:**
+- Every type extends `AdminCrudModel<TDto>` (or implements `IAdminCrudHandler`, like `ContentZoneItemModel`). It gets its own admin list/edit UI and is registered as `IAdminCrudHandler` so `AdminHandlerRegistry` picks it up automatically.
+- A type that belongs to another (an article to its list, a page to its parent page, a zone item to its zone) declares a **containment** relation on its upsert view model (`[ContentRelation("<parent>", Kind = ContentRelationKind.Containment)]`). The parent's edit screen then lists its children with a **New** link that preselects the parent, the children are deleted with the parent, and MCP's child tools reach them — with no per-type code. See [Content Relations](architecture/17-content-relations.md).
 
 When adding a new standalone content type, extend `AdminCrudModel<TDto>`.
 
@@ -89,7 +89,7 @@ Adds `string Content` (max 10,000 chars). Managed via a rich-text editor. Refere
 
 ### Page
 
-Adds `string? ViewName` (optional view override) and `string ConfigurationJson` (per-page controller config). A page has **no route or controller column** — its URL is a `CMSRouteDTO` row derived from `Version.Slug` plus `ContentNode.ParentNodeId`, written when the page is **published** (never saved). See [`docs/page-system.md`](page-system.md).
+Adds `string? ViewName` (optional view override) and `string ConfigurationJson` (per-page controller config). A page has **no route or controller column** — its URL is a `CMSRouteDTO` row derived from `Version.Slug` plus the parent page (the `ParentNodeId` containment relation), written when the page is **published** (never saved). See [`docs/page-system.md`](page-system.md).
 
 ### ContentZone
 

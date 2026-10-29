@@ -97,7 +97,6 @@ public class ArticleListModelTests
             Assert.That(_model.IndexViewPath, Does.Contain("Index.cshtml"));
             Assert.That(_model.UpsertViewPath, Does.Contain("ArticleListUpsert.cshtml"));
             Assert.That(_model.HasSecondaryApiList, Is.False);
-            Assert.That(_model.ChildHandler, Is.Null);
         });
     }
 

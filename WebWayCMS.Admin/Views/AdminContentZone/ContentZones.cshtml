@@ -140,7 +140,7 @@
                                                             <span>Child zones</span>
                                                         </a>
                                                     }
-                                                    <a asp-controller="AdminContent" asp-action="ChildIndex" asp-route-contentType="contentzones" asp-route-parentKey="@zone.Version.Node.Id" asp-route-childType="items" class="dropdown-item" role="menuitem">
+                                                    <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzoneitems" asp-route-ContentZoneNodeId="@zone.Version.Node.Id" class="dropdown-item" role="menuitem">
                                                         <span class="icon"><i class="fas fa-list" aria-hidden="true"></i></span>
                                                         <span>Items (advanced)</span>
                                                     </a>

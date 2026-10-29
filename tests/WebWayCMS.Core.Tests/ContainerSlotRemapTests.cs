@@ -61,6 +61,9 @@ public class ContainerSlotRemapTests
     private IWidgetRegistry _registry = null!;
     private IWidgetSlotDiscovery _discovery = null!;
     private ContentZoneModel _model = null!;
+
+    /// <summary>The zone item handler over this fixture's model (the old zone child handler's home).</summary>
+    private ContentZoneItemModel Items => new(_model);
     private Guid _layoutId;
 
     [SetUp]
@@ -275,7 +278,7 @@ public class ContainerSlotRemapTests
         _itemStore.GetAllVersionsAsync(gone, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO>());
         _service.GetDescendantItemNodeIdsAsync(_layoutId, Arg.Any<CancellationToken>()).Returns(new List<Guid> { nested, gone });
 
-        var vm = (await _model.ChildHandler!.GetChildVersionHistoryViewModelAsync("k", _layoutId))!;
+        var vm = (await Items.GetVersionHistoryViewModelAsync(_layoutId))!;
 
         Assert.Multiple(() =>
         {
@@ -302,7 +305,7 @@ public class ContainerSlotRemapTests
         var own1 = Layout("B", version: 1);
         _itemStore.GetAllVersionsAsync(_layoutId, Arg.Any<CancellationToken>()).Returns(new List<ContentZoneItemDTO> { own0, own1 });
 
-        var vm = (await _model.ChildHandler!.GetChildVersionHistoryViewModelAsync("k", _layoutId))!;
+        var vm = (await Items.GetVersionHistoryViewModelAsync(_layoutId))!;
 
         Assert.Multiple(() =>
         {

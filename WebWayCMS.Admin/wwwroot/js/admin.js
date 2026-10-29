@@ -139,10 +139,20 @@ document.addEventListener('DOMContentLoaded', function () {
             ));
         }
 
-        function openModal(name, actionUrl) {
+        // A trigger may carry data-delete-descendants (a count, all depths) and
+        // data-delete-descendant-label (singular noun, e.g. "child page"): the
+        // confirm then says what goes with the item.
+        function deleteMessage(name, count, label) {
+            const n = parseInt(count, 10);
+            if (!(n > 0)) return 'Delete "' + name + '"? This cannot be undone.';
+            const noun = (label || 'child item') + (n === 1 ? '' : 's');
+            return 'Delete "' + name + '" and its ' + n + ' ' + noun + '? This cannot be undone.';
+        }
+
+        function openModal(name, actionUrl, count, label) {
             triggerEl = document.activeElement;
             form.action = actionUrl;
-            msgEl.textContent = 'Delete "' + name + '"? This cannot be undone.';
+            msgEl.textContent = deleteMessage(name, count, label);
             titleEl.textContent = 'Confirm Delete';
             modal.style.display = '';
             modal.classList.add('is-active');
@@ -182,7 +192,8 @@ document.addEventListener('DOMContentLoaded', function () {
             const btn = e.target.closest('[data-delete-trigger]');
             if (!btn) return;
             e.preventDefault();
-            openModal(btn.dataset.deleteName || 'this item', btn.dataset.deleteUrl);
+            openModal(btn.dataset.deleteName || 'this item', btn.dataset.deleteUrl,
+                btn.dataset.deleteDescendants, btn.dataset.deleteDescendantLabel);
         });
     })();
 

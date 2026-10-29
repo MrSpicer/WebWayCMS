@@ -80,20 +80,6 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         return visible.FirstOrDefault();
     }
 
-    public async Task<List<T>> GetChildrenAsync(Guid parentNodeId, CancellationToken ct = default)
-        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-               .AtReadContext(_readContext)
-               .Where(e => e.Version.Node.ParentNodeId == parentNodeId)
-               .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct), ct);
-
-    public async Task<List<T>> GetRootsAsync(CancellationToken ct = default)
-        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-               .AtReadContext(_readContext)
-               .Where(e => e.Version.Node.ParentNodeId == null)
-               .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct), ct);
-
     public async Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
         => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
                .AtReadContext(_readContext)
@@ -160,6 +146,12 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                .ThenByDescending(e => e.Version.CreatedUtc)
                .ToListAsync(ct);
 
+    public Task<List<T>> FindCurrentDraftsWithoutRelationAsync(string name, CancellationToken ct = default)
+        => CurrentDrafts()
+               .Where(RelationPredicates.Lacks<T>(name))
+               .OrderByDescending(e => e.Version.CreatedUtc)
+               .ToListAsync(ct);
+
     public Task<Dictionary<Guid, int>> CountCurrentDraftsByRelationAsync(string name, CancellationToken ct = default)
         => CurrentDrafts()
                .SelectMany(e => e.Version.Relations)
@@ -183,16 +175,6 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                         && e.Version.Segment == string.Empty
                         && e.Version.IsCurrentDraft
                         && !e.Version.Node.IsDeleted);
-
-    public Task<List<T>> GetCurrentDraftChildrenAsync(Guid? parentNodeId, CancellationToken ct = default)
-        => _set.AsNoTracking()
-               .Where(e => e.Version.Node.ParentNodeId == parentNodeId
-                        && e.Version.Culture == string.Empty
-                        && e.Version.Segment == string.Empty
-                        && e.Version.IsCurrentDraft
-                        && !e.Version.Node.IsDeleted)
-               .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct);
 
     public Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default)
         => _set.AsNoTracking()
@@ -559,7 +541,6 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         {
             Id = nodeId ?? Guid.NewGuid(),
             ContentTypeKey = _contentTypeKey,
-            ParentNodeId = entity.Version.Node?.ParentNodeId,
             SiteId = entity.Version.Node?.SiteId,
             IsHidden = entity.Version.Node?.IsHidden ?? false,
             IsArchived = entity.Version.Node?.IsArchived ?? false,
@@ -740,7 +721,6 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     {
         if (source == null) return;
         target.IsHidden = source.IsHidden;
-        target.ParentNodeId = source.ParentNodeId;
     }
 
     private static string NormalizeSlug(string? title, string slug)

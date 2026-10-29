@@ -45,6 +45,11 @@
 
 	<main id="main-content" class="admin-main" tabindex="-1">
 		@RenderBody()
+		@if (!isModal && ViewData[WebWayCMS.Models.Shared.RelationChildrenPanelViewModel.ViewDataKey] is IReadOnlyList<WebWayCMS.Models.Shared.RelationChildrenPanelViewModel> { Count: > 0 } relationPanels)
+		{
+			@* The parent's children through each containment targeting its type, under its edit form. *@
+			<partial name="~/Views/AdminShared/_RelationChildren.cshtml" model="relationPanels" />
+		}
 	</main>
 
 	@if (!isModal)

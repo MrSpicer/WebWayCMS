@@ -35,19 +35,6 @@ internal static class McpToolHelpers
     }
 
     /// <summary>
-    /// Resolves the child handler for a content type, validating the child type matches
-    /// (same checks <c>AdminContentController</c> performs).
-    /// </summary>
-    public static IAdminCrudChildHandler ResolveChild(IAdminCrudHandler handler, string childType)
-    {
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            throw new McpException(
-                $"Content type '{handler.ContentType}' has no child type '{childType}'.");
-        return child;
-    }
-
-    /// <summary>
     /// A version delete's outcome: deleted, or not deleted for the ordinary reason (the latest version is
     /// always kept), as <c>deleted: false</c>; any other refusal (e.g. the version is part of page
     /// history) is a protocol error carrying the reason.

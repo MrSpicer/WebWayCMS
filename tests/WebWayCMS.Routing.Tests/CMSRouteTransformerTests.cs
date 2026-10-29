@@ -322,7 +322,7 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_NonPageType_ParentPageNotFound_NoPageDataLoaded()
+    public async Task TransformAsync_NonPageType_ParentPageNotVisible_Returns404()
     {
         var context = CreateHttpContext();
         var parentPageNodeId = Guid.NewGuid();
@@ -339,7 +339,8 @@ public class CMSRouteTransformerTests
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
-        Assert.That(result, Is.Not.Null);
+        // A page hidden by containment (e.g. under an unpublished parent) is a 404, never the bare controller.
+        Assert.That(result, Is.Null);
         Assert.That(context.Items.ContainsKey(CMSRouteTransformer.PageDataItemKey), Is.False);
     }
 
@@ -643,7 +644,7 @@ public class CMSRouteTransformerTests
     }
 
     [Test]
-    public async Task TransformAsync_PageType_GetAsyncReturnsNull_NoPageDataLoaded()
+    public async Task TransformAsync_PageType_PageNotVisible_Returns404()
     {
         var context = CreateHttpContext();
         var pageNodeId = Guid.NewGuid();
@@ -655,7 +656,8 @@ public class CMSRouteTransformerTests
 
         var result = await _transformer.TransformAsync(context, new RouteValueDictionary());
 
-        Assert.That(result, Is.Not.Null);
+        // A page hidden by containment (e.g. under an unpublished parent) is a 404, never the bare controller.
+        Assert.That(result, Is.Null);
         Assert.That(context.Items.ContainsKey(CMSRouteTransformer.PageDataItemKey), Is.False);
     }
 

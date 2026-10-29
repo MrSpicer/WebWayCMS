@@ -427,7 +427,7 @@ Route rows follow what is **live**, so when they change depends on the zone:
   passing the item's `MetadataJson`, with `isActive = false` for a published removal, which deletes the
   owner's routes). Registration sweeps the owner's existing rows first, so switching an item from Single
   to List and publishing removes its route. Saving or deleting a draft never touches the route table.
-- **Global zones** — items publish on write, so `ContentZoneApiController` (and the admin child handler)
+- **Global zones** — items publish on write, so `ContentZoneApiController` (and the zone item handler, `ContentZoneItemModel`)
   call `IRouteRegistrationService.TryRegisterWidgetRoutesAsync` on **add**, **edit** (re-registers,
   sweeping the owner's stale routes first), and **delete / deactivate** (`isActive = false`).
 

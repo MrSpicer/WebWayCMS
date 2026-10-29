@@ -328,7 +328,7 @@ public class MappingTests
 
         var dto = _mapper.Map<PageDTO>(vm);
 
-        Assert.That(dto.Version.Node.ParentNodeId, Is.EqualTo(parentNodeId));
+        Assert.That(dto.Version.TargetOf(Models.Page.PageModel.ParentRelation), Is.EqualTo(parentNodeId));
     }
 
     // --- CMSRoute ---

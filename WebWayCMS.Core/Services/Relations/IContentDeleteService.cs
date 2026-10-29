@@ -9,7 +9,8 @@ public interface IContentDeleteService
 {
     /// <summary>
     /// Deletes <paramref name="nodeId"/> through <paramref name="deleteSelf"/> (the owning model's own
-    /// delete) after its descendants. <c>DeletedDescendants</c> counts the containment descendants deleted.
+    /// delete) after its descendants. <c>DeletedDescendants</c> counts the containment descendants deleted, leaving out zones and zone
+    /// items (a page delete counts its child pages).
     /// </summary>
     Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> DeleteAsync(
         Guid nodeId, Func<Guid, CancellationToken, Task<bool>> deleteSelf, CancellationToken ct = default);

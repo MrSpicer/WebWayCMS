@@ -71,6 +71,8 @@ content type).
      (read-context aware) version into `HttpContext.Items["CMS:PageData"]`
    - otherwise, if `DataTokensJson` carries a `ParentPageNodeId`, load *that* page instead (this
      is how widget-owned routes still render inside their host page)
+   - either way, a named page that reads as **null** (unpublished, or hidden by containment visibility —
+     e.g. a published child of an unpublished parent) ⇒ `return null!` (404), never the bare controller
    - if the controller declares a `ConfigurationType`, deserialize the loaded page's
      `ConfigurationJson` column into it and store it as `"CMS:PageConfig"`, falling back to
      `Activator.CreateInstance(ConfigurationType)` on a parse failure or when no page data is loaded
@@ -383,7 +385,7 @@ repo (`Controllers/CodeTestController.cs`).
 ## 9. How a Page Gets Its URL
 
 Pages no longer store a route. `PageDTO` has no `Route` column — the URL is derived from the page's
-**Slug** plus its **parent** (persisted as `ContentNode.ParentNodeId`), and written into `CMSRoutes`
+**Slug** plus its **parent** (a versioned containment, `PageModel.ParentRelation`), and written into `CMSRoutes`
 **on publish, never on save**.
 
 `PageModel.DeriveRoutePatternFromSlug(slug, parentRoutePrefix)`:
@@ -392,12 +394,15 @@ Pages no longer store a route. `PageDTO` has no `Route` column — the URL is de
 - no prefix and slug is `"home"` (case-insensitive) ⇒ `"/"`
 - otherwise ⇒ `"/" + slug`
 
-**Parentage is carried on the node, not the route.** `PageUpsertViewModel` has a hidden
-`ParentNodeId` (resolved from `?parentRoute=` by route→owner lookup, or from the node's
-`ParentNodeId` on edit); `MappingProfile` copies it onto `ContentVersion.Node.ParentNodeId`, and
-`ContentStore` persists it on create (`CreateDraftAsync`) and edit (`ApplyNodeFields`).
+**Parentage is a versioned relation, not a route.** `PageUpsertViewModel.ParentNodeId` is
+`[ContentRelation("pages", Kind = Containment)]` (optional: a root page has none), shown on the page form
+as the **Parent Page** picker and pre-filled from `?parentRoute=` (route→owner lookup) on create. The mapper
+moves it to and from the version's `ParentNodeId` relation row, so a move is an ordinary edit, a draft until
+publish (`ContentNode` has no parent column). The relation binder refuses a parent that is the page itself or
+one of its descendants. `PageModel` reads the parent with `Version.TargetOf(ParentRelation)`.
 
-**On publish**, `DeriveRoutePatternForPublishAsync` derives the prefix from the **parent node's**
+**On publish**, `DeriveRoutePatternForPublishAsync` derives the prefix from the parent named by the
+version being published (descendants: their **published** version), through the **parent node's**
 route (`GetByOwningContentAsync(parentNodeId)`), falling back to the page's own existing route, then
 to no prefix — so a first publish of a child under `/docs` lands at `/docs/child`, not `/child`.
 A page can own several rows (a Derived route plus Explicit aliases), so the prefix is taken from its
@@ -407,7 +412,8 @@ with an alias `/company` always gives `/about/team`.
 
 **Slug-collision check.** `PageModel.IsSlugAvailableAsync(slug, parentNodeId, excludeNodeId)` runs on
 *both* save and publish. It checks (a) that no sibling *current draft* under the same parent already
-claims the slug — via the sibling-scoped `GetCurrentDraftChildrenAsync(parentNodeId)` query rather
+claims the slug — via the sibling-scoped `FindCurrentDraftsRelatedAsync(ParentRelation, parentNodeId)` query
+(`FindCurrentDraftsWithoutRelationAsync(ParentRelation)` for root pages) rather
 than scanning every draft — and (b) `IsPatternAvailableAsync` — catching reserved and code-based
 patterns. A collision fails the save (or publish) with
 `"A page with this slug already exists at this location."` on the `Slug` field rather than silently
@@ -438,8 +444,15 @@ directly beneath an unpublished parent.
 
 The admin page tree is built by joining pages to their `CMSRoutes` patterns and splitting those
 patterns into segments. A page with **no active route** (unpublished) derives its path by walking
-`ParentNodeId`, so unpublished children nest under their parent instead of surfacing at root.
-`PageTreeNode` exposes this as `Path` (formerly `Route`).
+its parent relation, so unpublished children nest under their parent instead of surfacing at root.
+`PageTreeNode` exposes this as `Path` (formerly `Route`), plus `DescendantCount`: the page's descendant pages
+at every depth by the parent relation, which the Pages list's delete confirm states ("Delete 'Docs' and its 2
+child pages?").
+
+**Deleting a page deletes its subtree.** `PageModel.DeleteSelfAsync` removes one page (its route projection,
+its zones and the page); the relation engine (`ContentDeleteService`) deletes the child pages first, deepest
+first, each with its zones, items and owned route items, in one transaction. `DeletedDescendants` (the admin
+flash, MCP `delete_content`) counts the child pages.
 
 ---
 
@@ -484,8 +497,9 @@ the old `ISubRouteContent` resolver mechanism, which no longer exists.
 
 ## 11. `NotReservedConstraint`
 
-Applied to the `{parentKey}` route segment in admin child resource routes to prevent conflicts with
-literal action segments. The reserved words are:
+Was applied to the `{parentKey}` segment of the admin child routes, which phase 5 of
+[content relations](17-content-relations.md) removed; the constraint is still registered but no admin route
+uses it now. It prevented conflicts with literal action segments. The reserved words are:
 
 ```
 edit, delete, create, registry, api, reorder, versions
@@ -496,7 +510,7 @@ Registered in the route constraint map by `MapAdminTypes` (admin mode only) via:
 services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
 ```
 
-Used in admin routes like `{contentType}/{parentKey:notreserved}/{childType}`. This is unrelated to
+This is unrelated to
 `CMSRouteDTO.IsReserved`, which concerns public URL matching.
 
 ---

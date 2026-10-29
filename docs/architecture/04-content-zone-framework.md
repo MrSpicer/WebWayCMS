@@ -291,7 +291,8 @@ fails the move instead of being silently reverted:
   published version lives in another zone back instead of deleting it.
 
 Surfaces: `POST /api/contentzones/items/{itemId}/move` (`{ targetZoneId, position, expectedVersionNumber }`; a stale version answers 409, used by the zone
-editor) and the generic MCP `move_child` tool (`IAdminCrudChildHandler.SupportsMove`/`MoveAsync`).
+editor) and the generic MCP `move_child` tool (`ContentZoneItemModel.MoveRelatedAsync`, with the item's
+`expectedVersionNumber`).
 
 **Zone editor UI** (`ContentZone/drag.js` → `wwwroot/js/content-zone-drag.js`, loaded once by the edit
 view after `content-zone-edit.js`): each item's toolbar starts with a grip handle. Dragging it uses
@@ -322,10 +323,10 @@ expected version are per widget (`VersionItemViewModel.NodeCurrentVersionNumber`
 `list_child_versions` returns the same rows with their `nodeId`.
 
 **Per item.** Each item's edit-mode toolbar has a History link (`a.zone-history-item`, plain link, no
-script) to the existing child history page,
-`/wadmin/contentzones/{zoneId}/items/versions/{itemNodeId}?returnUrl={this editor}`; the local
+script) to the zone item's history page,
+`/wadmin/contentzoneitems/versions/{itemNodeId}?returnUrl={this editor}`; the local
 `returnUrl` becomes the page's Back link and is carried through its forms. Restore there is **one step**
-(`POST .../versions/{nodeId}/restore/{id}` → `IAdminCrudChildHandler.RestoreChildVersionAsync` →
+(`POST .../versions/{nodeId}/restore/{id}` → `ContentZoneItemModel.RestoreVersionAsync(versionId, expected)` →
 `IContentZoneService.RestoreItemVersionAsync`): the version's content, metadata (List→Single when the
 widget no longer supports lists — `WidgetMetadataJson.Restorable`), active state, zone and ordinal come
 back as one new draft version, inserted at the old position with siblings renumbered. It is refused when the old zone

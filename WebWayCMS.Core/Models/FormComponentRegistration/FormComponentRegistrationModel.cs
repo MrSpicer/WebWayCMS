@@ -98,7 +98,6 @@ public sealed class FormComponentRegistrationModel : IAdminCrudHandler
 
     public IAdminRegistryHandler? RegistryHandler => _registryHandler;
 
-    public IAdminCrudChildHandler? ChildHandler => null;
 
     private static FormComponentRegistrationUpsertViewModel ToViewModel(FormComponentRegistrationDTO dto)
         => new()

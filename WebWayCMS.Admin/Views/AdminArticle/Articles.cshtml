@@ -20,7 +20,7 @@
                 </nav>
                 <h1 class="title is-5">@(filtered ? listTitle + " — Articles" : "Articles")</h1>
             </div>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-list="@Model.SelectedListId" class="button is-primary is-small">
+            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-ArticleListId="@Model.SelectedListId" class="button is-primary is-small">
                 <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
                 <span>New Article</span>
             </a>
@@ -72,7 +72,7 @@
                     </span>
                     <p class="title is-5">No articles yet</p>
                     <p class="subtitle is-6 has-text-grey">@(filtered ? "Create the first article in this list." : "Create your first article.")</p>
-                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-list="@Model.SelectedListId" class="button is-primary mt-2">New Article</a>
+                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articles" asp-route-ArticleListId="@Model.SelectedListId" class="button is-primary mt-2">New Article</a>
                 </div>
             </div>
         }

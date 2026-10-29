@@ -6,6 +6,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Models.Shared;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Controllers.Admin;
 
@@ -17,11 +18,13 @@ public class AdminContentController : Controller
 
     private readonly IAdminHandlerRegistry _registry;
     private readonly IWidgetRegistry _widgetRegistry;
+    private readonly ContentRelationRegistry _relations;
 
-    public AdminContentController(IAdminHandlerRegistry registry, IWidgetRegistry widgetRegistry)
+    public AdminContentController(IAdminHandlerRegistry registry, IWidgetRegistry widgetRegistry, ContentRelationRegistry relations)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
+        _relations = relations ?? throw new ArgumentNullException(nameof(relations));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -60,10 +63,12 @@ public class AdminContentController : Controller
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
 
-        var vm = await handler.GetUpsertViewModelAsync(null, Request.Query, ct);
+        var vm = await handler.GetUpsertViewModelAsync(null, Request.Query, ct) ?? handler.CreateEmptyUpsertViewModel();
+        // A parent's "New {child}" link names the parent by its relation property (e.g. ?ArticleListId=…).
+        RelationPreselect.Apply(vm, Request.Query);
         if (AdminModal.IsModalRequest(Request))
             ViewData[AdminModal.ViewDataKey] = true;
-        return View(handler.UpsertViewPath, vm ?? handler.CreateEmptyUpsertViewModel());
+        return View(handler.UpsertViewPath, vm);
     }
 
     [HttpGet("{contentType}/edit/{id:guid}")]
@@ -76,13 +81,60 @@ public class AdminContentController : Controller
         if (vm == null) return NotFound();
         if (AdminModal.IsModalRequest(Request))
             ViewData[AdminModal.ViewDataKey] = true;
+        else
+            ViewData[RelationChildrenPanelViewModel.ViewDataKey] = await RelationChildrenAsync(handler.ContentType, id, ct);
         return View(handler.UpsertViewPath, vm);
+    }
+
+    /// <summary>
+    /// One panel per containment that can place items under this content type (unless it opts out with
+    /// <c>ShowInParentAdmin = false</c>), listing this item's children through it.
+    /// </summary>
+    private async Task<IReadOnlyList<RelationChildrenPanelViewModel>> RelationChildrenAsync(string contentType, Guid parentNodeId, CancellationToken ct)
+    {
+        var panels = new List<RelationChildrenPanelViewModel>();
+        foreach (var declaration in _relations.GetContainmentsTargeting(contentType).Where(d => d.Attribute.ShowInParentAdmin))
+        {
+            var child = _registry.GetHandler(declaration.SourceContentType);
+            if (child == null)
+                continue;
+
+            panels.Add(new RelationChildrenPanelViewModel
+            {
+                ChildContentType = child.ContentType,
+                ChildDisplayName = child.DisplayName,
+                RelationName = declaration.Name,
+                ParentNodeId = parentNodeId,
+                Ordered = declaration.Attribute.Ordered,
+                CanWrite = child.WriteRoles == null ? User.IsInRole("Admin") : child.WriteRoles.Any(User.IsInRole),
+                Children = await child.GetRelatedChildrenAsync(declaration.Name, parentNodeId, ct),
+            });
+        }
+        return panels;
+    }
+
+    /// <summary>Reorders a parent's children through an ordered containment (the children panel's Up/Down).</summary>
+    [HttpPost("{contentType}/relations/{relationName}/{parentNodeId:guid}/reorder")]
+    [ActionName("ReorderRelated")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ReorderRelated(
+        string contentType, string relationName, Guid parentNodeId, [FromBody] List<Guid> orderedIds, CancellationToken ct)
+    {
+        var handler = _registry.GetHandler(contentType);
+        if (handler == null) return HandlerNotFound(contentType);
+        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+
+        var (success, errorMessage) = await handler.ReorderRelatedAsync(relationName, parentNodeId, orderedIds ?? [], ct);
+        return success
+            ? Ok()
+            : BadRequest(new { error = errorMessage ?? "Failed to reorder the items." });
     }
 
     [HttpPost("{contentType}/edit/{id:guid?}")]
     [ActionName("Edit")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> EditPost(string contentType, Guid? id, CancellationToken ct, string? submitAction = null)
+    public async Task<IActionResult> EditPost(
+        string contentType, Guid? id, CancellationToken ct, string? submitAction = null, string? returnUrl = null)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -122,7 +174,7 @@ public class AdminContentController : Controller
                 TempData["Error"] = publishResult.ErrorMessage;
         }
 
-        return RedirectToAction(nameof(Index), new { contentType });
+        return RedirectToLocalOrIndex(contentType, returnUrl);
     }
 
     /// <summary>
@@ -141,7 +193,7 @@ public class AdminContentController : Controller
 
     [HttpPost("{contentType}/delete/{id:guid}")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Delete(string contentType, Guid id, CancellationToken ct)
+    public async Task<IActionResult> Delete(string contentType, Guid id, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -153,7 +205,7 @@ public class AdminContentController : Controller
             TempData["Error"] = result.ErrorMessage ?? "The item could not be deleted.";
         else if (result.DeletedDescendants > 0)
             TempData["Success"] = $"Deleted, together with the {result.DeletedDescendants} item(s) it contained.";
-        return RedirectToAction(nameof(Index), new { contentType });
+        return RedirectToLocalOrIndex(contentType, returnUrl);
     }
 
     // ─── Publishing ───────────────────────────────────────────────────────────
@@ -197,8 +249,15 @@ public class AdminContentController : Controller
     /// a local URL; otherwise to the content type's index. Never redirects off-site.
     /// </summary>
     private IActionResult RedirectAfterPublishing(string contentType, string? returnUrl)
-        => !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
-            ? LocalRedirect(returnUrl)
+        => RedirectToLocalOrIndex(contentType, returnUrl);
+
+    /// <summary>
+    /// To <paramref name="returnUrl"/> when it is local (e.g. a zone's item list, or the parent whose
+    /// children panel linked here), else to the content type's index. Never redirects off-site.
+    /// </summary>
+    private IActionResult RedirectToLocalOrIndex(string contentType, string? returnUrl)
+        => LocalReturnUrl(returnUrl) is { } local
+            ? LocalRedirect(local)
             : RedirectToAction(nameof(Index), new { contentType });
 
     /// <summary>
@@ -306,9 +365,13 @@ public class AdminContentController : Controller
 
     // ─── Version History (top-level) ──────────────────────────────────────────
 
+    /// <summary>
+    /// An item's version history. <paramref name="returnUrl"/> (local URLs only, e.g. the page zone editor
+    /// that linked here) replaces the page's Back link and is carried through its restore/delete forms.
+    /// </summary>
     [HttpGet("{contentType}/versions/{nodeId:guid}")]
     [ActionName("VersionHistory")]
-    public async Task<IActionResult> VersionHistory(string contentType, Guid nodeId, CancellationToken ct)
+    public async Task<IActionResult> VersionHistory(string contentType, Guid nodeId, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -316,6 +379,13 @@ public class AdminContentController : Controller
 
         var vm = await handler.GetVersionHistoryViewModelAsync(nodeId, ct);
         if (vm == null) return NotFound();
+
+        var local = LocalReturnUrl(returnUrl);
+        if (local != null)
+        {
+            vm.ReturnUrl = local;
+            vm.BackUrl = local;
+        }
         return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
     }
 
@@ -335,24 +405,27 @@ public class AdminContentController : Controller
     [HttpPost("{contentType}/versions/{nodeId:guid}/restore/{id:guid}")]
     [ActionName("RestoreVersion")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> RestoreVersion(string contentType, Guid nodeId, Guid id, CancellationToken ct)
+    public async Task<IActionResult> RestoreVersion(
+        string contentType, Guid nodeId, Guid id, int? expectedVersionNumber, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
         if (!handler.SupportsVersionHistory) return NotFound();
         if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
 
-        var result = await handler.RestoreVersionAsync(id, ct);
-        if (!result.Success)
+        var result = await handler.RestoreVersionAsync(id, expectedVersionNumber, ct);
+        if (result.Success)
+            TempData["Success"] = "Version restored as a draft.";
+        else
             TempData["Error"] = result.ErrorMessage;
 
-        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId });
+        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
 
     [HttpPost("{contentType}/versions/{nodeId:guid}/delete/{id:guid}")]
     [ActionName("VersionDelete")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> VersionDelete(string contentType, Guid nodeId, Guid id, CancellationToken ct)
+    public async Task<IActionResult> VersionDelete(string contentType, Guid nodeId, Guid id, string? returnUrl, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
@@ -363,222 +436,7 @@ public class AdminContentController : Controller
         if (!success)
             TempData["Error"] = error;
 
-        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId });
-    }
-
-    // ─── Child CRUD ────────────────────────────────────────────────────────────
-
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}")]
-    public async Task<IActionResult> ChildIndex(
-        string contentType, string parentKey, string childType, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        var vm = await child.GetChildIndexViewModelAsync(parentKey, ct);
-        if (vm == null) return NotFound();
-        return View(child.ChildIndexViewPath, vm);
-    }
-
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/create")]
-    [ActionName("ChildCreate")]
-    public async Task<IActionResult> ChildCreate(
-        string contentType, string parentKey, string childType, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        var vm = await child.GetChildUpsertViewModelAsync(parentKey, null, ct);
-        if (vm == null) return NotFound();
-        await child.SetChildUpsertViewDataAsync(ViewData, parentKey, ct);
-        return View(child.ChildUpsertViewPath, vm);
-    }
-
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid}")]
-    public async Task<IActionResult> ChildEdit(
-        string contentType, string parentKey, string childType, Guid id, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        var vm = await child.GetChildUpsertViewModelAsync(parentKey, id, ct);
-        if (vm == null) return NotFound();
-        await child.SetChildUpsertViewDataAsync(ViewData, parentKey, ct);
-        return View(child.ChildUpsertViewPath, vm);
-    }
-
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/edit/{id:guid?}")]
-    [ActionName("ChildEdit")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildEditPost(
-        string contentType, string parentKey, string childType, Guid? id, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
-
-        var model = child.CreateEmptyChildUpsertViewModel();
-        await TryUpdateModelAsync(model, model.GetType(), prefix: "");
-
-        if (!ModelState.IsValid)
-        {
-            await child.SetChildUpsertViewDataAsync(ViewData, parentKey, ct);
-            return View(child.ChildUpsertViewPath, model);
-        }
-
-        var result = await child.SaveChildUpsertAsync(parentKey, model, ct);
-        if (!result.Success)
-        {
-            ModelState.AddModelError(
-                result.ErrorField ?? string.Empty,
-                result.ErrorMessage ?? "An error occurred.");
-            await child.SetChildUpsertViewDataAsync(ViewData, parentKey, ct);
-            return View(child.ChildUpsertViewPath, model);
-        }
-
-        return RedirectToAction(nameof(ChildIndex), new { contentType, parentKey, childType });
-    }
-
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/delete/{id:guid}")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildDelete(
-        string contentType, string parentKey, string childType, Guid id, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
-
-        await child.DeleteChildAsync(id, ct);
-        return RedirectToAction(nameof(ChildIndex), new { contentType, parentKey, childType });
-    }
-
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/reorder")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildReorder(
-        string contentType, string parentKey, string childType,
-        [FromBody] List<Guid> orderedIds, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-
-        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
-        if (!child.SupportsReorder) return BadRequest(new { error = "Reorder is not supported for this content type." });
-
-        var (success, errorMessage) = await child.ReorderAsync(parentKey, orderedIds, ct);
-        return success
-            ? Ok()
-            : StatusCode(500, new { error = errorMessage ?? "Failed to reorder the items." });
-    }
-
-    // ─── Child Version History ─────────────────────────────────────────────────
-
-    /// <summary>
-    /// A child's version history. <paramref name="returnUrl"/> (local URLs only, e.g. the page zone editor
-    /// that linked here) replaces the page's Back link and is carried through its restore/delete forms.
-    /// </summary>
-    [HttpGet("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}")]
-    [ActionName("ChildVersionHistory")]
-    public async Task<IActionResult> ChildVersionHistory(
-        string contentType, string parentKey, string childType, Guid nodeId, string? returnUrl, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-        if (!child.SupportsVersionHistory) return NotFound();
-
-        var vm = await child.GetChildVersionHistoryViewModelAsync(parentKey, nodeId, ct);
-        if (vm == null) return NotFound();
-
-        var local = LocalReturnUrl(returnUrl);
-        if (local != null)
-        {
-            vm.ReturnUrl = local;
-            vm.BackUrl = local;
-        }
-
-        return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
-    }
-
-    /// <summary>
-    /// One-step restore of a child version (see <see cref="IAdminCrudChildHandler.RestoreChildVersionAsync"/>);
-    /// back to the history page with the outcome.
-    /// </summary>
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/restore/{id:guid}")]
-    [ActionName("ChildVersionRestore")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildVersionRestore(
-        string contentType, string parentKey, string childType, Guid nodeId, Guid id,
-        int? expectedVersionNumber, string? returnUrl, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-        if (!child.SupportsVersionHistory) return NotFound();
-        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
-
-        var result = await child.RestoreChildVersionAsync(parentKey, id, expectedVersionNumber, ct);
-        if (result.Success)
-            TempData["Success"] = "Version restored as a draft.";
-        else
-            TempData["Error"] = result.ErrorMessage;
-
-        return RedirectToAction(nameof(ChildVersionHistory),
-            new { contentType, parentKey, childType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
-    }
-
-    [HttpPost("{contentType}/{parentKey:notreserved}/{childType}/versions/{nodeId:guid}/delete/{id:guid}")]
-    [ActionName("ChildVersionDelete")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChildVersionDelete(
-        string contentType, string parentKey, string childType, Guid nodeId, Guid id, string? returnUrl, CancellationToken ct)
-    {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        var child = handler.ChildHandler;
-        if (child == null || !string.Equals(child.ChildType, childType, StringComparison.OrdinalIgnoreCase))
-            return NotFound();
-        if (!child.SupportsVersionHistory) return NotFound();
-        if (!HasWriteAccess(child.WriteRoles)) return Forbid();
-
-        var (success, error) = await child.TryDeleteChildVersionAsync(id, ct);
-        if (!success)
-            TempData["Error"] = error;
-
-        return RedirectToAction(nameof(ChildVersionHistory),
-            new { contentType, parentKey, childType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
+        return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
 
     /// <summary>The return URL when it is local to this site, else null (never an open redirect).</summary>

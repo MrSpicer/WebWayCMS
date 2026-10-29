@@ -10,11 +10,17 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
     [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
     public string? ParentRoutePrefix { get; set; }
 
-    [FormProperty(EditorType = EditorType.Hidden, Order = 99, FormComponent = "Hidden")]
+    /// <summary>
+    /// The parent page (a containment; empty for a root page). Changing it moves the page: a draft until
+    /// publish, which re-derives the page's URL and its live descendants'.
+    /// </summary>
+    [ContentRelation("pages", Kind = ContentRelationKind.Containment)]
+    [FormProperty(Label = "Parent Page", Order = 3,
+        HelpText = "Leave empty for a top-level page. A move takes effect when the page is published.")]
     public Guid? ParentNodeId { get; set; }
 
     [Required]
-    [FormProperty(Label = "Page Controller", EditorType = EditorType.PageControllerPicker, IsRequired = true, Order = 3,
+    [FormProperty(Label = "Page Controller", EditorType = EditorType.PageControllerPicker, IsRequired = true, Order = 4,
         HelpText = "The page type determines what the page renders and what configuration options are available.",
         FormComponent = "PageControllerPicker")]
     public string ControllerName { get; set; } = string.Empty;
@@ -40,6 +46,6 @@ public sealed class PageUpsertViewModel : BaseContentViewModel
 
     /// <summary>The route items owned by this page; a new page mints one Derived route.</summary>
     [ContentRelation(RouteModel.ContentTypeKey, Kind = ContentRelationKind.Owned)]
-    [FormProperty(Label = "Routes", Order = 4)]
+    [FormProperty(Label = "Routes", Order = 5)]
     public List<Guid> RouteIds { get; set; } = [];
 }

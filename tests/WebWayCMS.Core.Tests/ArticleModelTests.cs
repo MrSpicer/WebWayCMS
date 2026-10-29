@@ -126,7 +126,6 @@ public class ArticleModelTests
             Assert.That(handler.WriteRoles, Is.EqualTo(new[] { "Admin", "Editor" }));
             Assert.That(handler.IndexViewPath, Is.EqualTo("~/Views/AdminArticle/Articles.cshtml"));
             Assert.That(handler.UpsertViewPath, Is.EqualTo("~/Views/AdminArticle/Upsert.cshtml"));
-            Assert.That(handler.ChildHandler, Is.Null);
             Assert.That(handler.SupportsPublishing, Is.True);
             Assert.That(handler.CreateEmptyUpsertViewModel(), Is.TypeOf<ArticleUpsertViewModel>());
         });
@@ -292,18 +291,23 @@ public class ArticleModelTests
     }
 
     [Test]
-    public async Task GetUpsertViewModelAsync_Create_PreselectsTheQueryList()
+    public async Task GetUpsertViewModelAsync_Create_IsEmpty_TheListIsPreselectedByItsRelationQueryKey()
     {
         var listId = Guid.NewGuid();
 
+        // ?list= filters the index only; a "New Article" link names the list as ?ArticleListId=, which the
+        // admin controller applies to the new form (RelationPreselect).
         var withList = (ArticleUpsertViewModel?)await _model.GetUpsertViewModelAsync(null, Query("list", listId.ToString()));
         var withEmptyId = (ArticleUpsertViewModel?)await _model.GetUpsertViewModelAsync(Guid.Empty, QueryCollection.Empty);
+        var preselected = (ArticleUpsertViewModel?)await _model.GetUpsertViewModelAsync(null, QueryCollection.Empty);
+        RelationPreselect.Apply(preselected!, Query("ArticleListId", listId.ToString()));
 
         Assert.Multiple(() =>
         {
-            Assert.That(withList!.ArticleListId, Is.EqualTo(listId));
+            Assert.That(withList!.ArticleListId, Is.EqualTo(Guid.Empty));
             Assert.That(withList.NodeId, Is.Null);
             Assert.That(withEmptyId!.ArticleListId, Is.EqualTo(Guid.Empty));
+            Assert.That(preselected!.ArticleListId, Is.EqualTo(listId));
         });
     }
 

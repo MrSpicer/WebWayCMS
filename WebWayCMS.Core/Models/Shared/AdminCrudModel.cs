@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Http;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Security;
 using WebWayCMS.Services.Relations;
 
@@ -100,8 +102,106 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public virtual Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default)
         => Task.FromResult(Enumerable.Empty<object>());
 
+    /// <summary>The children placed under <paramref name="parentNodeId"/> by this type's containment <paramref name="relationName"/>.</summary>
+    public virtual async Task<IReadOnlyList<RelatedChild>> GetRelatedChildrenAsync(
+        string relationName, Guid parentNodeId, CancellationToken ct = default)
+    {
+        if (DeclaredContainment(relationName) == null)
+            return [];
+
+        var children = await Store.FindCurrentDraftsRelatedAsync(relationName, parentNodeId, ct);
+        return children
+            .Select(c => new RelatedChild(c.Version.Node.Id, c.Version.Title, c.Version.State, c.Version.OrdinalOf(relationName)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Reorders an ordered containment's children: each child whose position changed is saved as a new
+    /// draft with its new ordinal ("Position changed"), checked against the version it was read at.
+    /// </summary>
+    public virtual async Task<(bool Success, string? ErrorMessage)> ReorderRelatedAsync(
+        string relationName, Guid parentNodeId, IReadOnlyList<Guid> orderedNodeIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderedNodeIds);
+        if (DeclaredContainment(relationName) is not { Attribute.Ordered: true })
+            return (false, IAdminCrudHandler.ReorderNotSupportedMessage);
+
+        var children = (await Store.FindCurrentDraftsRelatedAsync(relationName, parentNodeId, ct))
+            .ToDictionary(c => c.Version.Node.Id);
+        if (orderedNodeIds.Count != children.Count
+            || orderedNodeIds.Distinct().Count() != children.Count
+            || !orderedNodeIds.All(children.ContainsKey))
+            return (false, ReorderSetMessage);
+
+        using var scope = _changeSetScope.Begin(ChangeSetKind.Save, parentNodeId, null);
+        using var note = _changeSetScope.UseChangeNote("Position changed");
+        for (var position = 0; position < orderedNodeIds.Count; position++)
+        {
+            var child = children[orderedNodeIds[position]];
+            if (child.Version.OrdinalOf(relationName) == position)
+                continue;
+
+            child.Version.SetRelation(relationName, parentNodeId, RelationKind.Containment,
+                child.Version.QualifierOf(relationName) ?? string.Empty, position);
+            var saved = await Store.SaveDraftAsync(child, child.Version.VersionNumber, ct);
+            if (!saved.Success)
+                return (false, saved.ErrorMessage);
+        }
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Moves a child by saving its upsert view model with the containment pointing at the new parent (so
+    /// validation, the cycle guard and the mapper all apply), then, for an ordered relation, puts it at
+    /// <paramref name="position"/> among its new siblings.
+    /// </summary>
+    public virtual async Task<(bool Success, string? ErrorMessage)> MoveRelatedAsync(
+        string relationName, Guid childNodeId, Guid targetParentNodeId, int? position, int? expectedVersionNumber,
+        CancellationToken ct = default)
+    {
+        var declared = DeclaredContainment(relationName);
+        if (declared == null)
+            return (false, IAdminCrudHandler.MoveNotSupportedMessage);
+
+        var model = await GetUpsertViewModelAsync(childNodeId, EmptyQuery, ct);
+        if (model == null)
+            return (false, $"No {DisplayName.ToLowerInvariant()} found with id '{childNodeId}'.");
+        if (expectedVersionNumber.HasValue
+            && model is BaseContentViewModel { ExpectedVersionNumber: { } current }
+            && current != expectedVersionNumber.Value)
+            return (false, ContentStore<TDto>.StaleVersionMessage);
+
+        RelationProperties.Write(model, RelationProperties.Read(model)
+            .Where(v => v.Name != relationName)
+            .Append(new RelationValue(relationName, targetParentNodeId, 0, string.Empty)));
+        AdminSaveResult saved;
+        using (_changeSetScope.UseChangeNote("Moved"))
+            saved = await SaveUpsertAsync(model, ct);
+        if (!saved.Success)
+            return (false, saved.ErrorMessage);
+
+        if (!declared.Attribute.Ordered || position == null)
+            return (true, null);
+
+        var siblings = (await GetRelatedChildrenAsync(relationName, targetParentNodeId, ct))
+            .Select(c => c.Id)
+            .Where(id => id != childNodeId)
+            .ToList();
+        siblings.Insert(Math.Clamp(position.Value, 0, siblings.Count), childNodeId);
+        return await ReorderRelatedAsync(relationName, targetParentNodeId, siblings, ct);
+    }
+
+    private static readonly IQueryCollection EmptyQuery = new QueryCollection();
+
+    /// <summary><see cref="ReorderRelatedAsync"/>'s error when the order is not the parent's children, each once.</summary>
+    public const string ReorderSetMessage = "The new order must list every child exactly once.";
+
+    /// <summary>This type's containment <paramref name="relationName"/>, if its upsert view model declares one.</summary>
+    private RelationPropertyInfo? DeclaredContainment(string relationName)
+        => RelationProperties.Describe(CreateEmptyUpsertViewModel().GetType())
+            .FirstOrDefault(r => r.Name == relationName && r.Attribute.Kind == ContentRelationKind.Containment);
+
     public virtual IAdminRegistryHandler? RegistryHandler => null;
-    public virtual IAdminCrudChildHandler? ChildHandler => null;
 
     public virtual bool SupportsVersionHistory => true;
 
@@ -150,6 +250,21 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
         return result.Success
             ? new AdminSaveResult(true)
             : new AdminSaveResult(false, result.ErrorMessage);
+    }
+
+    /// <summary>The restore, refused with the stale-version message when the current draft moved past <paramref name="expectedVersionNumber"/>.</summary>
+    public virtual async Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, int? expectedVersionNumber, CancellationToken ct = default)
+    {
+        if (expectedVersionNumber.HasValue)
+        {
+            var historical = await Store.GetVersionAsync(versionId, ct);
+            if (historical == null)
+                return new AdminSaveResult(false, IAdminCrudHandler.VersionNotFoundMessage);
+            var current = await Store.GetCurrentDraftAsync(historical.Version.Node.Id, ct);
+            if (current?.Version.VersionNumber != expectedVersionNumber.Value)
+                return new AdminSaveResult(false, ContentStore<TDto>.StaleVersionMessage);
+        }
+        return await RestoreVersionAsync(versionId, ct);
     }
 
     public virtual Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)

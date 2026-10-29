@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using NSubstitute;
 
@@ -35,49 +34,12 @@ internal class MinimalHandler : IAdminCrudHandler
     public bool HasSecondaryApiList => false;
     public Task<IEnumerable<object>> GetSecondaryApiListAsync(string key, CancellationToken ct = default) => Task.FromResult(Enumerable.Empty<object>());
     public IAdminRegistryHandler? RegistryHandler => null;
-    public IAdminCrudChildHandler? ChildHandler => null;
-}
-
-internal class MinimalChild : IAdminCrudChildHandler
-{
-    public string ChildType => "minimal";
-    public string ChildDisplayName => "Minimal";
-    public string[]? WriteRoles => null;
-    public string ChildIndexViewPath => "i";
-    public string ChildUpsertViewPath => "u";
-    public Task<object?> GetChildIndexViewModelAsync(string parentKey, CancellationToken ct = default) => Task.FromResult<object?>(null);
-    public Task<object?> GetChildUpsertViewModelAsync(string parentKey, Guid? id, CancellationToken ct = default) => Task.FromResult<object?>(null);
-    public Task SetChildUpsertViewDataAsync(ViewDataDictionary viewData, string parentKey, CancellationToken ct = default) => Task.CompletedTask;
-    public object CreateEmptyChildUpsertViewModel() => new object();
-    public Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default) => Task.FromResult(new AdminSaveResult(true));
-    public Task<bool> DeleteChildAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
-    public bool SupportsReorder => false;
-    public Task<(bool Success, string? ErrorMessage)> ReorderAsync(string parentKey, List<Guid> orderedIds, CancellationToken ct = default)
-        => Task.FromResult((false, (string?)null));
 }
 
 /// <summary>A MinimalHandler whose version delete succeeds, for the TryDeleteVersionAsync default's success path.</summary>
 internal sealed class DeletingMinimalHandler : MinimalHandler, IAdminCrudHandler
 {
     public Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
-}
-
-/// <summary>A MinimalChild with a restorable, deletable version, for the restore/delete defaults' success paths.</summary>
-internal sealed class VersionedMinimalChild : MinimalChild, IAdminCrudChildHandler
-{
-    public object RestoreModel { get; } = new();
-    public object? SavedModel { get; private set; }
-
-    public Task<object?> GetChildRestoreVersionViewModelAsync(string parentKey, Guid historicalId, CancellationToken ct = default)
-        => Task.FromResult<object?>(RestoreModel);
-
-    public new Task<AdminSaveResult> SaveChildUpsertAsync(string parentKey, object model, CancellationToken ct = default)
-    {
-        SavedModel = model;
-        return Task.FromResult(new AdminSaveResult(true));
-    }
-
-    public Task<bool> DeleteChildVersionAsync(Guid id, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 /// <summary>
@@ -175,19 +137,28 @@ public class InterfaceDefaultsTests
     }
 
     [Test]
-    public async Task IAdminCrudChildHandler_DefaultMembers()
+    public async Task IAdminCrudHandler_ContainmentDefaults()
     {
-        IAdminCrudChildHandler child = new MinimalChild();
+        IAdminCrudHandler handler = new MinimalHandler();
 
         Assert.Multiple(async () =>
         {
-            Assert.That(child.SupportsVersionHistory, Is.False);
-            Assert.That(await child.GetChildVersionHistoryViewModelAsync("k", Guid.NewGuid()), Is.Null);
-            Assert.That(await child.GetChildRestoreVersionViewModelAsync("k", Guid.NewGuid()), Is.Null);
-            Assert.That(await child.DeleteChildVersionAsync(Guid.NewGuid()), Is.False);
-            Assert.That(child.SupportsMove, Is.False);
-            Assert.That(await child.MoveAsync(Guid.NewGuid(), "k", 0), Is.EqualTo((false, "Move is not supported for this child type.")));
+            Assert.That(await handler.GetRelatedChildrenAsync("Parent", Guid.NewGuid()), Is.Empty);
+            Assert.That(await handler.ReorderRelatedAsync("Parent", Guid.NewGuid(), []),
+                Is.EqualTo((false, IAdminCrudHandler.ReorderNotSupportedMessage)));
+            Assert.That(await handler.MoveRelatedAsync("Parent", Guid.NewGuid(), Guid.NewGuid(), 0, 1),
+                Is.EqualTo((false, IAdminCrudHandler.MoveNotSupportedMessage)));
         });
+    }
+
+    [Test]
+    public async Task IAdminCrudHandler_RestoreWithExpectedVersion_DefaultsToThePlainRestore()
+    {
+        IAdminCrudHandler handler = new MinimalHandler();
+
+        var result = await handler.RestoreVersionAsync(Guid.NewGuid(), 3);
+
+        Assert.That(result.ErrorMessage, Is.EqualTo("Restoring versions is not supported."));
     }
 
     [Test]
@@ -233,26 +204,6 @@ public class InterfaceDefaultsTests
         {
             Assert.That(await refusing.TryDeleteVersionAsync(Guid.NewGuid()), Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
             Assert.That(await deleting.TryDeleteVersionAsync(Guid.NewGuid()), Is.EqualTo((true, (string?)null)));
-        });
-    }
-
-    [Test]
-    public async Task IAdminCrudChildHandler_RestoreAndTryDeleteDefaults()
-    {
-        IAdminCrudChildHandler bare = new MinimalChild();
-        var versioned = new VersionedMinimalChild();
-        IAdminCrudChildHandler child = versioned;
-
-        var missing = await bare.RestoreChildVersionAsync("p", Guid.NewGuid(), null);
-        var restored = await child.RestoreChildVersionAsync("p", Guid.NewGuid(), 1);
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(missing, Is.EqualTo(new AdminSaveResult(false, IAdminCrudChildHandler.VersionNotFoundMessage)));
-            Assert.That(restored.Success, Is.True);
-            Assert.That(versioned.SavedModel, Is.SameAs(versioned.RestoreModel));
-            Assert.That(await bare.TryDeleteChildVersionAsync(Guid.NewGuid()), Is.EqualTo((false, IAdminCrudHandler.VersionNotDeletedMessage)));
-            Assert.That(await child.TryDeleteChildVersionAsync(Guid.NewGuid()), Is.EqualTo((true, (string?)null)));
         });
     }
 

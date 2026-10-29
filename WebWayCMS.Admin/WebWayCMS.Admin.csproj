@@ -32,5 +32,7 @@
           DestinationFiles="wwwroot/js/form-components.js" />
     <Copy SourceFiles="Views/Shared/relation-modal.js"
           DestinationFiles="wwwroot/js/relation-modal.js" />
+    <Copy SourceFiles="Views/AdminShared/relation-children.js"
+          DestinationFiles="wwwroot/js/relation-children.js" />
   </Target>
 </Project>

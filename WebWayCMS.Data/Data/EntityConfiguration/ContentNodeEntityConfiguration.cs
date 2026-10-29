@@ -11,7 +11,6 @@ public sealed class ContentNodeEntityConfiguration : IEntityTypeConfiguration<Co
     {
         entity.HasKey(e => e.Id);
         entity.Property(e => e.ContentTypeKey).IsRequired().HasMaxLength(64);
-        entity.HasIndex(e => e.ParentNodeId);
         entity.HasIndex(e => e.SiteId);
         entity.ToTable("ContentNodes");
     }

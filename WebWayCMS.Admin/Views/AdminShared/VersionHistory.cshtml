@@ -111,67 +111,34 @@
                             <td>@v.CreationDate.ToString("yyyy-MM-dd HH:mm")</td>
                             <td>
                                 <div class="buttons are-small">
-                                    @if (Model.ParentKey != null)
+                                    @* One-step restore: the version comes back as a new draft (a zone item also returns to
+                                       its old zone and position; on a page it goes live when the page is published). *@
+                                    @if (!v.IsLatest)
                                     {
-                                        @* One-step restore: the version comes back (content, settings, zone and
-                                           position) as a draft; on a page it goes live when the page is published. *@
-                                        @if (!v.IsLatest)
-                                        {
-                                            <form asp-controller="AdminContent"
-                                                  asp-action="ChildVersionRestore"
-                                                  asp-route-contentType="@Model.ContentType"
-                                                  asp-route-parentKey="@Model.ParentKey"
-                                                  asp-route-childType="@Model.ChildType"
-                                                  asp-route-nodeId="@Model.NodeId"
-                                                  asp-route-id="@v.Id"
-                                                  method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                @if (expectedVersion.HasValue)
-                                                {
-                                                    <input type="hidden" name="expectedVersionNumber" value="@expectedVersion" />
-                                                }
-                                                @if (Model.ReturnUrl != null)
-                                                {
-                                                    <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-                                                }
-                                                <button type="submit" class="button is-small">Restore</button>
-                                            </form>
-                                        }
-                                        @if (!v.IsLatest)
-                                        {
-                                            <button type="button" class="button is-small is-danger is-light"
-                                                    data-delete-trigger
-                                                    data-delete-name="@deleteName"
-                                                    data-delete-url="@Url.Action("ChildVersionDelete", "AdminContent", new { contentType = Model.ContentType, parentKey = Model.ParentKey, childType = Model.ChildType, nodeId = Model.NodeId, id = v.Id, returnUrl = Model.ReturnUrl })">
-                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                                <span>Delete</span>
-                                            </button>
-                                        }
-                                    }
-                                    else
-                                    {
-                                        @if (!v.IsLatest)
-                                        {
-                                            <form asp-controller="AdminContent"
-                                                  asp-action="RestoreVersion"
-                                                  asp-route-contentType="@Model.ContentType"
-                                                  asp-route-nodeId="@Model.NodeId"
-                                                  asp-route-id="@v.Id"
-                                                  method="post" class="is-inline-block">
-                                                @Html.AntiForgeryToken()
-                                                <button type="submit" class="button is-small">Restore</button>
-                                            </form>
-                                        }
-                                        @if (!v.IsLatest)
-                                        {
-                                            <button type="button" class="button is-small is-danger is-light"
-                                                    data-delete-trigger
-                                                    data-delete-name="v@(v.Version) of @Model.ItemTitle"
-                                                    data-delete-url="@Url.Action("VersionDelete", "AdminContent", new { contentType = Model.ContentType, nodeId = Model.NodeId, id = v.Id })">
-                                                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                                <span>Delete</span>
-                                            </button>
-                                        }
+                                        <form asp-controller="AdminContent"
+                                              asp-action="RestoreVersion"
+                                              asp-route-contentType="@Model.ContentType"
+                                              asp-route-nodeId="@Model.NodeId"
+                                              asp-route-id="@v.Id"
+                                              method="post" class="is-inline-block">
+                                            @Html.AntiForgeryToken()
+                                            @if (expectedVersion.HasValue)
+                                            {
+                                                <input type="hidden" name="expectedVersionNumber" value="@expectedVersion" />
+                                            }
+                                            @if (Model.ReturnUrl != null)
+                                            {
+                                                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+                                            }
+                                            <button type="submit" class="button is-small">Restore</button>
+                                        </form>
+                                        <button type="button" class="button is-small is-danger is-light"
+                                                data-delete-trigger
+                                                data-delete-name="@deleteName"
+                                                data-delete-url="@Url.Action("VersionDelete", "AdminContent", new { contentType = Model.ContentType, nodeId = Model.NodeId, id = v.Id, returnUrl = Model.ReturnUrl })">
+                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                                            <span>Delete</span>
+                                        </button>
                                     }
                                 </div>
                             </td>

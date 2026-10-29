@@ -398,15 +398,10 @@ namespace WebWayCMS.Data.Migrations
                     b.Property<bool>("IsHidden")
                         .HasColumnType("boolean");
 
-                    b.Property<Guid?>("ParentNodeId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid?>("SiteId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ParentNodeId");
 
                     b.HasIndex("SiteId");
 

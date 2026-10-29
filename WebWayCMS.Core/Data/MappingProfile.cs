@@ -219,17 +219,12 @@ public sealed class MappingProfile : Profile
             ModificationDate = s.Version.CreatedUtc
         });
 
-        CreateMap<PageUpsertViewModel, PageDTO>(s =>
+        CreateMap<PageUpsertViewModel, PageDTO>(s => new PageDTO
         {
-            var version = NewVersion(s);
-            version.Node.ParentNodeId = s.ParentNodeId;
-            return new PageDTO
-            {
-                ConfigurationJson = s.ConfigurationJson ?? "{}",
-                ViewName = s.ViewName,
-                ControllerName = s.ControllerName ?? string.Empty,
-                Version = version
-            };
+            ConfigurationJson = s.ConfigurationJson ?? "{}",
+            ViewName = s.ViewName,
+            ControllerName = s.ControllerName ?? string.Empty,
+            Version = NewVersion(s)
         });
 
         CreateMap<PageDTO, PageItemViewModel>(s => new PageItemViewModel

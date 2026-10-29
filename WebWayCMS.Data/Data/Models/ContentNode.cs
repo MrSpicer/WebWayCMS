@@ -12,9 +12,6 @@ public record ContentNode
     /// <summary>The content type this node belongs to, e.g. "pages", "articles", "contentzones".</summary>
     public string ContentTypeKey { get; set; } = string.Empty;
 
-    /// <summary>Identity parentage. Moving a page is not an edit, so this lives on the node.</summary>
-    public Guid? ParentNodeId { get; set; }
-
     /// <summary>Multi-site seam; null = default site.</summary>
     public Guid? SiteId { get; set; }
 

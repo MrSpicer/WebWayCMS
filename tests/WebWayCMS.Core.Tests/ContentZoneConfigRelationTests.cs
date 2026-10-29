@@ -9,7 +9,9 @@ using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
+using WebWayCMS.Models.Shared;
 using WebWayCMS.Services;
 using WebWayCMS.Services.Relations;
 
@@ -41,6 +43,20 @@ public class ContentZoneConfigRelationTests
     private IWidgetSlotDiscovery _slotDiscovery = null!;
     private IRelationBinder _binder = null!;
     private ContentZoneModel _model = null!;
+
+    /// <summary>The zone item handler over this fixture's model (the old zone child handler's home).</summary>
+    private ContentZoneItemModel Items => new(_model);
+
+    private static readonly Microsoft.AspNetCore.Http.IQueryCollection NoQuery = new Microsoft.AspNetCore.Http.QueryCollection();
+
+    /// <summary>Creates an item in <paramref name="zoneId"/> (stubbed as an existing zone) through the item handler.</summary>
+    private Task<AdminSaveResult> CreateInZoneAsync(Guid zoneId, ContentZoneItemUpsertViewModel vm)
+    {
+        _zoneStore.GetCurrentDraftAsync(zoneId, Arg.Any<CancellationToken>())
+            .Returns(new ContentZoneDTO { Version = new ContentVersion { Node = new ContentNode { Id = zoneId } } });
+        RelationProperties.Write(vm, [new RelationValue(nameof(ContentZoneItemUpsertViewModel.ContentZoneNodeId), zoneId, 0, string.Empty)]);
+        return Items.SaveUpsertAsync(vm);
+    }
 
     [SetUp]
     public void SetUp()
@@ -122,7 +138,7 @@ public class ContentZoneConfigRelationTests
         _itemStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>())
             .Returns(Item(nodeId, "{\"other\":\"kept\"}", imageId));
 
-        var vm = (ContentZoneItemUpsertViewModel)(await _model.ChildHandler!.GetChildUpsertViewModelAsync("zone", nodeId))!;
+        var vm = (ContentZoneItemUpsertViewModel)(await Items.GetUpsertViewModelAsync(nodeId, NoQuery))!;
 
         using var json = JsonDocument.Parse(vm.ComponentPropertiesJson);
         Assert.Multiple(() =>
@@ -146,8 +162,7 @@ public class ContentZoneConfigRelationTests
             });
         var zoneId = Guid.NewGuid();
 
-        var result = await _model.ChildHandler!.SaveChildUpsertAsync(zoneId.ToString(),
-            Upsert($"{{\"ImageId\":\"{imageId}\",\"other\":\"kept\"}}"));
+        var result = await CreateInZoneAsync(zoneId, Upsert($"{{\"ImageId\":\"{imageId}\",\"other\":\"kept\"}}"));
 
         Assert.Multiple(() =>
         {
@@ -174,8 +189,7 @@ public class ContentZoneConfigRelationTests
                 return true;
             });
 
-        var result = await _model.ChildHandler!.SaveChildUpsertAsync("zone",
-            Upsert($"{{\"ImageId\":\"{imageId}\"}}", nodeId, existing.Version.VersionNumber));
+        var result = await Items.SaveUpsertAsync(Upsert($"{{\"ImageId\":\"{imageId}\"}}", nodeId, existing.Version.VersionNumber));
 
         Assert.Multiple(() =>
         {
@@ -192,7 +206,7 @@ public class ContentZoneConfigRelationTests
         _binder.ValidateAsync(Arg.Any<object>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(false, "Image is required.", "ImageId"));
 
-        var result = await _model.ChildHandler!.SaveChildUpsertAsync(Guid.NewGuid().ToString(), Upsert("{}"));
+        var result = await CreateInZoneAsync(Guid.NewGuid(), Upsert("{}"));
 
         Assert.Multiple(() =>
         {
@@ -220,7 +234,7 @@ public class ContentZoneConfigRelationTests
             IsActive = true
         };
 
-        var result = await _model.ChildHandler!.SaveChildUpsertAsync(Guid.NewGuid().ToString(), vm);
+        var result = await CreateInZoneAsync(Guid.NewGuid(), vm);
 
         Assert.That(result.Success, Is.True);
     }
@@ -243,7 +257,7 @@ public class ContentZoneConfigRelationTests
                 return item;
             });
 
-        await _model.ChildHandler!.SaveChildUpsertAsync(Guid.NewGuid().ToString(), Upsert("{}"));
+        await CreateInZoneAsync(Guid.NewGuid(), Upsert("{}"));
 
         await _binder.Received(1).ValidateAsync(Arg.Any<object>(), "Widget", Arg.Any<CancellationToken>());
     }

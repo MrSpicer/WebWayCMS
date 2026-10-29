@@ -14,6 +14,7 @@ using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Models.Page;
+using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Services.ContentSeeding;
 
@@ -42,6 +43,10 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
     // A zone item's placement comes from its locator, never from its fields.
     private const string ZoneKeyField = "contentZoneNodeId";
 
+    // The zone item content type, and the parent type zone items were seeded under before it existed.
+    private const string ZoneItemContentType = ContentRelationRegistry.ContentZoneItemContentType;
+    private const string LegacyZoneItemContentType = "contentzones";
+
     // Key of the locator's owner (page or item) in the JSON node the @seed resolver walks.
     private const string OwnerKey = "owner";
 
@@ -65,6 +70,9 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         public Dictionary<Guid, bool> PageExists { get; } = new();
 
         public Dictionary<Guid, List<QueuedZoneItem>> ItemsToPublish { get; } = new();
+
+        /// <summary>Items already warned about the legacy zone item content type, so a retry pass warns once.</summary>
+        public HashSet<Guid> WarnedLegacyZoneItems { get; } = new();
     }
 
     private readonly IEnumerable<IContentSeedSourceProvider> _providers;
@@ -214,7 +222,18 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             return ApplyOutcome.Skipped;
         }
 
-        var handler = _registry.GetHandler(item.ContentType);
+        // Zone items were children of "contentzones" before they became their own content type; a seed
+        // file not yet moved over still applies, with a warning.
+        var contentType = item.ContentType;
+        if (item.Zone != null && string.Equals(contentType, LegacyZoneItemContentType, StringComparison.OrdinalIgnoreCase))
+        {
+            if (run.WarnedLegacyZoneItems.Add(item.Id))
+                _logger.Warning("Content seed item '{SeedId}' uses the deprecated contentType \"{Legacy}\" for a zone item; use \"{ContentType}\".",
+                    item.Id, LegacyZoneItemContentType, ZoneItemContentType);
+            contentType = ZoneItemContentType;
+        }
+
+        var handler = _registry.GetHandler(contentType);
         if (handler == null)
         {
             _logger.Warning("Content seed item '{SeedId}' references unknown content type '{ContentType}'; skipping.", item.Id, item.ContentType);
@@ -293,10 +312,9 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         SeedRun run,
         CancellationToken ct)
     {
-        var child = handler.ChildHandler;
-        if (child == null)
+        if (!string.Equals(handler.ContentType, ZoneItemContentType, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.Warning("Content seed item '{SeedId}' has a 'zone' but content type '{ContentType}' has no child entities; skipping.", item.Id, item.ContentType);
+            _logger.Warning("Content seed item '{SeedId}' has a 'zone' but content type '{ContentType}' is not \"{ZoneItemContentType}\"; skipping.", item.Id, item.ContentType, ZoneItemContentType);
             return ApplyOutcome.Skipped;
         }
 
@@ -321,7 +339,8 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         }
 
         StripIdentityKeys(overlay);
-        overlay.Remove(ZoneKeyField);
+        foreach (var key in overlay.Select(p => p.Key).Where(k => string.Equals(k, ZoneKeyField, StringComparison.OrdinalIgnoreCase)).ToArray())
+            overlay.Remove(key);
 
         if (await ResolveTokensAsync(item, source, overlay, locator, ct) is { } tokenOutcome)
             return tokenOutcome;
@@ -337,8 +356,6 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             return ApplyOutcome.Skipped;
         }
 
-        var zoneKey = zone.ZoneNodeId.ToString();
-
         // A changed locator moves the stored item before it is saved (the save then edits the moved draft).
         // A move is only possible within one page's zone tree, so anything else is left untouched (nothing
         // saved or recorded) and reported on every boot until the seed is fixed.
@@ -352,7 +369,8 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
                 return ApplyOutcome.Skipped;
             }
 
-            var (moved, moveError) = await child.MoveAsync(stored.Version.Node.Id, zoneKey, int.MaxValue, ct);
+            var (moved, moveError) = await handler.MoveRelatedAsync(
+                ZoneRelations.Zone, stored.Version.Node.Id, zone.ZoneNodeId, int.MaxValue, null, ct);
             if (!moved)
             {
                 _logger.Warning("Content seed item '{SeedId}' could not be moved to its zone: {ErrorMessage}; skipping.", item.Id, moveError);
@@ -360,10 +378,13 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             }
         }
 
-        var existing = stored == null ? null : await child.GetChildUpsertViewModelAsync(zoneKey, stored.Version.Node.Id, ct);
-        var model = ContentFieldMerger.TryMerge(existing ?? child.CreateEmptyChildUpsertViewModel(), overlay)!;
+        // The locator names the zone: it fills the item's zone relation (a create places it there; an
+        // update never moves it, which the move above did).
+        overlay[ZoneKeyField] = zone.ZoneNodeId.ToString();
+        var existing = stored == null ? null : await handler.GetUpsertViewModelAsync(stored.Version.Node.Id, EmptyQuery, ct);
+        var model = ContentFieldMerger.TryMerge(existing ?? handler.CreateEmptyUpsertViewModel(), overlay)!;
 
-        var result = await child.SaveChildUpsertAsync(zoneKey, model, ct);
+        var result = await handler.SaveUpsertAsync(model, ct);
         if (!result.Success)
         {
             // Hash is deliberately NOT recorded, so the item is retried on the next boot.

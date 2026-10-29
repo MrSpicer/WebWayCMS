@@ -106,7 +106,6 @@ public class WidgetRegistrationModelTests
             Assert.That(_model.WriteRoles, Is.Null);
             Assert.That(_model.HasSecondaryApiList, Is.False);
             Assert.That(_model.RegistryHandler, Is.Not.Null);
-            Assert.That(_model.ChildHandler, Is.Null);
         });
     }
 

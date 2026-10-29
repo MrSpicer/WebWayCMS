@@ -40,7 +40,7 @@ public sealed class FixtureFaqDTO : IVersionedContent
 
 public sealed class FixtureFaqUpsertViewModel : BaseContentViewModel
 {
-    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment, Required = true)]
+    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment, Required = true, Ordered = true)]
     [FormProperty(Label = "Topic", Order = 3)]
     public Guid FaqTopicId { get; init; }
 
@@ -66,6 +66,7 @@ public sealed class FixtureFaqProfile : Profile
         CreateMap<FixtureFaqDTO, FixtureFaqUpsertViewModel>(s => new FixtureFaqUpsertViewModel
         {
             NodeId = s.Version.NodeId,
+            ExpectedVersionNumber = s.Version.VersionNumber,
             Title = s.Version.Title,
             Answer = s.Answer
         });
@@ -238,6 +239,52 @@ public class RelationBinderTests
         });
     }
 
+    /// <summary>A type that nests under its own kind (like a page under a page).</summary>
+    public sealed class Nested : BaseContentViewModel
+    {
+        [ContentRelation("nodes", Kind = ContentRelationKind.Containment)]
+        public Guid? ParentId { get; set; }
+    }
+
+    [Test]
+    public async Task ValidateAsync_ContainmentUnderItselfOrADescendant_IsRefused()
+    {
+        var self = Node("nodes");
+        var child = Node("nodes");
+        var grandchild = Node("nodes");
+        _relations.GetCurrentDraftTargetAsync(grandchild, "ParentId", Arg.Any<CancellationToken>()).Returns(child);
+        _relations.GetCurrentDraftTargetAsync(child, "ParentId", Arg.Any<CancellationToken>()).Returns(self);
+
+        var underItself = await _binder.ValidateAsync(new Nested { NodeId = self, ParentId = self }, "Page");
+        var underGrandchild = await _binder.ValidateAsync(new Nested { NodeId = self, ParentId = grandchild }, "Page");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(underItself, Is.EqualTo(new AdminSaveResult(false,
+                "This page can't be placed under itself or one of its descendants.", "ParentId")));
+            Assert.That(underGrandchild!.ErrorField, Is.EqualTo("ParentId"));
+        });
+    }
+
+    [Test]
+    public async Task ValidateAsync_ContainmentElsewhere_OrOnCreate_IsValid_EvenOverAnExistingLoop()
+    {
+        var self = Node("nodes");
+        var a = Node("nodes");
+        var b = Node("nodes");
+        // a and b already point at each other: the walk stops at the first repeat.
+        _relations.GetCurrentDraftTargetAsync(a, "ParentId", Arg.Any<CancellationToken>()).Returns(b);
+        _relations.GetCurrentDraftTargetAsync(b, "ParentId", Arg.Any<CancellationToken>()).Returns(a);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _binder.ValidateAsync(new Nested { NodeId = self, ParentId = a }, "Page"), Is.Null);
+            Assert.That(await _binder.ValidateAsync(new Nested { NodeId = Guid.Empty, ParentId = a }, "Page"), Is.Null);
+            Assert.That(await _binder.ValidateAsync(new Nested { ParentId = self }, "Page"), Is.Null);
+        });
+        await _relations.DidNotReceive().GetCurrentDraftTargetAsync(self, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
     [Test]
     public async Task ValidateAsync_References_ReportRequiredOrGone_WithTheLabel()
     {
@@ -302,6 +349,12 @@ public class ContentRelationRegistryTests
         public new Guid? Topic { get; set; }
     }
 
+    private sealed class HiddenReference
+    {
+        [ContentRelation("faqtopics", ShowInParentAdmin = false)]
+        public Guid Topic { get; set; }
+    }
+
     /// <summary>Targets the singular key, which resolves to the plural handler.</summary>
     private sealed class Detaching
     {
@@ -337,9 +390,26 @@ public class ContentRelationRegistryTests
         });
     }
 
+    [Test]
+    public void GetContainmentsTargeting_ListsTheChildTypes_ByKeyOrSingular()
+    {
+        var registry = Registry(
+            Handler("faqs", new FixtureFaqUpsertViewModel()),
+            Handler("faqtopics", new FixtureFaqTopicUpsertViewModel()),
+            Handler("notes", new Detaching()));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(registry.GetContainmentsTargeting("FAQTOPICS").Select(d => (d.SourceContentType, d.Name)),
+                Is.EqualTo(new[] { ("faqs", "FaqTopicId") }), "the faqs reference and the notes reference are not containments");
+            Assert.That(registry.GetContainmentsTargeting("faqs"), Is.Empty);
+        });
+    }
+
     [TestCase(typeof(ManyContainment), "must be a single Guid")]
     [TestCase(typeof(OrderedReference), "sets Ordered")]
     [TestCase(typeof(ContainmentWithDeletePolicy), "sets OnTargetDelete")]
+    [TestCase(typeof(HiddenReference), "turns off ShowInParentAdmin")]
     [TestCase(typeof(UnknownTarget), "not a registered content type")]
     [TestCase(typeof(Duplicate), "shares its name")]
     public void Validate_InvalidDeclaration_Throws(Type modelType, string message)
@@ -940,19 +1010,20 @@ public class RelationDeleteSurfaceTests
             .Returns((false, (string?)"'Logo' is used by 1 item(s): 'Home'.", 0), (false, (string?)null, 0), (true, (string?)null, 2), (true, (string?)null, 0));
         var registry = Substitute.For<IAdminHandlerRegistry>();
         registry.GetHandler("ct").Returns(handler);
-        var controller = new Controllers.Admin.AdminContentController(registry, Substitute.For<ContentZones.IWidgetRegistry>());
+        registry.All.Returns([handler]);
+        var controller = new Controllers.Admin.AdminContentController(registry, Substitute.For<ContentZones.IWidgetRegistry>(), new ContentRelationRegistry(registry));
         new MvcHarness().Configure(controller, ["Admin"]);
 
-        await controller.Delete("ct", Guid.NewGuid(), default);
+        await controller.Delete("ct", Guid.NewGuid(), null, default);
         var refused = controller.TempData["Error"];
         controller.TempData.Clear();
-        await controller.Delete("ct", Guid.NewGuid(), default);
+        await controller.Delete("ct", Guid.NewGuid(), null, default);
         var failed = controller.TempData["Error"];
         controller.TempData.Clear();
-        await controller.Delete("ct", Guid.NewGuid(), default);
+        await controller.Delete("ct", Guid.NewGuid(), null, default);
         var cascaded = controller.TempData["Success"];
         controller.TempData.Clear();
-        var plain = await controller.Delete("ct", Guid.NewGuid(), default);
+        var plain = await controller.Delete("ct", Guid.NewGuid(), null, default);
 
         Assert.Multiple(() =>
         {

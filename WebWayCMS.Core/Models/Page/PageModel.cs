@@ -52,6 +52,12 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     /// <summary>The page -> routes owned relation.</summary>
     public const string RouteRelation = nameof(PageUpsertViewModel.RouteIds);
 
+    /// <summary>The page -> parent page containment; a root page has none.</summary>
+    public const string ParentRelation = nameof(PageUpsertViewModel.ParentNodeId);
+
+    /// <summary>The page's parent page node, read from its version's <see cref="ParentRelation"/>.</summary>
+    private static Guid? ParentOf(PageDTO page) => page.Version.TargetOf(ParentRelation);
+
     public PageModel(
         IContentStore<PageDTO> store,
         IMapper mapper,
@@ -147,7 +153,11 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         return new AdminSaveResult(true);
     }
 
-    public async Task<bool> DeletePageAsync(Guid nodeId, CancellationToken ct = default)
+    /// <summary>
+    /// Deletes this page only: its route projection, its zones and the page itself. Its child pages, and
+    /// what they own, are deleted first by the relation engine (<see cref="AdminCrudModel{T}.DeleteAsync"/>).
+    /// </summary>
+    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
     {
         var entity = await _store.GetCurrentDraftAsync(nodeId, ct);
         if (entity != null)
@@ -183,7 +193,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         using var _ = ChangeSetScope.Begin(ChangeSetKind.Publish, nodeId, null);
 
-        var parentNodeId = draft.Version.Node.ParentNodeId;
+        var parentNodeId = ParentOf(draft);
         var slug = System.Net.WebUtility.UrlDecode(draft.Version.Slug);
 
         if (!await IsSlugAvailableAsync(slug, parentNodeId, nodeId, ct))
@@ -331,7 +341,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
             var pattern = route.Mode == RouteMode.Explicit
                 ? RoutePatternRules.Normalize(route.Pattern)
-                : await DeriveRoutePatternForPublishAsync(page.Version.Slug, ownerNodeId, page.Version.Node.ParentNodeId, ct);
+                : await DeriveRoutePatternForPublishAsync(page.Version.Slug, ownerNodeId, ParentOf(page), ct);
 
             if (route.Mode == RouteMode.Derived
                 && previousByRoute.TryGetValue(routeId, out var old)
@@ -397,8 +407,8 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
     {
         var pages = await _store.GetAllCurrentDraftsAsync(ct);
         var children = pages
-            .Where(p => p.Version.Node.ParentNodeId.HasValue)
-            .GroupBy(p => p.Version.Node.ParentNodeId!.Value)
+            .Where(p => ParentOf(p).HasValue)
+            .GroupBy(p => ParentOf(p)!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var count = 0;
@@ -439,7 +449,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                         continue;
 
                     var pattern = await DeriveRoutePatternForPublishAsync(
-                        live.Version.Slug, childId, live.Version.Node.ParentNodeId, ct);
+                        live.Version.Slug, childId, ParentOf(live), ct);
                     if (previousByRoute.TryGetValue(routeId, out var old)
                         && !string.Equals(old, pattern, StringComparison.OrdinalIgnoreCase))
                         changed = true;
@@ -620,9 +630,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         return await RelationBinder.ValidateAsync(config, DisplayName, ct);
     }
 
-    protected override async Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
-        => await DeletePageAsync(id, ct);
-
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
     {
         var vm = await GetPageIndexAsync(ct);
@@ -759,7 +766,45 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             }
         }
 
+        var descendants = CountDescendants(pages);
+        foreach (var node in nodeMap.Values)
+        {
+            if (node.PageNodeId is { } id)
+                node.DescendantCount = descendants.GetValueOrDefault(id);
+        }
+
         return roots;
+    }
+
+    /// <summary>
+    /// Each page's descendant pages at every depth, through the parent relation of the current drafts
+    /// (what a delete takes with it), whatever their URLs. A parent cycle counts each page once.
+    /// </summary>
+    private static Dictionary<Guid, int> CountDescendants(List<PageDTO> pages)
+    {
+        var children = pages
+            .Where(p => ParentOf(p).HasValue)
+            .GroupBy(p => ParentOf(p)!.Value)
+            .ToDictionary(g => g.Key, g => g.Select(p => p.Version.Node.Id).ToList());
+
+        var counts = new Dictionary<Guid, int>();
+        foreach (var page in pages)
+        {
+            var root = page.Version.Node.Id;
+            var seen = new HashSet<Guid> { root };
+            var queue = new Queue<Guid>();
+            queue.Enqueue(root);
+            while (queue.Count > 0)
+            {
+                foreach (var child in children.GetValueOrDefault(queue.Dequeue()) ?? [])
+                {
+                    if (seen.Add(child))
+                        queue.Enqueue(child);
+                }
+            }
+            counts[root] = seen.Count - 1;
+        }
+        return counts;
     }
 
     private static Dictionary<Guid, string> BuildPageRouteMap(List<PageDTO> pages, Dictionary<Guid, CMSRouteDTO> routeMap)
@@ -773,7 +818,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 pageRouteMap[page.Version.Node.Id] = route.Pattern;
         }
 
-        // Pages with no route row (unpublished) derive their path by walking ParentNodeId, so
+        // Pages with no route row (unpublished) derive their path by walking their parent relation, so
         // unpublished children nest under their parent instead of surfacing at root.
         var unresolved = pages.Where(p => !pageRouteMap.ContainsKey(p.Version.Node.Id)).ToList();
         while (unresolved.Count > 0)
@@ -781,7 +826,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             var progressed = false;
             foreach (var page in unresolved.ToList())
             {
-                var parentId = page.Version.Node.ParentNodeId;
+                var parentId = ParentOf(page);
                 if (parentId.HasValue && pageRouteMap.TryGetValue(parentId.Value, out var parentPath))
                 {
                     pageRouteMap[page.Version.Node.Id] = CombinePath(parentPath, System.Net.WebUtility.UrlDecode(page.Version.Slug));
@@ -857,7 +902,9 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
         var normalizedSlug = SlugNormalizer.Normalize(slug);
 
-        var siblings = await _store.GetCurrentDraftChildrenAsync(parentNodeId, ct) ?? [];
+        var siblings = (parentNodeId.HasValue
+            ? await _store.FindCurrentDraftsRelatedAsync(ParentRelation, parentNodeId.Value, ct)
+            : await _store.FindCurrentDraftsWithoutRelationAsync(ParentRelation, ct)) ?? [];
         if (siblings.Any(p =>
                 (excludeNodeId == null || p.Version.Node.Id != excludeNodeId.Value)
              && SlugNormalizer.Normalize(System.Net.WebUtility.UrlDecode(p.Version.Slug)) == normalizedSlug))
@@ -914,7 +961,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
     private async Task PopulateParentageAsync(PageUpsertViewModel vm, PageDTO dto, CancellationToken ct)
     {
-        var parentNodeId = dto.Version.Node.ParentNodeId;
+        var parentNodeId = ParentOf(dto);
         if (!parentNodeId.HasValue)
             return;
 
