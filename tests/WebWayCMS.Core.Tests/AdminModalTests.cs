@@ -103,6 +103,46 @@ public class AdminModalTests
     }
 
     [Test]
+    public async Task EditPost_ModalPublish_PublishesAndStillReturnsJson()
+    {
+        var id = Guid.NewGuid();
+        _handler.SupportsPublishing.Returns(true);
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true, NodeId: id));
+        _handler.PublishAsync(id, Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+        _controller.ModelState.Clear();
+
+        var result = await _controller.EditPost("notes", null, default, submitAction: "publish");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<JsonResult>());
+            Assert.That(Property(((JsonResult)result).Value!, "id"), Is.EqualTo(id));
+            Assert.That(_controller.TempData["Error"], Is.Null);
+        });
+        await _handler.Received(1).PublishAsync(id, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task EditPost_ModalDraft_DoesNotPublish()
+    {
+        var id = Guid.NewGuid();
+        _handler.SupportsPublishing.Returns(true);
+        _handler.SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(true, NodeId: id));
+        _controller.ModelState.Clear();
+
+        var result = await _controller.EditPost("notes", null, default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<JsonResult>());
+            Assert.That(Property(((JsonResult)result).Value!, "id"), Is.EqualTo(id));
+        });
+        await _handler.DidNotReceive().PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task EditPost_ModalValidationFailure_Returns422View()
     {
         _controller.ModelState.AddModelError("Title", "Required.");

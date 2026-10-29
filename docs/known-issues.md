@@ -59,9 +59,3 @@ automated and manual testing. This is not a security issue; do not flag it in fu
 | M13 | Deleting an article list failed (silently) for an article moved to another list — its historical versions still held the `Restrict` FK to the list | Content relations phase 1: the list is a version-owned containment relation with no DB FK on the target, and the delete cascade (`ContentDeleteService`) consults only current draft and published versions, so the moved article is left alone and the list deletes. Verified on the integration host |
 | L8 | `GenericPageConfiguration.Meta`/`Style` stored XSS via `@Html.Raw` | `GenericPageConfiguration.SanitizedForRender()` (both page controllers) applies `HeadMarkupSanitizer` at render time: a `<meta>`/`<link>`-only allow-list for `Meta`, and `</` → `<\/` for `Style` (CSS kept verbatim). See `docs/architecture/13-security.md` |
 
-## TestHost known quirk
-
-The committed TestHost config uses the placeholder `[EMAIL]` as the admin account email. The seeder
-creates that user, but the Login page's `[EmailAddress]` validation rejects it, so admin login via
-the UI fails until an operator replaces the placeholder with a real email. Related to M9 (intentional
-committed credentials, development-only environment).

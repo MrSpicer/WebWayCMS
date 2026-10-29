@@ -157,14 +157,8 @@ public class AdminContentController : Controller
             return ModalOrView(handler, model, isModal);
         }
 
-        if (isModal)
-        {
-            var title = new[] { "Title", "Pattern", "NavigationName", "Name" }
-                .Select(name => model.GetType().GetProperty(name)?.GetValue(model) as string)
-                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-            return Json(new { id = result.NodeId, title = title ?? string.Empty });
-        }
-
+        // Publishing applies to the modal path too: the picker's Publish button must go live, not
+        // strand the new item as a draft behind the early JSON return below.
         if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase)
             && handler.SupportsPublishing
             && result.NodeId.HasValue)
@@ -172,6 +166,14 @@ public class AdminContentController : Controller
             var publishResult = await handler.PublishAsync(result.NodeId.Value, ct);
             if (!publishResult.Success)
                 TempData["Error"] = publishResult.ErrorMessage;
+        }
+
+        if (isModal)
+        {
+            var title = new[] { "Title", "Pattern", "NavigationName", "Name" }
+                .Select(name => model.GetType().GetProperty(name)?.GetValue(model) as string)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            return Json(new { id = result.NodeId, title = title ?? string.Empty });
         }
 
         return RedirectToLocalOrIndex(contentType, returnUrl);
