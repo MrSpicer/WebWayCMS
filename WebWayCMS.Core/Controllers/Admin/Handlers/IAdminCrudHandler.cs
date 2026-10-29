@@ -87,6 +87,15 @@ public interface IAdminCrudHandler
     /// <summary>Returns [ { id, title } ] for entity picker dropdowns.</summary>
     Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The list for a containment picker on the form of node <paramref name="excludeSubtreeOf"/>: that
+    /// node and its containment descendants can't contain it, so a handler may leave them out. By
+    /// default it is the plain <see cref="GetApiListAsync(CancellationToken)"/> list (the relation binder
+    /// still refuses such a pick on save).
+    /// </summary>
+    Task<IEnumerable<object>> GetApiListExcludingSubtreeAsync(Guid excludeSubtreeOf, CancellationToken ct = default)
+        => GetApiListAsync(ct);
+
     /// <summary>Whether this handler exposes additional named API lists (e.g. "articlelists").</summary>
     bool HasSecondaryApiList { get; }
 

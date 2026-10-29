@@ -152,6 +152,22 @@ public class InterfaceDefaultsTests
     }
 
     [Test]
+    public async Task IAdminCrudHandler_ApiListExcludingSubtree_DefaultsToThePlainList()
+    {
+        IAdminCrudHandler handler = new MinimalHandler();
+
+        Assert.That(await handler.GetApiListExcludingSubtreeAsync(Guid.NewGuid()), Is.Empty);
+    }
+
+    [Test]
+    public async Task AdminCrudModel_ApiListExcludingSubtree_DefaultsToThePlainList()
+    {
+        var model = new MinimalCrudModel(Substitute.For<IContentStore<ContentBlockDTO>>(), Substitute.For<IChangeSetScope>(), TestSupport.AcceptingBinder(), TestSupport.PassThroughDeletes());
+
+        Assert.That(await model.GetApiListExcludingSubtreeAsync(Guid.NewGuid()), Is.Empty);
+    }
+
+    [Test]
     public async Task IAdminCrudHandler_RestoreWithExpectedVersion_DefaultsToThePlainRestore()
     {
         IAdminCrudHandler handler = new MinimalHandler();

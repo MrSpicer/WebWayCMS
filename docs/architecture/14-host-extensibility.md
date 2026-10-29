@@ -71,10 +71,13 @@ builder.Services.AddWebWayCms(builder.Configuration, cms =>
     cms.AddApplicationAssembly(typeof(FaqDTO).Assembly);   // EF configs + seeders + MVC parts
     cms.AddMappingProfile(new MySiteMappingProfile());
     cms.AddContentType<FaqDTO>("faqs");                    // registers IContentStore<FaqDTO>
+    cms.AddContentType<FaqTopicDTO>("faqtopics");
     cms.AddMigrationsContext<MySiteMigrationsDbContext>("__EFMigrationsHistory_MySite");
 });
 builder.Services.AddScoped<FaqModel>();
 builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<FaqModel>());
+builder.Services.AddScoped<FaqTopicModel>();
+builder.Services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<FaqTopicModel>());
 ```
 
 ```bash
@@ -117,18 +120,26 @@ A host type links to other content with one attribute on its upsert view model �
 `HasOne<ContentNode>()`, nothing in the host migration (the `ContentRelations` table belongs to the CMS):
 
 ```csharp
+// WebWayCMS.TestHost/Models/Faq/FaqUpsertViewModel.cs
 public sealed class FaqUpsertViewModel : BaseContentViewModel
 {
-    // Containment: the FAQ is visible only while its topic is, and is deleted with it.
-    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment, Required = true)]
-    [FormProperty(Label = "Topic", Order = 3)]
-    public Guid FaqTopicId { get; init; }
-
-    // Reference, many: an EntityPicker per id; deleting a referenced FAQ is refused while this uses it.
-    [ContentRelation("faqs")]
-    public List<Guid> RelatedFaqIds { get; init; } = [];
+    // Containment: the FAQ is visible only while its topic is, and is deleted with it. Optional
+    // (Guid?, no Required): a FAQ with no topic is a root.
+    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment)]
+    [FormProperty(Label = "Topic", Order = 6)]
+    public Guid? FaqTopicId { get; init; }
 }
+
+// WebWayCMS.TestHost/ViewComponents/FaqConfiguration.cs — a widget config picker is a reference
+// stored as a config.* relation on the zone item's version (the id leaves the JSON). Detach: deleting
+// the FAQ clears the pick instead of being refused (the default, Restrict, refuses while it is used).
+[FormProperty(Label = "FAQ", DisplayModes = WidgetDisplayMode.Single, Order = 1)]
+[ContentRelation("faqs", OnTargetDelete = RelationDeletePolicy.Detach)]
+public Guid? FaqId { get; set; }
 ```
+
+A many-valued reference is an `IEnumerable<Guid>` property (`List<Guid>`), edited with the multi-select
+picker.
 
 The mapper stores the values on the FAQ's version (relation rows; no profile code), the relation binder
 validates them on every save (admin, MCP, seed), `describe_content_type` reports each field's `relation`
@@ -136,8 +147,21 @@ block, and admin startup validates every declaration (`ContentRelationRegistry`:
 single `Guid`, the target key must be registered, …). A model reads a relation with
 `dto.Version.TargetOf(name)` / `TargetsOf(name)` and queries its sources with
 `IContentStore<T>.FindRelatedAsync(name, targetNodeId)`. See
-[17-content-relations.md](17-content-relations.md); `tests/WebWayCMS.Core.Tests/ContentRelationEngineTests.cs`
-(`HostRelationFixtureTests`) is a worked example.
+[17-content-relations.md](17-content-relations.md).
+
+**Worked example — the TestHost's `FaqTopic`.** `FaqTopicDTO` (its own `FaqTopics` table, one
+`Description` column) and `FaqTopicModel` know nothing about FAQs beyond an index count
+(`CountCurrentDraftsByRelationAsync(FaqModel.TopicRelation)`); `FaqDTO` has no topic column, and the
+regenerated `AddFaqs` migration creates both tables with no relation FK. The one attribute above gives the
+host: the **FAQs** children panel on a topic's edit screen (with **New FAQ** preselecting the topic), the
+MCP child tools (`list_children parentType=faqtopics childType=faqs`), the binder's checks, containment
+visibility (unpublishing a topic hides its FAQs from the site) and the delete cascade (deleting a topic
+deletes its FAQs in one transaction; the Topics list confirm names the count via
+`data-delete-descendants`). The routable `FaqTopic` widget resolves `/topics/{topic}` with
+`IContentStore<FaqTopicDTO>.GetBySlugAsync` and lists `FindRelatedAsync(FaqModel.TopicRelation, topic)`.
+The seed (`Fixtures/faqs.contentseed.json`) sets `"faqTopicId": "@seed:…"`, like any other field.
+`tests/WebWayCMS.Core.Tests/ContentRelationEngineTests.cs` (`HostRelationFixtureTests`) covers the same
+shape in unit tests.
 
 ### Routable widgets
 
@@ -193,6 +217,6 @@ group) is therefore safe only on **model-bound** forms (a content type's own ups
 
 > The `EntityPicker` endpoint map used to be a hardcoded-JS limit that prevented a host type from
 > being an `EntityPicker` target. The endpoint is now resolved server-side from the handler registry
-> (`EntityPickerEndpoint.Resolve`, emitted as `data-endpoint`), so `EntityType = "faqs"` resolves to
-> `GET /wadmin/faqs/api/list` with no JS edit. See
+> (`EntityPickerEndpoint.Resolve`, emitted as `data-endpoint`), so a `[ContentRelation("faqs")]` picker
+> resolves to `GET /wadmin/faqs/api/list` with no JS edit. See
 > [04-content-zone-framework.md](04-content-zone-framework.md#entity-picker-endpoint-resolution).

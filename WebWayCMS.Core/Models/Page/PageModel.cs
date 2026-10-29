@@ -630,12 +630,74 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         return await RelationBinder.ValidateAsync(config, DisplayName, ct);
     }
 
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
+    public override Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
+        => GetPickerListAsync(null, ct);
+
+    public override Task<IEnumerable<object>> GetApiListExcludingSubtreeAsync(Guid excludeSubtreeOf, CancellationToken ct = default)
+        => GetPickerListAsync(excludeSubtreeOf, ct);
+
+    /// <summary>
+    /// Every page at every depth as <c>{ id, title, path }</c>, parent first and siblings by path, so the
+    /// Parent Page picker offers nested pages and tells same-titled ones apart. Built from the current
+    /// drafts and their parent relation (not the URL tree, which merges pages sharing a path), and leaving
+    /// out <paramref name="excludeSubtreeOf"/> and its descendants, which can't become its parent.
+    /// </summary>
+    private async Task<IEnumerable<object>> GetPickerListAsync(Guid? excludeSubtreeOf, CancellationToken ct)
     {
-        var vm = await GetPageIndexAsync(ct);
-        return vm.Pages
-            .Where(n => n.PageNodeId.HasValue)
-            .Select(n => (object)new { id = n.PageNodeId!.Value, title = n.Title });
+        var pages = await _store.GetAllCurrentDraftsAsync(ct);
+        var routeMap = (await _routeService.GetAllRoutesAsync(ct))
+            .Where(r => r.OwningContentType == "Page" && r.OwningContentNodeId.HasValue)
+            .GroupBy(r => r.OwningContentNodeId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+        var paths = BuildPageRouteMap(pages, routeMap);
+
+        var byPath = pages.OrderBy(p => paths[p.Version.Node.Id], StringComparer.OrdinalIgnoreCase).ToList();
+        var ids = pages.Select(p => p.Version.Node.Id).ToHashSet();
+        var children = byPath
+            .Where(p => ParentOf(p) is { } parent && ids.Contains(parent))
+            .GroupBy(p => ParentOf(p)!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Pre-order walk from the roots (no parent, or a parent that is gone). Pages caught in a parent
+        // cycle are reachable from no root, so a second pass walks from each page not yet listed.
+        var ordered = new List<PageDTO>();
+        var seen = new HashSet<Guid>();
+        var roots = byPath.Where(p => !(ParentOf(p) is { } parent && ids.Contains(parent)));
+        foreach (var start in roots.Concat(byPath))
+        {
+            var stack = new Stack<PageDTO>([start]);
+            while (stack.Count > 0)
+            {
+                var page = stack.Pop();
+                if (!seen.Add(page.Version.Node.Id))
+                    continue;
+                ordered.Add(page);
+                foreach (var child in Enumerable.Reverse(children.GetValueOrDefault(page.Version.Node.Id) ?? []))
+                    stack.Push(child);
+            }
+        }
+
+        var excluded = excludeSubtreeOf is { } root ? SubtreeOf(root, children) : [];
+        return ordered
+            .Where(p => !excluded.Contains(p.Version.Node.Id))
+            .Select(p => (object)new { id = p.Version.Node.Id, title = p.Version.Title, path = paths[p.Version.Node.Id] })
+            .ToList();
+    }
+
+    /// <summary>The page and its descendants through the parent relation (a cycle counts each page once).</summary>
+    private static HashSet<Guid> SubtreeOf(Guid root, Dictionary<Guid, List<PageDTO>> children)
+    {
+        var subtree = new HashSet<Guid> { root };
+        var queue = new Queue<Guid>([root]);
+        while (queue.Count > 0)
+        {
+            foreach (var child in children.GetValueOrDefault(queue.Dequeue()) ?? [])
+            {
+                if (subtree.Add(child.Version.Node.Id))
+                    queue.Enqueue(child.Version.Node.Id);
+            }
+        }
+        return subtree;
     }
 
     public override async Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)

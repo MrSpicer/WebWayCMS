@@ -21,13 +21,6 @@
 
 <div class="container is-fluid admin-page-body">
 
-        @if (TempData["Error"] != null)
-        {
-            <div class="notification is-danger" role="alert">
-                @TempData["Error"]
-            </div>
-        }
-
         @if (Model.FilterPageId.HasValue || Model.FilterParentZoneId.HasValue)
         {
             var label = Model.FilterPageId.HasValue

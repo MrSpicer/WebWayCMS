@@ -25,15 +25,6 @@
 
 <div class="container is-fluid admin-page-body">
 
-        @if (TempData["Error"] != null)
-        {
-            <div class="notification is-danger" role="alert">@TempData["Error"]</div>
-        }
-        @if (TempData["Success"] != null)
-        {
-            <div class="notification is-success" role="status">@TempData["Success"]</div>
-        }
-
         <div class="table-container">
             <table class="table is-fullwidth is-striped">
                 <caption class="is-sr-only">Version history for @Model.ItemTitle</caption>

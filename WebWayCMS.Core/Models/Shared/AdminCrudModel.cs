@@ -95,6 +95,9 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     Task<bool> IContentDeleter.DeleteSelfAsync(Guid nodeId, CancellationToken ct) => DeleteSelfAsync(nodeId, ct);
     public abstract Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
 
+    public virtual Task<IEnumerable<object>> GetApiListExcludingSubtreeAsync(Guid excludeSubtreeOf, CancellationToken ct = default)
+        => GetApiListAsync(ct);
+
     public virtual bool HasSecondaryApiList => false;
 
     public virtual IReadOnlyList<string> SecondaryApiListKeys => [];

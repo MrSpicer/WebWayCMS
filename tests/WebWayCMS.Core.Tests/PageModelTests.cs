@@ -1238,6 +1238,93 @@ public class PageModelTests
         Assert.That(vm.ParentNodeId, Is.Null);
     }
 
+    private static ContentRelation ParentLink(PageDTO parent)
+        => new() { Name = PageModel.ParentRelation, TargetNodeId = parent.Version.Node.Id, Kind = RelationKind.Containment };
+
+    private static string PickerItem(PageDTO page, string path)
+        => new { id = page.Version.Node.Id, title = page.Version.Title, path }.ToString()!;
+
+    [Test]
+    public async Task GetApiListAsync_ListsPagesAtEveryDepth_ParentFirstWithPaths()
+    {
+        var docs = Page(title: "Docs");
+        var guide = Page(title: "Guide");
+        var step = Page(title: "Step");
+        guide.Version.Relations.Add(ParentLink(docs));
+        step.Version.Relations.Add(ParentLink(guide));
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { step, guide, docs });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>
+        {
+            RouteFor(docs.Version.Node.Id, "/docs"),
+        });
+
+        var items = (await _model.GetApiListAsync()).Select(i => i.ToString()).ToList();
+
+        Assert.That(items, Is.EqualTo(new[]
+        {
+            PickerItem(docs, "/docs"),
+            PickerItem(guide, "/docs/guide"),
+            PickerItem(step, "/docs/guide/step"),
+        }));
+        await _pageHistory.DidNotReceiveWithAnyArgs().GetPagesWithUnpublishedChangesAsync(default!, default);
+    }
+
+    [Test]
+    public async Task GetApiListAsync_PagesSharingAPath_AreBothListed()
+    {
+        var first = Page(title: "About");
+        var second = Page(title: "About");
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { first, second });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var items = (await _model.GetApiListAsync()).Select(i => i.ToString()).ToList();
+
+        Assert.That(items, Is.EquivalentTo(new[] { PickerItem(first, "/about"), PickerItem(second, "/about") }));
+    }
+
+    [Test]
+    public async Task GetApiListExcludingSubtreeAsync_LeavesOutThePageAndItsDescendants()
+    {
+        var docs = Page(title: "Docs");
+        var guide = Page(title: "Guide");
+        var step = Page(title: "Step");
+        var blog = Page(title: "Blog");
+        guide.Version.Relations.Add(ParentLink(docs));
+        step.Version.Relations.Add(ParentLink(guide));
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { docs, guide, step, blog });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var items = (await _model.GetApiListExcludingSubtreeAsync(guide.Version.Node.Id)).Select(i => i.ToString()).ToList();
+
+        Assert.That(items, Is.EqualTo(new[] { PickerItem(blog, "/blog"), PickerItem(docs, "/docs") }));
+    }
+
+    [Test]
+    public async Task GetApiListAsync_ParentCycleAndMissingParent_ListsEveryPageOnce()
+    {
+        var a = Page(title: "A");
+        var b = Page(title: "B");
+        var orphan = Page(title: "C");
+        a.Version.Relations.Add(ParentLink(b));
+        b.Version.Relations.Add(ParentLink(a));
+        orphan.Version.Relations.Add(ParentLink(Page(title: "Gone")));
+
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageDTO> { a, b, orphan });
+        _cmsRouteService.GetAllRoutesAsync(Arg.Any<CancellationToken>()).Returns(new List<CMSRouteDTO>());
+
+        var items = (await _model.GetApiListAsync()).Select(i => i.ToString()).ToList();
+        var excluded = (await _model.GetApiListExcludingSubtreeAsync(a.Version.Node.Id)).Select(i => i.ToString()).ToList();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(items, Is.EqualTo(new[] { PickerItem(orphan, "/c"), PickerItem(a, "/a"), PickerItem(b, "/b") }));
+            Assert.That(excluded, Is.EqualTo(new[] { PickerItem(orphan, "/c") }));
+        });
+    }
+
     [Test]
     public async Task GetPageIndexAsync_BuildTree_CircularParent_DoesNotInfiniteLoop()
     {

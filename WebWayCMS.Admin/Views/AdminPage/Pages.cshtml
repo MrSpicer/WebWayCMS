@@ -20,13 +20,6 @@
 
 <div class="container is-fluid admin-page-body">
 
-        @if (TempData["Error"] != null)
-        {
-            <div class="notification is-danger" role="alert">
-                @TempData["Error"]
-            </div>
-        }
-
         @if (!Model.Pages.Any())
         {
             <div class="card admin-empty-state">

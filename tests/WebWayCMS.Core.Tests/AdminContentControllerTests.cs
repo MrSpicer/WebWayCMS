@@ -182,6 +182,24 @@ public class AdminContentControllerTests
     }
 
     [Test]
+    public async Task ApiList_ExcludeSubtreeOf_AsksTheHandlerForTheListWithoutThatSubtree()
+    {
+        var nodeId = Guid.NewGuid();
+        var items = new List<object> { "kept" };
+        _handler.GetApiListAsync(Arg.Any<CancellationToken>()).Returns(new List<object> { "all" });
+        _handler.GetApiListExcludingSubtreeAsync(nodeId, Arg.Any<CancellationToken>()).Returns(items);
+
+        var excluded = (JsonResult)await _controller.ApiList("ct", default, nodeId);
+        var emptyId = (JsonResult)await _controller.ApiList("ct", default, Guid.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(excluded.Value, Is.SameAs(items));
+            Assert.That(emptyId.Value, Is.EqualTo(new List<object> { "all" }));
+        });
+    }
+
+    [Test]
     public async Task SecondaryApiList_NotFound_NoSecondary_Json()
     {
         Assert.That(await _controller.SecondaryApiList("missing", "k", default), Is.InstanceOf<NotFoundObjectResult>());

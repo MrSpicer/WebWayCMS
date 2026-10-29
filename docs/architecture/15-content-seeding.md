@@ -230,10 +230,8 @@ A seed item with a `zone` locator is a **zone item** (a widget placed in a conte
 `contentZoneNodeId` field (any value the file gives there is dropped), so it gets the same metadata
 normalization and widget-route registration as a zone item created in the zone editor or over MCP.
 
-**Legacy form.** Before zone items became their own content type they were seeded as
-`"contentType": "contentzones"` with a `zone` locator. That form is still accepted as an alias for
-`contentzoneitems`, with a warning ("uses the deprecated contentType…") once per item per seed run; a
-`zone` locator on any other content type is skipped with a warning.
+A `zone` locator on any other content type — including the old `"contentzones"` form from before zone
+items were their own content type, which is no longer accepted — is skipped with a warning.
 
 ```json
 {

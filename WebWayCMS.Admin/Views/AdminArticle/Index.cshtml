@@ -19,20 +19,6 @@
 
 <div class="container is-fluid admin-page-body">
 
-        @if (TempData["Error"] != null)
-        {
-            <div class="notification is-danger" role="alert">
-                @TempData["Error"]
-            </div>
-        }
-
-        @if (TempData["Success"] != null)
-        {
-            <div class="notification is-success" role="status">
-                @TempData["Success"]
-            </div>
-        }
-
         @if (!Model.ArticleLists.Any())
         {
             <div class="card admin-empty-state">

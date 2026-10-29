@@ -278,13 +278,19 @@ public class AdminContentController : Controller
 
     // ─── API list endpoints ────────────────────────────────────────────────────
 
+    /// <summary>
+    /// A picker's list. A containment picker on an existing item's form passes <paramref name="excludeSubtreeOf"/>
+    /// (the item's node id), so the handler can leave out the item and its descendants.
+    /// </summary>
     [HttpGet("{contentType}/api/list")]
-    public async Task<IActionResult> ApiList(string contentType, CancellationToken ct)
+    public async Task<IActionResult> ApiList(string contentType, CancellationToken ct, [FromQuery] Guid? excludeSubtreeOf = null)
     {
         var handler = _registry.GetHandler(contentType);
         if (handler == null) return HandlerNotFound(contentType);
 
-        var items = await handler.GetApiListAsync(ct);
+        var items = excludeSubtreeOf is { } nodeId && nodeId != Guid.Empty
+            ? await handler.GetApiListExcludingSubtreeAsync(nodeId, ct)
+            : await handler.GetApiListAsync(ct);
         return Json(items);
     }
 

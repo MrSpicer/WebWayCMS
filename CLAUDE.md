@@ -61,10 +61,13 @@
   `ContentZoneItemModel` (`contentzoneitems`; its `ContentZoneNodeId` is the ordered `Zone` containment,
   hidden and `ShowInParentAdmin = false`); Edit/Delete/history accept a local `returnUrl`, and the top-level
   restore takes `expectedVersionNumber` (`IAdminCrudHandler.RestoreVersionAsync(versionId, expected)`).
-- A host content type is an `EntityPicker` target via `EntityType = "<contentTypeKey>"`: the list
-  endpoint is resolved server-side (`EntityPickerEndpoint.Resolve` over `IAdminHandlerRegistry` —
+- A host content type is a picker target via `[ContentRelation("<contentTypeKey>")]` (which sets the
+  picker's `EntityType`): the list endpoint is resolved server-side (`EntityPickerEndpoint.Resolve` over `IAdminHandlerRegistry` —
   exact key, plural, then secondary list key) and emitted as `data-endpoint`; `form-components.js`
   has no endpoint map.
+- The TestHost's worked example is `faqtopics` (`FaqTopicDTO`/`FaqTopicModel`): `FaqUpsertViewModel.FaqTopicId`
+  is an optional containment (children panel, MCP child tools, visibility, delete cascade), and the Faq widget's /
+  configured page's FAQ pickers are `config.*` references.
 - See [docs/architecture/14-host-extensibility.md](docs/architecture/14-host-extensibility.md).
 
 ## Content Versioning (Node/Version model)
@@ -93,8 +96,8 @@
   changed", "Moved to Side (position 2)", "Position changed (moved by another widget)", "Removed",
   "Restored from version n"), else "Created"/"Edited"/"Restored from version n" — never copied from the
   previous version. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
-- **Content relations** (phases 1–5 of [doc 17](docs/architecture/17-content-relations.md): Article → Article
-  List, config pickers, page routes, the zone structure, and page → parent page): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
+- **Content relations** ([doc 17](docs/architecture/17-content-relations.md), all six phases: Article → Article
+  List, config pickers, page routes, the zone structure, page → parent page, and the TestHost): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
   property, `Ordinal`, `Qualifier`, `Kind` Containment/Reference/Owned) is **owned by the source's version**
   (auto-included with `ContentVersion.Relations`; no DB FK on `TargetNodeId`), so a relation change mints a
   version and is a draft until publish. Declared with `[ContentRelation(target, Kind, Required, Ordered,
@@ -455,8 +458,8 @@
 - **Zone items** are seeded too: an item with a `zone` locator (`{ "page": "@seed:…", "slot": "Main" }`,
   `{ "item": "@seed:…", "slot": "Left" }` for a nested zone, or `{ "name": "SiteFooter" }`) and
   `contentType: "contentzoneitems"` is saved through the ordinary top-level dispatch with the locator's zone in
-  its `contentZoneNodeId` field (created on demand; the old `"contentzones"` + `zone` form is accepted as an
-  alias with a deprecation warning, once per item per run).
+  its `contentZoneNodeId` field (created on demand; a `zone` locator on any other content type, the old
+  `"contentzones"` form included, is skipped with a warning).
   Zone items apply after all top-level items (one shared retry loop), in file order per zone. **The page's
   own publish state is respected:** the seeder never publishes a page; on a live page only the
   `publish: true` items are published (`IPageModel.PublishZoneItemsAsync`, so admin drafts stay pending),
@@ -619,6 +622,8 @@
   `.admin-page-header` > `.admin-page-title-row` > `.admin-page-heading` (the ancestor crumbs in a `.breadcrumb`,
   no `is-active` crumb, then `<h1 class="title is-5">`; CSS draws the separator) plus any `is-small` actions.
   The body is `<div class="container[ is-fluid] admin-page-body">`, not a `<section class="section">`.
+- `TempData["Success"]`/`TempData["Error"]` flashes are rendered once by `_AdminLayout` (above the page header,
+  not in a modal frame) for every admin view; views must not render them again.
 
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes

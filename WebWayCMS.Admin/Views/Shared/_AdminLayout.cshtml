@@ -44,6 +44,21 @@
 	}
 
 	<main id="main-content" class="admin-main" tabindex="-1">
+		@* A redirect's flash shows once on whichever admin page it lands on (every view, not only the
+		   ones that used to render it, so it never lingers to a later page). Not in a modal frame. *@
+		@if (!isModal && (TempData["Error"] != null || TempData["Success"] != null))
+		{
+			<div class="container is-fluid admin-flash">
+				@if (TempData["Error"] is { } error)
+				{
+					<div class="notification is-danger" role="alert">@error</div>
+				}
+				@if (TempData["Success"] is { } success)
+				{
+					<div class="notification is-success" role="status">@success</div>
+				}
+			</div>
+		}
 		@RenderBody()
 		@if (!isModal && ViewData[WebWayCMS.Models.Shared.RelationChildrenPanelViewModel.ViewDataKey] is IReadOnlyList<WebWayCMS.Models.Shared.RelationChildrenPanelViewModel> { Count: > 0 } relationPanels)
 		{

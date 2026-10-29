@@ -356,6 +356,23 @@ a:focus-visible,
   padding-top: 1rem;
 }
 
+/* _AdminLayout's TempData flash, above the page header. */
+.admin-flash {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.admin-flash .notification:not(:last-child) {
+  margin-bottom: 0.5rem;
+}
+
+@media screen and (max-width: 1023px) {
+  .admin-flash.container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+}
+
 /* =============================================================
    Tables
    ============================================================= */
@@ -402,6 +419,25 @@ table thead th {
   background: var(--admin-surface);
   border-top: 1px solid var(--admin-border);
   gap: 0.5rem;
+}
+
+/* =============================================================
+   Relation Modal (relation-modal.js: a picker's New/Edit form in an iframe)
+   ============================================================= */
+.modal-content.relation-modal-content {
+  width: min(1100px, calc(100vw - 2rem));
+  max-height: none;
+  overflow: visible;
+}
+
+.relation-modal-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 6rem);
+  border: 0;
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-md);
 }
 
 /* =============================================================

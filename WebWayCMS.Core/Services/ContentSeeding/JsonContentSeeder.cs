@@ -43,9 +43,8 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
     // A zone item's placement comes from its locator, never from its fields.
     private const string ZoneKeyField = "contentZoneNodeId";
 
-    // The zone item content type, and the parent type zone items were seeded under before it existed.
+    // The zone item content type: the only type a seed item with a 'zone' locator may name.
     private const string ZoneItemContentType = ContentRelationRegistry.ContentZoneItemContentType;
-    private const string LegacyZoneItemContentType = "contentzones";
 
     // Key of the locator's owner (page or item) in the JSON node the @seed resolver walks.
     private const string OwnerKey = "owner";
@@ -70,9 +69,6 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         public Dictionary<Guid, bool> PageExists { get; } = new();
 
         public Dictionary<Guid, List<QueuedZoneItem>> ItemsToPublish { get; } = new();
-
-        /// <summary>Items already warned about the legacy zone item content type, so a retry pass warns once.</summary>
-        public HashSet<Guid> WarnedLegacyZoneItems { get; } = new();
     }
 
     private readonly IEnumerable<IContentSeedSourceProvider> _providers;
@@ -222,18 +218,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             return ApplyOutcome.Skipped;
         }
 
-        // Zone items were children of "contentzones" before they became their own content type; a seed
-        // file not yet moved over still applies, with a warning.
-        var contentType = item.ContentType;
-        if (item.Zone != null && string.Equals(contentType, LegacyZoneItemContentType, StringComparison.OrdinalIgnoreCase))
-        {
-            if (run.WarnedLegacyZoneItems.Add(item.Id))
-                _logger.Warning("Content seed item '{SeedId}' uses the deprecated contentType \"{Legacy}\" for a zone item; use \"{ContentType}\".",
-                    item.Id, LegacyZoneItemContentType, ZoneItemContentType);
-            contentType = ZoneItemContentType;
-        }
-
-        var handler = _registry.GetHandler(contentType);
+        var handler = _registry.GetHandler(item.ContentType);
         if (handler == null)
         {
             _logger.Warning("Content seed item '{SeedId}' references unknown content type '{ContentType}'; skipping.", item.Id, item.ContentType);

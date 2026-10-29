@@ -439,18 +439,6 @@ public class JsonContentSeederZoneTests
     }
 
     [Test]
-    public async Task Seed_LegacyContentZonesType_AppliesAsAZoneItem()
-    {
-        await Seeder(Document(ZoneItem(contentType: "contentzones"))).SeedAsync();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(_saved.Single().ContentZoneNodeId, Is.EqualTo(ZoneNodeId));
-            Assert.That(_ledger.ContainsKey(ItemSeedId), Is.True);
-        });
-    }
-
-    [Test]
     public async Task Seed_NoZoneService_IsSkipped()
     {
         await Seeder(Document(ZoneItem()), withZoneService: false).SeedAsync();

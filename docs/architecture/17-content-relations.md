@@ -1,8 +1,9 @@
 # Area 17: Content Relations
 
-> **Status: phases 1–5 of 6 implemented** — the engine (§2–§6), every row of §7, routes as content
-> (§8), both admin UXes (§9) and the generic child tools and zone-item seeding (§10). Phase 6 (the TestHost
-> moving onto relations) remains. Sections marked *today* describe the code before relations; sections marked
+> **Status: Implemented** (all six phases) — the engine (§2–§6), every row of §7, routes as content
+> (§8), both admin UXes (§9), the generic child tools and zone-item seeding (§10), and the TestHost on
+> relations (its FAQ pickers, and the host `FaqTopic` containment of §3 — see
+> [Area 14](14-host-extensibility.md#relations-to-other-content)). Sections marked *today* describe the code before relations; sections marked
 > **Implemented** describe the code as it is. Decisions already agreed are stated as settled; the
 > questions raised during review are recorded as [resolved](#14-resolved-questions). The implementation
 > plan is in [plans/content-relations](../../plans/content-relations/README.md).
@@ -149,7 +150,7 @@ is no longer needed; `[FormProperty]` stays for label, order and help text.
 public sealed class FaqUpsertViewModel : BaseContentViewModel
 {
     [FormProperty(Label = "Topic", Order = 3)]
-    [ContentRelation("faqtopics", Kind = RelationKind.Containment, Required = true)]
+    [ContentRelation("faqtopics", Kind = ContentRelationKind.Containment, Required = true)]
     public Guid FaqTopicId { get; init; }
 
     [FormProperty(Label = "Related questions", Order = 9)]
@@ -161,6 +162,11 @@ public sealed class FaqUpsertViewModel : BaseContentViewModel
 That is all the relationship code. The host's `FaqDTO` table holds only its own fields: no FK column,
 no `HasOne<ContentNode>()`, and nothing relation-related in the host migration, because the relation
 table belongs to the CMS.
+
+> **Implemented** in the TestHost (phase 6) as an optional containment (`Guid? FaqTopicId`, no
+> `Required`) with a `FaqTopicModel` admin type; the related-questions list is not part of it. The FAQ
+> widget's pickers are references (`Detach`), the configured page's is a reference (`Restrict`). See
+> [Area 14](14-host-extensibility.md#relations-to-other-content).
 
 ## 4. The Engine
 
@@ -378,6 +384,12 @@ public record RouteDTO : IVersionedContent
   - The form is rendered without the admin layout (e.g. `GET /wadmin/{contentType}/create?modal=1`).
   - The modal save returns `{ id, title }` JSON; the picker adds or updates that entry.
   - The source form is not saved by the modal; the user saves it separately.
+  - The modal is sized by `admin.css` → "Relation Modal" (`.relation-modal-content` up to 1100px wide,
+    `.relation-modal-frame` the viewport height less a margin); without those rules the iframe falls back
+    to the browser's 300×150px default.
+- A **containment** picker on an existing item's form (`data-exclude-subtree`) asks its list for
+  `?excludeSubtreeOf={nodeId}` (`IAdminCrudHandler.GetApiListExcludingSubtreeAsync`), so a handler can leave
+  out the item and its descendants (the binder still refuses such a pick on save). `PageModel` does.
 - Plain JS (no jQuery), in a `Views/**` script copied by `CopyViewScripts` (no inline script, per the
   CSP).
 

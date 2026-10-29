@@ -48,7 +48,7 @@
 
         // The endpoint is resolved server-side from the handler registry (FormEntityPicker), so
         // host content types work without a client-side map.
-        var endpoint = select.dataset.endpoint;
+        var endpoint = pickerEndpoint(select);
         if (!endpoint) {
             select.innerHTML = '<option value="">-- Unknown entity type: ' + escapeHtml(entityType) + ' --</option>';
             select.style.display = '';
@@ -87,7 +87,7 @@
         container.dataset.entityPickerInitialized = 'true';
 
         var entityType = container.dataset.entityType;
-        var endpoint = container.dataset.endpoint;
+        var endpoint = pickerEndpoint(container);
         var addSelect = container.querySelector('select.entity-picker-add');
         if (!endpoint) {
             if (addSelect) addSelect.innerHTML = '<option value="">-- Unknown entity type: ' + escapeHtml(entityType) + ' --</option>';
@@ -226,9 +226,26 @@
         return entity.id || entity.Id || '';
     }
 
+    // A list item with a path (pages) shows it, so same-titled items under different parents differ.
     function entityTitle(entity) {
         var id = entityId(entity);
-        return entity.title || entity.Title || entity.name || entity.Name || id;
+        var title = entity.title || entity.Title || entity.name || entity.Name || id;
+        var path = entity.path || entity.Path;
+        return path ? title + ' (' + path + ')' : title;
+    }
+
+    // A containment picker on an existing item's form asks the list to leave out that item and its
+    // descendants (data-exclude-subtree, set by the picker view), which it can't be placed under.
+    function pickerEndpoint(el) {
+        var endpoint = el.dataset.endpoint;
+        if (!endpoint || el.dataset.excludeSubtree !== 'true') return endpoint;
+
+        var form = el.closest('form');
+        var nodeInput = form && form.querySelector('input[name="NodeId"]');
+        var nodeId = nodeInput ? nodeInput.value : '';
+        if (!nodeId || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(nodeId)) return endpoint;
+
+        return endpoint + (endpoint.indexOf('?') < 0 ? '?' : '&') + 'excludeSubtreeOf=' + encodeURIComponent(nodeId);
     }
 
     function serializeDataProps(container) {

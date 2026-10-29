@@ -94,7 +94,8 @@ captured (`PageHistoryMessages.VersionInHistory`).
 - `CreateEmptyUpsertViewModel()` — returns a fresh ViewModel instance for `TryUpdateModelAsync` binding; must match the type `SaveUpsertAsync` expects
 - `SaveUpsertAsync` — receives the model-bound ViewModel; returns `AdminSaveResult(true)` on success or `AdminSaveResult(false, message, field?)` on failure. In `AdminCrudModel` it sanitizes rich text, runs `ModelValidator`, then the **relation binder** (`IRelationBinder`: every `[ContentRelation]` target must be a current draft of the declared type, and `Required` ones set — a field error on the property otherwise), before `SaveUpsertCoreAsync`
 - `DeleteAsync` / `TryDeleteAsync` — `TryDeleteAsync` (default: `DeleteAsync` with no reason and no count) returns `(Success, ErrorMessage, DeletedDescendants)`. `AdminCrudModel` implements both through `IContentDeleteService` (the relation engine: containment descendants deepest first and owned targets in one transaction; a `Restrict` reference from outside refuses with "'{title}' is used by n item(s): …", a `Detach` one is removed by saving its referrer) and leaves a model only `DeleteSelfAsync` (its own node). The admin `Delete` action shows the refusal as `TempData["Error"]` and a cascade as `TempData["Success"]`; MCP `delete_content` returns `deletedDescendants` and throws the refusal
-- `GetApiListAsync` — returns `[ { id, title } ]` used by GUID entity pickers in admin forms
+- `GetApiListAsync` — returns `[ { id, title } ]` used by GUID entity pickers in admin forms (an optional `path` is shown after the title; pages send it)
+- `GetApiListExcludingSubtreeAsync(nodeId)` — the list for a **containment** picker on an existing item's form (`ApiList?excludeSubtreeOf={nodeId}`, sent by `form-components.js` when the picker has `data-exclude-subtree`); a handler may leave out the item and its containment descendants. Default (interface and `AdminCrudModel`): the plain list. `PageModel` overrides it.
 - `HasSecondaryApiList` / `GetSecondaryApiListAsync(key)` — extension for handlers needing multiple named lists (none of the built-in handlers uses it; prefer a separate content type with its own `GetApiListAsync`)
 - `GetIndexViewModelAsync(IQueryCollection query)` — a default-implemented overload the controller calls with the request query; a handler re-implements it (explicitly, re-listing `IAdminCrudHandler`) to filter its index — e.g. `ArticleModel` honours `?list={nodeId}`, `ContentZoneModel` `?pageId=`/`?zoneId=`
 
@@ -187,7 +188,7 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 
 | Method | Route | Action |
 |--------|-------|--------|
-| GET | `/wadmin/{contentType}/api/list` | `ApiList` — entity picker list |
+| GET | `/wadmin/{contentType}/api/list` | `ApiList` — entity picker list; `?excludeSubtreeOf={nodeId}` → `GetApiListExcludingSubtreeAsync` |
 | GET | `/wadmin/{contentType}/api/{key}` | `SecondaryApiList` — named secondary list |
 
 **Registry endpoints:**

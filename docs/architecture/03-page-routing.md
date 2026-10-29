@@ -396,7 +396,10 @@ Pages no longer store a route. `PageDTO` has no `Route` column — the URL is de
 
 **Parentage is a versioned relation, not a route.** `PageUpsertViewModel.ParentNodeId` is
 `[ContentRelation("pages", Kind = Containment)]` (optional: a root page has none), shown on the page form
-as the **Parent Page** picker and pre-filled from `?parentRoute=` (route→owner lookup) on create. The mapper
+as the **Parent Page** picker (listing every page at every depth as `{ id, title, path }`, parent first, built
+from the current drafts and the parent relation by `PageModel.GetApiListAsync`; on an existing page's form the
+picker asks for `?excludeSubtreeOf={nodeId}`, so the page and its descendants are left out) and pre-filled
+from `?parentRoute=` (route→owner lookup) on create. The mapper
 moves it to and from the version's `ParentNodeId` relation row, so a move is an ordinary edit, a draft until
 publish (`ContentNode` has no parent column). The relation binder refuses a parent that is the page itself or
 one of its descendants. `PageModel` reads the parent with `Version.TargetOf(ParentRelation)`.

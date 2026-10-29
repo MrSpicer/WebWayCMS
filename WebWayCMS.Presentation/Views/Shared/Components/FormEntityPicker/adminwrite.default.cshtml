@@ -12,6 +12,8 @@
         ? $"/wadmin/{Uri.EscapeDataString(contentType!)}/edit/"
         : null;
     var owned = Model.Property.RelationKind == WebWayCMS.Attributes.ContentRelationKind.Owned;
+    // A containment can't point at the item being edited or its descendants: the list leaves them out.
+    var excludeSubtree = Model.Property.RelationKind == WebWayCMS.Attributes.ContentRelationKind.Containment ? "true" : string.Empty;
 
     if (Model.IsMultiple)
     {
@@ -25,6 +27,7 @@
             .Required().DescribedBy()
             .Data("entity-type", Model.EntityType)
             .Data("endpoint", endpoint ?? string.Empty)
+            .Data("exclude-subtree", excludeSubtree)
             .Data("values", valuesJson)
             .Data("name", Model.InputName)
             .Data("modal-create", createUrl ?? string.Empty)
@@ -62,6 +65,7 @@
             .Naming().Required().DescribedBy()
             .Data("entity-type", Model.EntityType)
             .Data("endpoint", endpoint ?? string.Empty)
+            .Data("exclude-subtree", excludeSubtree)
             .Data("current-value", Model.StringValue)
             .Data("modal-create", createUrl ?? string.Empty)
             .Data("modal-edit-base", editBase ?? string.Empty)
