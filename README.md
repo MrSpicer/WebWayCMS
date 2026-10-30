@@ -127,14 +127,14 @@ CMS code. Directives you don't list keep the CMS default; set one to an empty st
 ### MCP server (optional)
 
 The CMS can expose its admin feature set to AI agents over the Model Context Protocol. It is
-**off by default**; enable it from the `"Mcp"` section and supply an API key (user-secrets or
-environment — never source). The bearer token is the security boundary, since the endpoint runs
-with effective admin authority.
+**off by default**; enable it from the `"Mcp"` section. Each Admin then creates a **personal access
+token** on their account's **API tokens** page (Identity → Manage) and sends it as
+`Authorization: Bearer <token>`. A token acts as its user with that user's current roles (only Admins
+may use MCP), and Admins can revoke any token at `/wadmin/apitokens`.
 
 ```jsonc
 "Mcp": {
   "Enabled": true,
-  "ApiKey": "<generated-key>",
   "Path": "/mcp"          // default
 }
 ```

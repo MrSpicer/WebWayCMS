@@ -1,7 +1,8 @@
 # Area 12: MCP Server
 
 **Namespaces:**
-- `WebWayCMS.Mcp` — `McpOptions`, `McpServiceCollectionExtensions`, `McpApplicationBuilderExtensions`, `McpApiKeyEndpointFilter`, `ContentToolset`, `VersionToolset`, `ChildContentToolset`, `McpToolHelpers`
+- `WebWayCMS.Mcp` — `McpOptions`/`McpSeedToken`, `McpServiceCollectionExtensions`, `McpApplicationBuilderExtensions`, `McpTokenAuthenticationHandler`, `McpAuthFailureThrottle`, `IMcpCaller`/`HttpMcpCaller`, `ContentToolset`, `VersionToolset`, `ChildContentToolset`, `PageHistoryToolset`, `MediaToolset`, `McpToolHelpers`
+- `WebWayCMS.Data.Services` — `IApiTokenService`/`ApiTokenService` (the `ApiTokens` table)
 
 **Depends on:** Admin CRUD Framework (`IAdminHandlerRegistry`, `IAdminCrudHandler`), Form Generation Metadata, the official `ModelContextProtocol.AspNetCore` SDK
 **Consumed by:** MCP clients (Claude Code, Claude Desktop, any MCP-capable agent)
@@ -32,40 +33,75 @@ Bound from the `"Mcp"` section into `McpOptions`:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `Mcp:Enabled` | `bool` | `false` | Whether the endpoint is mapped. **Opt-in.** |
-| `Mcp:ApiKey` | `string?` | `null` | Static bearer token required on every request |
 | `Mcp:Path` | `string` | `"/mcp"` | Route the server is mapped to |
+| `Mcp:SeedTokens` | list of `{ UserEmail, Name, Token }` | empty | Tokens created at startup for development/test stacks (see §3) |
+| `Mcp:AllowSeedTokensOutsideDevelopment` | `bool` | `false` | Apply `SeedTokens` outside the Development environment (throwaway Production-mode test stacks only) |
 
 ```jsonc
 "Mcp": {
   "Enabled": true,
-  "ApiKey": "<generated-key>",
   "Path": "/mcp"
 }
 ```
 
-Supply `ApiKey` via user-secrets or environment variables, never source control.
+There is no shared key: every caller uses its own **personal access token** (§3). `Mcp:ApiKey` was removed;
+a leftover value is ignored.
 
 ---
 
 ## 3. Security Model
 
-**The API key is the only security boundary.** The MCP endpoint executes with effective admin
-authority — it is not behind `[Authorize(Roles = "Admin")]`, because an agent has no Identity
-cookie. Anyone holding the token can do anything an admin can do.
+**Every call acts as a real user.** A caller sends `Authorization: Bearer <token>` with a **personal access
+token** its user issued on **Identity → Manage → API tokens** (`ApiTokens.cshtml`, Admins only; the plaintext is
+shown once, with a ready-to-paste `.mcp.json`). The token acts as that user with the user's **current** roles,
+so the versions an agent writes carry the user's id in `CreatedBy`, and a role change, lockout or revoke takes
+effect on the next call. Admins see and revoke every user's tokens at `/wadmin/apitokens`
+(`AdminApiTokensController`, navbar **Advanced → API Tokens**).
 
-Three deliberate behaviours follow from that:
+- **Storage.** `ApiTokenService` issues `wwc_` + 32 random bytes (base64url) and stores only the lowercase hex
+  SHA-256 (`ApiTokens.TokenHash`, unique) plus a 12-character display `Prefix`; no slow hash is needed for a
+  high-entropy secret, and validation is one indexed lookup. A token can expire (`ExpiresUtc`; the Manage page
+  offers never/30/90/365 days) and is revoked by stamping `RevokedUtc` (rows are never deleted, so the audit
+  trail stays). Names are unique among a user's live tokens; creating a token with an expired token's name
+  revokes the expired one to free it, and a concurrent create that loses the race gets the same "already have a
+  token named" error, not a 500. The Manage page refuses an expiry that isn't one of its choices and sends the
+  new plaintext with `Cache-Control: no-store`. `LastUsedUtc` is written at most once a minute.
+  Deleting a user cascades to their tokens.
+- **Authentication.** `McpTokenAuthenticationHandler` (scheme `McpToken`) validates the token, loads the user
+  (refusing a locked-out one) and builds the principal with `IUserClaimsPrincipalFactory<IdentityUser>`, so
+  `HttpContentUserContext` finds the `NameIdentifier` claim; a `wwc:token_id` claim names the token. The scheme
+  is **never a default**: only the `/mcp` endpoint's policy names it, so a browser cookie can't authenticate MCP
+  (no CSRF surface) and a token can't authenticate the admin UI.
+- **Authorization.** The endpoint policy requires the `McpToken` scheme and the **Admin** role, mirroring the
+  Admin-only admin UI. Each write tool also applies its content type's `WriteRoles` (publish/unpublish:
+  `PublishRoles`) through `RoleAccess.Allows`, the same rule `AdminContentController` uses (null ⇒ Admin; child
+  tools check the **child** type; the page-history writes require Admin like `AdminPageHistoryController`), so a
+  future relaxation of the UI gate carries over. A refused tool call is an `McpException`.
+- **Spec-shaped responses.** The CMS is an MCP/OAuth **resource server** that verifies tokens it issues in the
+  admin, not through an OAuth flow (the 2026-07-28 spec / SDK 2.x model, where token issuing is an authorization
+  server's job). A missing token gets `401` with `WWW-Authenticate: Bearer resource_metadata="…"`, a bad one adds
+  `error="invalid_token"`, and a non-Admin gets `403` with `error="insufficient_scope"`. The SDK's
+  `AddMcp()` serves the RFC 9728 document at `/.well-known/oauth-protected-resource` (resource = the MCP URL,
+  `authorization_servers` empty). Replacing the token check with JWT bearer from an external IdP later leaves the
+  tools untouched.
+- **Failed-attempt throttle.** `McpAuthFailureThrottle` counts failed token validations per client IP; after 10
+  in a minute (fixed window from the first failure) every further **failed** token from that IP gets `429` with
+  `Retry-After: 60` until the window ends. The throttle is checked only after a token fails to validate, so valid
+  tokens from a blocked address (a shared NAT or proxy egress) still work, and successful calls are never
+  counted. The client IP is `RemoteIpAddress`, so behind a remote proxy it depends on the forwarded-headers
+  trust settings ([Area 13](13-security.md)).
+- **Seed tokens (development).** `Mcp:SeedTokens` entries are upserted at boot for an existing user
+  (`McpTokenSeeder`, after the admin user is seeded): only in the Development environment, or when
+  `Mcp:AllowSeedTokensOutsideDevelopment` is set (logged as a warning), because the plaintext lives in
+  configuration. The TestHost compose uses the opt-in. An entry is matched first by its plaintext (so renaming
+  a seed entry renames its token instead of inserting a duplicate hash), then by name; another live token
+  holding the name is revoked, and a plaintext already issued to a different user is refused.
+- **Admin mode only.** `MapWebWayCmsMcp()` is called from `ConfigureAdminPipeline`, never from the rendering
+  pipeline, and the token service is registered in admin mode only (the Manage page 404s and its nav link hides
+  on a rendering-only host). See [Area 11](11-deployment-modes.md).
 
-1. **Fail loud, not open.** `MapWebWayCmsMcp` throws `InvalidOperationException` at startup if
-   `Enabled` is true and `ApiKey` is empty, rather than mapping an endpoint that only ever 401s.
-2. **Constant-time comparison.** `McpApiKeyEndpointFilter` compares the presented token with
-   `CryptographicOperations.FixedTimeEquals`, so the check does not leak the key through timing.
-   The `Bearer ` prefix is optional and matched case-insensitively.
-3. **Admin mode only.** `MapWebWayCmsMcp()` is called from `ConfigureAdminPipeline`, never from the
-   rendering pipeline — a rendering-only host cannot expose MCP even if `Mcp:Enabled` is true in its
-   configuration. See [Area 11](11-deployment-modes.md).
-
-Treat the key like a root credential: rotate it, scope network access to the endpoint where you can,
-and prefer not to enable MCP on an internet-facing host at all.
+A token is still an admin credential: give it an expiry, revoke what you no longer use, and prefer not to
+enable MCP on an internet-facing host.
 
 ---
 
@@ -73,10 +109,13 @@ and prefer not to enable MCP on an internet-facing host at all.
 
 **DI** — `AddWebWayCmsMcp(services, configuration)`, called from `AddWebWayCmsAdmin`:
 - binds `McpOptions`
+- registers the `McpToken` authentication scheme, `AddMcp()` (resource metadata), the singleton
+  `McpAuthFailureThrottle` and the scoped `IMcpCaller` (the request's user, which the toolsets check); the
+  `IApiTokenService` itself is registered by the admin type map
 - registers `ContentToolset`, `VersionToolset`, `ChildContentToolset` as **scoped**, so each tool
   call resolves fresh scoped admin handlers
 - builds `McpServerTool`s by reflecting over each toolset's `[McpServerTool]` methods and registers
-  them via `AddMcpServer().WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateless).WithTools(tools)`
+  them via `AddMcpServer().WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateless).WithTools(tools).AddAuthorizationFilters()`
 
 Three SDK options are set deliberately:
 - `SessionMode = Stateless` — pinned to match the SDK 2.x default (1.4 defaulted to stateful; 2.0
@@ -105,10 +144,11 @@ overwriting or irreversible `update_*`/`delete_*`/`publish_content`/`unpublish_c
 `Destructive` default (with `publish_content` additionally `Idempotent`).
 
 **Pipeline** — `MapWebWayCmsMcp(app)` no-ops when disabled; otherwise `app.MapMcp(options.Path)`
-with the API-key endpoint filter attached.
+with `RequireAuthorization` on a policy of the `McpToken` scheme + the Admin role.
 
-Both extension classes are `[ExcludeFromCodeCoverage]` — they are SDK/transport wiring validated by
-running the app. The toolset logic is unit-tested to the 100% gate.
+Both extension classes and `McpTokenAuthenticationHandler` are `[ExcludeFromCodeCoverage]` — they are
+SDK/transport wiring validated by running the app. The toolset logic (role checks included), the caller, the
+throttle and `ApiTokenService` are unit-tested to the 100% gate.
 
 ---
 
@@ -186,9 +226,8 @@ Child writes on zone items follow the zone draft rule: in a zone that belongs to
 create **drafts** that go live only when the page is published (`publish_content("pages", nodeId)`
 publishes the page and every pending zone item under it); in a global zone they go live immediately.
 
-The `publish_*`/`unpublish_*`/`restore_*` tools run with effective admin authority — the bearer token
-is the security boundary — so an agent can publish. Their tool descriptions state this plainly. The
-tool annotations reflect the same line: the read tools (`list_*`/`get_*`/`describe_content_type`/
+The `publish_*`/`unpublish_*`/`restore_*` tools act as the token's user and need that type's publish/write
+role (§3), so an Admin's agent can publish. The tool annotations reflect the same line: the read tools (`list_*`/`get_*`/`describe_content_type`/
 `get_content_state`) are flagged `ReadOnly`; `create_*`/`reorder_children`/`move_child`/`restore_*` are flagged
 non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_content` keep the
 `Destructive` default, with `publish_content` additionally `Idempotent`.
@@ -216,16 +255,19 @@ Once the server is enabled, add to `.mcp.json`:
     "webwaycms": {
       "type": "http",
       "url": "https://localhost:7046/mcp",
-      "headers": { "Authorization": "Bearer <key>" }
+      "headers": { "Authorization": "Bearer <your personal access token>" }
     }
   }
 }
 ```
 
+Create the token on **Identity → Manage → API tokens**; the page shows this snippet filled in.
+
 The integration host ([separate repo](https://github.com/MrSpicer/WebWayCMS.TestHost))
-enables MCP against `http://localhost:45847/mcp` — see its
-`appsettings.json`. That is a throwaway stack with a checked-in key; do not copy that pattern into a
-real deployment.
+enables MCP against `http://localhost:45847/mcp` with a seeded token for the seeded admin
+(`Mcp:SeedTokens` in its `appsettings.json` and `docker-compose.yml`, which also sets
+`Mcp:AllowSeedTokensOutsideDevelopment`). That is a throwaway stack with a checked-in token; do not copy that
+pattern into a real deployment.
 
 ---
 

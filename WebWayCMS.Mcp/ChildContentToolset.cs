@@ -22,11 +22,13 @@ public sealed class ChildContentToolset
 {
     private readonly IAdminHandlerRegistry _registry;
     private readonly ContentRelationRegistry _relations;
+    private readonly IMcpCaller _caller;
 
-    public ChildContentToolset(IAdminHandlerRegistry registry, ContentRelationRegistry relations)
+    public ChildContentToolset(IAdminHandlerRegistry registry, ContentRelationRegistry relations, IMcpCaller caller)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _relations = relations ?? throw new ArgumentNullException(nameof(relations));
+        _caller = caller ?? throw new ArgumentNullException(nameof(caller));
     }
 
     /// <summary>
@@ -112,6 +114,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var (child, name) = ResolveContainment(parentType, childType, relation);
+        McpToolHelpers.RequireWrite(child, _caller);
         var model = McpToolHelpers.Merge(child.CreateEmptyUpsertViewModel(), fields);
         RelationProperties.Write(model, RelationProperties.Read(model)
             .Where(v => v.Name != name)
@@ -128,6 +131,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var child = McpToolHelpers.ResolveHandler(_registry, childType);
+        McpToolHelpers.RequireWrite(child, _caller);
         var existing = await child.GetUpsertViewModelAsync(id, McpToolHelpers.EmptyQuery, ct)
             ?? throw new McpException($"No '{childType}' item found with id '{id}'.");
         return await child.SaveUpsertAsync(McpToolHelpers.Merge(existing, fields), ct);
@@ -141,6 +145,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var child = McpToolHelpers.ResolveHandler(_registry, childType);
+        McpToolHelpers.RequireWrite(child, _caller);
         var result = await child.TryDeleteAsync(id, ct);
         if (!result.Success && result.ErrorMessage != null)
             throw new McpException(result.ErrorMessage);
@@ -158,6 +163,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var (child, name) = ResolveContainment(parentType, childType, relation);
+        McpToolHelpers.RequireWrite(child, _caller);
         var (success, errorMessage) = await child.ReorderRelatedAsync(name, parentKey, orderedIds, ct);
         if (!success)
             throw new McpException(errorMessage ?? "The reorder failed.");
@@ -177,6 +183,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var (child, name) = ResolveContainment(parentType, childType, relation);
+        McpToolHelpers.RequireWrite(child, _caller);
         var (success, errorMessage) = await child.MoveRelatedAsync(name, childId, targetParentKey, position, expectedVersionNumber, ct);
         if (!success)
             throw new McpException(errorMessage ?? "The move failed.");
@@ -204,6 +211,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var child = ResolveVersioned(childType);
+        McpToolHelpers.RequireWrite(child, _caller);
         var result = await child.RestoreVersionAsync(versionId, expectedVersionNumber, ct);
         if (!result.Success && result.ErrorMessage == IAdminCrudHandler.VersionNotFoundMessage)
             throw new McpException($"No version found with id '{versionId}'.");
@@ -218,6 +226,7 @@ public sealed class ChildContentToolset
         CancellationToken ct = default)
     {
         var child = ResolveVersioned(childType);
+        McpToolHelpers.RequireWrite(child, _caller);
         return McpToolHelpers.DeleteResult(await child.TryDeleteVersionAsync(versionId, ct));
     }
 }

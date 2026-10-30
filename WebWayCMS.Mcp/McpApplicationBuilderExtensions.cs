@@ -1,24 +1,24 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
-using System.Text;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace WebWayCMS.Mcp;
 
 /// <summary>
-/// Maps the WebWayCMS MCP endpoint, gated by the configured API key. Protocol/SDK and middleware
-/// wiring only — validated by running the app.
+/// Maps the WebWayCMS MCP endpoint behind per-user personal access tokens. Protocol/SDK and
+/// middleware wiring only — validated by running the app.
 /// </summary>
 [ExcludeFromCodeCoverage]
 public static class McpApplicationBuilderExtensions
 {
     /// <summary>
-    /// Maps the MCP server at the configured path when enabled, behind a bearer-token gate.
-    /// No-ops when <see cref="McpOptions.Enabled"/> is false.
+    /// Maps the MCP server at the configured path when enabled. Every request must authenticate with a
+    /// personal access token (<see cref="McpTokenAuthenticationHandler"/>, the only scheme the policy
+    /// accepts) whose user is an Admin, mirroring the Admin-only admin UI; each write tool also checks
+    /// its content type's roles. No-ops when <see cref="McpOptions.Enabled"/> is false.
     /// </summary>
     public static WebApplication MapWebWayCmsMcp(this WebApplication app)
     {
@@ -26,49 +26,13 @@ public static class McpApplicationBuilderExtensions
         if (!options.Enabled)
             return app;
 
-        // The API key is the MCP endpoint's only security boundary (it runs with effective admin
-        // authority). Fail loud at startup rather than silently exposing a 401-only endpoint if the
-        // server was enabled without a key.
-        if (string.IsNullOrEmpty(options.ApiKey))
-            throw new InvalidOperationException(
-                "Mcp:Enabled is true but Mcp:ApiKey is not configured. Supply an API key (user-secrets or environment) or disable the MCP server.");
+        var policy = new AuthorizationPolicyBuilder(McpTokenAuthenticationHandler.SchemeName)
+            .RequireAuthenticatedUser()
+            .RequireRole(PreviewConstants.AdminRole)
+            .Build();
 
-        app.MapMcp(options.Path)
-            .AddEndpointFilter(new McpApiKeyEndpointFilter(options.ApiKey));
+        app.MapMcp(options.Path).RequireAuthorization(policy);
 
         return app;
-    }
-}
-
-/// <summary>
-/// Rejects MCP requests whose <c>Authorization: Bearer</c> token does not match the configured key.
-/// The MCP endpoint executes with effective admin authority, so this token is the security boundary.
-/// </summary>
-[ExcludeFromCodeCoverage]
-internal sealed class McpApiKeyEndpointFilter : IEndpointFilter
-{
-    private readonly string? _apiKey;
-
-    public McpApiKeyEndpointFilter(string? apiKey) => _apiKey = apiKey;
-
-    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
-    {
-        if (string.IsNullOrEmpty(_apiKey) || !IsAuthorized(context.HttpContext.Request))
-            return Results.Unauthorized();
-
-        return await next(context);
-    }
-
-    private bool IsAuthorized(HttpRequest request)
-    {
-        var header = request.Headers.Authorization.ToString();
-        const string prefix = "Bearer ";
-        var token = header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? header[prefix.Length..]
-            : header;
-
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(token),
-            Encoding.UTF8.GetBytes(_apiKey!));
     }
 }

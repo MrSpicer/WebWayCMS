@@ -58,9 +58,10 @@ public class RelationToolTests
         var registry = Substitute.For<IAdminHandlerRegistry>();
         var handler = Substitute.For<IAdminCrudHandler>();
         registry.GetHandler("articlelists").Returns(handler);
+        handler.AdminOnly();
         handler.TryDeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((true, (string?)null, 3), (false, (string?)null, 0), (false, (string?)"'Logo' is used by 1 item(s): 'Home'.", 0));
-        var tools = new ContentToolset(registry, [handler]);
+        var tools = new ContentToolset(registry, [handler], TestCaller.Admin);
 
         var cascaded = await tools.DeleteContent("articlelists", Guid.NewGuid());
         var failed = await tools.DeleteContent("articlelists", Guid.NewGuid());

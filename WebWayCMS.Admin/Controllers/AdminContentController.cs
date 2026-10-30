@@ -34,9 +34,7 @@ public class AdminContentController : Controller
 
     private bool HasWriteAccess(string[]? writeRoles)
     {
-        var granted = writeRoles == null
-            ? User.IsInRole("Admin")
-            : writeRoles.Any(r => User.IsInRole(r));
+        var granted = RoleAccess.Allows(writeRoles, User);
 
         if (!granted)
             Logger.Warning("Denied admin write access to {Path}", Request.Path);
@@ -106,7 +104,7 @@ public class AdminContentController : Controller
                 RelationName = declaration.Name,
                 ParentNodeId = parentNodeId,
                 Ordered = declaration.Attribute.Ordered,
-                CanWrite = child.WriteRoles == null ? User.IsInRole("Admin") : child.WriteRoles.Any(User.IsInRole),
+                CanWrite = RoleAccess.Allows(child.WriteRoles, User),
                 Children = await child.GetRelatedChildrenAsync(declaration.Name, parentNodeId, ct),
             });
         }

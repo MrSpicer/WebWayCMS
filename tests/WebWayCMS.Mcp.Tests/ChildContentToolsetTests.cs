@@ -33,6 +33,7 @@ public class ChildContentToolsetTests
         handler.ContentType.Returns(contentType);
         handler.SupportsVersionHistory.Returns(true);
         handler.CreateEmptyUpsertViewModel().Returns(_ => emptyModel());
+        handler.AdminOnly();
         return handler;
     }
 
@@ -48,7 +49,7 @@ public class ChildContentToolsetTests
         foreach (var handler in new[] { _lists, _items, _blocks, _notes })
             _registry.GetHandler(handler.ContentType).Returns(handler);
         _registry.All.Returns([_lists, _items, _blocks, _notes]);
-        _tools = new ChildContentToolset(_registry, new ContentRelationRegistry(_registry));
+        _tools = new ChildContentToolset(_registry, new ContentRelationRegistry(_registry), TestCaller.Admin);
     }
 
     [Test]
@@ -56,8 +57,8 @@ public class ChildContentToolsetTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ChildContentToolset(null!, new ContentRelationRegistry(_registry)), Throws.ArgumentNullException);
-            Assert.That(() => new ChildContentToolset(_registry, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ChildContentToolset(null!, new ContentRelationRegistry(_registry), TestCaller.Admin), Throws.ArgumentNullException);
+            Assert.That(() => new ChildContentToolset(_registry, null!, TestCaller.Admin), Throws.ArgumentNullException);
         });
     }
 

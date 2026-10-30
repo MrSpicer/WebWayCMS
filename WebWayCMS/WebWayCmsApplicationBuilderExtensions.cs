@@ -31,6 +31,7 @@ public static class WebWayCmsApplicationBuilderExtensions
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureContentRelationsValid(throwOnError);
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
+        app.EnsureMcpSeedTokens(throwOnError);
         app.EnsureDefaultHomePage(true, throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
         app.EnsureFormComponentRegistrationsSeeded(throwOnError);

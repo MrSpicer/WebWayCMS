@@ -34,9 +34,10 @@ public class ContentToolsetTests
         _handler = Substitute.For<IAdminCrudHandler>();
         _handler.ContentType.Returns("contentblocks");
         _handler.DisplayName.Returns("Content Block");
+        _handler.AdminOnly();
         _registry.GetHandler(Arg.Any<string>()).Returns((IAdminCrudHandler?)null);
         _registry.GetHandler("contentblocks").Returns(_handler);
-        _tools = new ContentToolset(_registry, new[] { _handler });
+        _tools = new ContentToolset(_registry, new[] { _handler }, TestCaller.Admin);
     }
 
     [Test]
@@ -44,8 +45,8 @@ public class ContentToolsetTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(() => new ContentToolset(null!, new[] { _handler }), Throws.ArgumentNullException);
-            Assert.That(() => new ContentToolset(_registry, null!), Throws.ArgumentNullException);
+            Assert.That(() => new ContentToolset(null!, new[] { _handler }, TestCaller.Admin), Throws.ArgumentNullException);
+            Assert.That(() => new ContentToolset(_registry, null!, TestCaller.Admin), Throws.ArgumentNullException);
         });
     }
 
@@ -58,7 +59,7 @@ public class ContentToolsetTests
         child.CreateEmptyUpsertViewModel().Returns(_ => new ContainedNote());
         _handler.CreateEmptyUpsertViewModel().Returns(_ => new FakeUpsertViewModel());
         _registry.All.Returns([_handler, child]);
-        _tools = new ContentToolset(_registry, new[] { _handler }, new ContentRelationRegistry(_registry));
+        _tools = new ContentToolset(_registry, new[] { _handler }, TestCaller.Admin, new ContentRelationRegistry(_registry));
         _handler.RegistryHandler.Returns(Substitute.For<IAdminRegistryHandler>());
         _handler.SupportsVersionHistory.Returns(true);
         _handler.SupportsPublishing.Returns(true);

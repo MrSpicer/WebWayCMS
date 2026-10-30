@@ -68,6 +68,9 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account.Manage
         /// </summary>
         public static string Passkeys => "Passkeys";
 
+        /// <summary>The MCP personal access tokens page (WebWayCMS addition, not scaffolded).</summary>
+        public static string ApiTokens => "ApiTokens";
+
         /// <summary>
         ///     This API supports the ASP.NET Core Identity default UI infrastructure and is not intended to be used
         ///     directly from your code. This API may change or be removed in future releases.
@@ -121,6 +124,9 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account.Manage
         ///     directly from your code. This API may change or be removed in future releases.
         /// </summary>
         public static string PasskeysNavClass(ViewContext viewContext) => PageNavClass(viewContext, Passkeys);
+
+        /// <summary>Nav class for <see cref="ApiTokens"/>.</summary>
+        public static string ApiTokensNavClass(ViewContext viewContext) => PageNavClass(viewContext, ApiTokens);
 
         /// <summary>
         ///     This API supports the ASP.NET Core Identity default UI infrastructure and is not intended to be used

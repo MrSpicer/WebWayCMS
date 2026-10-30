@@ -16,10 +16,12 @@ namespace WebWayCMS.Mcp;
 public sealed class PageHistoryToolset
 {
     private readonly IPageHistoryModel _model;
+    private readonly IMcpCaller _caller;
 
-    public PageHistoryToolset(IPageHistoryModel model)
+    public PageHistoryToolset(IPageHistoryModel model, IMcpCaller caller)
     {
         _model = model ?? throw new ArgumentNullException(nameof(model));
+        _caller = caller ?? throw new ArgumentNullException(nameof(caller));
     }
 
     [McpServerTool(Name = "list_page_history", ReadOnly = true, OpenWorld = false)]
@@ -54,6 +56,8 @@ public sealed class PageHistoryToolset
         [Description("The stateToken from get_page_history_entry (compareWithCurrent=true).")] string stateToken,
         CancellationToken ct = default)
     {
+        // AdminPageHistoryController is Admin-only.
+        McpToolHelpers.RequireAdmin(_caller);
         var (success, error) = await _model.RevertAsync(pageNodeId, entryId, stateToken, ct);
         if (!success)
             throw new McpException(error!);
@@ -67,6 +71,7 @@ public sealed class PageHistoryToolset
         [Description("The history entry id.")] Guid entryId,
         CancellationToken ct = default)
     {
+        McpToolHelpers.RequireAdmin(_caller);
         if (!await _model.DeleteAsync(pageNodeId, entryId, ct))
             throw new McpException($"No history entry '{entryId}' found for page '{pageNodeId}'.");
         return new McpDeleteResult(true);

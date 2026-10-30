@@ -46,6 +46,9 @@ internal static class CmsAdminRegistration
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.FormComponentRegistration.FormComponentRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Route.RouteModel>());
 
+        // MCP personal access tokens (Identity → Manage → API tokens, /wadmin/apitokens, the /mcp scheme).
+        services.AddScoped<WebWayCMS.Data.Services.IApiTokenService, WebWayCMS.Data.Services.ApiTokenService>();
+
         // JSON content seeding (admin mode only — a rendering-only host has no IAdminHandlerRegistry).
         services.Configure<ContentSeedOptions>(configuration.GetSection(ContentSeedOptions.SectionName));
         services.AddScoped<WebWayCMS.Data.Services.IContentSeedRecordService, WebWayCMS.Data.Services.ContentSeedRecordService>();

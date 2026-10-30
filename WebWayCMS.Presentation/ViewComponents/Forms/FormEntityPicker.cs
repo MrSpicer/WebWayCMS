@@ -29,10 +29,7 @@ public sealed class FormEntityPicker : FormFieldViewComponentBase
         ViewData[ContentTypeViewDataKey] = EntityPickerEndpoint.ResolveContentType(field.EntityType, registry);
 
         var handler = EntityPickerEndpoint.ResolveHandler(field.EntityType, registry);
-        var canWrite = handler != null
-            && (handler.WriteRoles == null
-                ? HttpContext.User.IsInRole(PreviewConstants.AdminRole)
-                : handler.WriteRoles.Any(HttpContext.User.IsInRole));
+        var canWrite = handler != null && RoleAccess.Allows(handler.WriteRoles, HttpContext.User);
         ViewData[CanWriteViewDataKey] = canWrite;
 
         return FieldView(field, field);

@@ -541,19 +541,32 @@
   `AddWebWayCmsAdmin`) and mapped in `WebWayCMS/Startup/CmsMiddlewarePipeline.cs` (`MapWebWayCmsMcp`, called from the
   admin pipeline only — a rendering-only host never maps it). Built on the official
   `ModelContextProtocol.AspNetCore` SDK.
-- **Opt-in via config** (`"Mcp"` section): set `Enabled: true` and supply an `ApiKey` (user-secrets
-  or environment — real deployments should never commit the key). The integration host
-  (a separate repo at [WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost))
-  deliberately commits a throwaway localhost key for convenience. The endpoint
-  is mapped at `Path` (default `/mcp`) and gated by a
-  `Authorization: Bearer <ApiKey>` check — that token is the security boundary (the endpoint runs with
-  effective admin authority).
+- **Opt-in via config** (`"Mcp"` section): set `Enabled: true`; the endpoint is mapped at `Path` (default `/mcp`).
+  **There is no shared key** (`Mcp:ApiKey` is gone): every caller sends `Authorization: Bearer <token>` with a
+  **per-user personal access token** (`ApiTokens` table, `IApiTokenService`/`ApiTokenService` in Data: `wwc_` + 32
+  random bytes, only the SHA-256 stored, optional expiry, revoke = `RevokedUtc`, `LastUsedUtc` at most once a
+  minute). An Admin issues/revokes their own on **Identity → Manage → API tokens** (`ApiTokens.cshtml`, Presentation;
+  plaintext shown once with a `.mcp.json` snippet); Admins revoke anyone's at `/wadmin/apitokens`
+  (`AdminApiTokensController`, navbar Advanced). The token service is admin-mode only.
+- **The token acts as its user** with the user's current roles: `McpTokenAuthenticationHandler` (scheme `McpToken`,
+  never a default, so cookies can't reach `/mcp`) builds the principal via `IUserClaimsPrincipalFactory`, so MCP writes
+  get a real `CreatedBy`. The endpoint policy requires the **Admin** role (mirrors the Admin-only UI), and every write
+  tool also checks its type's `WriteRoles`/`PublishRoles` via `IMcpCaller` + `RoleAccess.Allows` (Core; the rule
+  `AdminContentController` uses: null ⇒ Admin; child tools check the child type; page-history writes need Admin).
+  Responses follow the MCP resource-server shape: 401 + `WWW-Authenticate: Bearer [error="invalid_token",]
+  resource_metadata=…`, 403 `insufficient_scope`, and `AddMcp()` serves `/.well-known/oauth-protected-resource`
+  (no authorization servers). `McpAuthFailureThrottle` answers 429 to a failed token after 10 failures per IP per minute (checked only
+  after validation fails, so valid tokens from that IP still work).
+- **Seed tokens:** `Mcp:SeedTokens` (`UserEmail`/`Name`/`Token`, ≥32 chars) are upserted at boot by `McpTokenSeeder`,
+  only in Development unless `Mcp:AllowSeedTokensOutsideDevelopment` is set. The integration host
+  (a separate repo at [WebWayCMS.TestHost](https://github.com/MrSpicer/WebWayCMS.TestHost)) seeds a throwaway
+  localhost token for the seeded admin (its compose runs as Production, so it sets the opt-in).
 - To connect Claude Code to a running instance, add to `.mcp.json` once the server is enabled:
   `{ "mcpServers": { "webwaycms": { "type": "http", "url": "https://localhost:7046/mcp",
-  "headers": { "Authorization": "Bearer <key>" } } } }`.
+  "headers": { "Authorization": "Bearer <your token>" } } } }`.
 - The SDK/transport wiring (`McpServiceCollectionExtensions`, `McpApplicationBuilderExtensions`,
-  the API-key endpoint filter) is `[ExcludeFromCodeCoverage]` and validated by running; the toolset
-  logic is unit-tested to the 100% gate.
+  `McpTokenAuthenticationHandler`) is `[ExcludeFromCodeCoverage]` and validated by running; the toolset
+  logic (role checks included), `HttpMcpCaller`, the throttle and `ApiTokenService` are unit-tested to the 100% gate.
 
 ## CKEditor License
 
@@ -568,7 +581,7 @@
 - The meta tag exists specifically so the key never needs an inline `<script>`, which would force
   `'unsafe-inline'` into the CSP `script-src`.
 - A CKEditor license key is a JWT that ships to the browser regardless, so it is not a server-side
-  secret in the way the MCP `ApiKey` is.
+  secret in the way an MCP personal access token is.
 
 ## Security
 

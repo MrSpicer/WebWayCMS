@@ -19,12 +19,12 @@ public class PageHistoryToolsetTests
     public void SetUp()
     {
         _model = Substitute.For<IPageHistoryModel>();
-        _tools = new PageHistoryToolset(_model);
+        _tools = new PageHistoryToolset(_model, TestCaller.Admin);
     }
 
     [Test]
     public void Constructor_NullModel_Throws() =>
-        Assert.That(() => new PageHistoryToolset(null!), Throws.ArgumentNullException);
+        Assert.That(() => new PageHistoryToolset(null!, TestCaller.Admin), Throws.ArgumentNullException);
 
     [Test]
     public async Task ListPageHistory_ReturnsTheIndex_OrThrowsForAnUnknownPage()

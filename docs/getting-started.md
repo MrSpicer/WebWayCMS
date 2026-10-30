@@ -124,7 +124,7 @@ rather than an assembly boundary.
   "AdminUser": { "Email": "admin@example.com", "Password": "<strong-password>" },
   "CKEditor": { "LicenseKey": "" },
   "Csp": { "Enabled": true, "ReportOnly": false, "Directives": {} },
-  "Mcp": { "Enabled": false, "ApiKey": null, "Path": "/mcp" }
+  "Mcp": { "Enabled": false, "Path": "/mcp" }
 }
 ```
 
@@ -136,8 +136,9 @@ rather than an assembly boundary.
 - `Csp` — tunes the Content-Security-Policy header. Directives you don't list keep
   the CMS default; set one to an empty string to drop it. See
   [architecture/13-security.md](architecture/13-security.md).
-- `Mcp` — off by default. Setting `Enabled: true` **requires** a non-empty
-  `ApiKey` or startup throws. Only mapped by the admin bootstrap path. See
+- `Mcp` — off by default. With `Enabled: true`, each Admin creates a personal access
+  token on Identity → Manage → API tokens and sends it as a bearer token (there is no
+  shared key). Only mapped by the admin bootstrap path. See
   [architecture/12-mcp-server.md](architecture/12-mcp-server.md).
 
 Set secrets for local dev:

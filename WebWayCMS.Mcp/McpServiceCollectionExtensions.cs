@@ -5,11 +5,13 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Authentication;
 using ModelContextProtocol.Server;
 
 namespace WebWayCMS.Mcp;
@@ -28,6 +30,32 @@ public static class McpServiceCollectionExtensions
     public static IServiceCollection AddWebWayCmsMcp(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<McpOptions>(configuration.GetSection(McpOptions.SectionName));
+        var path = configuration.GetSection(McpOptions.SectionName).Get<McpOptions>()?.Path ?? new McpOptions().Path;
+
+        // Per-user personal access tokens. The scheme is named, never a default, so only the /mcp
+        // endpoint's policy uses it. AddMcp() serves the RFC 9728 protected resource metadata the
+        // challenge points at; it lists no authorization servers, because tokens are issued in the
+        // admin (Identity → Manage → API tokens), not through an OAuth flow.
+        services.AddMemoryCache();
+        services.AddSingleton<McpAuthFailureThrottle>();
+        services.AddScoped<IMcpCaller, HttpMcpCaller>();
+        services.AddAuthentication()
+            .AddScheme<AuthenticationSchemeOptions, McpTokenAuthenticationHandler>(McpTokenAuthenticationHandler.SchemeName, null)
+            .AddMcp(o =>
+            {
+                o.ResourceMetadataUri = new Uri(McpTokenAuthenticationHandler.ResourceMetadataPath, UriKind.Relative);
+                o.Events.OnResourceMetadataRequest = ctx =>
+                {
+                    var request = ctx.HttpContext.Request;
+                    ctx.ResourceMetadata = new ProtectedResourceMetadata
+                    {
+                        Resource = $"{request.Scheme}://{request.Host}{request.PathBase}{path}",
+                        BearerMethodsSupported = ["header"],
+                        ResourceName = "WebWayCMS",
+                    };
+                    return Task.CompletedTask;
+                };
+            });
 
         // Toolsets resolve scoped admin handlers per call.
         services.AddScoped<ContentToolset>();
@@ -71,7 +99,8 @@ public static class McpServiceCollectionExtensions
                 // tool call resolving from the per-HTTP-request scope keeps DbContext lifetimes short.
                 o.SessionMode = HttpServerSessionMode.Stateless;
             })
-            .WithTools(tools);
+            .WithTools(tools)
+            .AddAuthorizationFilters();
 
         return services;
     }

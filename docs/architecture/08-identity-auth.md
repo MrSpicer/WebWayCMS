@@ -248,6 +248,7 @@ Areas/Identity/Pages/Account/
         Disable2fa.cshtml.cs
         ResetAuthenticator.cshtml.cs
         Passkeys.cshtml.cs
+        ApiTokens.cshtml.cs   (WebWayCMS addition: MCP personal access tokens)
         ManageNavPages.cs
 ```
 
@@ -417,7 +418,19 @@ host to pin the expected RP domain; it is left unset for development (host-heade
 
 ---
 
-## 11. Personal Data Download
+## 11. MCP Personal Access Tokens
+
+`Manage/ApiTokens.cshtml` (not scaffolded; a WebWayCMS page in the same area) lets an **Admin** issue and
+revoke their own MCP tokens. It is `[Authorize(Roles = "Admin")]` because the MCP endpoint accepts only Admins,
+and it 404s (its `_ManageNav` link hidden) on a rendering-only host, where `IApiTokenService` is not registered.
+A new token's plaintext is rendered straight from the create POST (never through TempData) with copy buttons
+(`wwwroot/js/api-tokens.js`) and a ready-to-paste `.mcp.json`. Tokens live in the `ApiTokens` table (hash only,
+FK to `AspNetUsers` with cascade delete). The token itself authenticates through the `McpToken` scheme, which
+only the `/mcp` endpoint uses; see [Area 12](12-mcp-server.md).
+
+---
+
+## 12. Personal Data Download
 
 `Manage/PersonalData.cshtml`'s "Download" button posts to `DownloadPersonalData`, now scaffolded in
 `WebWayCMS.Presentation`. `DownloadPersonalDataModel.OnPostAsync` reflects over `IdentityUser`'s

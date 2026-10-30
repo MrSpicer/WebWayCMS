@@ -1,6 +1,9 @@
 @inject SignInManager<IdentityUser> SignInManager
 @{
     var hasExternalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).Any();
+    // MCP tokens: admin-mode hosts only (the service is registered there), and only Admins may use MCP.
+    var showApiTokens = User.IsInRole(WebWayCMS.PreviewConstants.AdminRole)
+        && Context.RequestServices.GetService(typeof(WebWayCMS.Data.Services.IApiTokenService)) != null;
 }
 <aside class="menu">
     <ul class="menu-list">
@@ -13,6 +16,10 @@
         }
         <li><a class="@ManageNavPages.TwoFactorAuthenticationNavClass(ViewContext)" id="two-factor" asp-page="./TwoFactorAuthentication">Two-factor authentication</a></li>
         <li><a class="@ManageNavPages.PasskeysNavClass(ViewContext)" id="passkeys" asp-page="./Passkeys">Passkeys</a></li>
+        @if (showApiTokens)
+        {
+            <li><a class="@ManageNavPages.ApiTokensNavClass(ViewContext)" id="api-tokens" asp-page="./ApiTokens">API tokens</a></li>
+        }
         <li><a class="@ManageNavPages.PersonalDataNavClass(ViewContext)" id="personal-data" asp-page="./PersonalData">Personal data</a></li>
     </ul>
 </aside>

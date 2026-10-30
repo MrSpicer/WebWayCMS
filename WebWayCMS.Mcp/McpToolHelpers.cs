@@ -35,6 +35,30 @@ internal static class McpToolHelpers
     }
 
     /// <summary>
+    /// Refuses the call unless the caller holds one of the handler's <see cref="IAdminCrudHandler.WriteRoles"/>
+    /// (the rule <c>AdminContentController</c> applies, via <see cref="RoleAccess"/>).
+    /// </summary>
+    public static void RequireWrite(IAdminCrudHandler handler, IMcpCaller caller)
+    {
+        if (!RoleAccess.Allows(handler.WriteRoles, caller.User))
+            throw new McpException($"You do not have permission to change '{handler.ContentType}' content.");
+    }
+
+    /// <summary>Refuses the call unless the caller holds one of the handler's <see cref="IAdminCrudHandler.PublishRoles"/>.</summary>
+    public static void RequirePublish(IAdminCrudHandler handler, IMcpCaller caller)
+    {
+        if (!RoleAccess.Allows(handler.PublishRoles, caller.User))
+            throw new McpException($"You do not have permission to publish '{handler.ContentType}' content.");
+    }
+
+    /// <summary>Refuses the call unless the caller is an Admin (tools whose admin screen is Admin-only).</summary>
+    public static void RequireAdmin(IMcpCaller caller)
+    {
+        if (!RoleAccess.Allows(null, caller.User))
+            throw new McpException("This action requires the Admin role.");
+    }
+
+    /// <summary>
     /// A version delete's outcome: deleted, or not deleted for the ordinary reason (the latest version is
     /// always kept), as <c>deleted: false</c>; any other refusal (e.g. the version is part of page
     /// history) is a protocol error carrying the reason.

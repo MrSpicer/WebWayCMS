@@ -3,14 +3,14 @@
 **Namespaces:**
 - `WebWayCMS` — `CspOptions`, `CspPolicyBuilder`, `AuthRateLimiting`, the security-header middleware in `CmsMiddlewarePipeline`
 - `WebWayCMS.Security` — `RichTextSanitizer`, `ModelValidator`
-- `WebWayCMS.Mcp` — `McpApiKeyEndpointFilter` (covered in [Area 12](12-mcp-server.md))
+- `WebWayCMS.Mcp` — `McpTokenAuthenticationHandler`, `McpAuthFailureThrottle` (covered in [Area 12](12-mcp-server.md))
 
 **Depends on:** `Ganss.Xss` (`HtmlSanitizer`), ASP.NET Core rate limiting, ASP.NET Identity
 **Consumed by:** every request (the header middleware) and every content save (the sanitizer)
 
 This area collects the cross-cutting defences. Identity's password policy, lockout, and cookie
-flags are documented in [Area 8](08-identity-auth.md); the MCP bearer-token boundary in
-[Area 12](12-mcp-server.md).
+flags are documented in [Area 8](08-identity-auth.md); MCP's per-user personal access tokens (Admin role,
+per-tool role checks, failed-attempt throttle) in [Area 12](12-mcp-server.md).
 
 ---
 
@@ -255,7 +255,7 @@ which `WebWayCMS.Admin/wwwroot/js/admin.js` reads (falling back to
 
 The meta tag exists precisely so the key never needs an inline `<script>`, which would force
 `'unsafe-inline'` into `script-src`. A CKEditor license key is a JWT that ships to the browser
-regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
+regardless, so — unlike an MCP personal access token — it is not a server-side secret.
 
 ---
 
@@ -263,8 +263,9 @@ regardless, so — unlike the MCP `ApiKey` — it is not a server-side secret.
 
 - [ ] `ConnectionStrings:DefaultConnection` in user-secrets or environment, not `appsettings.json`
 - [ ] `AdminUser:Password` in user-secrets or environment; rotate after first boot
-- [ ] `Mcp:Enabled` left `false` unless you genuinely need it; if enabled, treat `Mcp:ApiKey` as a
-      root credential and restrict network access to the endpoint
+- [ ] `Mcp:Enabled` left `false` unless you genuinely need it; if enabled, give personal access tokens an
+      expiry, revoke unused ones at `/wadmin/apitokens`, and restrict network access to the endpoint
+- [ ] No `Mcp:SeedTokens` and no `Mcp:AllowSeedTokensOutsideDevelopment` on a real deployment
 - [ ] Configure `Smtp:*` (host, credentials, from address) so account confirmation and password-reset
       emails are actually delivered; supply `Smtp:Password` via user-secrets/environment. Leaving
       `Smtp:Host` unset means confirmation links are only written to the log — useful in development,

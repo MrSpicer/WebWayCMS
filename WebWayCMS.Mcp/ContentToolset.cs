@@ -18,15 +18,18 @@ public sealed class ContentToolset
 {
     private readonly IAdminHandlerRegistry _registry;
     private readonly IEnumerable<IAdminCrudHandler> _handlers;
+    private readonly IMcpCaller _caller;
     private readonly ContentRelationRegistry? _relations;
 
     public ContentToolset(
         IAdminHandlerRegistry registry,
         IEnumerable<IAdminCrudHandler> handlers,
+        IMcpCaller caller,
         ContentRelationRegistry? relations = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
+        _caller = caller ?? throw new ArgumentNullException(nameof(caller));
         _relations = relations;
     }
 
@@ -110,6 +113,7 @@ public sealed class ContentToolset
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        McpToolHelpers.RequireWrite(handler, _caller);
         var model = McpToolHelpers.Merge(handler.CreateEmptyUpsertViewModel(), fields);
         return await handler.SaveUpsertAsync(model, ct);
     }
@@ -123,6 +127,7 @@ public sealed class ContentToolset
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        McpToolHelpers.RequireWrite(handler, _caller);
         var existing = await handler.GetUpsertViewModelAsync(id, McpToolHelpers.EmptyQuery, ct);
         if (existing == null)
             throw new McpException($"No '{contentType}' item found with id '{id}'.");
@@ -138,6 +143,7 @@ public sealed class ContentToolset
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        McpToolHelpers.RequireWrite(handler, _caller);
         var result = await handler.TryDeleteAsync(id, ct);
         if (!result.Success && result.ErrorMessage != null)
             throw new McpException(result.ErrorMessage);
@@ -145,13 +151,14 @@ public sealed class ContentToolset
     }
 
     [McpServerTool(Name = "publish_content", Idempotent = true, OpenWorld = false)] // Destructive left at its true default: swaps what the live site serves
-    [Description("Publishes the current draft of a content item, making it the live published version. The MCP endpoint runs with effective admin authority, so this acts as an authorized publisher.")]
+    [Description("Publishes the current draft of a content item, making it the live published version. It acts as your token's user and needs that type's publish role.")]
     public async Task<AdminSaveResult> PublishContent(
         [Description("The content type.")] string contentType,
         [Description("The node id of the item to publish.")] Guid nodeId,
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        McpToolHelpers.RequirePublish(handler, _caller);
         if (!handler.SupportsPublishing)
             throw new McpException($"Content type '{contentType}' does not support publishing.");
         return await handler.PublishAsync(nodeId, ct);
@@ -165,6 +172,7 @@ public sealed class ContentToolset
         CancellationToken ct = default)
     {
         var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
+        McpToolHelpers.RequirePublish(handler, _caller);
         if (!handler.SupportsPublishing)
             throw new McpException($"Content type '{contentType}' does not support publishing.");
         return await handler.UnpublishAsync(nodeId, ct);

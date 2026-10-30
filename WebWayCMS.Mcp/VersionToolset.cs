@@ -16,10 +16,12 @@ namespace WebWayCMS.Mcp;
 public sealed class VersionToolset
 {
     private readonly IAdminHandlerRegistry _registry;
+    private readonly IMcpCaller _caller;
 
-    public VersionToolset(IAdminHandlerRegistry registry)
+    public VersionToolset(IAdminHandlerRegistry registry, IMcpCaller caller)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _caller = caller ?? throw new ArgumentNullException(nameof(caller));
     }
 
     private IAdminCrudHandler ResolveVersioned(string contentType)
@@ -59,13 +61,14 @@ public sealed class VersionToolset
     }
 
     [McpServerTool(Name = "restore_version", Destructive = false, OpenWorld = false)]
-    [Description("Restores a historical version as a new draft of the item in a single step. The MCP endpoint runs with effective admin authority, so this acts as the current user.")]
+    [Description("Restores a historical version as a new draft of the item in a single step. The new version is attributed to your token's user.")]
     public async Task<AdminSaveResult> RestoreVersion(
         [Description("The content type.")] string contentType,
         [Description("The id of the historical version to restore.")] Guid versionId,
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
+        McpToolHelpers.RequireWrite(handler, _caller);
         return await handler.RestoreVersionAsync(versionId, ct);
     }
 
@@ -77,6 +80,7 @@ public sealed class VersionToolset
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
+        McpToolHelpers.RequireWrite(handler, _caller);
         return McpToolHelpers.DeleteResult(await handler.TryDeleteVersionAsync(versionId, ct));
     }
 }

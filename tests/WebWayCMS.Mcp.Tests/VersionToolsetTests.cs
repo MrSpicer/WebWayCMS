@@ -23,14 +23,15 @@ public class VersionToolsetTests
         _handler = Substitute.For<IAdminCrudHandler>();
         _handler.ContentType.Returns("contentblocks");
         _handler.SupportsVersionHistory.Returns(true);
+        _handler.AdminOnly();
         _registry.GetHandler(Arg.Any<string>()).Returns((IAdminCrudHandler?)null);
         _registry.GetHandler("contentblocks").Returns(_handler);
-        _tools = new VersionToolset(_registry);
+        _tools = new VersionToolset(_registry, TestCaller.Admin);
     }
 
     [Test]
     public void Constructor_NullRegistry_Throws() =>
-        Assert.That(() => new VersionToolset(null!), Throws.ArgumentNullException);
+        Assert.That(() => new VersionToolset(null!, TestCaller.Admin), Throws.ArgumentNullException);
 
     [Test]
     public void Tools_WhenVersioningUnsupported_Throw()

@@ -1,0 +1,98 @@
+@using WebWayCMS.Data.Services
+@model IReadOnlyList<ApiTokenListItem>
+
+@{
+    Layout = "~/Views/Shared/_AdminLayout.cshtml";
+    ViewData["Title"] = "API Tokens";
+    var now = DateTime.UtcNow;
+}
+
+<div class="admin-page-header">
+    <div class="container is-fluid">
+        <div class="admin-page-title-row">
+            <h1 class="title is-5">API Tokens</h1>
+            <a href="/Identity/Account/Manage/ApiTokens" class="button is-primary is-small">
+                <span class="icon"><i class="fas fa-key" aria-hidden="true"></i></span>
+                <span>My tokens</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="container is-fluid admin-page-body">
+    <p class="mb-3 has-text-grey">
+        Personal access tokens for the MCP endpoint. A token acts as its user with that user's current roles.
+        Users create their own under their account's API tokens page.
+    </p>
+
+    @if (Model.Count == 0)
+    {
+        <div class="card admin-empty-state">
+            <div class="card-content has-text-centered py-6">
+                <span class="icon is-large has-text-grey-light mb-4">
+                    <i class="fas fa-key fa-3x" aria-hidden="true"></i>
+                </span>
+                <p class="title is-5">No API tokens yet</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-container admin-list-container">
+            <table class="table is-fullwidth is-hoverable admin-list-table">
+                <caption class="is-sr-only">Every user's API tokens</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">User</th>
+                        <th scope="col">Name</th>
+                        <th scope="col" class="is-hidden-mobile">Token</th>
+                        <th scope="col" class="is-hidden-mobile">Created</th>
+                        <th scope="col">Expires</th>
+                        <th scope="col">Last used</th>
+                        <th scope="col">Status</th>
+                        <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model)
+                    {
+                        var token = item.Token;
+                        var revoked = token.RevokedUtc.HasValue;
+                        var expired = !revoked && token.ExpiresUtc <= now;
+                        <tr>
+                            <td>@(item.UserEmail ?? token.UserId)</td>
+                            <td class="admin-list-main">@token.Name</td>
+                            <td class="is-hidden-mobile"><code>@token.Prefix…</code></td>
+                            <td class="is-hidden-mobile">@token.CreatedUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@(token.ExpiresUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</td>
+                            <td>@(token.LastUsedUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</td>
+                            <td>
+                                @if (revoked)
+                                {
+                                    <span class="tag">Revoked</span>
+                                }
+                                else if (expired)
+                                {
+                                    <span class="tag is-warning is-light">Expired</span>
+                                }
+                                else
+                                {
+                                    <span class="tag is-success is-light">Active</span>
+                                }
+                            </td>
+                            <td class="admin-actions-col">
+                                @if (!revoked)
+                                {
+                                    <form method="post" asp-action="Revoke" asp-route-id="@token.Id">
+                                        <button type="submit" class="button is-danger is-light is-small"
+                                                aria-label="Revoke @token.Name for @(item.UserEmail ?? token.UserId)">Revoke</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
