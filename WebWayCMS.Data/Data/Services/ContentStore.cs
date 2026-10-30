@@ -471,6 +471,12 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         if (entity == null)
             return false;
 
+        // A published version is what is live; deleting it would silently unpublish content while
+        // route projections keep resolving. Unpublish first, then the version is an ordinary
+        // historical Archived row.
+        if (entity.Version.State == ContentVersionState.Published)
+            return false;
+
         // Match the admin UI, which hides Delete on the latest version: never delete the
         // highest-numbered version (that also covers a node's single version for free). Scope the max
         // to the same variant the deleted version belongs to — a non-empty culture/segment otherwise

@@ -225,6 +225,15 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             return ApplyOutcome.Skipped;
         }
 
+        // This exact content was saved on an earlier boot and only its publish failed: retry the publish
+        // alone. Saving it again would mint another identical version on every boot until the publish works.
+        // A node deleted since then falls through to an ordinary apply, which creates it again.
+        if (item.Zone == null
+            && record != null
+            && string.Equals(record.ContentHash, PublishPendingHash(hash), StringComparison.Ordinal)
+            && await handler.GetUpsertViewModelAsync(record.NodeId, EmptyQuery, ct) != null)
+            return await PublishSavedAsync(item, source, handler, record.NodeId, hash, ct);
+
         if (item.Zone != null)
             return await ApplyZoneItemAsync(item, source, handler, record, hash, run, ct);
 
@@ -260,8 +269,13 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         var result = await handler.SaveUpsertAsync(model, ct);
         if (!result.Success)
         {
-            // Hash is deliberately NOT recorded, so the item is retried on the next boot.
-            _logger.Warning("Content seed item '{SeedId}' failed to save: {ErrorMessage}; will retry next boot.", item.Id, result.ErrorMessage);
+            // Hash is deliberately NOT recorded, so the item is retried on the next boot. A field
+            // error is a permanent content problem (e.g. an over-length or invalid field): retrying
+            // can never fix it, so say so loudly instead of a warning that reads as transient.
+            if (!string.IsNullOrEmpty(result.ErrorField))
+                _logger.Error("Content seed item '{SeedId}' failed to save permanently: {ErrorMessage}; fix the seed file (the item is retried on every boot until then).", item.Id, result.ErrorMessage);
+            else
+                _logger.Warning("Content seed item '{SeedId}' failed to save: {ErrorMessage}; will retry next boot.", item.Id, result.ErrorMessage);
             return ApplyOutcome.Skipped;
         }
 
@@ -274,19 +288,38 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         }
 
         if (item.Publish && handler.SupportsPublishing)
+            return await PublishSavedAsync(item, source, handler, nodeId, hash, ct);
+
+        await RecordAsync(item, source, nodeId, hash, ct);
+        return ApplyOutcome.Applied;
+    }
+
+    /// <summary>
+    /// Publishes a saved top-level item and records its hash. On a failed publish the node is recorded
+    /// with <see cref="PublishPendingHash"/>: the next boot then neither creates a duplicate node nor saves
+    /// the unchanged content again — it only retries the publish (a changed seed item re-saves as usual).
+    /// </summary>
+    private async Task<ApplyOutcome> PublishSavedAsync(
+        ContentSeedItem item, ContentSeedSource source, IAdminCrudHandler handler, Guid nodeId, string hash, CancellationToken ct)
+    {
+        var publishResult = await handler.PublishAsync(nodeId, ct);
+        if (!publishResult.Success)
         {
-            var publishResult = await handler.PublishAsync(nodeId, ct);
-            if (!publishResult.Success)
-            {
-                // Hash is deliberately NOT recorded, so the item is retried on the next boot.
-                _logger.Warning("Content seed item '{SeedId}' failed to publish: {ErrorMessage}; will retry next boot.", item.Id, publishResult.ErrorMessage);
-                return ApplyOutcome.Skipped;
-            }
+            await RecordAsync(item, source, nodeId, PublishPendingHash(hash), ct, published: false);
+            _logger.Warning("Content seed item '{SeedId}' was saved as node {NodeId} but failed to publish: {ErrorMessage}; the publish is retried next boot.", item.Id, nodeId, publishResult.ErrorMessage);
+            return ApplyOutcome.Skipped;
         }
 
         await RecordAsync(item, source, nodeId, hash, ct);
         return ApplyOutcome.Applied;
     }
+
+    /// <summary>
+    /// The ledger hash of an item whose content is saved but not yet published: the lowercase form of
+    /// <see cref="ComputeHash"/>'s uppercase hex. It fits the same 64-character column, never equals a real
+    /// hash (so the "unchanged" check does not skip the item), and still identifies the content it was saved with.
+    /// </summary>
+    private static string PublishPendingHash(string hash) => hash.ToLowerInvariant();
 
     private async Task<ApplyOutcome> ApplyZoneItemAsync(
         ContentSeedItem item,
@@ -345,6 +378,19 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         // A move is only possible within one page's zone tree, so anything else is left untouched (nothing
         // saved or recorded) and reported on every boot until the seed is fixed.
         var stored = record == null ? null : await _zoneService.GetItemByNodeIdAsync(record.NodeId, ct);
+
+        // This exact content was saved into this zone on an earlier boot and only its publish failed: queue the
+        // publish alone. Saving it again would mint another identical version on every boot until it publishes.
+        if (stored != null
+            && stored.ContentZoneNodeId == zone.ZoneNodeId
+            && item.Publish
+            && zone.PageNodeId is { } pendingPage
+            && string.Equals(record!.ContentHash, PublishPendingHash(hash), StringComparison.Ordinal))
+        {
+            QueueZonePublish(run, pendingPage, new QueuedZoneItem(item, source, stored.Version.Node.Id, hash));
+            return ApplyOutcome.Applied;
+        }
+
         if (stored != null && stored.ContentZoneNodeId != zone.ZoneNodeId)
         {
             var storedPage = await GetZonePageAsync(stored.ContentZoneNodeId, run, ct);
@@ -386,12 +432,10 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         if (item.Publish && zone.PageNodeId is { } page)
         {
             // A page-zone item is a draft until it is published. Record the node now (a nested item's locator
-            // may reference it) with an empty hash; the real hash is recorded by PublishZoneItemsAsync, so a
-            // failed publish retries next boot against this same item.
-            await RecordAsync(item, source, nodeId, string.Empty, ct);
-            if (!run.ItemsToPublish.TryGetValue(page, out var queued))
-                run.ItemsToPublish[page] = queued = [];
-            queued.Add(new QueuedZoneItem(item, source, nodeId, hash));
+            // may reference it) with the publish-pending hash; the real hash is recorded by PublishZoneItemsAsync,
+            // so a failed publish retries next boot against this same item, without saving it again.
+            await RecordAsync(item, source, nodeId, PublishPendingHash(hash), ct, published: false);
+            QueueZonePublish(run, page, new QueuedZoneItem(item, source, nodeId, hash));
             return ApplyOutcome.Applied;
         }
 
@@ -399,6 +443,13 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         // is next published.
         await RecordAsync(item, source, nodeId, hash, ct);
         return ApplyOutcome.Applied;
+    }
+
+    private static void QueueZonePublish(SeedRun run, Guid pageNodeId, QueuedZoneItem item)
+    {
+        if (!run.ItemsToPublish.TryGetValue(pageNodeId, out var queued))
+            run.ItemsToPublish[pageNodeId] = queued = [];
+        queued.Add(item);
     }
 
     /// <summary>
@@ -424,7 +475,7 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             if (result.Errors.Count > 0)
                 _logger.Warning("Publishing seeded zone items on page {PageNodeId} reported errors: {Errors}", pageNodeId, string.Join(" ", result.Errors));
 
-            // An item that failed to publish keeps its empty-hash record and retries next boot. A route failure
+            // An item that failed to publish keeps its publish-pending record and retries (the publish only) next boot. A route failure
             // on an item that did go live is not retried: re-applying the same seed could not fix it.
             var failed = result.FailedItemNodeIds.ToHashSet();
             foreach (var queued in items.Where(i => !failed.Contains(i.NodeId)))
@@ -563,7 +614,8 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
         return null;
     }
 
-    private async Task RecordAsync(ContentSeedItem item, ContentSeedSource source, Guid nodeId, string hash, CancellationToken ct)
+    private async Task RecordAsync(
+        ContentSeedItem item, ContentSeedSource source, Guid nodeId, string hash, CancellationToken ct, bool published = true)
     {
         await _records.UpsertAsync(new ContentSeedRecordDTO
         {
@@ -575,7 +627,9 @@ public sealed class JsonContentSeeder : IJsonContentSeeder
             AppliedUtc = DateTime.UtcNow,
         }, ct);
 
-        _logger.Information("Seeded content item '{ContentType}' with seed id '{SeedId}' as node {NodeId}.", item.ContentType, item.Id, nodeId);
+        // A pending publish is reported by its caller's warning, not as a seeded item.
+        if (published)
+            _logger.Information("Seeded content item '{ContentType}' with seed id '{SeedId}' as node {NodeId}.", item.ContentType, item.Id, nodeId);
     }
 
     private static bool Blank(string? value) => string.IsNullOrWhiteSpace(value);

@@ -6,6 +6,7 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;
 using WebWayCMS.Controllers.Admin;
@@ -419,6 +420,51 @@ public class ContentZoneApiControllerTests
             Assert.That(result, Is.InstanceOf<OkObjectResult>());
             await _service.Received(1).UpdateItemAsync(
                 Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Is<int?>(v => v == 5));
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_Create_InvalidConfiguration_ReturnsBadRequestWithoutSaving()
+    {
+        var zoneId = Guid.NewGuid();
+        _widgetRegistry.ValidateConfiguration("Lister", "{\"maxItems\":-5}", WidgetDisplayMode.List)
+            .Returns(new[] { "Max Items must be at least 1." });
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ComponentName = "Lister", ZoneName = "Z", ZoneId = zoneId,
+            ComponentPropertiesJson = "{\"maxItems\":-5}", MetadataJson = "{\"DisplayMode\":\"List\"}"
+        }, default);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+            Assert.That(ValueOf(((BadRequestObjectResult)result).Value, "error"), Is.EqualTo("Max Items must be at least 1."));
+            await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task SaveItem_Update_InvalidConfiguration_ValidatesForTheStoredDisplayModeWithoutSaving()
+    {
+        var zoneId = Guid.NewGuid();
+        var itemNodeId = Guid.NewGuid();
+        var existing = Item(itemNodeId, zoneId);
+        existing.ComponentName = "Lister";
+        existing.MetadataJson = "{\"DisplayMode\":\"List\"}";
+        _service.GetItemByNodeIdAsync(itemNodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _widgetRegistry.ValidateConfiguration("Lister", "{}", WidgetDisplayMode.List)
+            .Returns(new[] { "Heading is required." });
+
+        var result = await _controller.SaveItem(new SaveItemRequest
+        {
+            ComponentName = "Lister", ZoneName = "Z", ZoneId = zoneId, ItemId = itemNodeId, ComponentPropertiesJson = null
+        }, default);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
+            await _model.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
         });
     }
 

@@ -20,11 +20,15 @@ public static class AuthRateLimiting
     /// <summary>The fixed window over which <see cref="PermitLimit"/> applies.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
-    // Identity scaffolded auth pages that accept credentials or trigger emails, plus the anonymous
-    // passkey challenge-generation endpoint. Prefix-match, case-insensitive.
+    // Identity scaffolded auth pages that accept credentials or trigger emails, the anonymous
+    // passkey challenge-generation endpoint, and the second-factor verification endpoints (the
+    // LoginWith2fa code check is anonymous — a sign-in flow's last gate — and the Manage 2FA
+    // setup endpoints verify authenticator codes). Prefix-match, case-insensitive.
     private static readonly string[] LimitedPaths =
     {
         "/Identity/Account/Login",
+        "/Identity/Account/LoginWith2fa",
+        "/Identity/Account/LoginWithRecoveryCode",
         "/Identity/Account/Register",
         "/Identity/Account/ForgotPassword",
         "/Identity/Account/ResetPassword",
@@ -32,6 +36,8 @@ public static class AuthRateLimiting
         "/Identity/Account/ExternalLogin",
         "/Identity/Account/PasskeyAssertion",
         "/Identity/Account/PasskeyRequestOptions",
+        "/Identity/Account/Manage/EnableAuthenticator",
+        "/Identity/Account/Manage/TwoFactorAuthentication",
     };
 
     /// <summary>

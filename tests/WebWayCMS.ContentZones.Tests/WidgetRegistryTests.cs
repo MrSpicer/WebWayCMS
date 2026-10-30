@@ -6,6 +6,7 @@ using NSubstitute;
 
 using NUnit.Framework;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
@@ -318,6 +319,31 @@ public class WidgetRegistryTests
 
         Assert.That(errors, Has.Count.EqualTo(1));
         Assert.That(errors[0], Does.Contain("Name is required"));
+    }
+
+    [Test]
+    public void ValidateConfiguration_DisplayMode_ChecksOnlyThatModesFields()
+    {
+        var configType = typeof(SampleConfig).FullName;
+        _service.GetActiveAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            WidgetDto("Sample", "Sample", configType: configType,
+                propertyJson: System.Text.Json.JsonSerializer.Serialize(new List<FormPropertyInfo>
+                {
+                    new() { Name = "Name", IsRequired = true, Label = "Name", DisplayModes = WidgetDisplayMode.List },
+                    new() { Name = "Code", MaxLength = 1, Label = "Code", DisplayModes = WidgetDisplayMode.Single }
+                }))
+        });
+        var config = new SampleConfig { Name = "", Code = "too long" };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_registry.ValidateConfiguration("Sample", config, WidgetDisplayMode.Single),
+                Is.EqualTo(new[] { "Code must not exceed 1 characters." }));
+            Assert.That(_registry.ValidateConfiguration("Sample", config, WidgetDisplayMode.List),
+                Is.EqualTo(new[] { "Name is required." }));
+            Assert.That(_registry.ValidateConfiguration("Sample", config), Has.Count.EqualTo(2));
+        });
     }
 
     [Test]

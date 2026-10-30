@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -128,31 +127,7 @@ public class PageControllerRegistry : IPageControllerRegistry
                 }
             }
 
-            if (value != null && (propInfo.Min.HasValue || propInfo.Max.HasValue))
-            {
-                if (double.TryParse(value.ToString(), out var numValue))
-                {
-                    if (propInfo.Min.HasValue && numValue < propInfo.Min.Value)
-                        errors.Add($"{propInfo.Label} must be at least {propInfo.Min.Value}.");
-                    if (propInfo.Max.HasValue && numValue > propInfo.Max.Value)
-                        errors.Add($"{propInfo.Label} must be at most {propInfo.Max.Value}.");
-                }
-            }
-
-            if (value is string strValue && propInfo.MaxLength.HasValue && strValue.Length > propInfo.MaxLength.Value)
-            {
-                errors.Add($"{propInfo.Label} must not exceed {propInfo.MaxLength.Value} characters.");
-            }
-
-            if (value is string patternValue && !string.IsNullOrEmpty(propInfo.Pattern))
-            {
-                if (!Regex.IsMatch(patternValue, propInfo.Pattern))
-                {
-                    errors.Add(!string.IsNullOrEmpty(propInfo.PatternErrorMessage)
-                        ? propInfo.PatternErrorMessage
-                        : $"{propInfo.Label} has an invalid format.");
-                }
-            }
+            errors.AddRange(FormPropertyConstraints.Check(propInfo, value));
         }
 
         return errors;

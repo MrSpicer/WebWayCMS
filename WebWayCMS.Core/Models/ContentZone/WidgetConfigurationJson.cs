@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Forms;
@@ -25,6 +26,37 @@ public static class WidgetConfigurationJson
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+
+    /// <summary>
+    /// The stored configuration-JSON column limit (<c>ComponentPropertiesJson</c> on a zone item and
+    /// <c>ConfigurationJson</c> on a page). Every write path checks its payload with
+    /// <see cref="LengthError"/> first, so an overflow is a validation message rather than a raw
+    /// <c>DbUpdateException</c> the seeder would then retry forever.
+    /// </summary>
+    public const int MaxJsonLength = 4000;
+
+    /// <summary>
+    /// The friendly error when <paramref name="json"/> would overflow its column, or <c>null</c>
+    /// when it fits. <paramref name="what"/> names the payload in the message (e.g.
+    /// <c>"ContentBlock configuration"</c>).
+    /// </summary>
+    public static string? LengthError(string? json, string what)
+        => json != null && json.Length > MaxJsonLength
+            ? $"{what} exceeds the {MaxJsonLength} character limit ({json.Length} characters). Shorten the configuration or move long text into a content item."
+            : null;
+
+    /// <summary>
+    /// Checks a widget configuration's <c>[FormProperty]</c> constraints (required, min, max, max length,
+    /// pattern) server-side — the same checks the config form renders client-side, so a zone editor API,
+    /// MCP or content-seed write cannot bypass them. Pass the caller's payload <b>before</b>
+    /// <see cref="ExtractRelations(IWidgetRegistry, string, string?)"/>: a required <c>[ContentRelation]</c>
+    /// id is still in it (stripped, it would read as <see cref="Guid.Empty"/> and fail as missing). Only the
+    /// fields of <paramref name="displayMode"/> are checked, as only those are on the item's form; an empty
+    /// payload is checked as <c>"{}"</c>, so a widget with a required field cannot skip validation.
+    /// </summary>
+    public static IReadOnlyList<string> Validate(
+        IWidgetRegistry registry, string componentName, string? json, WidgetDisplayMode displayMode)
+        => registry.ValidateConfiguration(componentName, string.IsNullOrWhiteSpace(json) ? "{}" : json, displayMode);
 
     /// <summary>The registered configuration type for <paramref name="componentName"/>, if it resolves.</summary>
     public static Type? ResolveConfigurationType(IWidgetRegistry registry, string componentName)

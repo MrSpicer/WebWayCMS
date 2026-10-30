@@ -97,7 +97,10 @@ readable JSON object (malformed, an array, duplicate keys) **fails closed** to `
 sanitizer fails `[Required]` and a rejected save never creates a change-set row. It enforces exactly
 the fields `describe_content_type` advertises as `required`: DataAnnotations via
 `Validator.TryValidateObject(validateAllProperties: true)`, plus `FormPropertyAttribute.IsRequired`
-(for view models such as `ContentZoneItemUpsertViewModel` that carry no DataAnnotations). The result's
+(for view models such as `ContentZoneItemUpsertViewModel` that carry no DataAnnotations), and the
+`FormProperty` bounds `Min`/`Max`/`MaxLength`/`Pattern` through `FormPropertyConstraints` (`WebWayCMS.Forms`,
+shared with the widget and page-controller registries; a pattern has HTML `pattern` semantics — an empty
+value passes, the whole value must match, and a match that exceeds a 1 s timeout counts as a mismatch). The result's
 `ErrorField` is the PascalCase property name, matching the `ModelState` keys the admin controller binds
 with.
 

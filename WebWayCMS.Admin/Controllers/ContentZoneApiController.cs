@@ -76,6 +76,10 @@ public class ContentZoneApiController : ControllerBase
         // Rich-text config fields are rendered with @Html.Raw, so the payload is sanitized here like
         // every other zone-item write path (the child handler does the same).
         var propertiesJson = WidgetConfigurationJson.Sanitize(_widgetRegistry, request.ComponentName, strippedJson);
+        var lengthError = WidgetConfigurationJson.LengthError(
+            propertiesJson, $"{request.ComponentName} configuration");
+        if (lengthError != null)
+            return BadRequest(new { error = lengthError });
 
         try
         {
@@ -124,6 +128,9 @@ public class ContentZoneApiController : ControllerBase
                     && existingItem.Version.VersionNumber != request.ExpectedVersionNumber.Value)
                     return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
 
+                if (ConfigurationError(request, existingItem.MetadataJson) is { } updateConfigError)
+                    return updateConfigError;
+
                 // Update existing item — the service keeps the stored zone and ordinal
                 var item = new ContentZoneItemDTO
                 {
@@ -150,6 +157,9 @@ public class ContentZoneApiController : ControllerBase
             }
             else
             {
+                if (ConfigurationError(request, createMetadataJson) is { } createConfigError)
+                    return createConfigError;
+
                 // Create new item - ID is auto-generated; ordinal 0 makes AddItemAsync place it last
                 var item = new ContentZoneItemDTO
                 {
@@ -274,6 +284,18 @@ public class ContentZoneApiController : ControllerBase
     }
 
     /// <summary>Validates extracted config relations as the config type's own declarations.</summary>
+    /// <summary>
+    /// The payload's <c>[FormProperty]</c> checks (<see cref="WidgetConfigurationJson.Validate"/>, on the
+    /// unstripped JSON) for the display mode the item renders in: a create's chosen metadata, an update's
+    /// stored metadata (this endpoint never changes it). Null when the payload is valid.
+    /// </summary>
+    private IActionResult? ConfigurationError(SaveItemRequest request, string? metadataJson)
+    {
+        var errors = WidgetConfigurationJson.Validate(_widgetRegistry, request.ComponentName, request.ComponentPropertiesJson,
+            WidgetMetadataJson.EffectiveDisplayMode(metadataJson, _widgetRegistry.GetByName(request.ComponentName)));
+        return errors.Count == 0 ? null : BadRequest(new { error = string.Join(" ", errors) });
+    }
+
     private async Task<AdminSaveResult?> ValidateConfigRelationsAsync(
         Type? configType, IReadOnlyList<RelationValue> relations, string componentName, CancellationToken ct)
     {

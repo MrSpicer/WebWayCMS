@@ -190,9 +190,15 @@ client IP **and per endpoint family**, to slow credential brute force and passwo
   `"{RemoteIpAddress}|{matchedPrefix}"` (`"unknown"` for the IP when unavailable). Each limited path is
   its own bucket, so one endpoint family's traffic never exhausts another's budget.
 - **Limited paths** (prefix match, case-insensitive): `/Identity/Account/Login`,
+  `/Identity/Account/LoginWith2fa`, `/Identity/Account/LoginWithRecoveryCode`,
   `/Identity/Account/Register`, `/Identity/Account/ForgotPassword`, `/Identity/Account/ResetPassword`,
   `/Identity/Account/ResendEmailConfirmation`, `/Identity/Account/ExternalLogin`,
-  `/Identity/Account/PasskeyAssertion`, `/Identity/Account/PasskeyRequestOptions`
+  `/Identity/Account/PasskeyAssertion`, `/Identity/Account/PasskeyRequestOptions`,
+  `/Identity/Account/Manage/EnableAuthenticator`, `/Identity/Account/Manage/TwoFactorAuthentication`
+  — the second-factor endpoints are limited because `LoginWith2fa`/`LoginWithRecoveryCode` are an
+  **anonymous** code-verification gate at the end of every sign-in flow (password, external, passkey),
+  and the Manage endpoints verify authenticator codes during setup. Segment-boundary matching keeps
+  them distinct buckets from `/Login` (`LoginWith2fa` does not start a `/Login` segment).
 - **Everything else** gets `RateLimitPartition.GetNoLimiter("unlimited")` — no throttling
 - **Over the limit** returns HTTP **429**
 

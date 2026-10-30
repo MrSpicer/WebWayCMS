@@ -983,14 +983,34 @@ public class ContentStoreTests
         var current = (await store.GetAsync(nodeId))!;
         var v0Id = current.VersionId;
         await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+        await store.PublishAsync(nodeId);
+        var published = (await store.GetAsync(nodeId))!;
+        await store.SaveDraftAsync(published with { Version = published.Version with { Title = "v2" } }, 1);
 
         Assert.Multiple(async () =>
         {
             Assert.That(await store.DeleteVersionAsync(Guid.NewGuid()), Is.False);
-            Assert.That(await store.DeleteVersionAsync(v0Id), Is.True);
+            Assert.That(await store.DeleteVersionAsync(v0Id), Is.True, "v0 was archived by the v1 publish");
         });
 
-        Assert.That((await store.GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(1));
+        Assert.That((await store.GetAllVersionsAsync(nodeId)), Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task DeleteVersionAsync_PublishedVersion_Refused()
+    {
+        var nodeId = await CreatePublishedAsync("v0");
+        var store = NewStore();
+        var current = (await store.GetAsync(nodeId))!;
+        await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+
+        var ok = await store.DeleteVersionAsync(current.VersionId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(ok, Is.False, "a published version is what is live; unpublish first");
+            Assert.That(await store.GetAllVersionsAsync(nodeId), Has.Count.EqualTo(2));
+        });
     }
 
     [Test]
@@ -1189,6 +1209,7 @@ public class ContentStoreTests
         var current = (await store.GetAsync(nodeId))!;
         await AddSnapshotAsync(Guid.NewGuid(), Guid.NewGuid(), current.VersionId);
         await store.SaveDraftAsync(current with { Version = current.Version with { Title = "v1" } }, 0);
+        await store.PublishAsync(nodeId);
 
         var ok = await NewStore().DeleteVersionAsync(current.VersionId);
 

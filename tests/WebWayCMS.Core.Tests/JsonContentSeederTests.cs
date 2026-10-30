@@ -248,18 +248,119 @@ public class JsonContentSeederTests
     }
 
     [Test]
-    public async Task Seed_PublishFailure_DoesNotRecord()
+    public async Task Seed_PublishFailure_RecordsTheNodeAsPublishPending()
     {
         StubHandler();
         _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new AdminSaveResult(false, "route collision"));
+        ContentSeedRecordDTO? captured = null;
+        _records.UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(c => captured = c.Arg<ContentSeedRecordDTO>());
         var seeder = NewSeeder(Provider(Source("a.json", ItemJson())));
 
         await seeder.SeedAsync();
 
+        // The node exists, so it is recorded (the next boot must not create a duplicate) — with the
+        // publish-pending form of the hash: the lowercase hex, which no real (uppercase) hash equals.
         await _handler.Received(1).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
         await _handler.Received(1).PublishAsync(NodeId, Arg.Any<CancellationToken>());
-        await _records.DidNotReceive().UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(captured, Is.Not.Null);
+            Assert.That(captured!.NodeId, Is.EqualTo(NodeId));
+            Assert.That(captured.ContentHash, Has.Length.EqualTo(64));
+            Assert.That(captured.ContentHash, Is.EqualTo(captured.ContentHash.ToLowerInvariant()));
+            Assert.That(captured.ContentHash, Is.Not.EqualTo(captured.ContentHash.ToUpperInvariant()));
+        });
+    }
+
+    /// <summary>Boots once with a failing publish and returns the publish-pending ledger row it wrote.</summary>
+    private async Task<ContentSeedRecordDTO> BootWithFailedPublishAsync(string json)
+    {
+        StubHandler();
+        _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(false, "route collision"));
+        ContentSeedRecordDTO? captured = null;
+        _records.UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(c => captured = c.Arg<ContentSeedRecordDTO>());
+        _records.GetAsync(SeedId, Arg.Any<CancellationToken>()).Returns((ContentSeedRecordDTO?)null);
+        await NewSeeder(Provider(Source("a.json", json))).SeedAsync();
+
+        var pending = captured!;
+        _records.ClearReceivedCalls();
+        _handler.ClearReceivedCalls();
+        _records.GetAsync(SeedId, Arg.Any<CancellationToken>()).Returns(pending);
+        return pending;
+    }
+
+    [Test]
+    public async Task Seed_PublishPending_NextBootRetriesOnlyThePublish()
+    {
+        await BootWithFailedPublishAsync(ItemJson());
+        _handler.GetUpsertViewModelAsync(NodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new object());
+        _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+        ContentSeedRecordDTO? recorded = null;
+        _records.UpsertAsync(Arg.Any<ContentSeedRecordDTO>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(c => recorded = c.Arg<ContentSeedRecordDTO>());
+
+        await NewSeeder(Provider(Source("a.json", ItemJson()))).SeedAsync();
+
+        // The same content is not saved again (no new version per boot); the publish is retried and,
+        // once it works, the real hash is recorded.
+        Assert.Multiple(async () =>
+        {
+            await _handler.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+            await _handler.Received(1).PublishAsync(NodeId, Arg.Any<CancellationToken>());
+            Assert.That(recorded!.ContentHash, Is.EqualTo(recorded.ContentHash.ToUpperInvariant()));
+        });
+    }
+
+    [Test]
+    public async Task Seed_PublishPending_StillFailing_DoesNotSaveAgain()
+    {
+        await BootWithFailedPublishAsync(ItemJson());
+        _handler.GetUpsertViewModelAsync(NodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new object());
+
+        await NewSeeder(Provider(Source("a.json", ItemJson()))).SeedAsync();
+
+        await _handler.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _handler.Received(1).PublishAsync(NodeId, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Seed_PublishPending_ChangedContent_UpdatesTheSameNode()
+    {
+        await BootWithFailedPublishAsync(ItemJson());
+        _handler.GetUpsertViewModelAsync(NodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns(new object());
+        _handler.PublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new AdminSaveResult(true));
+
+        // A changed seed item is an ordinary update of the recorded node (merged, not created afresh).
+        await NewSeeder(Provider(Source("a.json", ItemJson(fields: "{\"title\":\"Changed\"}")))).SeedAsync();
+
+        Assert.Multiple(async () =>
+        {
+            await _handler.Received(1).GetUpsertViewModelAsync(NodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>());
+            await _handler.Received(1).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+            await _handler.Received(1).PublishAsync(NodeId, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task Seed_PublishPending_NodeDeletedSince_IsAppliedAgain()
+    {
+        await BootWithFailedPublishAsync(ItemJson());
+        _handler.GetUpsertViewModelAsync(NodeId, Arg.Any<Microsoft.AspNetCore.Http.IQueryCollection>(), Arg.Any<CancellationToken>())
+            .Returns((object?)null);
+
+        await NewSeeder(Provider(Source("a.json", ItemJson()))).SeedAsync();
+
+        await _handler.Received(1).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

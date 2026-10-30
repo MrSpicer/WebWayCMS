@@ -496,6 +496,44 @@ public class CMSRouteServiceTests
     }
 
     [Test]
+    public async Task DeleteByOwningContentsAsync_RemovesEveryListedOwnersRows()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        await SeedAsync(
+            RouteRow("/a", owningContentNodeId: first),
+            RouteRow("/a/b", owningContentNodeId: first),
+            RouteRow("/c", owningContentNodeId: second),
+            RouteRow("/kept", owningContentNodeId: other),
+            RouteRow("/manual"));
+
+        var deleted = await NewService().DeleteByOwningContentsAsync([first, second]);
+
+        var remaining = await NewService().GetAllRoutesAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(3));
+            Assert.That(remaining.Select(r => r.Pattern), Is.EquivalentTo(new[] { "/kept", "/manual" }));
+        });
+        _registry.Received().Invalidate();
+    }
+
+    [Test]
+    public async Task DeleteByOwningContentsAsync_NothingToRemove_ReturnsZeroWithoutInvalidating()
+    {
+        await SeedAsync(RouteRow("/kept", owningContentNodeId: Guid.NewGuid()));
+        _registry.ClearReceivedCalls();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await NewService().DeleteByOwningContentsAsync([]), Is.Zero);
+            Assert.That(await NewService().DeleteByOwningContentsAsync([Guid.NewGuid()]), Is.Zero);
+        });
+        _registry.DidNotReceive().Invalidate();
+    }
+
+    [Test]
     public async Task GetByOwningContentAsync_ReturnsRoutes()
     {
         var owningNodeId = Guid.NewGuid();

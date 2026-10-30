@@ -276,6 +276,7 @@ public class ContentStoreRelationTests
         var draft = (await Articles().GetCurrentDraftAsync(article))!;
         var v0 = draft.VersionId;
         await Articles().SaveDraftAsync(draft, null);
+        await Articles().PublishAsync(article);
 
         var deleted = await Articles().DeleteVersionAsync(v0);
         await using var ctx = NewContext();

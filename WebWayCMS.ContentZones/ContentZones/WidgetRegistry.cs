@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.DependencyInjection;
 
+using WebWayCMS.Attributes;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
@@ -99,6 +99,9 @@ public class WidgetRegistry : IWidgetRegistry
     }
 
     public IReadOnlyList<string> ValidateConfiguration(string componentName, object configuration)
+        => ValidateConfiguration(componentName, configuration, null);
+
+    public IReadOnlyList<string> ValidateConfiguration(string componentName, object configuration, WidgetDisplayMode? displayMode)
     {
         var errors = new List<string>();
         var info = GetByName(componentName);
@@ -139,7 +142,8 @@ public class WidgetRegistry : IWidgetRegistry
             return errors;
         }
 
-        foreach (var propInfo in info.Properties)
+        // A field tagged for the other display mode is not on this item's form, so it is not checked.
+        foreach (var propInfo in info.Properties.Where(p => p.AppliesTo(displayMode)))
         {
             var prop = configType.GetProperty(propInfo.Name);
             if (prop == null)
@@ -156,31 +160,7 @@ public class WidgetRegistry : IWidgetRegistry
                 }
             }
 
-            if (value != null && (propInfo.Min.HasValue || propInfo.Max.HasValue))
-            {
-                if (double.TryParse(value.ToString(), out var numValue))
-                {
-                    if (propInfo.Min.HasValue && numValue < propInfo.Min.Value)
-                        errors.Add($"{propInfo.Label} must be at least {propInfo.Min.Value}.");
-                    if (propInfo.Max.HasValue && numValue > propInfo.Max.Value)
-                        errors.Add($"{propInfo.Label} must be at most {propInfo.Max.Value}.");
-                }
-            }
-
-            if (value is string strValue && propInfo.MaxLength.HasValue && strValue.Length > propInfo.MaxLength.Value)
-            {
-                errors.Add($"{propInfo.Label} must not exceed {propInfo.MaxLength.Value} characters.");
-            }
-
-            if (value is string patternValue && !string.IsNullOrEmpty(propInfo.Pattern))
-            {
-                if (!Regex.IsMatch(patternValue, propInfo.Pattern))
-                {
-                    errors.Add(!string.IsNullOrEmpty(propInfo.PatternErrorMessage)
-                        ? propInfo.PatternErrorMessage
-                        : $"{propInfo.Label} has an invalid format.");
-                }
-            }
+            errors.AddRange(FormPropertyConstraints.Check(propInfo, value));
         }
 
         return errors;

@@ -58,6 +58,10 @@ public class PageRouteProjectionTests
             .Returns(true);
         _zones.PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new PageZonePublishResult([], []));
+        _zones.GetLiveTreeItemsForPageAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new PageTreeLiveItems([], []));
+        _zones.GetDescendantItemNodeIdsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Guid>());
 
         _model = new PageModel(_store, TestSupport.CreateMapper(),
             Substitute.For<IPageControllerRegistry>(), Substitute.For<IViewDiscoveryService>(),

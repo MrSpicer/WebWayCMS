@@ -370,4 +370,26 @@ public class WidgetConfigurationJsonTests
         WidgetConfigurationJson.ApplyRelations(version, null, [new RelationValue("x", Guid.NewGuid(), 0, string.Empty)]);
         Assert.That(version.RelationWrites, Is.Empty);
     }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("  ")]
+    public void Validate_EmptyPayload_IsValidatedAsAnEmptyObject(string? json)
+    {
+        var registry = Substitute.For<IWidgetRegistry>();
+        registry.ValidateConfiguration("W", "{}", WidgetDisplayMode.List).Returns(new[] { "Heading is required." });
+
+        Assert.That(WidgetConfigurationJson.Validate(registry, "W", json, WidgetDisplayMode.List),
+            Is.EqualTo(new[] { "Heading is required." }));
+    }
+
+    [Test]
+    public void Validate_Payload_IsPassedThroughWithTheDisplayMode()
+    {
+        var registry = Substitute.For<IWidgetRegistry>();
+        registry.ValidateConfiguration("W", "{\"a\":1}", WidgetDisplayMode.Single).Returns(new[] { "bad" });
+
+        Assert.That(WidgetConfigurationJson.Validate(registry, "W", "{\"a\":1}", WidgetDisplayMode.Single),
+            Is.EqualTo(new[] { "bad" }));
+    }
 }

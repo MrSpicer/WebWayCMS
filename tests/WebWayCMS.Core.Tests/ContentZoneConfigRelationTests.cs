@@ -240,6 +240,142 @@ public class ContentZoneConfigRelationTests
     }
 
     [Test]
+    public async Task SaveChildUpsertAsync_ConfigConstraintViolation_IsRejectedWithTheConfigFieldError()
+    {
+        _registry.ValidateConfiguration("Widget", Arg.Any<object>(), Arg.Any<WidgetDisplayMode?>())
+            .Returns(new[] { "Count must be at most 10." });
+
+        var result = await CreateInZoneAsync(Guid.NewGuid(), Upsert("{\"count\":99}"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ComponentPropertiesJson"));
+            Assert.That(result.ErrorMessage, Is.EqualTo("Count must be at most 10."));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_Update_ConfigConstraintViolation_IsRejectedWithTheConfigFieldError()
+    {
+        var nodeId = Guid.NewGuid();
+        var existing = Item(nodeId, "{}");
+        _itemStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _registry.ValidateConfiguration("Widget", Arg.Any<object>(), Arg.Any<WidgetDisplayMode?>())
+            .Returns(new[] { "Label has an invalid format." });
+
+        var result = await Items.SaveUpsertAsync(Upsert("{\"other\":\"x\"}", nodeId, existing.Version.VersionNumber));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ComponentPropertiesJson"));
+        });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_EmptyConfigJson_IsValidatedAsAnEmptyObject()
+    {
+        // An empty payload is no way around a required config field.
+        _registry.ValidateConfiguration("Widget", "{}", Arg.Any<WidgetDisplayMode?>())
+            .Returns(new[] { "Other is required." });
+        var vm = new ContentZoneItemUpsertViewModel
+        {
+            ComponentName = "Widget",
+            ComponentPropertiesJson = null,
+            IsActive = true
+        };
+
+        var result = await CreateInZoneAsync(Guid.NewGuid(), vm);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo("Other is required."));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_ConfigIsValidatedWithItsRelationIds()
+    {
+        // A required relation field (ContentBlock's ContentBlockID) is still set in what is validated:
+        // the ids are stripped only afterwards.
+        var imageId = Guid.NewGuid();
+        var json = "{\"imageId\":\"" + imageId + "\",\"other\":\"x\"}";
+        _service.AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var item = ci.Arg<ContentZoneItemDTO>();
+                item.Version.Node = new ContentNode { Id = Guid.NewGuid() };
+                return item;
+            });
+
+        var result = await CreateInZoneAsync(Guid.NewGuid(), Upsert(json));
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        _registry.Received(1).ValidateConfiguration("Widget", json, WidgetDisplayMode.Single);
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_ListItem_ValidatesTheListFields()
+    {
+        _registry.GetByName("Widget").Returns(new WidgetRegistrationInfo
+        {
+            Name = "Widget",
+            DisplayName = "Widget",
+            ConfigurationTypeName = ConfigTypeName,
+            SupportsList = true
+        });
+        var nodeId = Guid.NewGuid();
+        var existing = Item(nodeId, "{}");
+        existing.MetadataJson = "{\"DisplayMode\":\"List\"}";
+        _itemStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        _service.UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>()).Returns(true);
+
+        // No metadata supplied: the stored List decides which fields are checked.
+        await Items.SaveUpsertAsync(Upsert("{\"other\":\"x\"}", nodeId, existing.Version.VersionNumber));
+
+        _registry.Received(1).ValidateConfiguration("Widget", "{\"other\":\"x\"}", WidgetDisplayMode.List);
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_Create_ConfigOverColumnLength_IsRejectedBeforeTheStore()
+    {
+        var longJson = "{\"other\":\"" + new string('x', WidgetConfigurationJson.MaxJsonLength) + "\"}";
+
+        var result = await CreateInZoneAsync(Guid.NewGuid(), Upsert(longJson));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ComponentPropertiesJson"));
+            Assert.That(result.ErrorMessage, Does.Contain("exceeds the 4000 character limit"));
+        });
+        await _service.DidNotReceive().AddItemAsync(Arg.Any<Guid>(), Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SaveChildUpsertAsync_Update_ConfigOverColumnLength_IsRejectedBeforeTheStore()
+    {
+        var nodeId = Guid.NewGuid();
+        var existing = Item(nodeId, "{}");
+        _itemStore.GetCurrentDraftAsync(nodeId, Arg.Any<CancellationToken>()).Returns(existing);
+        var longJson = "{\"other\":\"" + new string('x', WidgetConfigurationJson.MaxJsonLength) + "\"}";
+
+        var result = await Items.SaveUpsertAsync(Upsert(longJson, nodeId, existing.Version.VersionNumber));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ComponentPropertiesJson"));
+        });
+        await _service.DidNotReceive().UpdateItemAsync(Arg.Any<ContentZoneItemDTO>(), Arg.Any<CancellationToken>(), Arg.Any<int?>());
+    }
+
+    [Test]
     public async Task ValidateConfigRelations_UsesTheComponentDisplayName_OrFallsBack()
     {
         var registration = new WidgetRegistrationInfo

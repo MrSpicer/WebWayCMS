@@ -520,6 +520,14 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     internal string SanitizeProperties(string componentName, string? json)
         => WidgetConfigurationJson.Sanitize(_registry, componentName, json);
 
+    /// <summary>
+    /// Validates the caller's (unstripped) widget configuration for the display mode
+    /// <paramref name="metadataJson"/> selects (see <see cref="WidgetConfigurationJson.Validate"/>).
+    /// </summary>
+    internal IReadOnlyList<string> ValidateWidgetConfiguration(string componentName, string? json, string? metadataJson)
+        => WidgetConfigurationJson.Validate(_registry, componentName, json,
+            WidgetMetadataJson.EffectiveDisplayMode(metadataJson, _registry.GetByName(componentName)));
+
     /// <summary>Lifts the configuration type's <c>[ContentRelation]</c> ids out of the stored JSON.</summary>
     internal (string StrippedJson, IReadOnlyList<RelationValue> Relations) ExtractConfigRelations(
         string componentName, string? json)

@@ -10,6 +10,7 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
+using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Page;
 using WebWayCMS.Models.PageHistory;
 using WebWayCMS.Pages;
@@ -47,6 +48,8 @@ public class PageModelTests
         _cmsRouteService = Substitute.For<ICMSRouteService>();
         _contentZoneService = Substitute.For<IContentZoneService>();
         _contentZoneService.PublishPageZonesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([], []));
+        _contentZoneService.GetLiveTreeItemsForPageAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([], []));
+        _contentZoneService.GetDescendantItemNodeIdsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new List<Guid>());
         _changeSetScope = Substitute.For<IChangeSetScope>();
         _pageHistory = Substitute.For<IPageHistoryService>();
         _routeStore = Substitute.For<IContentStore<RouteDTO>>();
@@ -431,6 +434,49 @@ public class PageModelTests
             Assert.That(result.ErrorField, Is.EqualTo("ConfigurationJson"));
             Assert.That(result.ErrorMessage, Does.Contain("Custom CSS is required."));
         });
+    }
+
+    [Test]
+    public async Task AdminHandler_SaveUpsert_ConfigOverColumnLength_IsRejectedBeforeTheStore()
+    {
+        _cmsRouteService.IsPatternAvailableAsync(Arg.Any<string>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await _model.SaveUpsertAsync(new PageUpsertViewModel
+        {
+            NodeId = null,
+            Title = "T",
+            Slug = "x",
+            ControllerName = "C",
+            ConfigurationJson = new string('x', WidgetConfigurationJson.MaxJsonLength + 1)
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorField, Is.EqualTo("ConfigurationJson"));
+            Assert.That(result.ErrorMessage, Does.Contain("exceeds the 4000 character limit"));
+        });
+        await _store.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task SavePageUpsertAsync_ConfigOverColumnLength_IsRejectedBeforeTheStore()
+    {
+        var result = await _model.SavePageUpsertAsync(new PageUpsertViewModel
+        {
+            NodeId = null,
+            Title = "T",
+            Slug = "r",
+            ControllerName = "C",
+            ConfigurationJson = new string('x', WidgetConfigurationJson.MaxJsonLength + 1)
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("exceeds the 4000 character limit"));
+        });
+        await _store.DidNotReceive().SaveDraftAsync(Arg.Any<PageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -1478,6 +1524,166 @@ public class PageModelTests
             Assert.That(error, Does.Contain("item failed."));
             Assert.That(error, Does.Contain("route taken."));
             Assert.That(error, Does.Contain("Failed to register routes for widget 'B'."));
+        });
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PageUrlChanged_ReregistersTheLiveWidgets()
+    {
+        // A widget route's pattern is prefixed from the page's route at registration time, so after a
+        // slug rename the already-live Article widget is re-derived (its stale /old-slug/{slug} rows are
+        // swept and the new prefix written). The item this publish flipped is registered once, not twice.
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns([new CMSRouteDTO { Pattern = "/old" }], [new CMSRouteDTO { Pattern = "/new" }]);
+        var liveArticle = ZoneItem("Article");
+        var justPublished = ZoneItem("Faq");
+        _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageZonePublishResult([justPublished], []));
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([liveArticle, justPublished], []));
+        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync(
+                "Article", liveArticle.Version.Node.Id, nodeId, true, liveArticle.MetadataJson, Arg.Any<CancellationToken>());
+            await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync(
+                "Faq", justPublished.Version.Node.Id, nodeId, true, justPublished.MetadataJson, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PageUrlUnchanged_LeavesTheLiveWidgetsAlone()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns([new CMSRouteDTO { Pattern = "/same", DefaultsJson = "{}" }]);
+        var liveArticle = ZoneItem("Article");
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([liveArticle], []));
+
+        var result = await _model.PublishPageAsync(nodeId);
+
+        Assert.That(result.Success, Is.True);
+        await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_PageDefaultsChanged_ReregistersTheLiveWidgets()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns([new CMSRouteDTO { Pattern = "/same", DefaultsJson = "{\"controller\":\"A\"}" }],
+                [new CMSRouteDTO { Pattern = "/SAME", DefaultsJson = "{\"controller\":\"B\"}" }]);
+        var liveArticle = ZoneItem("Article");
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([liveArticle], []));
+        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
+
+        await _model.PublishPageAsync(nodeId);
+
+        await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync(
+            "Article", liveArticle.Version.Node.Id, nodeId, true, liveArticle.MetadataJson, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PublishPageAsync_LiveWidgetCannotFollowTheNewUrl_ReportsItSeparately()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns([new CMSRouteDTO { Pattern = "/old" }], [new CMSRouteDTO { Pattern = "/new" }]);
+        var withMessage = ZoneItem("A");
+        var withoutMessage = ZoneItem("B");
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([withMessage, withoutMessage], []));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("A", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((false, "route taken."));
+        _routeRegistration.TryRegisterWidgetRoutesAsync("B", Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((false, null));
+
+        var (success, error, _) = await _model.PublishPageAsync(nodeId);
+
+        // Nothing was pending, so it is not reported as a failed zone change.
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.False);
+            Assert.That(error, Does.StartWith("Page published; some live widgets' routes could not be updated:"));
+            Assert.That(error, Does.Not.Contain("zone changes failed"));
+            Assert.That(error, Does.Contain("route taken."));
+            Assert.That(error, Does.Contain("Failed to register routes for widget 'B'."));
+        });
+    }
+
+    [Test]
+    public async Task PublishPageAsync_ContainerPutBackLive_ReregistersTheWidgetsInsideIt()
+    {
+        // A removed Layout restored and published: the Article inside it shows again without a version of
+        // its own, so it is re-registered although the page URL did not change. A live widget elsewhere is not.
+        var nodeId = ArrangeSuccessfulPagePublish();
+        _cmsRouteService.GetByOwningContentAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns([new CMSRouteDTO { Pattern = "/same" }]);
+        var layout = ZoneItem("Layout");
+        var removedElsewhere = ZoneItem("Faq", active: false);
+        var inside = ZoneItem("Article");
+        var elsewhere = ZoneItem("Article");
+        _contentZoneService.PublishPageZonesAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([layout, removedElsewhere], []));
+        _contentZoneService.GetDescendantItemNodeIdsAsync(layout.Version.Node.Id, Arg.Any<CancellationToken>())
+            .Returns([inside.Version.Node.Id]);
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageTreeLiveItems([layout, inside, elsewhere], [removedElsewhere]));
+        _routeRegistration.TryRegisterWidgetRoutesAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((true, null));
+
+        await _model.PublishPageAsync(nodeId);
+
+        Assert.Multiple(async () =>
+        {
+            await _routeRegistration.Received(1).TryRegisterWidgetRoutesAsync(
+                "Article", inside.Version.Node.Id, nodeId, true, inside.MetadataJson, Arg.Any<CancellationToken>());
+            await _routeRegistration.DidNotReceive().TryRegisterWidgetRoutesAsync(
+                Arg.Any<string>(), elsewhere.Version.Node.Id, Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            await _contentZoneService.DidNotReceive().GetDescendantItemNodeIdsAsync(removedElsewhere.Version.Node.Id, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Test]
+    public async Task PublishPageAsync_SweepsTheRowsOfItemsThePageDoesNotShow_InOneCall()
+    {
+        var nodeId = ArrangeSuccessfulPagePublish();
+        var removed = ZoneItem("Article", active: false);
+        var underRemovedContainer = ZoneItem("Article");
+        _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, Arg.Any<CancellationToken>())
+            .Returns(new PageTreeLiveItems([], [removed, underRemovedContainer]));
+
+        await _model.PublishPageAsync(nodeId);
+
+        await _cmsRouteService.Received(1).DeleteByOwningContentsAsync(
+            Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { removed.Version.Node.Id, underRemovedContainer.Version.Node.Id })),
+            Arg.Any<CancellationToken>());
+        await _cmsRouteService.DidNotReceive().DeleteByOwningContentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task UnpublishPageAsync_SweepsTheZoneItemsWidgetRoutes_InOneCall()
+    {
+        // The widget rows are prefixed from the page's URL, so an unpublish removes them with the page's
+        // own rows (a republish re-registers the live items).
+        _store.UnpublishAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new ContentWriteResult(true));
+        var item = ZoneItem("Article");
+        var removed = ZoneItem("Article", active: false);
+        _contentZoneService.GetLiveTreeItemsForPageAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(new PageTreeLiveItems([item], [removed]));
+
+        var result = await _model.UnpublishPageAsync(Guid.NewGuid());
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result.Success, Is.True);
+            await _cmsRouteService.Received(1).DeleteByOwningContentsAsync(
+                Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { item.Version.Node.Id, removed.Version.Node.Id })),
+                Arg.Any<CancellationToken>());
         });
     }
 

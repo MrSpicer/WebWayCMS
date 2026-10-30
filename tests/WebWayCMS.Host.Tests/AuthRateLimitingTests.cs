@@ -12,6 +12,8 @@ namespace WebWayCMS.Host.Tests;
 public class AuthRateLimitingTests
 {
     [TestCase("/Identity/Account/Login", true)]
+    [TestCase("/Identity/Account/LoginWith2fa", true)]
+    [TestCase("/Identity/Account/LoginWithRecoveryCode", true)]
     [TestCase("/identity/account/register", true)]
     [TestCase("/Identity/Account/ForgotPassword", true)]
     [TestCase("/Identity/Account/ResetPassword", true)]
@@ -19,6 +21,8 @@ public class AuthRateLimitingTests
     [TestCase("/Identity/Account/ExternalLogin", true)]
     [TestCase("/Identity/Account/PasskeyAssertion", true)]
     [TestCase("/Identity/Account/PasskeyRequestOptions", true)]
+    [TestCase("/Identity/Account/Manage/EnableAuthenticator", true)]
+    [TestCase("/Identity/Account/Manage/TwoFactorAuthentication", true)]
     [TestCase("/", false)]
     [TestCase("/wadmin/pages", false)]
     public void IsRateLimitedPath_MatchesAuthEndpointsOnly(string path, bool expected)
@@ -27,6 +31,7 @@ public class AuthRateLimitingTests
     }
 
     [TestCase("/Identity/Account/Login", "/Identity/Account/Login")]
+    [TestCase("/Identity/Account/LoginWith2fa", "/Identity/Account/LoginWith2fa")]
     [TestCase("/Identity/Account/ResetPassword", "/Identity/Account/ResetPassword")]
     [TestCase("/Identity/Account/PasskeyRequestOptions", "/Identity/Account/PasskeyRequestOptions")]
     [TestCase("/Identity/Account/Login/subpath", "/Identity/Account/Login")]

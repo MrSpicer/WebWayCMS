@@ -41,7 +41,18 @@ consume the whole thing as a NuGet package.
   drag-reorder for every content type automatically, including types you add yourself.
 - **Database-backed content zones** — named slots in views hold ordered widget instances with
   inline add/remove editing and drag-and-drop moves within and between a page's zones.
-- **Built-in content versioning** — every content type gets version history and a draft/publish workflow for free (identity split from version; edits are drafts until published).
+- **Built-in content versioning** — every content type gets version history and a draft/publish workflow for free (identity split from version; edits are drafts until published), with draft preview of any page, even one never published.
+- **Whole-page history** — every change to a page or any widget on it records a page-set snapshot;
+  diff, compare, preview, and revert to any entry, or discard unpublished changes back to what is live.
+- **Content relations** — one `[ContentRelation]` attribute declares a typed containment, reference,
+  or owned relation; relations are versioned with the content, drive children panels and pickers in
+  the admin, hide content under unpublished parents, and cascade or block deletes.
+- **Media library** — images stored content-addressed (SHA-256) in PostgreSQL, so admin and
+  rendering-only hosts share them through the database with no shared filesystem.
+- **JSON content seeding** — ship content (pages, widgets, images) as JSON with your host; it is
+  applied at startup, hash-tracked so admin edits survive reboots.
+- **Widget render modes** — public, admin, and zone-editor views per widget, so the site is styled
+  independently of the admin; list-capable widgets and widgets that register their own URL routes.
 - **Two deployment modes from one codebase** — full admin, or a rendering-only mode for a public
   front end with no admin surface.
 - **MCP server** — exposes the entire admin CRUD surface to AI agents generically (no per-type tool
@@ -64,13 +75,24 @@ consume the whole thing as a NuGet package.
 | **Split Admin Rendering** | Yes, configurable (full admin vs. rendering-only mode) | (Framework) No | Yes  | No | Yes — (split projects) |
 | **Content versioning/history** | Yes | Yes | Yes | Yes | Yes |
 | **AI Ready** | Yes — built-in MCP server, generic across all content types | No | Yes | Yes | No |
+| **Visual/drag-and-drop page builder** | Yes | Yes | Yes | Yes | Yes |
+| **Distributed as NuGet packages (host in your own app)** | Yes — reference `WebWayCMS` from any ASP.NET Core app | Yes (NuGet-based project) | No — installer / containers | Yes | Yes (Xperience by Kentico) |
+| **Code-first content types** | Yes — C# classes + attributes, no per-type admin code; host-defined EF tables + migrations | Partial — Module Builder (UI) or API | No — templates are items; code via serialization tools | Via packages — document types are defined in the backoffice | No |
+| **Draft / publish with preview** | Yes | Yes | Yes | Yes | Yes |
+| **Whole-page history (page + widgets) with revert / discard** | Yes | Yes (page revisions) | Partial — item versions; datasource items versioned separately | Yes (rollback) | Yes |
+| **Structured content relations** | Yes | Yes | Yes | Yes  | Yes |
+| **Media library** | Yes | Yes | Yes | Yes | Yes |
+| **Content as code / deployable seed content** | Yes — JSON seed files | Yes (Site Sync / export-import) | Yes (serialization, SCS) | Via uSync / Umbraco Deploy (paid) | Yes |
+| **Separate public vs. admin widget rendering** | Yes — per-mode widget views, so the site is styled independently of the admin | No | Partial (Experience Editor mode checks) | No | Partial |
+| **Built-in security defaults (CSP, sanitization, auth rate limiting)** | Yes — configurable CSP, server-side rich-text sanitization, account lockout + per-IP auth throttling | Partial (configurable security headers) | No — manual / add-ons | Partial — via packages | Partial |
+| **User role-based permissions** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Output caching** | Coming Soon!* | Yes | Yes | Yes | Yes |
-| **Visual/drag-and-drop page builder** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Headless** | Coming Soon!*  | Yes | Yes (native for XM Cloud) | Yes (Content Delivery API) | Yes |
 | **Multi-site / multi-tenant** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Localization / multilingual content** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Personalization / A-B testing** | Coming Soon!* | Yes, first-class | Yes, first-class | Limited, via marketplace packages | Yes, first-class |
 | **Content approval/workflow engine** | Coming Soon!* | Yes, configurable | Yes, configurable | Yes, configurable | Yes, configurable |
+| **Scheduled publishing** | Coming Soon!* | Yes | Yes | Yes | Yes |
 
 *maybe
 

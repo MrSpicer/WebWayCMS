@@ -96,6 +96,8 @@
   changed", "Moved to Side (position 2)", "Position changed (moved by another widget)", "Removed",
   "Restored from version n"), else "Created"/"Edited"/"Restored from version n" — never copied from the
   previous version. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
+  `DeleteVersionAsync` refuses the max version (matching the admin UI) **and any `Published` version** —
+  that row is what is live; unpublish first, then it deletes as an ordinary Archived version.
 - **Content relations** ([doc 17](docs/architecture/17-content-relations.md), all six phases: Article → Article
   List, config pickers, page routes, the zone structure, page → parent page, and the TestHost): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
   property, `Ordinal`, `Qualifier`, `Kind` Containment/Reference/Owned) is **owned by the source's version**
@@ -194,15 +196,25 @@
   item form, MCP). **Removing an item is never a delete:** it saves an `IsActive=false` version (published at
   once in a global zone), so its history stays and a restore or page revert brings it back (a removed
   container keeps its nested items, hidden). Reorder saves new ordinals only for items that moved; removed items keep their places in the order, so no two
-  items share an ordinal. Items in
+  items share an ordinal. Every ordinal write (add, reorder, move, restore, remap) takes the zone's row lock
+  (`SELECT … FOR UPDATE` on its version rows, fixed id order for two zones) inside its transaction and re-reads
+  the zone: a planned item changed since it was read fails as stale, an item an add committed meanwhile goes last. Items in
   **global/name-based zones** (no page) still auto-publish on write. Zone item CRUD/reorder goes through
   `IContentZoneService` (node-keyed). Only a zone/page delete hard-deletes items.
 - **Page publish cascades:** `PageModel.PublishPageAsync` (every publish path: toolbar, Pages list, page
   form, MCP `publish_content`) publishes the page, then `IContentZoneService.PublishPageZonesAsync`
   publishes every pending item under it in the same change set, and registers each item's widget routes.
   Widget routes for page-zone items change **only** at publish (never on a draft save/delete);
-  global-zone items register on write. A zone failure after the page went live returns
-  `"Page published; some zone changes failed: …"` and those items stay pending. "Pending changes" (Pages list
+  global-zone items register on write. When the page's first route row (pattern or defaults) changed —
+  a slug rename, a first publish, a republish after an unpublish — publish re-derives widget routes for
+  **every live tree item**, not just the pending ones (an already-live Article widget follows the rename);
+  otherwise it also re-derives the live widgets inside a container it put live (a restored Layout). The rows
+  of every published item the page does not show (removed items, and widgets under a removed container;
+  `IContentZoneService.GetLiveTreeItemsForPageAsync` → `Removed`) are swept in one
+  `ICMSRouteService.DeleteByOwningContentsAsync` call, and `UnpublishPageAsync` sweeps the whole tree's
+  widget rows the same way. A zone failure after the page went live returns
+  `"Page published; some zone changes failed: …"` and those items stay pending (a re-derive failure on an
+  unchanged live widget is reported separately, "some live widgets' routes could not be updated"). "Pending changes" (Pages list
   "Live · Changes pending", editor status, Discard button) compares **content**:
   `IPageHistoryService.GetPagesWithUnpublishedChangesAsync` (page fields vs. the live page, plus
   `PageZoneTree.GetPagesWithPendingZoneChangesAsync`), so drafts equal to what is live — left by a discard or a
@@ -450,7 +462,10 @@
   so it inherits rich-text sanitization, required-field validation, and route writing on publish.
 - Update rule: `JsonContentSeeder` hashes the item and re-applies only when the hash differs from the
   `ContentSeedRecords` ledger (keyed by seed id → generated `ContentNode.Id`). Admin edits survive
-  reboots; a shipped content change takes effect. A failed save doesn't record the hash, so it retries.
+  reboots; a shipped content change takes effect. A failed save doesn't record the hash, so it retries. A
+  top-level or page-zone item saved but not published is recorded with the **publish-pending** hash (the lowercase
+  form of the uppercase-hex hash): the next boot retries only the publish (no re-save, so no new version per boot)
+  unless the item changed or its node was deleted (a zone item: or it is no longer in its locator's zone).
 - A string field (or a token inside a serialized-JSON string such as `configurationJson`) may reference
   another seeded item's generated node id via `@seed:{guid}`; `SeedReferenceResolver` resolves it through
   the ledger, and `SeedAsync` runs a deferred-retry pass so ordering never matters. Unresolved references
@@ -565,9 +580,17 @@
   Stored content is therefore safe to render with `@Html.Raw`. Zone-item widget config JSON is outside
   that choke point, so every zone-item write (zone editor API + `ContentZoneItemModel`) runs
   `WidgetConfigurationJson.Sanitize`: it rewrites only the config type's RichText values in place
-  (other keys kept, unreadable JSON fails closed to `{}`). The same write runs `ExtractRelations`,
+  (other keys kept, unreadable JSON fails closed to `{}`) and rejects a payload over the 4000-char
+  column limit with a friendly error (`WidgetConfigurationJson.LengthError`, same guard on the page's
+  `ConfigurationJson`). The same write runs `WidgetConfigurationJson.Validate` (the widget registry's
+  `IsRequired`/`Min`/`Max`/`MaxLength`/`Pattern` checks, on the payload **before** relation ids are stripped, for
+  the item's effective display mode only — `WidgetMetadataJson.EffectiveDisplayMode`; an empty payload is checked
+  as `{}`) and `ExtractRelations`,
   which removes the configuration type's `[ContentRelation]` ids and stores them as `config.*` version
-  relations; page configuration JSON goes through the same extraction in `PageModel`. The raw page-head TextArea fields
+  relations; page configuration JSON goes through the same extraction in `PageModel`. `ModelValidator`
+  enforces the `FormProperty` bounds (required, min, max, max length, pattern) on content-type upsert
+  fields at the top-level choke point. The bounds are one implementation, `FormPropertyConstraints` (Forms),
+  shared with both registries; `Pattern` has HTML `pattern` semantics (empty passes, whole-value match, 1 s timeout). The raw page-head TextArea fields
   (`GenericPageConfiguration.Meta`/`Style`) are neutralized at render time by `HeadMarkupSanitizer`
   via `SanitizedForRender()` (`<meta>`/`<link>` allow-list; CSS verbatim except `</` → `<\/`).
   **Required-field validation**
@@ -594,7 +617,9 @@
   docker-compose sets it — nginx is a separate container).
 - **Auth rate limiting:** the Identity login/register/password-reset/external-login/passkey endpoints are
   throttled per client IP **and per endpoint family** (`AuthRateLimiting`, wired via
-  `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit.
+  `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit. The second-factor endpoints
+  (`LoginWith2fa`, `LoginWithRecoveryCode`, Manage `EnableAuthenticator`/`TwoFactorAuthentication`) are
+  limited too — segment-boundary matching keeps them distinct buckets from `/Login`.
 - **Identity hardening:** explicit account lockout (5 attempts / 15 min) and auth-cookie flags
   (`HttpOnly`, `Secure=Always`, `SameSite=Lax`) are set in `ConfigureAuthorization`. `Lax` (not
   `Strict`) is required so OAuth sign-in redirect chains are not treated cross-site; it still withholds

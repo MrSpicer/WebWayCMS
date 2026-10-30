@@ -219,6 +219,22 @@ public sealed class CMSRouteService : ICMSRouteService
         return true;
     }
 
+    public async Task<int> DeleteByOwningContentsAsync(IReadOnlyCollection<Guid> owningContentNodeIds, CancellationToken ct = default)
+    {
+        if (owningContentNodeIds.Count == 0) return 0;
+
+        var routes = await _context.Set<CMSRouteDTO>()
+            .Where(r => r.OwningContentNodeId != null && owningContentNodeIds.Contains(r.OwningContentNodeId.Value))
+            .ToListAsync(ct);
+
+        if (routes.Count == 0) return 0;
+
+        _context.Set<CMSRouteDTO>().RemoveRange(routes);
+        await _context.SaveChangesAsync(ct);
+        _registry.Invalidate();
+        return routes.Count;
+    }
+
     public async Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
     {
         var routes = await _context.Set<CMSRouteDTO>()

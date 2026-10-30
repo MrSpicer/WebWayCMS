@@ -1279,6 +1279,77 @@ public class ContentZoneServiceTests
     }
 
     [Test]
+    public async Task GetLiveTreeItemsForPageAsync_ReturnsPublishedCurrentDraftsInThePageTree()
+    {
+        var page = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(page);
+        var nestedZone = Guid.NewGuid();
+        var container = await SeedNestedZoneAsync(zone, nestedZone);
+        var live = Item(zone);
+        var nested = Item(nestedZone);
+        var draft = Item(zone, state: ContentVersionState.Draft);
+        var inactive = Item(zone, active: false);
+        var removed = Item(zone, state: ContentVersionState.Archived, currentDraft: false);
+        await SeedItemsAsync(live, nested, draft, inactive, removed);
+
+        var items = await NewService().GetLiveTreeItemsForPageAsync(page);
+
+        // The nested zone's container item ("Layout", live in the parent zone) is part of the tree
+        // too; a removed-but-still-live item is reported separately so its route rows get swept.
+        Assert.Multiple(() =>
+        {
+            Assert.That(items.Live.Select(i => i.Version.NodeId),
+                Is.EquivalentTo(new[] { live.Version.Node.Id, nested.Version.Node.Id, container }));
+            Assert.That(items.Removed.Select(i => i.Version.NodeId), Is.EqualTo(new[] { inactive.Version.Node.Id }));
+        });
+    }
+
+    [Test]
+    public async Task GetLiveTreeItemsForPageAsync_NoZones_ReturnsEmpty()
+    {
+        var items = await NewService().GetLiveTreeItemsForPageAsync(Guid.NewGuid());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(items.Live, Is.Empty);
+            Assert.That(items.Removed, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task GetLiveTreeItemsForPageAsync_WidgetUnderARemovedContainer_IsReportedAsRemoved()
+    {
+        // The live walk stops at a removed container, but the widget inside it is still published and
+        // active: its route rows are stale, so it must be swept with the removed items.
+        var page = Guid.NewGuid();
+        var zone = await SeedPageZoneAsync(page);
+        var nestedZone = Guid.NewGuid();
+        var container = Item(zone, component: "Layout", active: false);
+        await SeedItemsAsync(container);
+        await SeedAssignmentsAsync(Nested(nestedZone, container.Version.Node.Id));
+        var deeperZone = Guid.NewGuid();
+        var nestedArticle = Item(nestedZone, component: "Article");
+        var innerContainer = Item(nestedZone, component: "Layout");
+        await SeedItemsAsync(nestedArticle, innerContainer);
+        await SeedAssignmentsAsync(Nested(deeperZone, innerContainer.Version.Node.Id));
+        var deepArticle = Item(deeperZone, component: "Article");
+        var neverLive = Item(nestedZone, component: "Article", state: ContentVersionState.Draft);
+        await SeedItemsAsync(deepArticle, neverLive);
+
+        var items = await NewService().GetLiveTreeItemsForPageAsync(page);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(items.Live, Is.Empty);
+            Assert.That(items.Removed.Select(i => i.Version.NodeId), Is.EquivalentTo(new[]
+            {
+                container.Version.Node.Id, nestedArticle.Version.Node.Id,
+                innerContainer.Version.Node.Id, deepArticle.Version.Node.Id
+            }));
+        });
+    }
+
+    [Test]
     public async Task GetPagesWithPendingZoneChangesAsync_FlagsPagesWithNestedDrafts()
     {
         var pendingPage = Guid.NewGuid();
@@ -1477,6 +1548,83 @@ public class ContentZoneServiceTests
             Assert.That(Ids(draftMain), Is.EqualTo(Ids([stays])));
             Assert.That(Ids(draftSide), Is.EqualTo(Ids([sideItem, moved])));
             Assert.That(pending, Does.Contain(moved.Version.Node.Id));
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_AnAddCommittedAfterTheOrderWasRead_GoesLastWithoutSharingAnOrdinal()
+    {
+        // The move reads the target's order, then an add commits there (MAX+1 = 3, the ordinal the move
+        // is about to give the moved item). Under the zone lock the move re-reads the zone, so the newcomer
+        // goes last instead of colliding.
+        var page = Guid.NewGuid();
+        var main = await SeedPageZoneAsync(page, "Main");
+        var side = await SeedPageZoneAsync(page, "Side");
+        var a = Item(main, ordinal: 1);
+        var b = Item(main, ordinal: 2);
+        var moved = Item(side, ordinal: 1);
+        await SeedItemsAsync(a, b, moved);
+
+        var newcomer = Item(main, ordinal: 3, state: ContentVersionState.Draft);
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        var reads = 0;
+        zoneStore.GetCurrentDraftAsync(main, Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            // The second read is the zone's name, after the order was read and before the write.
+            if (++reads == 2)
+            {
+                using var ctx = NewContext();
+                ctx.Set<ContentZoneItemDTO>().Add(newcomer);
+                ctx.SaveChanges();
+            }
+            return Zone(main, name: "Main");
+        });
+
+        var (success, error) = await NewService(zoneStore: zoneStore).MoveItemAsync(moved.Version.Node.Id, main, 2);
+
+        var draft = await DraftItemsAsync(main);
+        Assert.Multiple(() =>
+        {
+            Assert.That(success, Is.True, error);
+            Assert.That(Ids(draft), Is.EqualTo(Ids([a, b, moved, newcomer])));
+            Assert.That(draft.Select(i => i.Ordinal), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_ASiblingChangedAfterTheOrderWasRead_FailsAsStale()
+    {
+        // The move planned from a read in which "a" sits at 1 (so its renumber would be skipped). A
+        // concurrent write gives "a" a new version before the lock; under the lock the move sees it and
+        // fails as stale instead of trusting the old ordinal.
+        var zone = await SeedPageZoneAsync(Guid.NewGuid());
+        var a = Item(zone, ordinal: 1);
+        var b = Item(zone, ordinal: 2);
+        var c = Item(zone, ordinal: 3);
+        await SeedItemsAsync(a, b, c);
+
+        var zoneStore = Substitute.For<IContentStore<ContentZoneDTO>>();
+        var reads = 0;
+        zoneStore.GetCurrentDraftAsync(zone, Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (++reads == 2)
+            {
+                using var ctx = NewContext();
+                var edited = ctx.Set<ContentZoneItemDTO>().AsNoTracking().Include(i => i.Version).ThenInclude(v => v.Relations)
+                    .Single(i => i.VersionId == a.VersionId);
+                ItemStore(ctx).SaveDraftAsync(edited with { ComponentPropertiesJson = "{\"edited\":true}" }, edited.Version.VersionNumber)
+                    .GetAwaiter().GetResult();
+            }
+            return Zone(zone, name: "Main");
+        });
+
+        var result = await NewService(zoneStore: zoneStore).MoveItemAsync(c.Version.Node.Id, zone, 1);
+
+        var draft = await DraftItemsAsync(zone);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.EqualTo((false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage)));
+            Assert.That(Ids(draft), Is.EqualTo(Ids([a, b, c])));
         });
     }
 

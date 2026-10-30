@@ -162,8 +162,11 @@ public class JsonContentSeederZoneTests
             Assert.That(_saved.Single().IsActive, Is.True);
             // Placement comes from the locator, never from the fields.
             Assert.That(_saved.Single().ContentZoneNodeId, Is.EqualTo(ZoneNodeId));
-            // Recorded first with an empty hash (draft), then with the real hash once the item published.
-            Assert.That(_upserts.Select(r => r.ContentHash.Length == 0), Is.EqualTo(new[] { true, false }));
+            // Recorded first with the publish-pending (lowercase) hash while a draft, then with the real
+            // (uppercase) hash once the item published.
+            Assert.That(_upserts.Select(r => r.ContentHash.Length), Is.EqualTo(new[] { 64, 64 }));
+            Assert.That(_upserts[0].ContentHash, Is.EqualTo(_upserts[1].ContentHash.ToLowerInvariant()));
+            Assert.That(_upserts[1].ContentHash, Is.EqualTo(_upserts[1].ContentHash.ToUpperInvariant()));
             Assert.That(_upserts.All(r => r.NodeId == ItemNodeId && r.SeedId == ItemSeedId), Is.True);
         });
     }
@@ -250,18 +253,66 @@ public class JsonContentSeederZoneTests
     }
 
     [Test]
-    public async Task Seed_ItemPublishFails_KeepsEmptyHashRecord()
+    public async Task Seed_ItemPublishFails_KeepsThePublishPendingRecord()
     {
         _pageModel.PublishZoneItemsAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(new PageZonePublishResult([], ["boom"]) { FailedItemNodeIds = [ItemNodeId] });
 
         await Seeder(Document(ZoneItem())).SeedAsync();
 
+        var hash = _ledger[ItemSeedId].ContentHash;
         Assert.Multiple(() =>
         {
             Assert.That(_ledger[ItemSeedId].NodeId, Is.EqualTo(ItemNodeId));
-            Assert.That(_ledger[ItemSeedId].ContentHash, Is.Empty);
+            Assert.That(hash, Has.Length.EqualTo(64));
+            Assert.That(hash, Is.EqualTo(hash.ToLowerInvariant()).And.Not.EqualTo(hash.ToUpperInvariant()));
         });
+    }
+
+    /// <summary>Boots once with a failing item publish, then clears the call log for the next boot.</summary>
+    private async Task BootWithFailedItemPublishAsync()
+    {
+        _pageModel.PublishZoneItemsAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([], ["boom"]) { FailedItemNodeIds = [ItemNodeId] });
+        await Seeder(Document(ZoneItem())).SeedAsync();
+
+        _child.ClearReceivedCalls();
+        _pageModel.ClearReceivedCalls();
+        _upserts.Clear();
+        _pageModel.PublishZoneItemsAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new PageZonePublishResult([], []));
+    }
+
+    [Test]
+    public async Task Seed_ItemPublishPending_NextBootRetriesOnlyThePublish()
+    {
+        await BootWithFailedItemPublishAsync();
+
+        await Seeder(Document(ZoneItem())).SeedAsync();
+
+        // Not saved again (no new version per boot); the publish is retried and the real hash recorded.
+        await _child.DidNotReceive().SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
+        await _pageModel.Received(1).PublishZoneItemsAsync(
+            PageNodeId, Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { ItemNodeId })), Arg.Any<CancellationToken>());
+        var hash = _ledger[ItemSeedId].ContentHash;
+        Assert.That(hash, Is.EqualTo(hash.ToUpperInvariant()));
+    }
+
+    [Test]
+    public async Task Seed_ItemPublishPending_StoredInAnotherZone_IsAppliedAsUsual()
+    {
+        await BootWithFailedItemPublishAsync();
+        // Moved within the page since (e.g. in the admin): the ordinary path moves it back and saves it.
+        var otherZone = Guid.NewGuid();
+        _zones.GetItemByNodeIdAsync(ItemNodeId, Arg.Any<CancellationToken>()).Returns(Item(ItemNodeId, otherZone));
+        _zones.GetParentPageNodeForZoneAsync(otherZone, Arg.Any<CancellationToken>()).Returns((Guid?)PageNodeId);
+        _child.MoveRelatedAsync(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns((true, (string?)null));
+
+        await Seeder(Document(ZoneItem())).SeedAsync();
+
+        await _child.Received(1).MoveRelatedAsync(Arg.Any<string>(), ItemNodeId, ZoneNodeId, Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        await _child.Received(1).SaveUpsertAsync(Arg.Any<object>(), Arg.Any<CancellationToken>());
     }
 
     [Test]

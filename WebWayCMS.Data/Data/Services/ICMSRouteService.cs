@@ -22,6 +22,12 @@ public interface ICMSRouteService
 
     Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Removes every row owned by any of <paramref name="owningContentNodeIds"/> in one query (and one save
+    /// when there is something to remove); returns how many rows went.
+    /// </summary>
+    Task<int> DeleteByOwningContentsAsync(IReadOnlyCollection<Guid> owningContentNodeIds, CancellationToken ct = default);
+
     /// <summary>Removes the projected rows of one route item.</summary>
     Task<bool> DeleteByRouteNodeAsync(Guid routeNodeId, CancellationToken ct = default);
 }

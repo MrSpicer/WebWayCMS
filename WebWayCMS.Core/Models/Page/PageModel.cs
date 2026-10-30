@@ -127,6 +127,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var dto = _mapper.Map<PageDTO>(model);
         WidgetConfigurationJson.ApplyRelations(dto.Version, configType, relations);
 
+        var configLengthError = WidgetConfigurationJson.LengthError(dto.ConfigurationJson, "The page configuration");
+        if (configLengthError != null)
+            return (false, configLengthError);
+
         var note = model.NodeId.HasValue && model.NodeId != Guid.Empty ? "Page edited" : "Page created";
         ContentWriteResult result;
         using (ChangeSetScope.UseChangeNote(note))
@@ -258,7 +262,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         if (!committed)
             return (false, error, 0);
 
-        var zones = await PublishZoneDraftsAsync(nodeId, ct);
+        var zones = await PublishZoneDraftsAsync(nodeId, previousRoutes, ct);
         await _pageHistory.CaptureAsync(nodeId, ct);
         return zones.Success
             ? (true, descendants > 0 ? $"{descendants} child URL(s) updated." : null, descendants)
@@ -302,7 +306,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
                 : (false, legacyError + " The previous route could not be restored: " + string.Join(" ", legacyRestores), 0);
         }
 
-        var legacyZones = await PublishZoneDraftsAsync(nodeId, ct);
+        var legacyZones = await PublishZoneDraftsAsync(nodeId, previousRoutes, ct);
         await _pageHistory.CaptureAsync(nodeId, ct);
         return legacyZones.Success
             ? (true, null, 0)
@@ -473,17 +477,71 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         => versions?.FirstOrDefault(v => v.Version.State == ContentVersionState.Published);
 
     /// <summary>
-    /// Publishes the page's pending zone-item drafts (nested zones included) and registers each
-    /// published item's widget routes — routes follow what is live, so they change only here.
+    /// Publishes the page's pending zone-item drafts (nested zones included) and registers the widget routes
+    /// of the items it published, then brings the rest of the tree's widget routes in line:
+    /// <list type="bullet">
+    /// <item>when the page's URL changed (<see cref="WidgetPrefixChanged"/>; a first publish or a republish
+    /// after an unpublish counts), every other live item's routes are re-derived — a widget's pattern is
+    /// prefixed from the page's route at registration time, so an already-live Article widget would keep
+    /// the old page URL after a slug rename — and otherwise the live widgets inside a container this
+    /// publish put live (they show again with no version of their own);</item>
+    /// <item>the rows of every published item the page does not show (removed widgets, and widgets under a
+    /// removed container) are swept, in one query that finds nothing once they are gone.</item>
+    /// </list>
+    /// A publish that leaves the URL alone therefore touches only what it published.
     /// </summary>
-    private async Task<(bool Success, string? ErrorMessage)> PublishZoneDraftsAsync(Guid pageNodeId, CancellationToken ct)
+    private async Task<(bool Success, string? ErrorMessage)> PublishZoneDraftsAsync(
+        Guid pageNodeId, IReadOnlyList<CMSRouteDTO> routesBeforePublish, CancellationToken ct)
     {
-        var errors = await RegisterPublishedZoneRoutesAsync(
-            pageNodeId, await _contentZoneService.PublishPageZonesAsync(pageNodeId, ct), ct);
+        var zones = await _contentZoneService.PublishPageZonesAsync(pageNodeId, ct);
+        var errors = await RegisterPublishedZoneRoutesAsync(pageNodeId, zones, ct);
 
-        return errors.Count == 0
+        var tree = await _contentZoneService.GetLiveTreeItemsForPageAsync(pageNodeId, ct);
+        var published = zones.Published.Select(i => i.Version.Node.Id).ToHashSet();
+        var urlChanged = WidgetPrefixChanged(routesBeforePublish, await _routeService.GetByOwningContentAsync(pageNodeId, ct));
+
+        // Widgets inside a container this publish put (back) live — e.g. a removed Layout restored — show
+        // again without a version of their own, so they are re-registered too.
+        var reshown = new HashSet<Guid>();
+        if (!urlChanged)
+        {
+            foreach (var container in zones.Published.Where(i => i.IsActive))
+                reshown.UnionWith(await _contentZoneService.GetDescendantItemNodeIdsAsync(container.Version.Node.Id, ct));
+        }
+
+        var moveErrors = new List<string>();
+        foreach (var item in tree.Live.Where(i => !published.Contains(i.Version.Node.Id)
+                     && (urlChanged || reshown.Contains(i.Version.Node.Id))))
+        {
+            var routes = await _routeRegistration.TryRegisterWidgetRoutesAsync(
+                item.ComponentName, item.Version.Node.Id, pageNodeId, item.IsActive, item.MetadataJson, ct);
+            if (!routes.Success)
+                moveErrors.Add(routes.ErrorMessage ?? $"Failed to register routes for widget '{item.ComponentName}'.");
+        }
+
+        await _routeService.DeleteByOwningContentsAsync(tree.Removed.Select(i => i.Version.Node.Id).ToList(), ct);
+
+        var problems = new List<string>();
+        if (errors.Count > 0)
+            problems.Add("some zone changes failed: " + string.Join(" ", errors));
+        if (moveErrors.Count > 0)
+            problems.Add("some live widgets' routes could not be updated: " + string.Join(" ", moveErrors));
+        return problems.Count == 0
             ? (true, null)
-            : (false, "Page published; some zone changes failed: " + string.Join(" ", errors));
+            : (false, "Page published; " + string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// True when the page row widget routes are prefixed from (<see cref="RouteRegistrationService"/> takes the
+    /// owner's first row) changed its pattern or defaults across a publish — including appearing, when the
+    /// page was not live before.
+    /// </summary>
+    private static bool WidgetPrefixChanged(IReadOnlyList<CMSRouteDTO> before, IReadOnlyList<CMSRouteDTO> after)
+    {
+        var old = before.FirstOrDefault();
+        var now = after.FirstOrDefault();
+        return !string.Equals(old?.Pattern, now?.Pattern, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(old?.DefaultsJson, now?.DefaultsJson, StringComparison.Ordinal);
     }
 
     public async Task<PageZonePublishResult> PublishZoneItemsAsync(Guid pageNodeId, IReadOnlyCollection<Guid> itemNodeIds, CancellationToken ct = default)
@@ -518,8 +576,14 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var result = await _store.UnpublishAsync(nodeId, ct);
         if (!result.Success) return (false, result.ErrorMessage);
 
-        // The route items stay as drafts; only their projection goes away.
+        // The route items stay as drafts; only their projection goes away. The zone items' widget
+        // route rows go with it: their patterns are prefixed from the page's URL, so keeping them
+        // would leave routes to a page that is no longer live. A republish re-registers the tree's
+        // live items (PublishZoneDraftsAsync), so the sweep is reversible.
         await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
+        var tree = await _contentZoneService.GetLiveTreeItemsForPageAsync(nodeId, ct);
+        await _routeService.DeleteByOwningContentsAsync(
+            tree.Live.Concat(tree.Removed).Select(i => i.Version.Node.Id).ToList(), ct);
         return (true, null);
     }
 
@@ -587,6 +651,10 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
         var validationErrors = _controllerRegistry.ValidateConfiguration(vm.ControllerName, vm.ConfigurationJson);
         if (validationErrors.Count > 0)
             return new AdminSaveResult(false, string.Join(" ", validationErrors), "ConfigurationJson");
+
+        var configLengthError = WidgetConfigurationJson.LengthError(vm.ConfigurationJson, "The page configuration");
+        if (configLengthError != null)
+            return new AdminSaveResult(false, configLengthError, "ConfigurationJson");
 
         // A route is an owned reference, so it has one owner: another page's route can't be taken over.
         foreach (var routeId in vm.RouteIds.Distinct())

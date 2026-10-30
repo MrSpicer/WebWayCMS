@@ -327,29 +327,70 @@ public sealed class ContentZoneService : IContentZoneService
 
         // A caller may place the item at an ordinal in this zone; otherwise it goes last.
         var ordinal = item.ContentZoneNodeId == zoneNodeId ? item.Ordinal : 0;
-        if (ordinal == 0)
-        {
-            var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
-                .Where(ZoneRelations.InZone(zoneNodeId))
-                .Select(ZoneRelations.ZoneOrdinal)
-                .MaxAsync(o => (int?)o, ct) ?? 0;
-            ordinal = maxOrdinal + 1;
-        }
-        ZoneRelations.Place(item.Version, zoneNodeId, ordinal);
+        var mintOrdinal = ordinal == 0;
 
         using var _ = _changeSetScope.Begin(ChangeSetKind.Save, zoneNodeId, null);
-        using (_changeSetScope.UseChangeNote($"Added to {zone.Name}"))
-        {
-            var save = await _itemStore.SaveDraftAsync(item, null, ct);
-            if (!save.Success)
-                throw new InvalidOperationException(save.ErrorMessage ?? "Failed to add content zone item.");
 
-            if (!await IsPageOwnedZoneAsync(zoneNodeId, ct))
-                await _itemStore.PublishAsync(save.NodeId, ct);
-        }
+        // Minting and saving share one transaction: the row lock in MintLastOrdinalAsync only helps
+        // if the insert that consumes the minted ordinal commits while the lock is still held.
+        var result = await RunAtomicallyAsync(async () =>
+        {
+            if (mintOrdinal)
+                ZoneRelations.Place(item.Version, zoneNodeId, await MintLastOrdinalAsync(zoneNodeId, ct));
+
+            using (_changeSetScope.UseChangeNote($"Added to {zone.Name}"))
+            {
+                var save = await _itemStore.SaveDraftAsync(item, null, ct);
+                if (!save.Success)
+                    return (false, save.ErrorMessage ?? "Failed to add content zone item.");
+
+                if (!await IsPageOwnedZoneAsync(zoneNodeId, ct))
+                    await _itemStore.PublishAsync(save.NodeId, ct);
+            }
+            return (true, null);
+        }, ct);
+        if (!result.Success)
+            throw new InvalidOperationException(result.ErrorMessage ?? "Failed to add content zone item.");
 
         await RecordAsync(zoneNodeId, $"Added {item.ComponentName} to {zone.Name}", ct);
         return item;
+    }
+
+    /// <summary>
+    /// The zone's last ordinal + 1, minted under the zone's row lock (<see cref="LockZonesAsync"/>) so two
+    /// concurrent adds cannot read the same MAX and share an ordinal, and an add cannot interleave with a
+    /// reorder, move, restore or remap renumbering the same zone.
+    /// </summary>
+    private async Task<int> MintLastOrdinalAsync(Guid zoneNodeId, CancellationToken ct)
+    {
+        await LockZonesAsync([zoneNodeId], ct);
+
+        var maxOrdinal = await _context.Set<ContentZoneItemDTO>()
+            .Where(ZoneRelations.InZone(zoneNodeId))
+            .Select(ZoneRelations.ZoneOrdinal)
+            .MaxAsync(o => (int?)o, ct) ?? 0;
+        return maxOrdinal + 1;
+    }
+
+    /// <summary>
+    /// Takes each zone's row lock for the rest of the enclosing transaction. Every write of a zone's
+    /// ordinals (an add's mint, a reorder, a move, a restore, a remap) runs inside
+    /// <see cref="RunAtomicallyAsync"/> and locks first, so they serialize per zone; there is no unique index
+    /// on the ordinal, deliberately, because a reorder rewrites 1..n sequentially. The lock is the zone's own
+    /// version rows, which exist even in an empty zone. Zones are locked in a fixed (id) order so two writers
+    /// placing across the same pair of zones cannot deadlock. The InMemory provider (the unit-test database)
+    /// has no row locks; a single-context test database cannot race itself anyway.
+    /// </summary>
+    private async Task LockZonesAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct)
+    {
+        if (!_context.Database.IsRelational())
+            return;
+
+        // Interpolated, not ExecuteSqlRawAsync(sql, id, ct): that binds to the params overload and sends the
+        // CancellationToken as a SQL parameter.
+        foreach (var zoneNodeId in zoneNodeIds.Distinct().Order())
+            await _context.Database.ExecuteSqlAsync(
+                $"SELECT \"Id\" FROM \"ContentVersions\" WHERE \"NodeId\" = {zoneNodeId} FOR UPDATE", ct);
     }
 
     /// <summary>The version an update of <paramref name="existing"/> with <paramref name="item"/> saves.</summary>
@@ -489,6 +530,7 @@ public sealed class ContentZoneService : IContentZoneService
     /// <summary>Writes each target zone's new order; moved items are noted as such, renumbered ones as siblings.</summary>
     private async Task<(bool Success, string? ErrorMessage)> ApplyMovesAsync(List<SlotMoveGroup> groups, bool publish, CancellationToken ct)
     {
+        await LockZonesAsync(groups.Select(g => g.ZoneNodeId), ct);
         foreach (var group in groups)
         {
             var notes = new OrderNotes(_ => SiblingNote,
@@ -742,6 +784,9 @@ public sealed class ContentZoneService : IContentZoneService
         Guid targetZoneNodeId, Guid sourceZoneNodeId, List<ContentZoneItemDTO> targetOrder, bool publishTarget,
         OrderNotes notes, CancellationToken ct)
     {
+        // Both zones up front, in lock order, before either is written.
+        await LockZonesAsync([targetZoneNodeId, sourceZoneNodeId], ct);
+
         var target = await SaveZoneOrderAsync(targetZoneNodeId, targetOrder, publishTarget, notes, ct);
         if (!target.Success)
             return target;
@@ -795,12 +840,33 @@ public sealed class ContentZoneService : IContentZoneService
     /// <see cref="OrderNotes.AlwaysSavePrimary"/> (a restore, whose content changed). Each version is noted
     /// per <paramref name="notes"/>. Every save carries the version the item was read with, so a concurrent
     /// edit to a sibling fails the whole reorder instead of being overwritten by a stale copy (reported with
-    /// the store's "changed by someone else" message). Earlier saves are not undone here: the caller owns
-    /// the change-set scope and runs this inside <see cref="RunAtomicallyAsync"/>.
+    /// the store's "changed by someone else" message). The zone is locked first (<see cref="LockZonesAsync"/>)
+    /// and re-read: a planned item changed since the caller read it fails the write as stale, and an item an
+    /// add committed meanwhile goes last, so no two items ever share an ordinal. Earlier saves are not undone
+    /// here: the caller owns the change-set scope and runs this inside <see cref="RunAtomicallyAsync"/>.
     /// </summary>
     private async Task<(bool Success, string? ErrorMessage)> SaveZoneOrderAsync(
         Guid zoneNodeId, List<ContentZoneItemDTO> itemsInOrder, bool publish, OrderNotes notes, CancellationToken ct)
     {
+        await LockZonesAsync([zoneNodeId], ct);
+
+        // The order was planned from a read taken before the lock. Under it, the zone as it is now decides:
+        // a planned item still here at another version than it was read with (a concurrent move, reorder
+        // or edit) fails the write as stale — the skip below would otherwise trust its stale ordinal and
+        // never version-check it — while an item an add committed meanwhile goes last. A planned item that
+        // left the zone meanwhile cannot collide: its stale copy is either skipped (a gap) or saved and
+        // refused by the store's version check.
+        var now = await ZoneOrderAsync(zoneNodeId, ct);
+        var nowById = now.ToDictionary(i => i.Version.NodeId);
+        if (itemsInOrder.Any(i => nowById.TryGetValue(i.Version.NodeId, out var current)
+                && current.Version.VersionNumber != i.Version.VersionNumber))
+            return (false, ContentStore<ContentZoneItemDTO>.StaleVersionMessage);
+
+        var planned = itemsInOrder.Select(i => i.Version.NodeId).ToHashSet();
+        var joined = now.Where(i => !planned.Contains(i.Version.NodeId)).ToList();
+        if (joined.Count > 0)
+            itemsInOrder = [.. itemsInOrder, .. joined];
+
         for (int i = 0; i < itemsInOrder.Count; i++)
         {
             var current = itemsInOrder[i];
@@ -845,6 +911,31 @@ public sealed class ContentZoneService : IContentZoneService
             .Select(i => i.Version.NodeId)
             .Distinct()
             .ToListAsync(ct);
+    }
+
+    public async Task<PageTreeLiveItems> GetLiveTreeItemsForPageAsync(Guid pageNodeId, CancellationToken ct = default)
+    {
+        // What the page shows live: the zone tree's own walk (active items under active containers).
+        var live = await _tree.GetLiveTreeItemsAsync(pageNodeId, ct);
+
+        // Every other published item in the tree is not shown, so its route rows are stale: a removed
+        // (inactive) widget, and an active one nested, at any depth, under a removed container (the walk
+        // stops there). Zone scope is the whole tree, since a removed container keeps its nested zones.
+        var zoneIds = await GetZoneTreeNodeIdsForPageAsync(pageNodeId, ct);
+        var liveIds = live.Select(i => i.Version.NodeId).ToList();
+        var removed = zoneIds.Count == 0
+            ? []
+            : await _context.Set<ContentZoneItemDTO>()
+                .AsNoTracking()
+                .Where(i => i.Version.State == ContentVersionState.Published
+                         && i.Version.Culture == string.Empty
+                         && i.Version.Segment == string.Empty
+                         && !i.Version.Node.IsDeleted
+                         && !liveIds.Contains(i.Version.NodeId))
+                .Where(ZoneRelations.InZones(zoneIds))
+                .ToListAsync(ct);
+
+        return new PageTreeLiveItems(live, removed);
     }
 
     public Task<HashSet<Guid>> GetPagesWithPendingZoneChangesAsync(IEnumerable<Guid> pageNodeIds, CancellationToken ct = default)

@@ -142,6 +142,7 @@ IReadOnlyList<WidgetRegistrationInfo> GetByCategory(string category)
 IReadOnlyDictionary<string, IReadOnlyList<WidgetRegistrationInfo>> GetComponentsByCategory()
 object? CreateDefaultConfiguration(string componentName)
 IReadOnlyList<string> ValidateConfiguration(string componentName, object configuration)
+IReadOnlyList<string> ValidateConfiguration(string componentName, object configuration, WidgetDisplayMode? displayMode)
 void Invalidate()
 ```
 
@@ -151,7 +152,17 @@ void Invalidate()
 time by sweeping the loaded assemblies.
 
 `ValidateConfiguration` checks required fields, numeric range, max length, and regex pattern against
-the resolved `FormPropertyInfo` list. It accepts either a typed config object or a JSON string.
+the resolved `FormPropertyInfo` list. It accepts either a typed config object or a JSON string. With a
+`displayMode` it checks only the fields that apply to it (`FormProperty.DisplayModes`), as only those are
+on the item's form; `null` checks every field. The range/length/pattern rules are
+`FormPropertyConstraints` (shared with `ModelValidator` and the page-controller registry); a pattern has
+HTML `pattern` semantics — an empty value passes and the whole value must match.
+
+Zone-item writes call it through `WidgetConfigurationJson.Validate(registry, name, json, displayMode)`
+with the caller's payload **before** `ExtractRelations` strips the relation ids (a required relation
+field would otherwise read as `Guid.Empty`) and the item's effective display mode
+(`WidgetMetadataJson.EffectiveDisplayMode`: a create's chosen metadata, an update's stored metadata). An
+empty payload is validated as `{}`.
 
 > The older reflection-based `ContentZoneComponentRegistry` has been removed. `IWidgetRegistry`
 > (backed by the database) is the sole source of widget metadata at runtime.
@@ -411,12 +422,15 @@ which has no registry) the attribute is omitted and the picker shows "Unknown en
 
 Building a full end-to-end widget test surfaced these gaps. None are silently papered over here.
 
-1. **Widget config is never sanitized or validated on save.** `ContentZoneApiController.SaveItem`
-   writes `ComponentPropertiesJson` straight through `IContentZoneService.AddItemAsync` /
-   `UpdateItemAsync`. It never calls `RichTextSanitizer` (unlike `AdminCrudModel.SaveUpsertAsync`)
-   and never calls `IWidgetRegistry.ValidateConfiguration` — which is dead code, nothing in the
-   product calls it. So `IsRequired` / `Min` / `Max` / `MaxLength` / `Pattern` on a widget config are
-   declared and never enforced, and a `RichText` config property is stored raw.
+1. **Widget config validation covers the constraints, not the shapes.** Every zone-item write path
+   (`ContentZoneApiController.SaveItem`, the `ContentZoneItemModel` handler behind the admin form,
+   MCP and the seeder) runs `RichTextSanitizer` via `WidgetConfigurationJson.Sanitize` and — since the
+   2026-10 review closes-out — `IWidgetRegistry.ValidateConfiguration` (no longer dead code): a
+   config's `IsRequired` / `Min` / `Max` / `MaxLength` / `Pattern` are enforced server-side for the
+   item's display mode (see Stage 2 above), and an
+   over-length payload is rejected with a friendly message before it can overflow the 4000-char
+   column. What remains unvalidated is *shape*: unknown keys, wrong types, missing defaults the
+   render-time deserializer is written to tolerate.
 2. **A widget route's `DefaultsJson` never reaches `RouteData`.** `CMSRouteTransformer` forwards only
    `controller` and `action` from defaults, plus the captured route values — and every CMS request also
    carries the host catch-all's `slug` (the page path on a plain page request). Widgets therefore decide

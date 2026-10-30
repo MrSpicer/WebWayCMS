@@ -33,6 +33,13 @@ public static class WidgetMetadataJson
     public static bool StoresList(string? json) => Parse(json).DisplayMode == WidgetDisplayMode.List;
 
     /// <summary>
+    /// The display mode an item renders (and routes, and validates) in: a stored List counts only when the
+    /// widget supports lists — a grandfathered List on a widget that dropped support renders as Single.
+    /// </summary>
+    public static WidgetDisplayMode EffectiveDisplayMode(string? json, WidgetRegistrationInfo? widget)
+        => StoresList(json) && widget?.SupportsList == true ? WidgetDisplayMode.List : WidgetDisplayMode.Single;
+
+    /// <summary>
     /// A historical version's metadata as it can be saved back today (an item restore or a page-history
     /// revert). A historical List on a widget that has since dropped list support (and that the current
     /// item does not already store as List) is restored as Single — it renders as Single anyway, and

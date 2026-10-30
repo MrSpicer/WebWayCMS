@@ -142,6 +142,11 @@ public sealed class ContentZoneItemModel : IAdminCrudHandler
             if (relationError != null)
                 return relationError;
 
+            // Validated before the relation ids are stripped, so a required relation field counts as set.
+            var configErrors = _model.ValidateWidgetConfiguration(vm.ComponentName, vm.ComponentPropertiesJson, metadataJson);
+            if (configErrors.Count > 0)
+                return new AdminSaveResult(false, string.Join(" ", configErrors), nameof(vm.ComponentPropertiesJson));
+
             // Placed at ordinal 0, which AddItemAsync turns into last in the zone.
             var newItem = new ContentZoneItemDTO
             {
@@ -152,6 +157,10 @@ public sealed class ContentZoneItemModel : IAdminCrudHandler
             };
             _model.ApplyConfigRelations(newItem.Version, newItem.ComponentName, relations);
             ZoneRelations.Place(newItem.Version, vm.ContentZoneNodeId, 0);
+            var lengthError = WidgetConfigurationJson.LengthError(
+                newItem.ComponentPropertiesJson, $"{vm.ComponentName} configuration");
+            if (lengthError != null)
+                return new AdminSaveResult(false, lengthError, nameof(vm.ComponentPropertiesJson));
             var createdItem = await _model.AddItemAsync(vm.ContentZoneNodeId, newItem, ct);
             await _model.RegisterWidgetRouteIfRoutableAsync(
                 createdItem.ComponentName, createdItem.Version.Node!.Id, vm.ContentZoneNodeId,
@@ -171,6 +180,11 @@ public sealed class ContentZoneItemModel : IAdminCrudHandler
         if (updateRelationError != null)
             return updateRelationError;
 
+        var updateConfigErrors = _model.ValidateWidgetConfiguration(
+            vm.ComponentName, vm.ComponentPropertiesJson, metadataJson ?? existing.MetadataJson);
+        if (updateConfigErrors.Count > 0)
+            return new AdminSaveResult(false, string.Join(" ", updateConfigErrors), nameof(vm.ComponentPropertiesJson));
+
         var updated = existing with
         {
             ComponentName = vm.ComponentName,
@@ -181,6 +195,10 @@ public sealed class ContentZoneItemModel : IAdminCrudHandler
             IsActive = vm.IsActive,
         };
         _model.ApplyConfigRelations(updated.Version, updated.ComponentName, updateRelations);
+        var updateLengthError = WidgetConfigurationJson.LengthError(
+            updated.ComponentPropertiesJson, $"{updated.ComponentName} configuration");
+        if (updateLengthError != null)
+            return new AdminSaveResult(false, updateLengthError, nameof(vm.ComponentPropertiesJson));
         var ok = await _model.UpdateItemAsync(updated, ct, vm.ExpectedVersionNumber);
         if (!ok)
         {

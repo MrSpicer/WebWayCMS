@@ -153,7 +153,7 @@ public interface IAdminCrudHandler
         => Task.FromResult(false);
 
     /// <summary>The reason <see cref="TryDeleteVersionAsync"/> gives when a delete was simply not possible.</summary>
-    const string VersionNotDeletedMessage = "The version could not be deleted. The latest version is always kept.";
+    const string VersionNotDeletedMessage = "The version could not be deleted. The latest version is always kept, and a published version must be unpublished first.";
 
     /// <summary>
     /// <see cref="DeleteVersionAsync"/> with the reason a delete was refused (e.g. the version is part of

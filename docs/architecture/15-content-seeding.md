@@ -116,6 +116,9 @@ hash = SHA256(canonical JSON of the item)
 record = ledger[item.id]
 if record exists and record.ContentHash == hash  -> skip (unchanged)
 resolve handler for item.contentType              -> null: warning, skip
+if record.ContentHash == pending(hash)             -> saved earlier, only the publish failed: if the
+   and the recorded node still exists                 node exists, retry the publish alone (no save,
+                                                     so no new version); else fall through and recreate
                                                    -> !SupportsVersionHistory: warning, skip
 existing = record?.NodeId == null ? null : handler.GetUpsertViewModelAsync(record.NodeId)
                                                    -> null (deleted in admin) => recreate
@@ -125,10 +128,18 @@ refs = collect @seed:{guid} tokens from overlay
 for each ref: map[ref] = ledger[ref].NodeId when present and != Guid.Empty
 overlay = substitute @seed tokens using map         -> any unresolved: defer (skip, hash NOT recorded)
 model = merge(overlay) over (existing ?? handler.CreateEmptyUpsertViewModel())
-save = handler.SaveUpsertAsync(model)             -> !Success: warning, skip (hash NOT recorded)
+save = handler.SaveUpsertAsync(model)             -> !Success: skip (hash NOT recorded;
+                                                     a field error logs at Error — it is a
+                                                     permanent content problem the retry
+                                                     cannot fix, e.g. an over-length field)
 nodeId = save.NodeId ?? record?.NodeId            -> Guid.Empty: warning, skip (hash NOT recorded)
 if item.publish && handler.SupportsPublishing:
-    publish = handler.PublishAsync(nodeId)        -> !Success: warning, skip (hash NOT recorded)
+    publish = handler.PublishAsync(nodeId)        -> !Success: record the node with pending(hash)
+                                                     — the lowercase form of the uppercase-hex
+                                                     hash, so it never equals a real one (the
+                                                     node exists: the next boot retries the
+                                                     publish against it instead of creating a
+                                                     duplicate or re-saving it), warn, skip
 ledger.upsert(record with ContentHash = hash)
 ```
 
@@ -140,8 +151,10 @@ Consequences:
   new hash and re-applies.
 - **New content in a release takes effect** — the file's hash changes, so the item is re-applied
   (updated in place, same node id, new version).
-- **A failed save or publish is retried** — a `SaveUpsertAsync` or `PublishAsync` failure
-  deliberately does **not** record the hash, so the item is retried next boot.
+- **A failed save or publish is retried** — a `SaveUpsertAsync` failure deliberately does **not**
+  record the hash, so the item is retried next boot. A `PublishAsync` failure records the
+  publish-pending hash: the next boot retries only the publish, so an item whose publish keeps failing
+  (e.g. a route collision) does not gain a version per boot. A changed seed item re-applies as usual.
 
 `IAdminCrudHandler.SaveUpsertAsync` is `AdminCrudModel.SaveUpsertAsync`, which already runs
 `RichTextSanitizer.Sanitize` and `ModelValidator.Validate` and opens a change-set scope — the seeder
@@ -285,10 +298,12 @@ items were their own content type, which is no longer accepted — is skipped wi
   A `publish: false` page-zone item is saved as a draft and never published by the seeder. Global zones
   have no drafts (their writes go live), so a `publish: false` item in a `name` zone is a warning and is
   skipped — use `"isActive": false` to seed a hidden global item.
-- **Ledger** — a `publish: true` page-zone item is recorded with an **empty hash** as soon as it saves (so
-  a nested item's locator can reference it in the same run), then re-recorded with its real hash once it
-  publishes, or straight away when its page is not live. An item whose publish fails keeps the empty hash:
-  the next boot updates the same item (no duplicate) and retries. A widget-route failure on an item that
+- **Ledger** — a `publish: true` page-zone item is recorded with the **publish-pending hash** (the
+  lowercase form of its real hash, as for top-level items) as soon as it saves (so a nested item's locator
+  can reference it in the same run), then re-recorded with its real hash once it publishes, or straight
+  away when its page is not live. An item whose publish fails keeps the publish-pending hash: the next boot
+  finds it still in the same zone, skips the save (no new version per boot) and only queues its publish
+  again. A changed seed item, or one an admin moved to another zone of the page meanwhile, is applied as usual. A widget-route failure on an item that
   did go live is logged and recorded, since re-applying the same seed could not fix it.
 - **Hash stability** — `zone` is omitted from the hashed item when null, so adding the locator changed no
   existing top-level item's hash.

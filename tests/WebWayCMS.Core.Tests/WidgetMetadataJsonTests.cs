@@ -268,4 +268,21 @@ public class WidgetMetadataJsonTests
             Assert.That(normalized, Is.Null);
         });
     }
+
+    [TestCase("{\"DisplayMode\":\"List\"}", true, WidgetDisplayMode.List)]
+    [TestCase("{\"DisplayMode\":\"List\"}", false, WidgetDisplayMode.Single)]
+    [TestCase("{}", true, WidgetDisplayMode.Single)]
+    [TestCase(null, true, WidgetDisplayMode.Single)]
+    public void EffectiveDisplayMode_ListCountsOnlyWhenTheWidgetSupportsIt(string? json, bool supportsList, WidgetDisplayMode expected)
+    {
+        Assert.That(WidgetMetadataJson.EffectiveDisplayMode(json, new WidgetRegistrationInfo { SupportsList = supportsList }),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void EffectiveDisplayMode_UnknownWidget_IsSingle()
+    {
+        Assert.That(WidgetMetadataJson.EffectiveDisplayMode("{\"DisplayMode\":\"List\"}", null),
+            Is.EqualTo(WidgetDisplayMode.Single));
+    }
 }

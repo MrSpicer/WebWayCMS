@@ -136,14 +136,9 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
             parentPageNodeId.Value, EffectiveDisplayMode(componentName, metadataJson), ct);
     }
 
-    /// <summary>
-    /// The display mode the item renders in: a stored List counts only when the widget supports lists
-    /// (a grandfathered List on a widget that dropped support renders, and so routes, as Single).
-    /// </summary>
+    /// <summary>The display mode the item renders, and so routes, in (see <see cref="WidgetMetadataJson.EffectiveDisplayMode"/>).</summary>
     private WidgetDisplayMode EffectiveDisplayMode(string componentName, string? metadataJson)
-        => WidgetMetadataJson.StoresList(metadataJson) && _widgetRegistry.GetByName(componentName)?.SupportsList == true
-            ? WidgetDisplayMode.List
-            : WidgetDisplayMode.Single;
+        => WidgetMetadataJson.EffectiveDisplayMode(metadataJson, _widgetRegistry.GetByName(componentName));
 
     private static string NormalizeWidgetPattern(string parentRoute, string widgetPattern)
     {

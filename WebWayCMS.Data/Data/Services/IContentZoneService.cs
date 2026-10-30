@@ -83,6 +83,11 @@ public interface IContentZoneService
     // so a draft equal to what is live is not pending.
     Task<List<Guid>> GetZoneTreeNodeIdsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<List<Guid>> GetPendingItemNodeIdsAsync(IEnumerable<Guid> zoneNodeIds, CancellationToken ct = default);
+    // The published items of a page's zone tree, split into what the page shows live (widget routes
+    // are re-derived from the page's route for these) and the published ones it does not show (removed,
+    // or nested under a removed container; their stale route rows are swept). Callers: page publish,
+    // page unpublish.
+    Task<PageTreeLiveItems> GetLiveTreeItemsForPageAsync(Guid pageNodeId, CancellationToken ct = default);
     Task<HashSet<Guid>> GetPagesWithPendingZoneChangesAsync(IEnumerable<Guid> pageNodeIds, CancellationToken ct = default);
     Task<PageZonePublishResult> PublishPageZonesAsync(Guid pageNodeId, CancellationToken ct = default);
     // Publishes only the listed items among the page's pending zone drafts; every other draft stays pending.

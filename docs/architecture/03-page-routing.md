@@ -337,7 +337,8 @@ void Invalidate()
 
 `GetByName` is used by the transformer at runtime. `GetAllControllers` feeds the admin page-edit
 UI's page-type dropdown (`EditorType.PageControllerPicker`). `ValidateConfiguration` applies
-`[FormProperty]` required/range/length/pattern checks to a deserialized config object.
+`[FormProperty]` required/range/length/pattern checks to a deserialized config object (the shared
+`FormPropertyConstraints`; a pattern has HTML `pattern` semantics — empty passes, whole-value match).
 
 ---
 
@@ -444,6 +445,30 @@ When the admin "Add child" link supplies a `parentRoute`, `ResolveParentNodeIdAs
 `CMSRoutes` row by pattern; if none exists (an unpublished parent) it falls back to walking the
 current drafts through the same path-derivation the admin tree uses, so a child can be created
 directly beneath an unpublished parent.
+
+`UnpublishPageAsync` calls `UnregisterContentRoutesAsync` (which hard-deletes the page's routes) and
+then sweeps the page-tree zone items' **widget** route rows: their patterns are prefixed from the
+page's URL, so keeping them would leave routes to a page that is no longer live. A republish
+re-derives widget routes for every live tree item (see below), so the sweep is reversible.
+
+A page publish registers the widget routes of the zone items it published, then:
+
+- **when the page's route changed** — its first route row (the one widget patterns are prefixed from)
+  has another pattern or defaults than before the publish, which includes a first publish and a
+  republish after an unpublish — it re-derives the routes of **every other live item** in the zone tree.
+  A widget's pattern is prefixed from the page's route at registration time, so an already-live Article
+  widget would otherwise keep `/old-slug/{slug}` after the page moves to `/new-slug`;
+- **otherwise** it re-derives only the live widgets inside a container the publish put live (a removed
+  Layout restored: its widgets show again without a version of their own), so a publish that leaves the
+  URL alone touches nothing else;
+- either way, the rows of every **published item the page does not show** — removed (inactive) items,
+  and active widgets nested under a removed container — are swept in one
+  `ICMSRouteService.DeleteByOwningContentsAsync` call (a no-op query once they are gone).
+
+`IContentZoneService.GetLiveTreeItemsForPageAsync` splits the tree's published items into `Live` (what
+the page shows: active items under active containers) and `Removed` (every other published item in the
+tree). A re-derive failure on an unchanged live widget is reported as "some live widgets' routes could
+not be updated", apart from the pending items' "some zone changes failed".
 
 The admin page tree is built by joining pages to their `CMSRoutes` patterns and splitting those
 patterns into segments. A page with **no active route** (unpublished) derives its path by walking
