@@ -1,0 +1,8 @@
+@model string?
+
+@* Overrides the Identity UI package's Bootstrap alert with a Bulma notification. *@
+@if (!string.IsNullOrEmpty(Model))
+{
+    var statusMessageClass = Model.StartsWith("Error") ? "is-danger" : "is-success";
+    <div class="notification @statusMessageClass" role="alert">@Model</div>
+}

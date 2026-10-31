@@ -6,121 +6,116 @@
     ViewData["ActivePage"] = ManageNavPages.ApiTokens;
 }
 
-<section class="section">
-    <div class="container">
-        <partial name="_StatusMessage" for="StatusMessage" />
-        @if (Model.ErrorMessage != null)
-        {
-            <div class="notification is-danger">@Model.ErrorMessage</div>
-        }
-        <h3 class="title is-4">@ViewData["Title"]</h3>
-        <p class="mb-4">
-            A personal access token lets an AI agent use the CMS's MCP endpoint as you, with your current roles.
-            Send it as <code>Authorization: Bearer &lt;token&gt;</code>. Anyone who has the token can act as you, so keep it secret
-            and revoke it when it's no longer needed.
-        </p>
+<partial name="_StatusMessage" for="StatusMessage" />
+@if (Model.ErrorMessage != null)
+{
+    <div class="notification is-danger">@Model.ErrorMessage</div>
+}
+<p class="mb-4">
+    A personal access token lets an AI agent use the CMS's MCP endpoint as you, with your current roles.
+    Send it as <code>Authorization: Bearer &lt;token&gt;</code>. Anyone who has the token can act as you, so keep it secret
+    and revoke it when it's no longer needed.
+</p>
 
-        @if (Model.NewToken != null)
-        {
-            <div class="notification is-success is-light" data-testid="new-token">
-                <p class="mb-2">Token <strong>@Model.NewTokenName</strong> created. Copy it now: it won't be shown again.</p>
-                <div class="field has-addons">
-                    <div class="control is-expanded">
-                        <input id="api-token-value" class="input is-family-monospace" readonly value="@Model.NewToken" aria-label="New token" />
-                    </div>
-                    <div class="control">
-                        <button type="button" class="button" data-copy-target="api-token-value">Copy</button>
-                    </div>
-                </div>
-                <p class="mb-2">For Claude Code, put this in <code>.mcp.json</code>:</p>
-                <pre id="api-token-mcp-json" class="mb-2">@Model.McpJsonSnippet</pre>
-                <button type="button" class="button is-small" data-copy-target="api-token-mcp-json">Copy .mcp.json</button>
+@if (Model.NewToken != null)
+{
+    <div class="notification is-success is-light" data-testid="new-token">
+        <p class="mb-2">Token <strong>@Model.NewTokenName</strong> created. Copy it now: it won't be shown again.</p>
+        <div class="field has-addons">
+            <div class="control is-expanded">
+                <input id="api-token-value" class="input is-family-monospace" readonly value="@Model.NewToken" aria-label="New token" />
             </div>
-        }
-
-        <form asp-page-handler="Create" method="post" class="box">
-            <div class="field is-grouped is-grouped-multiline">
-                <div class="control is-expanded">
-                    <label class="label" for="token-name">Name</label>
-                    <input id="token-name" class="input" asp-for="Name" maxlength="@ApiTokenRules.MaxNameLength" required placeholder="e.g. Claude Code on my laptop" />
-                </div>
-                <div class="control">
-                    <label class="label" for="token-expiry">Expires</label>
-                    <div class="select">
-                        <select id="token-expiry" asp-for="ExpiresInDays">
-                            @foreach (var days in ApiTokensModel.ExpiryDayOptions)
-                            {
-                                <option value="@days">@(days == 0 ? "Never" : $"In {days} days")</option>
-                            }
-                        </select>
-                    </div>
-                </div>
-                <div class="control">
-                    <label class="label">&nbsp;</label>
-                    <button type="submit" class="button is-primary">Create token</button>
-                </div>
+            <div class="control">
+                <button type="button" class="button" data-copy-target="api-token-value">Copy</button>
             </div>
-        </form>
-
-        @if (Model.Tokens.Count > 0)
-        {
-            <table class="table is-fullwidth">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Token</th>
-                        <th>Created</th>
-                        <th>Expires</th>
-                        <th>Last used</th>
-                        <th>Status</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var token in Model.Tokens)
-                    {
-                        var revoked = token.RevokedUtc.HasValue;
-                        var expired = !revoked && token.ExpiresUtc <= DateTime.UtcNow;
-                        <tr>
-                            <td>@token.Name</td>
-                            <td><code>@token.Prefix…</code></td>
-                            <td>@token.CreatedUtc.ToLocalTime().ToString("g")</td>
-                            <td>@(token.ExpiresUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
-                            <td>@(token.LastUsedUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
-                            <td>
-                                @if (revoked)
-                                {
-                                    <span class="tag">Revoked</span>
-                                }
-                                else if (expired)
-                                {
-                                    <span class="tag is-warning is-light">Expired</span>
-                                }
-                                else
-                                {
-                                    <span class="tag is-success is-light">Active</span>
-                                }
-                            </td>
-                            <td>
-                                @if (!revoked)
-                                {
-                                    <form asp-page-handler="Revoke" method="post">
-                                        <input type="hidden" name="id" value="@token.Id" />
-                                        <button type="submit" class="button is-danger is-light is-small">Revoke</button>
-                                    </form>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
-        else
-        {
-            <p>You have no API tokens yet.</p>
-        }
+        </div>
+        <p class="mb-2">For Claude Code, put this in <code>.mcp.json</code>:</p>
+        <pre id="api-token-mcp-json" class="mb-2">@Model.McpJsonSnippet</pre>
+        <button type="button" class="button is-small" data-copy-target="api-token-mcp-json">Copy .mcp.json</button>
     </div>
-</section>
+}
+
+<form asp-page-handler="Create" method="post" class="box">
+    <div class="field is-grouped is-grouped-multiline">
+        <div class="control is-expanded">
+            <label class="label" for="token-name">Name</label>
+            <input id="token-name" class="input" asp-for="Name" maxlength="@ApiTokenRules.MaxNameLength" required placeholder="e.g. Claude Code on my laptop" />
+        </div>
+        <div class="control">
+            <label class="label" for="token-expiry">Expires</label>
+            <div class="select">
+                <select id="token-expiry" asp-for="ExpiresInDays">
+                    @foreach (var days in ApiTokensModel.ExpiryDayOptions)
+                    {
+                        <option value="@days">@(days == 0 ? "Never" : $"In {days} days")</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="control">
+            <label class="label">&nbsp;</label>
+            <button type="submit" class="button is-primary">Create token</button>
+        </div>
+    </div>
+</form>
+
+@if (Model.Tokens.Count > 0)
+{
+    <table class="table is-fullwidth">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Token</th>
+                <th>Created</th>
+                <th>Expires</th>
+                <th>Last used</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var token in Model.Tokens)
+            {
+                var revoked = token.RevokedUtc.HasValue;
+                var expired = !revoked && token.ExpiresUtc <= DateTime.UtcNow;
+                <tr>
+                    <td>@token.Name</td>
+                    <td><code>@token.Prefix…</code></td>
+                    <td>@token.CreatedUtc.ToLocalTime().ToString("g")</td>
+                    <td>@(token.ExpiresUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
+                    <td>@(token.LastUsedUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
+                    <td>
+                        @if (revoked)
+                        {
+                            <span class="tag">Revoked</span>
+                        }
+                        else if (expired)
+                        {
+                            <span class="tag is-warning is-light">Expired</span>
+                        }
+                        else
+                        {
+                            <span class="tag is-success is-light">Active</span>
+                        }
+                    </td>
+                    <td>
+                        @if (!revoked)
+                        {
+                            <form asp-page-handler="Revoke" method="post">
+                                <input type="hidden" name="id" value="@token.Id" />
+                                <button type="submit" class="button is-danger is-light is-small">Revoke</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>You have no API tokens yet.</p>
+}
 
 @section Scripts {
     <script src="~/_content/WebWayCMS.Presentation/js/api-tokens.js" asp-append-version="true"></script>

@@ -1,0 +1,21 @@
+@{
+    Layout = "/Views/Shared/_IdentityLayout.cshtml";
+    // _IdentityLayout puts this crumb before the page title.
+    ViewData["IdentityCrumb"] = "Account";
+    ViewData["IdentityCrumbUrl"] = Url.Page("/Account/Manage/Index", new { area = "Identity" });
+}
+
+<div class="container is-fluid admin-page-body">
+    <div class="columns">
+        <div class="column is-3-tablet is-2-widescreen">
+            <partial name="_ManageNav" />
+        </div>
+        <div class="column">
+            @RenderBody()
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @await RenderSectionAsync("Scripts", required: false)
+}

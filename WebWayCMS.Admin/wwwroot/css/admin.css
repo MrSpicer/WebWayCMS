@@ -231,6 +231,22 @@ body.admin-shell {
   color: #fff !important;
 }
 
+/* Identity pages (_IdentityLayout) have no navbar, and carry plain text (admin views always class
+   theirs), which would otherwise keep Bulma's dark body colour. Scoped here so the zone editor's
+   light canvas is untouched. */
+.identity-shell .admin-main {
+  min-height: 100vh;
+  color: var(--admin-text);
+}
+
+.identity-shell .admin-main a:not(.button, .breadcrumb a, .menu-list a) {
+  color: var(--admin-primary);
+}
+
+.identity-shell .admin-main a:not(.button, .breadcrumb a, .menu-list a):hover {
+  color: var(--admin-text);
+}
+
 /* Mobile burger toggle background */
 @media screen and (max-width: 1023px) {
   .admin-navbar .navbar-menu.is-active {

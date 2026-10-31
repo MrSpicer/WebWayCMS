@@ -163,7 +163,8 @@ the same name. To brand the public site, supply:
 - `wwwroot/` — your CSS/JS, fonts, `favicon`, etc.
 
 The admin UI (`/wadmin`), Identity pages, content-zone editors, and their CSS/JS
-come from the packages and need no host files. Admin assets are served under
+come from the packages and need no host files (the Identity pages share the admin's
+look: their layout loads the admin stylesheet). Admin assets are served under
 `_content/WebWayCMS.Admin/...`; public assets under
 `_content/WebWayCMS.Presentation/...`.
 

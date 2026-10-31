@@ -662,6 +662,13 @@
   The body is `<div class="container[ is-fluid] admin-page-body">`, not a `<section class="section">`.
 - `TempData["Success"]`/`TempData["Error"]` flashes are rendered once by `_AdminLayout` (above the page header,
   not in a modal frame) for every admin view; views must not render them again.
+- **Identity pages wear the admin shell.** `_IdentityLayout` (Presentation) loads `admin.css` (by URL; Presentation
+  does not reference Admin), sets `admin-html`/`admin-shell identity-shell`, and renders the one-row page header from
+  `ViewData["Title"]` (plus an optional `ViewData["IdentityCrumb"]`/`IdentityCrumbUrl` crumb), so pages render only
+  their body: `<div class="container is-fluid admin-page-body">` for `Account/*`, bare content for `Account/Manage/*`
+  (`Manage/_Layout` adds the "Account" crumb and the `_ManageNav` sidebar). There is **no navbar** on Identity
+  pages (no admin navbar, no login/logout bar). `Account/_StatusMessage` and `Manage/_StatusMessage` override the package's Bootstrap alerts. Pages still served
+  by the Identity UI package (e.g. Manage/Email, LoginWith2fa) get the shell but keep their Bootstrap markup.
 
 ## rules
  - after finishing work check to see if documentation needs to be updated to reflect the changes
