@@ -1,12 +1,3 @@
-using System.Security.Claims;
-
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Controllers;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
-
 using NSubstitute;
 
 using WebWayCMS.Controllers.Admin.Handlers;
@@ -51,45 +42,5 @@ internal static class TestSupport
         public async Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> DeleteAsync(
             Guid nodeId, Func<Guid, CancellationToken, Task<bool>> deleteSelf, CancellationToken ct = default)
             => (await deleteSelf(nodeId, ct), null, 0);
-    }
-}
-
-/// <summary>
-/// Builds the minimal MVC service graph and a configured ControllerContext so controller actions
-/// (including TryUpdateModelAsync / ViewData) can run in isolation.
-/// </summary>
-internal sealed class MvcHarness
-{
-    public ServiceProvider Services { get; }
-
-    public MvcHarness()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddControllersWithViews();
-        Services = services.BuildServiceProvider();
-    }
-
-    public DefaultHttpContext NewHttpContext(string[] roles, IQueryCollection? query = null)
-    {
-        var context = new DefaultHttpContext { RequestServices = Services };
-        context.Features.Set<IResponseCookiesFeature>(new ResponseCookiesFeature(context.Features));
-        var identity = new ClaimsIdentity(
-            roles.Select(r => new Claim(ClaimTypes.Role, r)),
-            authenticationType: "Test");
-        context.User = new ClaimsPrincipal(identity);
-        if (query != null)
-            context.Request.Query = query;
-        return context;
-    }
-
-    public void Configure(ControllerBase controller, string[] roles, IQueryCollection? query = null)
-    {
-        controller.ControllerContext = new ControllerContext
-        {
-            HttpContext = NewHttpContext(roles, query),
-            RouteData = new RouteData(),
-            ActionDescriptor = new ControllerActionDescriptor()
-        };
     }
 }

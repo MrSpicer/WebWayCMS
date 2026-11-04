@@ -1,0 +1,28 @@
+@model WebWayCMS.Models.Users.UsersWidgetConfiguration
+@using WebWayCMS.Attributes
+@*
+    Zone-editor card: what the widget does in this item's display mode, never real user data.
+*@
+@{
+    var isList = Model.Metadata.DisplayMode == WidgetDisplayMode.List;
+}
+<div class="box" data-testid="users-widget-edit">
+    <p class="has-text-weight-semibold">
+        <span class="icon"><i class="fas fa-users" aria-hidden="true"></i></span>
+        Users @(isList ? "(list)" : "(single user)")
+    </p>
+    <p class="is-size-7 has-text-grey">
+        @if (isList)
+        {
+            @:@Model.EffectivePageSize per page@(Model.ShowInvite ? ", with the Invite form" : string.Empty). Opens each user at edit/{userId} under this page.
+        }
+        else if (!string.IsNullOrWhiteSpace(Model.UserId))
+        {
+            @:Manages user @Model.UserId (or the user named by the URL).
+        }
+        else
+        {
+            @:Manages the user named by the URL (edit/{userId}). Choose a user ID to show one when the URL names none.
+        }
+    </p>
+</div>

@@ -14,6 +14,10 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
+
+using WebWayCMS.Data.Services.Users;
+using WebWayCMS.Identity;
 
 namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
 {
@@ -21,11 +25,15 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
     {
         private readonly UserManager<IdentityUser> _userManager;
         private readonly IEmailSender _emailSender;
+        private readonly IUserAdminService _userAdmin;
+        private readonly ILogger<ForgotPasswordModel> _logger;
 
-        public ForgotPasswordModel(UserManager<IdentityUser> userManager, IEmailSender emailSender)
+        public ForgotPasswordModel(UserManager<IdentityUser> userManager, IEmailSender emailSender, IUserAdminService userAdmin, ILogger<ForgotPasswordModel> logger)
         {
             _userManager = userManager;
             _emailSender = emailSender;
+            _userAdmin = userAdmin;
+            _logger = logger;
         }
 
         /// <summary>
@@ -61,6 +69,12 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                     return RedirectToPage("./ForgotPasswordConfirmation");
                 }
 
+                if (await _userAdmin.IsDeletedAsync(user.Id))
+                {
+                    // A deleted user stays inert: the same answer, and no reset email.
+                    return RedirectToPage("./ForgotPasswordConfirmation");
+                }
+
                 // For more information on how to enable account confirmation and password reset please
                 // visit https://go.microsoft.com/fwlink/?LinkID=532713
                 var code = await _userManager.GeneratePasswordResetTokenAsync(user);
@@ -71,10 +85,11 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                     values: new { area = "Identity", code },
                     protocol: Request.Scheme);
 
-                await _emailSender.SendEmailAsync(
+                await _emailSender.TrySendEmailAsync(
                     Input.Email,
                     "Reset Password",
-                    $"Please reset your password by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+                    $"Please reset your password by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.",
+                    _logger);
 
                 return RedirectToPage("./ForgotPasswordConfirmation");
             }

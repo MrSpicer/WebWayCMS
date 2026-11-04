@@ -1,0 +1,278 @@
+@model WebWayCMS.Models.Users.UserDetailViewModel
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Data.Services.Users
+@using WebWayCMS.Models.Users
+@using WebWayCMS.Users
+@*
+    One user's management screen (the Users widget on its edit/{userId} route, or a Single item). Every action
+    is its own form posting to /wadmin/usermanagement/{userId}/…; deleting and permanently deleting go through
+    the shared confirm modal, which asks for the acting Admin's password. A soft-deleted user only offers
+    Restore and Delete permanently. Self-destructive actions are left out on the Admin's own account (the
+    server refuses them anyway).
+*@
+@{
+    var user = Model.User;
+    var listUrl = string.IsNullOrEmpty(Model.ListUrl) ? null : Model.ListUrl;
+    var returnUrl = Model.CurrentUrl;
+    string Action(string action) => UserManagementRoutes.Action($"{user!.UserId}/{action}");
+    string WithReturn(string url, string back) => $"{url}?returnUrl={Uri.EscapeDataString(back)}";
+}
+
+<section class="mb-5" data-testid="user-detail" data-user-email="@user?.Email">
+    @if (listUrl != null)
+    {
+        <p class="mb-2"><a href="@listUrl">&larr; All users</a></p>
+    }
+
+    @if (user == null)
+    {
+        <div class="notification is-warning" data-testid="user-not-found">User not found. It may have been deleted permanently.</div>
+        return;
+    }
+
+    @{
+        var deleted = user.Status == UserStatus.Deleted;
+        var locked = user.Status == UserStatus.Locked;
+    }
+
+    <div class="is-flex is-align-items-center mb-4">
+        <h2 class="title is-5 mb-0 mr-3">@user.Email</h2>
+        <partial name="~/Views/Shared/Components/Users/_UserStatusTag.cshtml" model="(user.Status, user.IsInvitePending)" />
+        @if (Model.IsSelf)
+        {
+            <span class="tag is-light ml-2">You</span>
+        }
+    </div>
+
+    <div class="columns is-multiline">
+        @if (!deleted)
+        {
+            <div class="column is-half">
+                <div class="box">
+                    <h3 class="title is-6">Account</h3>
+                    <form method="post" action="@Action("update")" data-testid="user-account-form">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                        <div class="field">
+                            <label class="label" for="user-email">Email</label>
+                            <div class="control"><input class="input" type="email" id="user-email" name="email" value="@user.Email" required /></div>
+                            <p class="help">Changing it also changes the username. The new address must be confirmed before the user can sign in.</p>
+                        </div>
+                        <div class="field">
+                            <label class="label" for="user-phone">Phone number</label>
+                            <div class="control"><input class="input" type="tel" id="user-phone" name="phoneNumber" value="@user.PhoneNumber" /></div>
+                        </div>
+                        <div class="field">
+                            <label class="label" for="user-display-name">Display name</label>
+                            <div class="control"><input class="input" id="user-display-name" name="displayName" value="@user.DisplayName" maxlength="@UserProfileRules.MaxNameLength" /></div>
+                        </div>
+                        <div class="field is-grouped">
+                            <div class="control is-expanded">
+                                <label class="label" for="user-first-name">First name</label>
+                                <input class="input" id="user-first-name" name="firstName" value="@user.FirstName" maxlength="@UserProfileRules.MaxNameLength" />
+                            </div>
+                            <div class="control is-expanded">
+                                <label class="label" for="user-last-name">Last name</label>
+                                <input class="input" id="user-last-name" name="lastName" value="@user.LastName" maxlength="@UserProfileRules.MaxNameLength" />
+                            </div>
+                        </div>
+                        <button type="submit" class="button is-primary is-small" id="user-save">Save</button>
+                    </form>
+                </div>
+
+                <div class="box">
+                    <h3 class="title is-6">Roles</h3>
+                    <form method="post" action="@Action("roles")" data-testid="user-roles-form">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                        <div class="field">
+                            @foreach (var role in Model.Roles)
+                            {
+                                <label class="checkbox mr-4">
+                                    <input type="checkbox" name="roles" value="@role.Name"
+                                           checked="@user.Roles.Contains(role.Name, StringComparer.OrdinalIgnoreCase)" />
+                                    @role.Name
+                                </label>
+                            }
+                        </div>
+                        <div class="field">
+                            <label class="label" for="roles-password">Your password</label>
+                            <div class="control"><input class="input" type="password" id="roles-password" name="currentPassword" autocomplete="current-password" /></div>
+                            <p class="help">Needed only when granting the Admin role.</p>
+                        </div>
+                        <button type="submit" class="button is-primary is-small" id="roles-save">Save roles</button>
+                    </form>
+                </div>
+            </div>
+        }
+
+        <div class="column is-half">
+            <div class="box">
+                <h3 class="title is-6">Sign-in</h3>
+                <table class="table is-narrow is-fullwidth">
+                    <tbody>
+                        <tr><th scope="row">Email confirmed</th><td>@(user.EmailConfirmed ? "Yes" : "No")</td></tr>
+                        <tr><th scope="row">Password</th><td>@(user.HasPassword ? "Set" : "Not set")</td></tr>
+                        <tr><th scope="row">Two-factor</th><td>@(user.TwoFactorEnabled ? "On" : "Off")</td></tr>
+                        <tr><th scope="row">Passkeys</th><td>@user.PasskeyCount</td></tr>
+                        <tr><th scope="row">Active API tokens</th><td>@user.ActiveApiTokenCount</td></tr>
+                        <tr><th scope="row">Last login</th><td data-testid="user-last-login">@(user.LastLoginUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</td></tr>
+                        <tr><th scope="row">Failed attempts</th><td>@user.AccessFailedCount</td></tr>
+                        @if (user.LockoutEnd is { } lockoutEnd && lockoutEnd > DateTimeOffset.UtcNow)
+                        {
+                            <tr><th scope="row">Locked until</th><td>@(lockoutEnd >= UserAdminService.IndefiniteLockoutEnd ? "until an Admin unlocks it" : lockoutEnd.ToString("yyyy-MM-dd HH:mm"))</td></tr>
+                        }
+                        @if (user.InvitedUtc is { } invited)
+                        {
+                            <tr><th scope="row">Invited</th><td>@invited.ToString("yyyy-MM-dd HH:mm")</td></tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (!deleted)
+                {
+                    <div class="buttons" data-testid="user-email-actions">
+                        @if (user.IsInvitePending)
+                        {
+                            <form method="post" action="@Action("resend-invitation")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Resend invitation</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form method="post" action="@Action("send-reset")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Send password reset</button>
+                            </form>
+                        }
+                        @if (!user.EmailConfirmed && !user.IsInvitePending)
+                        {
+                            <form method="post" action="@Action("send-confirmation")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Resend confirmation email</button>
+                            </form>
+                        }
+                        @if (!user.EmailConfirmed)
+                        {
+                            <form method="post" action="@Action("confirm-email")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Mark email confirmed</button>
+                            </form>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (!deleted)
+            {
+                <div class="box">
+                    <h3 class="title is-6">Security</h3>
+                    <div class="buttons" data-testid="user-security-actions">
+                        @if (locked)
+                        {
+                            <form method="post" action="@Action("unlock")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Unlock</button>
+                            </form>
+                        }
+                        else if (!Model.IsSelf)
+                        {
+                            <form method="post" action="@Action("lock")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small is-warning is-light">Lock</button>
+                            </form>
+                        }
+                        <form method="post" action="@Action("sign-out")">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <button type="submit" class="button is-small">Sign out everywhere</button>
+                        </form>
+                        @if (user.TwoFactorEnabled)
+                        {
+                            <form method="post" action="@Action("reset-2fa")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Reset two-factor</button>
+                            </form>
+                        }
+                        @if (user.ActiveApiTokenCount > 0)
+                        {
+                            <form method="post" action="@Action("revoke-tokens")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Revoke API tokens</button>
+                            </form>
+                        }
+                        @if (user.PasskeyCount > 0)
+                        {
+                            <form method="post" action="@Action("remove-passkeys")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Remove passkeys</button>
+                            </form>
+                        }
+                    </div>
+                    @if (user.ExternalLogins.Count > 0)
+                    {
+                        <h4 class="title is-7 mt-3">External logins</h4>
+                        <ul>
+                            @foreach (var login in user.ExternalLogins)
+                            {
+                                <li class="is-flex is-align-items-center mb-1">
+                                    <span class="mr-2">@(login.DisplayName ?? login.LoginProvider)</span>
+                                    <form method="post" action="@Action("remove-login")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                        <input type="hidden" name="loginProvider" value="@login.LoginProvider" />
+                                        <input type="hidden" name="providerKey" value="@login.ProviderKey" />
+                                        <button type="submit" class="button is-small is-light">Remove</button>
+                                    </form>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+
+            @if (!Model.IsSelf)
+            {
+                <div class="box" data-testid="user-danger-zone">
+                    <h3 class="title is-6 has-text-danger">Danger zone</h3>
+                    @if (deleted)
+                    {
+                        <p class="mb-3 is-size-7">Deleted @user.DeletedUtc?.ToString("yyyy-MM-dd HH:mm"). The account is locked and its email stays reserved until it is restored or deleted permanently.</p>
+                        <div class="buttons">
+                            <form method="post" action="@Action("restore")">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="button is-small">Restore</button>
+                            </form>
+                            <button type="button" class="button is-small is-danger" id="user-purge"
+                                    data-delete-trigger data-delete-name="@user.Email" data-delete-password="true"
+                                    data-delete-url="@WithReturn(Action("purge"), listUrl ?? UserManagementRoutes.UsersPagePath)"
+                                    data-delete-message="Delete @user.Email permanently? Their roles, logins, passkeys, API tokens and profile go too, and the email becomes free. This cannot be undone.">
+                                Delete permanently
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button type="button" class="button is-small is-danger" id="user-delete"
+                                data-delete-trigger data-delete-name="@user.Email" data-delete-password="true"
+                                data-delete-url="@WithReturn(Action("delete"), returnUrl)"
+                                data-delete-message="Delete @user.Email? The account is locked and hidden from the list; you can restore it later or delete it permanently.">
+                            Delete user
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</section>

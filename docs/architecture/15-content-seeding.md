@@ -16,7 +16,7 @@
 ## 1. The Problem
 
 Before this area, the only way to get content into a WebWayCMS database at startup was to write C#:
-`DefaultContentSeeder` hard-codes exactly two pages (Home and `/wadmin`), and the four
+a hard-coded C# seeder created the Home and `/wadmin` pages, and the four
 assembly-scanning seeders seed *registrations* (widgets, form components, page types, code-based
 routes), not content. A host that wanted to ship a site's pages and content blocks with its package
 had to fork CMS source or hand-roll its own `IContentStore<T>` calls.
@@ -91,7 +91,8 @@ source name, items in file order:
 
 1. **Embedded resources** — every scanned assembly's manifest resources whose name ends in
    `ContentSeedOptions.ResourceSuffix` (`.contentseed.json`, case-insensitive). The scanned
-   assemblies are the host's entry assembly plus `IWebWayCmsBuilder.AddApplicationAssembly` and
+   assemblies are the CMS admin assembly (`WebWayCMS.Admin`, which ships the CMS's own pages, §11),
+   the host's entry assembly, and `IWebWayCmsBuilder.AddApplicationAssembly` and
    `AddContentSeedAssembly` contributions.
 2. **Configured disk folder** — every `*.json` file under `ContentSeedOptions.Path` (default
    `contentseed`, resolved against the host's content root). A blank `Path` scans nothing (mirroring
@@ -159,8 +160,10 @@ Consequences:
 `IAdminCrudHandler.SaveUpsertAsync` is `AdminCrudModel.SaveUpsertAsync`, which already runs
 `RichTextSanitizer.Sanitize` and `ModelValidator.Validate` and opens a change-set scope — the seeder
 adds none of its own. `PageModel.PublishAsync` writes the route, so a seeded page becomes reachable
-without the seeder touching `ICMSRouteService` (unlike `DefaultContentSeeder`, which hand-builds
-route rows).
+without the seeder touching `ICMSRouteService`. A page's URLs are `routes` items it owns: a page
+seeded without `routeIds` mints a Derived route (navigation name = title) on save; a page that needs a
+fixed URL seeds a `routes` item with `"mode": "Explicit"` and references it from `routeIds` (§11's
+Home page does this for `/`). `routes` has no publish of its own; the item goes live with its page.
 
 ## 6. Configuration
 
@@ -309,6 +312,40 @@ items were their own content type, which is no longer accepted — is skipped wi
   existing top-level item's hash.
 - A zone item deleted in the admin is re-created (appended) the next time its hash changes, like a
   top-level item.
+
+## 11. The CMS's Own Pages
+
+The CMS ships no page seeder. Every page it needs is an entry in
+`WebWayCMS.Admin/ContentSeed/cms-pages.contentseed.json` (an `<EmbeddedResource>` of the admin
+assembly, which §4 scans), applied by this seeder like any host file:
+
+| Seed id (`c5ed0000-0000-4000-8000-…`) | Item |
+|---|---|
+| `…001` | `routes` item: Explicit `/`, navigation name "Home" |
+| `…002` | Home page (`GenericPage`), owning route `…001` |
+| `…003` | Dashboard page (`GenericAdminPage`, view `Dashboard`, slug `wadmin` → `/wadmin`) |
+| `…004` / `…005` | Users page (child of the Dashboard → `/wadmin/users`) and its `Users` widget in List mode |
+| `…006` / `…007` | Roles page (`/wadmin/roles`) and its `UserRoles` widget |
+
+Adding a page the CMS ships (a future admin area included) means adding entries to this file, never a
+new seeder or startup step. The usual rules apply: an Admin's edits survive reboots, a deleted page is
+not recreated until the shipped entry changes, and `WEBWAYCMS_SKIP_CONTENTSEED` /
+`ContentSeed:Enabled=false` turn it off along with every other seed source — an admin host with seeding
+off therefore has **no Home page and no `/wadmin` Dashboard, Users or Roles page** (the admin content screens
+under `/wadmin/{contentType}` still work). A rendering-only host seeds nothing (§2).
+
+**The CMS seed owns `/` and `/wadmin`.** There is no "URL already taken" check (deliberately: the removed
+`DefaultContentSeeder` had one, the generic seeder has none). A database that already has a page at one of
+these URLs — one created by that old seeder, or a host page or seed item of its own at `/` — gets a second
+page whose publish collides, logged as publish-pending and retried on every boot. So:
+
+- **A host that wants its own home page adapts the seeded Home** (its template, configuration and zones in
+  the admin, or its zone items through a host seed file with a `zone` locator on `@seed:c5ed0000-0000-4000-8000-000000000002`),
+  rather than creating a second page at `/`. Admin edits survive reboots (§5).
+- Don't reuse a CMS seed id in a host file to replace an entry: both items are applied, in source-name
+  order, with a duplicate-id warning each boot (§3).
+- Pre-release databases from before the JSON seed (Home/Dashboard created by `DefaultContentSeeder`) are
+  rebuilt, not migrated.
 
 ## Media references (`@media:{path}`)
 

@@ -29,9 +29,3 @@ public record ContentRelation
     /// <summary><c>""</c> by default; a relation that needs one (e.g. a zone slot) stores it here.</summary>
     public string Qualifier { get; set; } = string.Empty;
 }
-
-/// <summary>
-/// A relation value a caller wants the next saved version to carry (see
-/// <see cref="ContentVersion.RelationWrites"/>).
-/// </summary>
-public readonly record struct RelationWrite(Guid TargetNodeId, int Ordinal, string Qualifier, RelationKind Kind);

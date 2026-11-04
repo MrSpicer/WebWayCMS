@@ -13,11 +13,13 @@ public sealed class CMSRouteService : ICMSRouteService
 {
     private readonly CmsDbContext _context;
     private readonly ICMSRouteRegistry _registry;
+    private readonly IAdminRouteReservations _adminReservations;
 
-    public CMSRouteService(CmsDbContext context, ICMSRouteRegistry registry)
+    public CMSRouteService(CmsDbContext context, ICMSRouteRegistry registry, IAdminRouteReservations? adminReservations = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _adminReservations = adminReservations ?? new NoAdminRouteReservations();
     }
 
     public Task<CMSRouteMatchResult?> MatchRouteAsync(string path, CancellationToken ct = default)
@@ -102,6 +104,9 @@ public sealed class CMSRouteService : ICMSRouteService
 
         if (RoutePatternRules.Validate(route.Pattern) is { } patternError)
             return (false, patternError, null);
+
+        if (_adminReservations.GetConflict(route.Pattern) is { } reservedError)
+            return (false, reservedError, null);
 
         var pattern = route.Pattern;
         var owner = route.OwningContentNodeId;

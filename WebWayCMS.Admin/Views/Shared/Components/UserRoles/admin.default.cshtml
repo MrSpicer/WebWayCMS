@@ -1,0 +1,73 @@
+@model WebWayCMS.Models.Users.UserRolesViewModel
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Models.Users
+@*
+    The User Roles widget on an admin page. Built-in roles (Admin, Editor, User) are fixed; a custom role can be
+    renamed, and deleted once it has no members. Members are assigned on each user's management screen.
+*@
+<section class="mb-5" data-testid="user-roles-widget">
+    <h2 class="title is-5">Roles</h2>
+
+    <div class="table-container admin-list-container">
+        <table class="table is-fullwidth is-hoverable admin-list-table" data-testid="roles-table">
+            <caption class="is-sr-only">Roles</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Role</th>
+                    <th scope="col">Members</th>
+                    <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var role in Model.Roles)
+                {
+                    <tr data-testid="role-row" data-role-name="@role.Name">
+                        <td class="admin-list-main">
+                            @role.Name
+                            @if (role.IsBuiltIn)
+                            {
+                                <span class="tag is-light ml-2">Built-in</span>
+                            }
+                        </td>
+                        <td data-testid="role-members">@role.MemberCount</td>
+                        <td class="admin-actions-col">
+                            @if (!role.IsBuiltIn)
+                            {
+                                <div class="is-flex is-justify-content-flex-end">
+                                    <form method="post" action="@UserManagementRoutes.Action("roles/rename")" class="field has-addons mb-0 mr-2">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="returnUrl" value="@Model.CurrentUrl" />
+                                        <input type="hidden" name="name" value="@role.Name" />
+                                        <div class="control">
+                                            <input class="input is-small" name="newName" value="@role.Name" required
+                                                   maxlength="@UserProfileRules.MaxRoleNameLength" aria-label="New name for @role.Name" />
+                                        </div>
+                                        <div class="control"><button type="submit" class="button is-small">Rename</button></div>
+                                    </form>
+                                    <form method="post" action="@UserManagementRoutes.Action("roles/delete")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="returnUrl" value="@Model.CurrentUrl" />
+                                        <input type="hidden" name="name" value="@role.Name" />
+                                        <button type="submit" class="button is-small is-danger is-light" aria-label="Delete @role.Name"
+                                                disabled="@(role.MemberCount > 0)"
+                                                title="@(role.MemberCount > 0 ? "Remove its members first" : null)">Delete</button>
+                                    </form>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <form method="post" action="@UserManagementRoutes.Action("roles/create")" class="field has-addons" data-testid="create-role">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="returnUrl" value="@Model.CurrentUrl" />
+        <div class="control">
+            <input class="input is-small" name="name" id="new-role-name" placeholder="New role name" required
+                   maxlength="@UserProfileRules.MaxRoleNameLength" aria-label="New role name" />
+        </div>
+        <div class="control"><button type="submit" class="button is-primary is-small" id="create-role-submit">Add role</button></div>
+    </form>
+</section>

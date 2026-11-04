@@ -1,0 +1,13 @@
+@model (WebWayCMS.Data.Services.Users.UserStatus Status, bool IsInvitePending)
+@using WebWayCMS.Data.Services.Users
+@{
+    var (cssClass, label) = Model.Status switch
+    {
+        UserStatus.Deleted => ("is-dark", "Deleted"),
+        UserStatus.Locked => ("is-danger is-light", "Locked"),
+        UserStatus.Unconfirmed when Model.IsInvitePending => ("is-info is-light", "Invited"),
+        UserStatus.Unconfirmed => ("is-warning is-light", "Unconfirmed"),
+        _ => ("is-success is-light", "Active"),
+    };
+}
+<span class="tag @cssClass" data-testid="user-status">@label</span>

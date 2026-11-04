@@ -84,7 +84,7 @@ if (!app.Environment.IsDevelopment())
     app.UseStatusCodePagesWithReExecute("/Error/{0}");
 }
 
-app.UseWebWayCms(); // applies migrations, seeds roles/admin + the default Home page,
+app.UseWebWayCms(); // applies migrations, seeds roles/admin + the CMS pages (JSON seed),
                     // and configures the middleware pipeline + dynamic page routing
 app.Run();
 ```
@@ -174,12 +174,12 @@ All comparisons are case-insensitive against the literal string `true`.
 
 - `WEBWAYCMS_SKIP_MIGRATIONS` — skip applying EF migrations on startup.
 - `WEBWAYCMS_SKIP_ROLESEED` — skip seeding roles + the admin user.
-- `WEBWAYCMS_SKIP_DEFAULTPAGE` — skip seeding the default Home/Admin pages.
 - `WEBWAYCMS_SKIP_DEFAULTWIDGETS` — skip seeding widget registrations from
   `[ContentZoneComponent]`-decorated ViewComponents.
 - `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS` — skip seeding page-type registrations
   from `[PageController]`-decorated controllers.
 - `WEBWAYCMS_SKIP_CODEBASEDROUTES` — skip seeding routes declared with `[CmsRoute]`.
+- `WEBWAYCMS_SKIP_CONTENTSEED` — skip JSON content seeding, including the CMS's own Home and `/wadmin` pages.
 
 One more variable applies only to the EF design-time tooling, not the running app:
 

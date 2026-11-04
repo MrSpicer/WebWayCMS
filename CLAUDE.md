@@ -18,10 +18,10 @@
 - The CMS boots in one of two modes, chosen by which pair of extension methods the host calls:
   - **Full / admin:** `AddWebWayCms(config)` + `UseWebWayCms()` (back-compat aliases for
     `AddWebWayCmsAdmin` / `UseWebWayCmsAdmin`). Registers the admin CRUD surface from
-    `WebWayCMS.Admin`, seeds roles + the admin user + the `/wadmin` page, and maps MCP.
+    `WebWayCMS.Admin`, seeds roles + the admin user, runs the JSON content seed (every CMS page: Home, `/wadmin`, …), and maps MCP.
   - **Rendering-only:** `AddWebWayCmsRendering(config)` + `UseWebWayCmsRendering()`. Same database,
     same public routing and content zones, but no admin controllers, no `IAdminHandlerRegistry`,
-    no role/admin-user seeding, and no MCP endpoint.
+    no role/admin-user or content seeding (not even Home), and no MCP endpoint.
 - The split is a DI/pipeline boundary, not an assembly boundary: the umbrella `WebWayCMS` package
   still ships `WebWayCMS.Admin`, and the startup seeders scan its assembly in both modes.
 - See [docs/architecture/11-deployment-modes.md](docs/architecture/11-deployment-modes.md).
@@ -320,6 +320,51 @@
   `expectedVersionNumber` on the config save, the metadata save and the move.
  - See [docs/architecture/01-data-tier.md](docs/architecture/01-data-tier.md).
 
+## User Management
+
+- Admins manage users with two content-zone widgets (category **Users**), each on its own published
+  `GenericAdminPage` under the Dashboard: Users on **`/wadmin/users`**, User Roles on **`/wadmin/roles`**
+  (entries in the CMS's JSON seed file, see Content Seeding):
+  - **`UsersViewComponent`** (`SupportsList`, routable): **List** = the user table (`?role=` / `?status=`,
+    `?skip=` paging, Invite form) that **owns `edit/{userId:guid}`**, where it renders the user's management
+    screen; **Single** = the route's user, else the configured `UserId`.
+  - **`UserRolesViewComponent`**: role CRUD. It steps aside on a widget route.
+  - Only `admin.*`/`adminlist.*`/`edit.*` views ship, so they render nothing on public pages or for non-Admins.
+  - Forms post to `AdminUserManagementController` (`/wadmin/usermanagement/…`, Admin, antiforgery, local
+    `returnUrl` + TempData flash).
+- **Layers:** `IUserAdminService`/`UserAdminService` (Data, `Services/Users`: Identity managers + the
+  **`UserProfiles`** table, display/first/last name, last login, soft-delete and invite stamps; the user type
+  stays `IdentityUser`), `UserManagementGuards` (never leave no *active* Admin — Admin role, email
+  **confirmed**, not locked, not deleted, so an invited Admin never counts; no self delete/lock/Admin
+  removal/email change), and `IUserManagementModel` (Core, `Users`: emails via `IUserAccountEmails`, password re-entry,
+  user-facing messages; used by the controller and the MCP `UserToolset`).
+- **Rules:**
+  - **Delete is soft** (flag + lock + stamp + revoke tokens; restorable); **purge** only after a soft delete
+    (frees the email). The public ForgotPassword and ResendEmailConfirmation pages treat a soft-deleted user
+    as absent (`IUserAdminService.IsDeletedAsync`; same answer, no email).
+  - **Delete, purge and granting Admin** need the acting Admin's password (`CheckPasswordSignInAsync`,
+    lockout on failure); MCP skips re-entry.
+  - **Lock** = `IndefiniteLockoutEnd` (9999-01-01).
+  - An **email change** unconfirms the account, mails a confirmation to the new address and a notice to the old;
+    for a pending invitation it mails a **new invitation** instead (no notice). An Admin's own email is changed
+    through Account → Email, never here; an email change of the last active Admin is refused.
+  - **Built-in roles** Admin/Editor/User (`UserProfileRules`) are fixed; a role with members can't be deleted.
+  - Session effects (lock, sign-out-everywhere, roles) apply at the next security-stamp validation (30 min).
+- **Invitations:** passwordless unconfirmed user + email linking `/Identity/Account/AcceptInvitation` (sets
+  the password and confirms the email). `InvitationTokenProvider` has its own lifespan
+  (`UserManagement:InvitationLifetimeDays`, default 7, 1–90); the link dies once a password is set.
+- **Sign-up:** self-registered and external-login users get the **User** role. `Identity:AllowRegistration=false`
+  404s Register, hides its link, and blocks external account creation. ResendEmailConfirmation stays available
+  (admin email changes unconfirm existing users).
+- **`CmsSignInManager`** stamps `UserProfiles.LastLoginUtc` on every sign-in (not on `RefreshSignInAsync`).
+- **`/wadmin` child pages:** `AdminContentController` routes use `{contentType:admincontenttype}`
+  (`AdminContentTypeConstraint`: registered handler keys only, from the singleton `AdminContentTypeKeys`), so other `/wadmin/<segment>` URLs reach CMS
+  pages. In admin mode `CMSRouteService.UpsertAsync` refuses a `/wadmin/<content type>` pattern
+  (`IAdminRouteReservations`).
+- MCP: `list_users`, `get_user`, `list_roles`, `invite_user`, `update_user`, `set_user_roles`, account email,
+  security and delete/restore/purge tools, role CRUD.
+- See [docs/architecture/08-identity-auth.md](docs/architecture/08-identity-auth.md) → User Management.
+
 ## Widget Render Modes
 
 - Widget views are split by **render mode**: files are named `{mode}.{variant}.cshtml` (mode
@@ -451,6 +496,13 @@
 - A host (or a satellite content DLL) can ship a JSON file of serialized content that is discovered
   at startup and created/updated in the database, then published. **Admin mode only** (it dispatches
   through `IAdminHandlerRegistry`, which a rendering-only host lacks).
+- **The CMS's own pages are seed content too** — there is no page seeder. Home (`/`, via an Explicit `routes`
+  item in its `routeIds`), the `/wadmin` Dashboard and the `/wadmin/users` / `/wadmin/roles` pages with their
+  widgets are entries in `WebWayCMS.Admin/ContentSeed/cms-pages.contentseed.json` (an `<EmbeddedResource>`; the
+  admin assembly is a scanned seed assembly). A new CMS page is a new entry there, never a new seeder or
+  startup step. A rendering-only host seeds nothing (its admin host does). `WEBWAYCMS_SKIP_DEFAULTPAGE` is gone.
+  The seed **owns `/` and `/wadmin`** (no "URL taken" check): a host adapts the seeded Home rather than adding
+  its own page at `/` (that collides and retries every boot), and turning seeding off leaves no Home/Dashboard.
 - Three sources: embedded resources named `*.contentseed.json` in the scanned assemblies, `*.json`
   files under the `ContentSeed:Path` directory (default `contentseed`, content-root-relative), and
   explicit files via `IWebWayCmsBuilder.AddContentSeedFile` / `AddContentSeedAssembly`.
@@ -630,9 +682,17 @@
   docker-compose sets it — nginx is a separate container).
 - **Auth rate limiting:** the Identity login/register/password-reset/external-login/passkey endpoints are
   throttled per client IP **and per endpoint family** (`AuthRateLimiting`, wired via
-  `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit. The second-factor endpoints
+  `AddRateLimiter`/`UseRateLimiter`); returns HTTP 429 over the limit. The budget is the `AuthRateLimiting`
+  config section (`AuthRateLimitOptions`: `PermitLimit` default 5, `WindowSeconds` default 60, each ≥ 1 and
+  capped at 10 000 / 86 400, `ValidateOnStart`); the integration host raises `PermitLimit` to 100 for its account e2e. The second-factor endpoints
   (`LoginWith2fa`, `LoginWithRecoveryCode`, Manage `EnableAuthenticator`/`TwoFactorAuthentication`) are
   limited too — segment-boundary matching keeps them distinct buckets from `/Login`.
+- **Email:** `IEmailSender` is the one email API (account mail and a host's general mail). The `Smtp`
+  section (`SmtpOptions`) selects `SmtpEmailSender` (BCL `SmtpClient`) when `Smtp:Host` is set, else
+  `LoggingEmailSender` (log only); a host-registered `IEmailSender` wins. The account pages send through
+  `EmailSenderExtensions.TrySendEmailAsync`, so a send failure is logged and the flow continues.
+  `RegisterConfirmation` is scaffolded (no user lookup, no raw link). The TestHost compose runs smtp4dev
+  (UI/API `:45852`, SMTP `:45853`) and its Playwright `account.write.spec.ts` reads the mail from it.
 - **Identity hardening:** explicit account lockout (5 attempts / 15 min) and auth-cookie flags
   (`HttpOnly`, `Secure=Always`, `SameSite=Lax`) are set in `ConfigureAuthorization`. `Lax` (not
   `Strict`) is required so OAuth sign-in redirect chains are not treated cross-site; it still withholds
@@ -642,6 +702,10 @@
 ## Code Conventions
 
 - File-scoped namespaces, nullable reference types enabled
+- **One top-level type per file** (class, record, interface, enum, struct, delegate), the file named after the
+  type; an interface and its implementation are separate files; tests included. Nested types are fine.
+- **Infrastructure is generic, never per feature.** Don't add a seeder, registry or startup step for one area
+  (e.g. "user management pages"); extend the generic mechanism (JSON seed data, handler registry, …) instead.
 - Private fields: `_camelCase`; async methods: suffix `Async`
 - ViewModels: `{Name}ViewModel.cs`; DTOs: `{Name}DTO.cs` (in `Data/Models/`)
 - Constructor injection with `?? throw new ArgumentNullException(nameof(...))`

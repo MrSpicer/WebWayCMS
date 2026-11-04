@@ -4,8 +4,10 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 using IPNetwork = System.Net.IPNetwork;
 
@@ -62,13 +64,22 @@ internal static class CmsHttpInfrastructureRegistration
         });
     }
 
-    internal static void ConfigureRateLimiting(IServiceCollection services)
+    internal static void ConfigureRateLimiting(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddRateLimiter(options =>
-        {
-            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
-                AuthRateLimiting.GetPartition);
-        });
+        services.AddOptions<AuthRateLimitOptions>()
+            .Bind(configuration.GetSection(AuthRateLimitOptions.SectionName))
+            .Validate(o => o.IsValid(),
+                $"'{AuthRateLimitOptions.SectionName}:PermitLimit' and '{AuthRateLimitOptions.SectionName}:WindowSeconds' must be at least 1.")
+            .ValidateOnStart();
+
+        services.AddRateLimiter(_ => { });
+        services.AddOptions<RateLimiterOptions>()
+            .Configure<IOptions<AuthRateLimitOptions>>((options, authLimits) =>
+            {
+                var limits = authLimits.Value;
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+                    context => AuthRateLimiting.GetPartition(context, limits));
+            });
     }
 }

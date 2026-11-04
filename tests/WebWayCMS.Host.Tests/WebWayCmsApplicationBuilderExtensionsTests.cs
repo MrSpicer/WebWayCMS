@@ -20,8 +20,8 @@ namespace WebWayCMS.Host.Tests;
 [TestFixture]
 public class WebWayCmsApplicationBuilderExtensionsTests
 {
-    private readonly string[] _skipVars = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE" };
-    private readonly string[] _skipVarsExtended = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_DEFAULTPAGE",
+    private readonly string[] _skipVars = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_CONTENTSEED" };
+    private readonly string[] _skipVarsExtended = { "WEBWAYCMS_SKIP_MIGRATIONS", "WEBWAYCMS_SKIP_ROLESEED", "WEBWAYCMS_SKIP_CONTENTSEED",
         "WEBWAYCMS_SKIP_DEFAULTWIDGETS", "WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS", "WEBWAYCMS_SKIP_CODEBASEDROUTES",
         "WEBWAYCMS_SKIP_DEFAULTFORMCOMPONENTS" };
     private Dictionary<string, string?> _previous = new();

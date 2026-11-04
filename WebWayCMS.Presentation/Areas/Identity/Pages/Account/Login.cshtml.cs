@@ -15,6 +15,9 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+using WebWayCMS.Identity;
 
 namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
 {
@@ -23,11 +26,15 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
         private readonly SignInManager<IdentityUser> _signInManager;
         private readonly ILogger<LoginModel> _logger;
 
-        public LoginModel(SignInManager<IdentityUser> signInManager, ILogger<LoginModel> logger)
+        public LoginModel(SignInManager<IdentityUser> signInManager, ILogger<LoginModel> logger, IOptions<IdentityRegistrationOptions> registration)
         {
             _signInManager = signInManager;
             _logger = logger;
+            AllowRegistration = registration.Value.AllowRegistration;
         }
+
+        /// <summary>Whether to offer the Register link (Identity:AllowRegistration).</summary>
+        public bool AllowRegistration { get; }
 
         /// <summary>
         ///     This API supports the ASP.NET Core Identity default UI infrastructure and is not intended to be used

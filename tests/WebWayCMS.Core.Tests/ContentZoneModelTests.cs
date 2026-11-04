@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,19 +16,9 @@ using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
-using WebWayCMS.Models.Shared;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
-
-public sealed class SampleZoneConfig
-{
-    public int X { get; set; }
-}
-
-public sealed class SampleWidgetConfig : WidgetConfiguration
-{
-}
 
 [TestFixture]
 public class ContentZoneModelTests

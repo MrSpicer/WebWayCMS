@@ -1,0 +1,56 @@
+@page
+@model AcceptInvitationModel
+@{
+    ViewData["Title"] = "Accept invitation";
+}
+
+<div class="container is-fluid admin-page-body">
+    @if (Model.Invalid)
+    {
+        <div class="notification is-danger" role="alert" data-testid="invitation-invalid">@AcceptInvitationModel.InvalidLinkMessage</div>
+    }
+    else if (Model.Accepted)
+    {
+        <p class="content" data-testid="invitation-accepted">
+            Your password is set and your email is confirmed. <a asp-page="./Login">Log in</a>.
+        </p>
+    }
+    else
+    {
+        <div class="columns">
+            <div class="column is-one-third">
+                <h2 class="title is-5">Set your password.</h2>
+                <p class="mb-3">You're setting the password for <strong>@Model.Email</strong>.</p>
+                <hr />
+                <form method="post">
+                    <div asp-validation-summary="ModelOnly" class="has-text-danger" role="alert"></div>
+                    <input asp-for="Input.UserId" type="hidden" />
+                    <input asp-for="Input.Code" type="hidden" />
+                    <div class="field">
+                        <label class="label" asp-for="Input.Password"></label>
+                        <div class="control">
+                            <input asp-for="Input.Password" class="input" autocomplete="new-password" aria-required="true" placeholder="Please enter your password." />
+                        </div>
+                        <p class="help is-danger"><span asp-validation-for="Input.Password"></span></p>
+                    </div>
+                    <div class="field">
+                        <label class="label" asp-for="Input.ConfirmPassword"></label>
+                        <div class="control">
+                            <input asp-for="Input.ConfirmPassword" class="input" autocomplete="new-password" aria-required="true" placeholder="Please confirm your password." />
+                        </div>
+                        <p class="help is-danger"><span asp-validation-for="Input.ConfirmPassword"></span></p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="accept-invitation-submit" type="submit" class="button is-primary is-fullwidth">Set password</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

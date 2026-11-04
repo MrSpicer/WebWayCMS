@@ -1,15 +1,5 @@
 namespace WebWayCMS.Data.Models;
 
-public enum ChangeSetKind
-{
-    Save = 0,
-    Publish = 1,
-    Unpublish = 2,
-    Restore = 3,
-    Delete = 4,
-    Discard = 5
-}
-
 /// <summary>
 /// Groups every version written by one save/publish/restore operation, so a composite save
 /// (page + its zones + items + route) can be read back as a single history entry.

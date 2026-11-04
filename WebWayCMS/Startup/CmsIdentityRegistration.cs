@@ -13,7 +13,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using WebWayCMS.Data.DbContexts;
+using WebWayCMS.Data.Services.Users;
 using WebWayCMS.Identity;
+using WebWayCMS.Users;
 
 namespace WebWayCMS.Startup;
 
@@ -44,8 +46,13 @@ internal static class CmsIdentityRegistration
                 }
                 )
             .AddRoles<IdentityRole>()
-            .AddEntityFrameworkStores<CmsDbContext>();
+            .AddEntityFrameworkStores<CmsDbContext>()
+            // Records each user's last sign-in on their profile.
+            .AddSignInManager<CmsSignInManager>()
+            // Invitation links: their own provider, so they outlive a 1-day password-reset link.
+            .AddTokenProvider<InvitationTokenProvider>(InvitationTokenProvider.ProviderName);
 
+        ConfigureUserManagement(services, configuration);
         ConfigureExternalLogins(services, configuration);
         ConfigureEmailSender(services, configuration);
 
@@ -57,6 +64,30 @@ internal static class CmsIdentityRegistration
             cookieOptions.Cookie.SecurePolicy = CookieSecurePolicy.Always;
             cookieOptions.Cookie.SameSite = SameSiteMode.Lax;
         });
+    }
+
+    /// <summary>
+    /// The user-admin service (the sign-in manager records last logins through it in both modes), the invitation
+    /// lifetime and the public registration switch. The admin-only pieces (the management model, account emails)
+    /// are registered by <c>CmsAdminRegistration</c>.
+    /// </summary>
+    private static void ConfigureUserManagement(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddHttpContextAccessor();
+        services.AddScoped<IUserAdminService, UserAdminService>();
+        // The invitation-acceptance logic behind the AcceptInvitation page (both modes; a rendering-only
+        // host still serves the page, it just has no one inviting).
+        services.AddScoped<Users.IAcceptInvitationService, Users.AcceptInvitationService>();
+
+        services.AddOptions<UserManagementOptions>()
+            .Bind(configuration.GetSection(UserManagementOptions.SectionName))
+            .Validate(o => o.IsValid(), UserManagementOptions.ValidationMessage)
+            .ValidateOnStart();
+        services.AddOptions<InvitationTokenProviderOptions>()
+            .Configure<Microsoft.Extensions.Options.IOptions<UserManagementOptions>>((tokens, userManagement) =>
+                tokens.TokenLifespan = TimeSpan.FromDays(userManagement.Value.InvitationLifetimeDays));
+
+        services.Configure<IdentityRegistrationOptions>(configuration.GetSection(IdentityRegistrationOptions.SectionName));
     }
 
     private static void ConfigureExternalLogins(IServiceCollection services, IConfiguration configuration)

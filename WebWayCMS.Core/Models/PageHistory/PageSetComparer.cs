@@ -3,12 +3,6 @@ using WebWayCMS.Data.Services;
 
 namespace WebWayCMS.Models.PageHistory;
 
-/// <summary>One item's comparison: the version on the side the row describes and how it changed.</summary>
-public sealed record PageSetItemDiff(ContentZoneItemDTO Item, PageSetChange Change);
-
-/// <summary>The difference between two states of a page set.</summary>
-public sealed record PageSetDiff(bool PageChanged, List<PageSetItemDiff> Items);
-
 /// <summary>
 /// Compares two states of a page set by content (<see cref="PageSetEquality"/>), not by version id, so a
 /// restored copy identical to the original reads as unchanged. Only active items count as present.

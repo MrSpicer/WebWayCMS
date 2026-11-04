@@ -1,13 +1,17 @@
 # Known Issues
 
 Findings from the 2026-10 full code and functionality review of WebWayCMS. All **High** and **Medium**
-severity issues have been fixed (see "Resolved" at the bottom); the Medium findings were reconfirmed
-against the post-refactor codebase on 2026-10-29 and closed the same day. Low findings are documented
-here as accepted risks / backlog items.
+severity issues from that review have been fixed (see "Resolved" at the bottom); the Medium findings were
+reconfirmed against the post-refactor codebase on 2026-10-29 and closed the same day. Issues found later
+are added under their severity. Low findings are documented here as accepted risks / backlog items.
 
 ## Medium
 
-None currently open. (M9 below was re-reviewed and stands as intentional.)
+| # | Finding | Location |
+|---|---------|----------|
+| M14 | Deleting a page with child pages leaves the deleted pages' routes in the cached route list, so navigation widgets (the site navbar included) keep linking to them until the next route write or an app restart; the URLs themselves correctly answer 404. The delete runs in one `ICmsTransaction`, and `CMSRouteService.Delete*` invalidates `ICMSRouteRegistry` *inside* it; a reload between that invalidation and the commit caches the pre-commit rows, and nothing invalidates again after the commit. `PageModel.PublishPageAsync` already handles the same race with a post-commit `Invalidate()` in a `finally`; the delete path has no equivalent. Found 2026-11-03: it reproduces on every TestHost Playwright run (after the subtree delete in `relations.write.spec.ts`), so a second run on the same stack fails `layout.spec.ts` ("the navbar lists every seeded page") with a leftover "E2E Docs" link. Workaround: restart the web container before re-running. | `ContentDeleteService.cs:88`, `CMSRouteService.cs:209-253`, `CMSRouteRegistry.cs`; the fixed pattern is at `PageModel.cs:257` |
+
+(M9 below was re-reviewed and stands as intentional.)
 
 **Note on M9:** The committed admin password in the TestHost is **intentional**. The TestHost is a
 development-only test environment that will never be deployed and requires a known account for

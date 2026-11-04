@@ -1,0 +1,15 @@
+@page
+@model RegisterConfirmationModel
+@{
+    ViewData["Title"] = "Register confirmation";
+}
+
+<div class="container is-fluid admin-page-body">
+    <div class="content">
+        <p>Please check your email to confirm your account.</p>
+        <p>
+            Didn't get the email?
+            <a asp-page="./ResendEmailConfirmation">Resend email confirmation</a>
+        </p>
+    </div>
+</div>

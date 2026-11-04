@@ -1,8 +1,5 @@
 namespace WebWayCMS.Models.ContentZone;
 
-/// <summary>One zone slot of a page, as listed by the page zone editor.</summary>
-public sealed record PageZoneSlot(string SlotName, Guid ZoneNodeId);
-
 /// <summary>
 /// Render model for the page zone editor: every zone assigned to the page, stacked in the zone
 /// editor, under a toolbar that publishes or discards the page's drafts.

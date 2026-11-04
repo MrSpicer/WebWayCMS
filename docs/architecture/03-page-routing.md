@@ -523,7 +523,24 @@ the old `ISubRouteContent` resolver mechanism, which no longer exists.
 
 ---
 
-## 11. `NotReservedConstraint`
+## 11. `AdminContentTypeConstraint` and `/wadmin` child pages
+
+`AdminContentController`'s routes are `wadmin/{contentType:admincontenttype}…`. `AdminContentTypeConstraint`
+(Core, registered as `admincontenttype` by `MapAdminTypes`) matches an incoming request only when
+`IAdminHandlerRegistry` has a handler under that key. It asks the singleton `AdminContentTypeKeys` (the
+handler keys, read from the first request's registry and kept), so a `/wadmin/*` request — a CMS page such as
+`/wadmin/users` included — never builds the scoped registry and every handler just to answer that. Without it, those attribute routes outrank the
+`{**slug}` catch-all, so every CMS page one segment under `/wadmin` (e.g. the seeded `/wadmin/users`) answered
+the controller's "No admin handler registered" 404. URL generation is never constrained.
+
+The other direction is guarded too. In admin mode `CMSRouteService.UpsertAsync` refuses a pattern whose first
+segment under `/wadmin` is a registered content type (`/wadmin/pages`, `/wadmin/pages/{x}`): such a page
+would never be reached. The check goes through the `IAdminRouteReservations` seam (Data):
+`NoAdminRouteReservations` by default, `AdminContentRouteReservations` in admin mode. The latter resolves the
+registry lazily, because the page handler → route service → reservations → registry chain would otherwise be a
+DI cycle.
+
+## 11b. `NotReservedConstraint`
 
 Was applied to the `{parentKey}` segment of the admin child routes, which phase 5 of
 [content relations](17-content-relations.md) removed; the constraint is still registered but no admin route

@@ -80,8 +80,9 @@ simply never exposed as admin handlers, and no controller can reach them.
 UseWebWayCmsRendering                  UseWebWayCmsAdmin
 ─────────────────────                  ─────────────────────
 ApplyCmsPendingMigrations              ApplyCmsPendingMigrations
+                                       EnsureContentRelationsValid
                                        EnsureCmsRolesAndAdminSeeded
-EnsureDefaultHomePage                  EnsureDefaultHomePage
+                                       EnsureMcpSeedTokens
 EnsureWidgetRegistrationsSeeded        EnsureWidgetRegistrationsSeeded
 EnsureFormComponentRegistrationsSeeded EnsureFormComponentRegistrationsSeeded
 EnsurePageControllerRegistrationsSeeded EnsurePageControllerRegistrationsSeeded
@@ -90,7 +91,8 @@ EnsureCodeBasedRoutesSeeded            EnsureCodeBasedRoutesSeeded
 ConfigureRenderingPipeline             ConfigureAdminPipeline
 ```
 
-The only differences: admin mode seeds roles and the admin user, runs the JSON content seeder, and
+The only differences: admin mode seeds roles and the admin user, runs the JSON content seeder (which
+creates every page the CMS ships, Home and the `/wadmin` pages included), and
 its pipeline calls `MapWebWayCmsMcp()` before mapping endpoints. Both pipelines run the identical
 `ConfigureSharedMiddleware` and `MapCmsEndpoints`.
 
@@ -102,7 +104,6 @@ rendering replicas behind a load balancer), set the skip variables:
 
 ```
 WEBWAYCMS_SKIP_MIGRATIONS=true
-WEBWAYCMS_SKIP_DEFAULTPAGE=true
 WEBWAYCMS_SKIP_DEFAULTWIDGETS=true
 WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true
 WEBWAYCMS_SKIP_CODEBASEDROUTES=true
@@ -154,9 +155,10 @@ and `AdminContentController`'s attribute routes are never discovered by `MapCont
 
 Treat it as defence in depth for a public host, not as a way to ship a smaller artifact.
 
-In a rendering-only host, `EnsureDefaultHomePage(seedAdminPage: false)` suppresses the `/wadmin`
-page seed — only the Home page is created. `DefaultContentSeeder.SeedDefaultPagesAsync` checks
-the flag and skips the admin page when it is `false`.
+A rendering-only host seeds **no content**, not even a Home page: the CMS's pages are JSON seed content
+(`cms-pages.contentseed.json` in the admin assembly) and only the admin host runs the content seeder. A
+rendering-only host shares its database with an admin host, which seeds them; on a database no admin host
+has started against, `/` answers 404.
 
 ---
 

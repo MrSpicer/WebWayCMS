@@ -14,19 +14,32 @@ using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
+
+using WebWayCMS.Data.Services.Users;
+using WebWayCMS.Identity;
 
 namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
 {
+    /// <summary>
+    /// Mails a fresh confirmation link. Available whatever <c>Identity:AllowRegistration</c> says: an Admin's
+    /// email change unconfirms existing accounts, and this is how those users recover. The answer is the same
+    /// for every email (unknown, confirmed, soft-deleted), so it reveals nothing; a deleted user gets no email.
+    /// </summary>
     [AllowAnonymous]
     public class ResendEmailConfirmationModel : PageModel
     {
         private readonly UserManager<IdentityUser> _userManager;
         private readonly IEmailSender _emailSender;
+        private readonly ILogger<ResendEmailConfirmationModel> _logger;
+        private readonly IUserAdminService _userAdmin;
 
-        public ResendEmailConfirmationModel(UserManager<IdentityUser> userManager, IEmailSender emailSender)
+        public ResendEmailConfirmationModel(UserManager<IdentityUser> userManager, IEmailSender emailSender, ILogger<ResendEmailConfirmationModel> logger, IUserAdminService userAdmin)
         {
             _userManager = userManager;
             _emailSender = emailSender;
+            _logger = logger;
+            _userAdmin = userAdmin;
         }
 
         /// <summary>
@@ -63,8 +76,9 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
             }
 
             var user = await _userManager.FindByEmailAsync(Input.Email);
-            if (user == null)
+            if (user == null || await _userAdmin.IsDeletedAsync(user.Id))
             {
+                // A deleted user stays inert: the same answer, and no email.
                 ModelState.AddModelError(string.Empty, "Verification email sent. Please check your email.");
                 return Page();
             }
@@ -77,10 +91,11 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                 pageHandler: null,
                 values: new { userId = userId, code = code },
                 protocol: Request.Scheme);
-            await _emailSender.SendEmailAsync(
+            await _emailSender.TrySendEmailAsync(
                 Input.Email,
                 "Confirm your email",
-                $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+                $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.",
+                _logger);
 
             ModelState.AddModelError(string.Empty, "Verification email sent. Please check your email.");
             return Page();

@@ -1,14 +1,5 @@
 namespace WebWayCMS.Data.Models;
 
-public enum ContentVersionState
-{
-    Draft = 0,
-    InReview = 1,
-    Approved = 2,
-    Published = 3,
-    Archived = 4
-}
-
 /// <summary>
 /// One row per version, per variant. Identity and version are split: the shared identity lives on
 /// <see cref="ContentNode"/> while the mutable, versioned data lives here.

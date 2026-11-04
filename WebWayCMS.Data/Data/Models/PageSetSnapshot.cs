@@ -1,15 +1,5 @@
 namespace WebWayCMS.Data.Models;
 
-/// <summary>Whether a page-history entry records the page's draft or what went live.</summary>
-public enum PageSetSnapshotKind
-{
-    /// <summary>The current drafts after a change (a save, add, remove, move, revert, discard…).</summary>
-    Draft = 0,
-
-    /// <summary>What was live right after a publish.</summary>
-    Published = 1
-}
-
 /// <summary>
 /// One entry in a page's page-set history: the exact versions of a page and every active zone item in
 /// its zone tree (nested zones included), recorded by <c>IPageHistoryRecorder</c> after every change to
@@ -48,20 +38,4 @@ public record PageSetSnapshot
     public int ItemCount { get; set; }
 
     public List<PageSetSnapshotItem> Items { get; set; } = new();
-}
-
-/// <summary>One zone item version captured by a <see cref="PageSetSnapshot"/>.</summary>
-public record PageSetSnapshotItem
-{
-    public Guid SnapshotId { get; set; }
-
-    public Guid ItemNodeId { get; set; }
-
-    public Guid ItemVersionId { get; set; }
-
-    /// <summary>The zone the version sat in (denormalized from the item version for listings).</summary>
-    public Guid ZoneNodeId { get; set; }
-
-    /// <summary>The version's ordinal (denormalized from the item version for listings).</summary>
-    public int Ordinal { get; set; }
 }

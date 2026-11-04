@@ -66,7 +66,6 @@ Runs in this order:
 | `IFormComponentRegistrationService` → `FormComponentRegistrationService` | scoped |
 | `ICMSRouteService` → `CMSRouteService` | scoped |
 | `IRouteRegistrationService` → `RouteRegistrationService` | scoped |
-| `IDefaultContentSeeder` → `DefaultContentSeeder` | scoped |
 | `CMSRouteTransformer` | scoped (it injects scoped services) |
 | `ContentBlockModel` / `IContentBlockModel` | scoped |
 | `PageModel` / `IPageModel` | scoped |
@@ -126,16 +125,17 @@ It calls `AddWebWayCmsRendering` first, then:
 UseWebWayCmsRendering                 UseWebWayCmsAdmin
 ─────────────────────                 ─────────────────────
 1. ApplyCmsPendingMigrations          1. ApplyCmsPendingMigrations
-                                      2. EnsureCmsRolesAndAdminSeeded
-2. EnsureDefaultHomePage              3. EnsureDefaultHomePage
-3. EnsureWidgetRegistrationsSeeded    4. EnsureWidgetRegistrationsSeeded
-4. EnsureFormComponentRegistrations   5. EnsureFormComponentRegistrations
+                                      2. EnsureContentRelationsValid
+                                      3. EnsureCmsRolesAndAdminSeeded
+                                      4. EnsureMcpSeedTokens
+2. EnsureWidgetRegistrationsSeeded    5. EnsureWidgetRegistrationsSeeded
+3. EnsureFormComponentRegistrations   6. EnsureFormComponentRegistrations
      Seeded                                Seeded
-5. EnsurePageControllerRegistrations   6. EnsurePageControllerRegistrations
+4. EnsurePageControllerRegistrations   7. EnsurePageControllerRegistrations
      Seeded                                Seeded
-6. EnsureCodeBasedRoutesSeeded        7. EnsureCodeBasedRoutesSeeded
-                                      8. EnsureJsonContentSeeded
-7. ConfigureRenderingPipeline         9. ConfigureAdminPipeline
+5. EnsureCodeBasedRoutesSeeded        8. EnsureCodeBasedRoutesSeeded
+                                      9. EnsureJsonContentSeeded
+6. ConfigureRenderingPipeline        10. ConfigureAdminPipeline
 ```
 
 `UseWebWayCms(app)` simply calls `UseWebWayCmsAdmin(app)`.
@@ -150,15 +150,12 @@ See [Area 15](15-content-seeding.md).
 Each method takes `bool throwOnError = true`. Migrations honour it directly; the seeders log and
 continue by default.
 
-> `EnsureDefaultHomePage` accepts a `seedAdminPage` flag. The rendering path passes `false` and
-> the admin path passes `true`. `DefaultContentSeeder.SeedDefaultPagesAsync` honours the flag —
-> when `false`, only the Home page is seeded; when `true`, the Dashboard page (at `/wadmin` with
-> `GenericAdminPageController`) is also seeded with its own independent guard.
->
-> When the `/wadmin` route already exists, the seeder still backfills its `NavigationName` to
-> `"Dashboard"` if that column is blank, and only if it is blank. The admin navbar builds its
-> Dashboard link from that value (`RouteNavigation` with `AdminRoutes = true`), so a database
-> seeded before the column existed would otherwise have no link back to `/wadmin` at all.
+> There is no page seeder. The CMS's own pages (Home at `/`, the `/wadmin` Dashboard, and the
+> `/wadmin/users` and `/wadmin/roles` admin pages with their widgets) are ordinary JSON seed content:
+> `WebWayCMS.Admin/ContentSeed/cms-pages.contentseed.json`, embedded in the admin assembly, which the
+> JSON content seeder scans like any host assembly. A new CMS page is a new entry in that file, never
+> a new seeder. A rendering-only host seeds no content; it relies on the admin host that shares its
+> database (see [Area 11](11-deployment-modes.md)).
 
 ---
 
@@ -181,11 +178,10 @@ per host context), so the host's migrations never touch the CMS history table.
 |----------|--------|
 | `WEBWAYCMS_SKIP_MIGRATIONS=true` | Skip migration application entirely (read-only replicas, integration tests) |
 | `WEBWAYCMS_SKIP_ROLESEED=true` | Skip role creation and admin user seeding |
-| `WEBWAYCMS_SKIP_DEFAULTPAGE=true` | Skip default Home/Admin page seeding |
 | `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` | Skip seeding widget registrations from `[ContentZoneComponent]` |
 | `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` | Skip seeding page-type registrations from `[PageController]` |
 | `WEBWAYCMS_SKIP_CODEBASEDROUTES=true` | Skip seeding routes from `[CmsRoute]` |
-| `WEBWAYCMS_SKIP_CONTENTSEED=true` | Skip JSON content seeding (admin mode only) |
+| `WEBWAYCMS_SKIP_CONTENTSEED=true` | Skip JSON content seeding (admin mode only), including the CMS's own pages |
 
 All comparisons are case-insensitive. These variables are read at startup, not cached.
 

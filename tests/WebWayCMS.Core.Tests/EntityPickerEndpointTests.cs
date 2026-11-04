@@ -7,42 +7,82 @@ using WebWayCMS.Controllers.Admin.Handlers;
 namespace WebWayCMS.Core.Tests;
 
 [TestFixture]
-public class EntityPickerEndpointRelationTests
+public class EntityPickerEndpointTests
 {
-    [Test]
-    public void ResolveHandler_NullOrBlankOrNoRegistry_ReturnsNull()
+    private static IAdminCrudHandler Handler(string contentType, params string[] secondaryKeys)
     {
-        var registry = Substitute.For<IAdminHandlerRegistry>();
+        var handler = Substitute.For<IAdminCrudHandler>();
+        handler.ContentType.Returns(contentType);
+        handler.HasSecondaryApiList.Returns(secondaryKeys.Length > 0);
+        handler.SecondaryApiListKeys.Returns(secondaryKeys);
+        return handler;
+    }
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(EntityPickerEndpoint.ResolveHandler(null, registry), Is.Null);
-            Assert.That(EntityPickerEndpoint.ResolveHandler("  ", registry), Is.Null);
-            Assert.That(EntityPickerEndpoint.ResolveHandler("faqs", null), Is.Null);
-        });
+    private static AdminHandlerRegistry Registry(params IAdminCrudHandler[] handlers) => new(handlers);
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    public void Resolve_BlankEntityType_ReturnsNull(string? entityType)
+    {
+        Assert.That(EntityPickerEndpoint.Resolve(entityType, Registry(Handler("faqs"))), Is.Null);
     }
 
     [Test]
-    public void ResolveHandler_ExactThenPlural()
+    public void Resolve_NoRegistry_ReturnsNull()
     {
-        var exact = Substitute.For<IAdminCrudHandler>();
-        exact.ContentType.Returns("faqs");
-        var plural = Substitute.For<IAdminCrudHandler>();
-        plural.ContentType.Returns("articlelists");
+        Assert.That(EntityPickerEndpoint.Resolve("faqs", null), Is.Null);
+    }
 
-        var registry = Substitute.For<IAdminHandlerRegistry>();
-        registry.GetHandler("faqs").Returns(exact);
-        registry.GetHandler("articlelist").Returns((IAdminCrudHandler?)null);
-        registry.GetHandler("articlelists").Returns(plural);
-        registry.GetHandler("nothing").Returns((IAdminCrudHandler?)null);
-        registry.GetHandler("nothings").Returns((IAdminCrudHandler?)null);
+    [Test]
+    public void Resolve_ExactContentType_ReturnsListEndpoint()
+    {
+        Assert.That(EntityPickerEndpoint.Resolve("faqs", Registry(Handler("faqs"))),
+            Is.EqualTo("/wadmin/faqs/api/list"));
+    }
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(EntityPickerEndpoint.ResolveHandler("faqs", registry), Is.SameAs(exact));
-            Assert.That(EntityPickerEndpoint.ResolveHandler("articlelist", registry), Is.SameAs(plural));
-            Assert.That(EntityPickerEndpoint.ResolveContentType("faqs", registry), Is.EqualTo("faqs"));
-            Assert.That(EntityPickerEndpoint.ResolveContentType("nothing", registry), Is.Null);
-        });
+    [Test]
+    public void Resolve_PluralContentType_ReturnsListEndpointUsingHandlerKey()
+    {
+        Assert.That(EntityPickerEndpoint.Resolve("ContentBlock", Registry(Handler("contentblocks"))),
+            Is.EqualTo("/wadmin/contentblocks/api/list"));
+    }
+
+    [Test]
+    public void Resolve_SecondaryListKey_ReturnsSecondaryEndpoint()
+    {
+        var registry = Registry(Handler("pages"), Handler("articles", "other", "articlelists"));
+
+        Assert.That(EntityPickerEndpoint.Resolve("ArticleList", registry),
+            Is.EqualTo("/wadmin/articles/api/articlelists"));
+    }
+
+    [Test]
+    public void Resolve_SecondaryListKeyExactMatch_ReturnsSecondaryEndpoint()
+    {
+        Assert.That(EntityPickerEndpoint.Resolve("featured", Registry(Handler("articles", "featured"))),
+            Is.EqualTo("/wadmin/articles/api/featured"));
+    }
+
+    [Test]
+    public void Resolve_SecondaryKeysWithoutFlag_AreIgnored()
+    {
+        var handler = Handler("articles", "articlelists");
+        handler.HasSecondaryApiList.Returns(false);
+
+        Assert.That(EntityPickerEndpoint.Resolve("ArticleList", Registry(handler)), Is.Null);
+    }
+
+    [Test]
+    public void Resolve_UnknownType_ReturnsNull()
+    {
+        Assert.That(EntityPickerEndpoint.Resolve("Widget", Registry(Handler("articles", "articlelists"))), Is.Null);
+    }
+
+    [Test]
+    public void Resolve_EscapesPathSegments()
+    {
+        Assert.That(EntityPickerEndpoint.Resolve("a b", Registry(Handler("a b"))),
+            Is.EqualTo("/wadmin/a%20b/api/list"));
     }
 }

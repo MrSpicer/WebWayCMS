@@ -9,17 +9,12 @@ namespace WebWayCMS;
 /// external-login callback, passkey assertion). Throttles per client IP and per endpoint family, so a
 /// busy external sign-up (Login GET → ExternalLogin POST → callback GET → confirmation POST) does not
 /// exhaust the budget of a plain password login behind the same NAT egress IP. Only the auth endpoints
-/// are limited; every other request is unrestricted. The path-matching and partition selection live here
-/// as pure logic so they can be unit-tested.
+/// are limited; every other request is unrestricted. The budget comes from <see cref="AuthRateLimitOptions"/>
+/// ("AuthRateLimiting" section). The path-matching and partition selection live here as pure logic so they
+/// can be unit-tested.
 /// </summary>
 public static class AuthRateLimiting
 {
-    /// <summary>Maximum requests allowed per window per client IP for a single auth endpoint family.</summary>
-    public const int PermitLimit = 5;
-
-    /// <summary>The fixed window over which <see cref="PermitLimit"/> applies.</summary>
-    public static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
-
     // Identity scaffolded auth pages that accept credentials or trigger emails, the anonymous
     // passkey challenge-generation endpoint, and the second-factor verification endpoints (the
     // LoginWith2fa code check is anonymous — a sign-in flow's last gate — and the Manage 2FA
@@ -33,6 +28,7 @@ public static class AuthRateLimiting
         "/Identity/Account/ForgotPassword",
         "/Identity/Account/ResetPassword",
         "/Identity/Account/ResendEmailConfirmation",
+        "/Identity/Account/AcceptInvitation",
         "/Identity/Account/ExternalLogin",
         "/Identity/Account/PasskeyAssertion",
         "/Identity/Account/PasskeyRequestOptions",
@@ -55,8 +51,10 @@ public static class AuthRateLimiting
     /// Selects the rate-limit partition for a request: a per-IP, per-endpoint-family fixed-window
     /// limiter for auth endpoints, or no limiter otherwise.
     /// </summary>
-    public static RateLimitPartition<string> GetPartition(HttpContext context)
+    public static RateLimitPartition<string> GetPartition(HttpContext context, AuthRateLimitOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
+
         var matchedPrefix = MatchLimitedPath(context.Request.Path);
         if (matchedPrefix is null)
             return RateLimitPartition.GetNoLimiter("unlimited");
@@ -65,8 +63,8 @@ public static class AuthRateLimiting
         var key = $"{ip}|{matchedPrefix}";
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = PermitLimit,
-            Window = Window,
+            PermitLimit = options.PermitLimit,
+            Window = TimeSpan.FromSeconds(options.WindowSeconds),
         });
     }
 }

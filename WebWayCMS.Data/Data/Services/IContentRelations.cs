@@ -29,16 +29,3 @@ public interface IContentRelations
     /// <summary>The nodes among <paramref name="nodeIds"/> that have a current draft (not deleted), with their type and title.</summary>
     Task<IReadOnlyDictionary<Guid, RelationNode>> GetNodesAsync(IEnumerable<Guid> nodeIds, CancellationToken ct = default);
 }
-
-/// <summary>A source that relates to a node: which relation, and on which of its live versions.</summary>
-public sealed record RelationReferrer(
-    Guid SourceNodeId,
-    string ContentTypeKey,
-    string Title,
-    string Name,
-    RelationKind Kind,
-    bool OnCurrentDraft,
-    bool OnPublished);
-
-/// <summary>A node's content type and current-draft title.</summary>
-public sealed record RelationNode(Guid NodeId, string ContentTypeKey, string Title);

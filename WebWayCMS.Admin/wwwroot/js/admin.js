@@ -131,6 +131,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const form = document.getElementById('deleteConfirmForm');
         const msgEl = document.getElementById('deleteModalMessage');
         const titleEl = document.getElementById('deleteModalTitle');
+        const passwordField = document.getElementById('deleteModalPasswordField');
+        const passwordInput = document.getElementById('deleteModalPassword');
         let triggerEl = null;
 
         function getFocusable() {
@@ -149,13 +151,21 @@ document.addEventListener('DOMContentLoaded', function () {
             return 'Delete "' + name + '" and its ' + n + ' ' + noun + '? This cannot be undone.';
         }
 
-        function openModal(name, actionUrl, count, label) {
+        // data-delete-message replaces the generated message; data-delete-password asks for the
+        // acting user's password (posted as CurrentPassword) before a destructive action.
+        function openModal(name, actionUrl, count, label, message, askPassword) {
             triggerEl = document.activeElement;
             form.action = actionUrl;
-            msgEl.textContent = deleteMessage(name, count, label);
+            msgEl.textContent = message || deleteMessage(name, count, label);
             titleEl.textContent = 'Confirm Delete';
+            if (passwordField) {
+                passwordField.hidden = !askPassword;
+                passwordInput.required = askPassword;
+                passwordInput.value = '';
+            }
             modal.style.display = '';
             modal.classList.add('is-active');
+            if (askPassword && passwordInput) { passwordInput.focus(); return; }
             const focusable = getFocusable();
             if (focusable[0]) focusable[0].focus();
         }
@@ -193,7 +203,8 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!btn) return;
             e.preventDefault();
             openModal(btn.dataset.deleteName || 'this item', btn.dataset.deleteUrl,
-                btn.dataset.deleteDescendants, btn.dataset.deleteDescendantLabel);
+                btn.dataset.deleteDescendants, btn.dataset.deleteDescendantLabel,
+                btn.dataset.deleteMessage, btn.dataset.deletePassword === 'true');
         });
     })();
 

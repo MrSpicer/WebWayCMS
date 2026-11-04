@@ -1,0 +1,13 @@
+namespace WebWayCMS.Models.CMSRoute;
+
+public sealed class CMSRouteItemViewModel
+{
+    public Guid Id { get; init; }
+    public string Pattern { get; init; } = string.Empty;
+    public string? NavigationName { get; init; }
+    public string? OwningContentType { get; init; }
+    public Guid? OwningContentNodeId { get; init; }
+    public Guid? RouteNodeId { get; init; }
+    public string? OwnerTitle { get; init; }
+    public bool IsReserved { get; init; }
+}

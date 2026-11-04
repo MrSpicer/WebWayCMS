@@ -7,18 +7,6 @@ using WebWayCMS.Pages;
 
 namespace WebWayCMS.Services.Relations;
 
-/// <summary>A <c>[ContentRelation]</c> declared by a content type's upsert view model or a configuration type.</summary>
-public sealed record ContentRelationDeclaration(
-    string SourceContentType,
-    Type ModelType,
-    RelationPropertyInfo Property,
-    string? RelationName = null)
-{
-    public string Name => RelationName ?? Property.Name;
-
-    public ContentRelationAttribute Attribute => Property.Attribute;
-}
-
 /// <summary>
 /// Every relation declared by the registered admin content types, widget configuration types and page
 /// configuration types, read from each model (admin mode only). Built and validated on first use; a

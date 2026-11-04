@@ -1,0 +1,186 @@
+@model WebWayCMS.Models.Users.UserListViewModel
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Data.Services.Users
+@using WebWayCMS.Models.Users
+@*
+    The Users widget in List mode on an admin page: role / status filters (a GET form on the page URL), the
+    user table, a pager and the Invite form. Each row opens the user's management screen on the widget's own
+    edit/{userId} route. Forms post to /wadmin/usermanagement and come back here (returnUrl).
+*@
+@{
+    var listPage = Model.Page;
+    var first = listPage.Total == 0 ? 0 : listPage.Skip + 1;
+    var last = listPage.Skip + listPage.Items.Count;
+}
+
+<section class="mb-5" data-testid="users-widget">
+    <h2 class="title is-5">Users</h2>
+
+    @if (Model.ShowInvite)
+    {
+        <details class="box" data-testid="invite-user">
+            <summary class="has-text-weight-semibold">
+                <span class="icon"><i class="fas fa-user-plus" aria-hidden="true"></i></span>
+                Invite user
+            </summary>
+            <form method="post" action="@UserManagementRoutes.Action("invite")" class="mt-3">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="returnUrl" value="@Model.CurrentUrl" />
+                <div class="columns is-multiline">
+                    <div class="column is-half">
+                        <div class="field">
+                            <label class="label" for="invite-email">Email</label>
+                            <div class="control"><input class="input" type="email" id="invite-email" name="email" required autocomplete="off" /></div>
+                        </div>
+                    </div>
+                    <div class="column is-half">
+                        <div class="field">
+                            <label class="label" for="invite-display-name">Display name</label>
+                            <div class="control"><input class="input" id="invite-display-name" name="displayName" maxlength="@UserProfileRules.MaxNameLength" /></div>
+                        </div>
+                    </div>
+                    <div class="column is-half">
+                        <div class="field">
+                            <label class="label" for="invite-first-name">First name</label>
+                            <div class="control"><input class="input" id="invite-first-name" name="firstName" maxlength="@UserProfileRules.MaxNameLength" /></div>
+                        </div>
+                    </div>
+                    <div class="column is-half">
+                        <div class="field">
+                            <label class="label" for="invite-last-name">Last name</label>
+                            <div class="control"><input class="input" id="invite-last-name" name="lastName" maxlength="@UserProfileRules.MaxNameLength" /></div>
+                        </div>
+                    </div>
+                </div>
+                <fieldset class="field">
+                    <legend class="label">Roles</legend>
+                    <div class="buttons">
+                        @foreach (var role in Model.Roles)
+                        {
+                            <label class="checkbox mr-4">
+                                <input type="checkbox" name="roles" value="@role.Name" checked="@(role.Name == UserProfileRules.DefaultRole)" />
+                                @role.Name
+                            </label>
+                        }
+                    </div>
+                </fieldset>
+                <div class="field">
+                    <label class="label" for="invite-password">Your password</label>
+                    <div class="control"><input class="input" type="password" id="invite-password" name="currentPassword" autocomplete="current-password" /></div>
+                    <p class="help">Needed only when the invite grants the Admin role.</p>
+                </div>
+                <button type="submit" class="button is-primary is-small" id="invite-submit">Send invitation</button>
+            </form>
+        </details>
+    }
+
+    <form method="get" action="@Model.ListUrl" class="mb-3" data-testid="user-filters">
+        <div class="field is-grouped is-grouped-multiline">
+            <div class="control">
+                <div class="select is-small">
+                    <select name="role" aria-label="Filter by role">
+                        <option value="">All roles</option>
+                        @foreach (var role in Model.Roles)
+                        {
+                            <option value="@role.Name" selected="@(string.Equals(role.Name, Model.RoleFilter, StringComparison.OrdinalIgnoreCase))">@role.Name</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="control">
+                <div class="select is-small">
+                    <select name="status" aria-label="Filter by status">
+                        <option value="">All (not deleted)</option>
+                        @foreach (var status in Enum.GetValues<UserStatus>())
+                        {
+                            <option value="@status.ToString().ToLowerInvariant()" selected="@(Model.StatusFilter == status)">@status</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="control"><button type="submit" class="button is-small">Filter</button></div>
+            @if (Model.RoleFilter != null || Model.StatusFilter != null)
+            {
+                <div class="control"><a class="button is-small is-text" href="@Model.ListUrl">Clear filter</a></div>
+            }
+        </div>
+    </form>
+
+    @if (listPage.Items.Count == 0)
+    {
+        <div class="card admin-empty-state">
+            <div class="card-content has-text-centered py-5">
+                <span class="icon is-large has-text-grey-light mb-3"><i class="fas fa-users fa-2x" aria-hidden="true"></i></span>
+                <p class="title is-6">No users match</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-container admin-list-container">
+            <table class="table is-fullwidth is-hoverable admin-list-table" data-testid="users-table">
+                <caption class="is-sr-only">Users</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">User</th>
+                        @if (Model.ShowRoles) { <th scope="col" class="is-hidden-mobile">Roles</th> }
+                        @if (Model.ShowStatus) { <th scope="col">Status</th> }
+                        @if (Model.ShowLastLogin) { <th scope="col" class="is-hidden-mobile">Last login</th> }
+                        <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in listPage.Items)
+                    {
+                        var name = user.DisplayName ?? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(n => n != null));
+                        <tr data-testid="user-row" data-user-email="@user.Email">
+                            <td class="admin-list-main">
+                                <a href="@Model.DetailUrl(user.UserId)" class="admin-list-title">@user.Email</a>
+                                @if (!string.IsNullOrWhiteSpace(name))
+                                {
+                                    <span class="is-size-7 has-text-grey ml-2">@name</span>
+                                }
+                            </td>
+                            @if (Model.ShowRoles)
+                            {
+                                <td class="is-hidden-mobile" data-testid="user-roles">
+                                    @foreach (var role in user.Roles)
+                                    {
+                                        <span class="tag is-light mr-1">@role</span>
+                                    }
+                                </td>
+                            }
+                            @if (Model.ShowStatus)
+                            {
+                                <td><partial name="~/Views/Shared/Components/Users/_UserStatusTag.cshtml" model="(user.Status, user.IsInvitePending)" /></td>
+                            }
+                            @if (Model.ShowLastLogin)
+                            {
+                                <td class="is-hidden-mobile">@(user.LastLoginUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</td>
+                            }
+                            <td class="admin-actions-col">
+                                <a href="@Model.DetailUrl(user.UserId)" class="button is-small" aria-label="Manage @user.Email">Manage</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <nav class="level mt-3" aria-label="User list pages" data-testid="users-pager">
+        <div class="level-left">
+            <p class="level-item is-size-7 has-text-grey">Showing @first–@last of @listPage.Total</p>
+        </div>
+        <div class="level-right">
+            @if (Model.PreviousPageUrl != null)
+            {
+                <a class="level-item button is-small" href="@Model.PreviousPageUrl" rel="prev">Previous</a>
+            }
+            @if (Model.NextPageUrl != null)
+            {
+                <a class="level-item button is-small" href="@Model.NextPageUrl" rel="next">Next</a>
+            }
+        </div>
+    </nav>
+</section>

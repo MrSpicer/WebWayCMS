@@ -13,6 +13,12 @@
     <ProjectReference Include="..\WebWayCMS.Mcp\WebWayCMS.Mcp.csproj" />
   </ItemGroup>
 
+  <!-- The CMS's own pages (Home, Dashboard, Users, Roles), imported by the JSON content seeder. -->
+  <ItemGroup>
+    <Content Remove="ContentSeed\**" />
+    <EmbeddedResource Include="ContentSeed\*.contentseed.json" />
+  </ItemGroup>
+
   <Target Name="CompileSass" BeforeTargets="Build">
     <Exec Command="npx sass Views/Shared/Components/ContentZone/edit.scss:wwwroot/css/content-zone-edit.css --no-source-map --style=compressed" />
   </Target>

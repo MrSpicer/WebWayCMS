@@ -1,12 +1,5 @@
 namespace WebWayCMS.Mapping;
 
-/// <summary>Configures the set of mappings used to build an <see cref="IMapper"/>.</summary>
-public interface IMapperConfigurationExpression
-{
-    /// <summary>Adds all mappings declared by <paramref name="profile"/>.</summary>
-    void AddProfile(Profile profile);
-}
-
 /// <summary>
 /// Collects mappings from one or more <see cref="Profile"/> instances and produces an
 /// <see cref="IMapper"/> via <see cref="CreateMapper"/>.

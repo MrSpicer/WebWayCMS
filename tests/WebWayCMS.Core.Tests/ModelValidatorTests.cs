@@ -1,57 +1,10 @@
 using NUnit.Framework;
 
-using WebWayCMS.Attributes;
-using WebWayCMS.Models.Article;
 using WebWayCMS.Models.ContentBlock;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Security;
 
 namespace WebWayCMS.Core.Tests;
-
-public sealed class ValidatorProbe
-{
-    [FormProperty(IsRequired = true)]
-    public Guid? Optional { get; set; }
-
-    [FormProperty(IsRequired = true)]
-    public int Count { get; set; } = 5;
-}
-
-public sealed class ConstraintProbe
-{
-    [FormProperty(Min = 1, Max = 10)]
-    public int Count { get; set; }
-
-    [FormProperty(MaxLength = 5)]
-    public string? Short { get; set; }
-
-    [FormProperty(Pattern = "^[a-z]+$", PatternErrorMessage = "Lowercase only.")]
-    public string? Code { get; set; }
-}
-
-public sealed class MinOnlyProbe
-{
-    [FormProperty(Min = 5)]
-    public int Count { get; set; } = 7;
-}
-
-public sealed class MaxOnlyProbe
-{
-    [FormProperty(Max = 5)]
-    public int Count { get; set; } = 3;
-}
-
-public sealed class UnconstrainedProbe
-{
-    [FormProperty(Pattern = "^[a-z]+$")]
-    public string? Anything { get; set; }
-}
-
-public sealed class UnanchoredProbe
-{
-    [FormProperty(Pattern = "[a-z0-9-]+")]
-    public string? Slug { get; set; }
-}
 
 [TestFixture]
 public class ModelValidatorTests

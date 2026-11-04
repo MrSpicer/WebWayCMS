@@ -2,15 +2,6 @@ using WebWayCMS.Data.Models;
 
 namespace WebWayCMS.Data.Services;
 
-/// <summary>A page and its zone-tree items, as of a snapshot or as current drafts.</summary>
-public sealed record PageSetState(PageDTO Page, List<ContentZoneItemDTO> Items);
-
-/// <summary>
-/// The metadata a historical zone item version can be saved back with today (the List→Single
-/// grandfathering rule lives with the widget registry, outside the Data tier).
-/// </summary>
-public delegate string? RestorableMetadata(string componentName, string? historicalJson, string? currentJson);
-
 /// <summary>
 /// Page-set history: an entry (a page plus every active item in its zone tree) after every change to
 /// the page set and after every publish, and the operations on those entries (read, compare, preview,

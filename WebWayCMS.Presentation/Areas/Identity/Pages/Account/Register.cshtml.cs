@@ -19,6 +19,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+using WebWayCMS.Data.Models;
+using WebWayCMS.Identity;
+using WebWayCMS.Users;
 
 namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
 {
@@ -30,14 +35,17 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
         private readonly IUserEmailStore<IdentityUser> _emailStore;
         private readonly ILogger<RegisterModel> _logger;
         private readonly IEmailSender _emailSender;
+        private readonly IdentityRegistrationOptions _registration;
 
         public RegisterModel(
             UserManager<IdentityUser> userManager,
             IUserStore<IdentityUser> userStore,
             SignInManager<IdentityUser> signInManager,
             ILogger<RegisterModel> logger,
-            IEmailSender emailSender)
+            IEmailSender emailSender,
+            IOptions<IdentityRegistrationOptions> registration)
         {
+            _registration = registration.Value;
             _userManager = userManager;
             _userStore = userStore;
             _emailStore = GetEmailStore();
@@ -101,14 +109,26 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
         }
 
 
-        public async Task OnGetAsync(string returnUrl = null)
+        public async Task<IActionResult> OnGetAsync(string returnUrl = null)
         {
+            // Public registration can be switched off (Identity:AllowRegistration); the page then doesn't exist.
+            if (!_registration.AllowRegistration)
+            {
+                return NotFound();
+            }
+
             ReturnUrl = returnUrl;
             ExternalLogins = (await _signInManager.GetExternalAuthenticationSchemesAsync()).ToList();
+            return Page();
         }
 
         public async Task<IActionResult> OnPostAsync(string returnUrl = null)
         {
+            if (!_registration.AllowRegistration)
+            {
+                return NotFound();
+            }
+
             returnUrl ??= Url.Content("~/");
             ExternalLogins = (await _signInManager.GetExternalAuthenticationSchemesAsync()).ToList();
             if (ModelState.IsValid)
@@ -123,6 +143,12 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                 {
                     _logger.LogInformation("User created a new account with password.");
 
+                    var roleResult = await _userManager.AddToRoleAsync(user, UserProfileRules.DefaultRole);
+                    if (!roleResult.Succeeded)
+                    {
+                        _logger.LogWarning("Could not add the new user to the {Role} role.", UserProfileRules.DefaultRole);
+                    }
+
                     var userId = await _userManager.GetUserIdAsync(user);
                     var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                     code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
@@ -132,8 +158,17 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                         values: new { area = "Identity", userId = userId, code = code, returnUrl = returnUrl },
                         protocol: Request.Scheme);
 
-                    await _emailSender.SendEmailAsync(Input.Email, "Confirm your email",
-                        $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+                    await _emailSender.TrySendEmailAsync(Input.Email, "Confirm your email",
+                        $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.",
+                        _logger);
+
+                    // A failed role assignment surfaces instead: the account exists but is unusable until an Admin fixes it.
+                    if (!roleResult.Succeeded)
+                    {
+                        ModelState.AddModelError(string.Empty,
+                            "Your account was created, but the initial role could not be assigned. Contact an administrator before signing in.");
+                        return Page();
+                    }
 
                     if (_userManager.Options.SignIn.RequireConfirmedAccount)
                     {

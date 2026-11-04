@@ -2,9 +2,6 @@ using Microsoft.AspNetCore.Http;
 
 namespace WebWayCMS.Models.ContentZone;
 
-/// <summary>A zone owned by a widget on the page, offered by the page zone editor's Unplaced panel when nothing rendered it.</summary>
-public sealed record UnplacedZoneCandidate(Guid ZoneNodeId, Guid OwnerItemNodeId, string Label);
-
 /// <summary>
 /// What the page zone editor actually rendered in this request — the zones shown in edit mode and the
 /// widgets in them — so it can tell which zones owned by the page's widgets went unrendered (stranded by a

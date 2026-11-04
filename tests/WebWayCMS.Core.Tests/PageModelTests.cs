@@ -1904,8 +1904,3 @@ public class PageModelTests
         });
     }
 }
-
-public class SampleSaveConfig
-{
-    public int Value { get; set; }
-}

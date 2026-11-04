@@ -23,8 +23,16 @@ internal static class CmsAdminRegistration
 {
     internal static void MapAdminTypes(IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<RouteOptions>(o => o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint));
+        services.Configure<RouteOptions>(o =>
+        {
+            o.ConstraintMap["notreserved"] = typeof(NotReservedConstraint);
+            o.ConstraintMap[AdminContentTypeConstraint.Name] = typeof(AdminContentTypeConstraint);
+        });
         services.AddScoped<IAdminHandlerRegistry, AdminHandlerRegistry>();
+        // The constraint's key set, read once instead of building every handler per /wadmin/* request.
+        services.AddSingleton<AdminContentTypeKeys>();
+        // A CMS route at /wadmin/{registered content type} would be shadowed by AdminContentController.
+        services.AddScoped<WebWayCMS.Data.Services.IAdminRouteReservations, AdminContentRouteReservations>();
         // Relation declarations of every handler's upsert view model (delete policy, startup validation).
         services.AddScoped<Services.Relations.ContentRelationRegistry>();
         services.AddScoped<Models.PageHistory.IPageHistoryModel, Models.PageHistory.PageHistoryModel>();
@@ -46,14 +54,20 @@ internal static class CmsAdminRegistration
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.FormComponentRegistration.FormComponentRegistrationModel>());
         services.AddScoped<IAdminCrudHandler>(sp => sp.GetRequiredService<Models.Route.RouteModel>());
 
+        // User management: the Users / User Roles widgets' actions and the MCP user tools.
+        services.AddScoped<WebWayCMS.Users.IUserAccountLinks, WebWayCMS.Users.UserAccountLinks>();
+        services.AddScoped<WebWayCMS.Users.IUserAccountEmails, WebWayCMS.Users.UserAccountEmails>();
+        services.AddScoped<WebWayCMS.Users.IUserManagementModel, WebWayCMS.Users.UserManagementModel>();
+
         // MCP personal access tokens (Identity → Manage → API tokens, /wadmin/apitokens, the /mcp scheme).
         services.AddScoped<WebWayCMS.Data.Services.IApiTokenService, WebWayCMS.Data.Services.ApiTokenService>();
 
         // JSON content seeding (admin mode only — a rendering-only host has no IAdminHandlerRegistry).
         services.Configure<ContentSeedOptions>(configuration.GetSection(ContentSeedOptions.SectionName));
         services.AddScoped<WebWayCMS.Data.Services.IContentSeedRecordService, WebWayCMS.Data.Services.ContentSeedRecordService>();
+        // The admin assembly ships the CMS's own pages (Home, Dashboard, Users, Roles) as embedded seed content.
         services.AddScoped<IContentSeedSourceProvider>(sp => new AssemblyContentSeedSourceProvider(
-            CmsStartupHelpers.SeedAssemblies(sp).Concat(sp.GetService<CmsContentSeedCatalog>()?.Assemblies ?? []).Distinct(),
+            CmsStartupHelpers.SeedAssemblies(sp, typeof(AdminContentController).Assembly).Concat(sp.GetService<CmsContentSeedCatalog>()?.Assemblies ?? []).Distinct(),
             sp.GetRequiredService<IOptions<ContentSeedOptions>>()));
         services.AddScoped<IContentSeedSourceProvider>(sp => new FileContentSeedSourceProvider(
             sp.GetRequiredService<IWebHostEnvironment>(),

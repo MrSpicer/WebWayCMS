@@ -211,8 +211,11 @@ between — so `Strict-Transport-Security` is present too.
 ## 6. Auth Endpoint Rate Limiting
 
 `AuthRateLimiting` throttles the Identity endpoints that accept credentials or trigger emails, per
-client IP **and per endpoint family**: **5 requests per 1-minute fixed window** per
-`"{ip}|{matchedPrefix}"` partition, returning HTTP **429** over the limit. Partitioning by matched
+client IP **and per endpoint family**: by default **5 requests per 1-minute fixed window** per
+`"{ip}|{matchedPrefix}"` partition, returning HTTP **429** over the limit. The budget is configurable
+through the `AuthRateLimiting` section (`PermitLimit`, `WindowSeconds`; both ≥ 1 and capped
+(`PermitLimit` ≤ 10 000, `WindowSeconds` ≤ 86 400), validated at startup);
+keep the default on a public site. Partitioning by matched
 prefix keeps an external-login round trip (four requests across four prefixes) from exhausting the
 budget of a password login behind the same NAT egress IP. Every other path is explicitly unlimited.
 

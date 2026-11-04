@@ -103,9 +103,28 @@ own `IEmailSender` untouched — the CMS never overrides an explicit host regist
 | `Smtp:FromAddress` | `string` | — | From address on outgoing mail. Required when `Smtp:Host` is set. |
 | `Smtp:FromName` | `string` | — | Optional from display name. |
 
-Because `SignIn.RequireConfirmedAccount = true`, a host **must** configure `Smtp` (or a relay like
-MailHog/Papercut in development) for registration confirmation and password-reset emails to actually
+Because `SignIn.RequireConfirmedAccount = true`, a host **must** configure `Smtp` (or a mail catcher
+like smtp4dev in development) for registration confirmation and password-reset emails to actually
 be delivered — otherwise they land in the log only.
+
+**General email sending:** `IEmailSender` is also the CMS's general email API — a host site (or CMS
+code) that needs to send mail injects `IEmailSender` and gets the same configured sender; there is no
+separate email service.
+
+**Send failures never break an account page:** the scaffolded `Register`, `ExternalLogin`,
+`ForgotPassword` and `ResendEmailConfirmation` pages send through
+`EmailSenderExtensions.TrySendEmailAsync` (`WebWayCMS.Identity`), which catches any exception and logs
+an error with the recipient and subject (never the body — it carries the token). An unreachable or
+misconfigured SMTP server therefore still lands the user on `RegisterConfirmation` /
+`ForgotPasswordConfirmation` (or the Resend page's usual "Verification email sent" message, which is the
+same whether or not the account exists); the user retries with Resend / Forgot password once mail works.
+Both pages treat a **soft-deleted** user as absent (`IUserAdminService.IsDeletedAsync`): the same answer, no
+email.
+
+**Integration host:** `WebWayCMS.TestHost`'s compose stack runs an smtp4dev mail catcher (UI + REST API
+on `http://localhost:45852`) and points `Smtp:*` at it; the Playwright `account.write.spec.ts` walks
+register → confirm → login, unconfirmed login, resend confirmation, and forgot → reset password by
+reading the mail through the smtp4dev API.
 
 ---
 
@@ -186,14 +205,15 @@ services.ConfigureApplicationCookie(cookieOptions =>
 `AuthRateLimiting` throttles the credential-accepting and email-triggering Identity endpoints per
 client IP **and per endpoint family**, to slow credential brute force and password-reset email flooding.
 
-- **Limit:** `PermitLimit = 5` requests per `Window = 1 minute`, fixed window, partitioned on
+- **Limit:** `AuthRateLimitOptions.PermitLimit` (default **5**) requests per `WindowSeconds` (default
+  **60**), fixed window, partitioned on
   `"{RemoteIpAddress}|{matchedPrefix}"` (`"unknown"` for the IP when unavailable). Each limited path is
   its own bucket, so one endpoint family's traffic never exhausts another's budget.
 - **Limited paths** (prefix match, case-insensitive): `/Identity/Account/Login`,
   `/Identity/Account/LoginWith2fa`, `/Identity/Account/LoginWithRecoveryCode`,
   `/Identity/Account/Register`, `/Identity/Account/ForgotPassword`, `/Identity/Account/ResetPassword`,
-  `/Identity/Account/ResendEmailConfirmation`, `/Identity/Account/ExternalLogin`,
-  `/Identity/Account/PasskeyAssertion`, `/Identity/Account/PasskeyRequestOptions`,
+  `/Identity/Account/ResendEmailConfirmation`, `/Identity/Account/AcceptInvitation`,
+  `/Identity/Account/ExternalLogin`, `/Identity/Account/PasskeyAssertion`, `/Identity/Account/PasskeyRequestOptions`,
   `/Identity/Account/Manage/EnableAuthenticator`, `/Identity/Account/Manage/TwoFactorAuthentication`
   — the second-factor endpoints are limited because `LoginWith2fa`/`LoginWithRecoveryCode` are an
   **anonymous** code-verification gate at the end of every sign-in flow (password, external, passkey),
@@ -207,7 +227,19 @@ client IP **and per endpoint family**, to slow credential brute force and passwo
 ExternalLogin POST → callback GET → confirmation POST); because those span distinct prefixes, a retry or
 a second user behind the same NAT egress IP no longer 429s an unrelated login.
 
-Wired by `ConfigureRateLimiting` (`AddRateLimiter` with `GlobalLimiter = AuthRateLimiting.GetPartition`)
+**Configuration (`AuthRateLimiting` section, `AuthRateLimitOptions`):**
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `AuthRateLimiting:PermitLimit` | `int` | `5` | Requests allowed per window, per client IP and endpoint family. |
+| `AuthRateLimiting:WindowSeconds` | `int` | `60` | Length of the fixed window. |
+
+Both must be at least 1 — the options are validated at startup (`ValidateOnStart`), so a bad value stops
+the host from booting. There is no off switch. The integration host raises `PermitLimit` to 100 because
+its Playwright suite drives several account flows from one IP.
+
+Wired by `ConfigureRateLimiting` (binds `AuthRateLimitOptions`, then configures `RateLimiterOptions` with
+`GlobalLimiter = PartitionedRateLimiter.Create(ctx => AuthRateLimiting.GetPartition(ctx, options))`)
 and activated by `UseRateLimiter()` in the shared middleware pipeline, immediately after
 `UseRouting()`. The path matching and partition selection are pure static methods so they can be
 unit-tested without a server.
@@ -232,6 +264,8 @@ Areas/Identity/Pages/Account/
     ResetPassword.cshtml.cs
     ResetPasswordConfirmation.cshtml.cs
     ResendEmailConfirmation.cshtml.cs
+    RegisterConfirmation.cshtml.cs
+    AcceptInvitation.cshtml.cs   (WebWayCMS addition: an Admin's invitation link, §12)
     ExternalLogin.cshtml.cs
     Manage/
         Index.cshtml.cs
@@ -251,6 +285,12 @@ Areas/Identity/Pages/Account/
         ApiTokens.cshtml.cs   (WebWayCMS addition: MCP personal access tokens)
         ManageNavPages.cs
 ```
+
+`RegisterConfirmation` (where `Register` and `ExternalLogin` send a user who still has to confirm) is a
+WebWayCMS replacement for the Identity UI default: it only says "Please check your email to confirm your
+account" with a Resend link. The default page looked the user up from its `email` query value — answering
+"Unable to load user" for an unknown address — and could show the raw confirmation link; this one does
+neither.
 
 These pages live in **`WebWayCMS.Presentation`** (they did not move to `WebWayCMS.Admin`), are compiled into that assembly, and are served via `CompiledRazorAssemblyPart`. Both bootstrap modes therefore ship login and account management. To customize them in the Web project, scaffold the specific page(s) into `MySite/Areas/Identity/Pages/` — Web project views take precedence over CMS library views.
 
@@ -430,7 +470,86 @@ only the `/mcp` endpoint uses; see [Area 12](12-mcp-server.md).
 
 ---
 
-## 12. Personal Data Download
+## 12. User Management (Users / User Roles widgets)
+
+Admins list and manage users through two content-zone widgets on admin pages. The CMS seeds a ready-made
+**Users** page at `/wadmin/users` (navbar "Users", the Users widget) and a **Roles** page at `/wadmin/roles`
+(navbar "Roles", the User Roles widget), as entries in the CMS's JSON seed file
+(`cms-pages.contentseed.json`, see [Area 15](15-content-seeding.md) §11). Every action is Admin only: the widgets render nothing for
+anyone else and on public pages, and their forms post to an Admin-only controller.
+
+**Storage.** The user type stays `IdentityUser`. CMS data about a user lives 1:1 in **`UserProfiles`**
+(`UserProfileDTO`: `DisplayName`, `FirstName`, `LastName`, `LastLoginUtc`, `IsDeleted`/`DeletedUtc`/`DeletedBy`,
+`InvitedUtc`/`InvitedBy`; FK to `AspNetUsers` with cascade delete). A user without a row has an empty profile.
+
+**Layers.**
+
+| Piece | Project | Role |
+|---|---|---|
+| `IUserAdminService` / `UserAdminService` | Data (`Services/Users`) | Identity `UserManager`/`RoleManager` + the profile rows: list (role / status filters, paging), detail, invite, update, roles, confirm, lock/unlock, sign-out-everywhere, reset 2FA, revoke tokens, remove passkeys / external logins, soft delete / restore / purge, role CRUD, `RecordLoginAsync`. One Serilog audit line per write (`User management: {Actor} {Action} {TargetEmail} ({Target})`). |
+| `UserManagementGuards` | Data | Never leave no **active** Admin (in the Admin role, not locked, not deleted); no self-destructive action (delete, lock, removing your own Admin role). |
+| `IUserManagementModel` / `UserManagementModel` | Core (`Users`) | The service plus the account emails and password re-entry; returns one user-facing message. Used by the widget controller and the MCP tools. |
+| `IUserAccountEmails` / `IUserAccountLinks` | Core | Invitation, confirmation, reset and "email changed" emails, sent through `TrySendEmailAsync` (a failed send is reported in the message, never thrown); links from the current request's origin. |
+| `AdminUserManagementController` | Admin | `POST /wadmin/usermanagement/…` (one action per operation, antiforgery, local `returnUrl`, TempData flash). |
+| `UsersViewComponent`, `UserRolesViewComponent` | Presentation (views in Admin) | The widgets. |
+| `UserToolset` | Mcp | The MCP tools. |
+
+**Status.** `UserStatus` is decided in order: **Deleted** (profile flag), **Locked** (`LockoutEnd` in the
+future), **Unconfirmed**, **Active**. A user is shown as "Invited" while an invitation is pending: an
+`InvitedUtc`, no password, and an unconfirmed email.
+
+**Actions and rules.**
+- **Invite:** creates a passwordless, unconfirmed user with the profile and roles (User preselected in the form)
+  and emails a link to `/Identity/Account/AcceptInvitation`. That page sets the password and confirms the email
+  in one step. The link uses its own token provider, `InvitationTokenProvider` ("Invitation" /
+  "AcceptInvitation"), valid `UserManagement:InvitationLifetimeDays` days (default 7, 1–90, `ValidateOnStart`).
+  It dies once a password is set, because that rotates the security stamp the token is bound to. A
+  locked/deleted account or a bad link gets one generic message. If the password write succeeds but the
+  email-confirm write fails, the page says so and points at the admin's Send-confirmation action (the admin
+  Users screen can recover that state; resending the invitation cannot — the account has a password now).
+  A soft-deleted user's email can't be invited ("restore it, or delete it permanently first").
+- **Edit:** email (also the username; a change makes the email **unconfirmed**, sends a confirmation to the new
+  address and a notice to the old), phone, profile names. For a user whose **invitation is pending**, an email
+  change (it rotates the stamp, killing the old link) sends a **new invitation** instead, and no notice to the
+  never-confirmed old address. An Admin can't change **their own** email here (`UserManagementGuards.SelfEmailChange`:
+  "Use Account → Email", which keeps the old address until the new one is confirmed), and an email change is
+  refused when it would take the last active Admin out of service (an unconfirmed account can't sign in).
+- **Never leave no active Admin:** lock, delete, removing the Admin role and an email change are refused when
+  the target is the only **active** Admin — in the Admin role, email **confirmed**, not locked, not deleted. An
+  invited (unconfirmed) Admin can't sign in under `RequireConfirmedAccount`, so it never counts. No self lock,
+  delete, purge or Admin removal either.
+- **Lock** sets `LockoutEnd` to `UserAdminService.IndefiniteLockoutEnd` (9999-01-01, not `MaxValue`, which
+  `timestamptz` can't hold) and rotates the stamp. **Unlock** clears it and the failed-attempt count.
+- **Sign out everywhere**, **Lock**, **Delete** and role changes take effect when the cookie's security stamp
+  is next validated (the framework default, every 30 minutes).
+- **Delete** is soft: it flags the profile, locks the account, rotates the stamp and revokes API tokens. The user
+  is hidden from the list unless filtered by status Deleted. **Restore** undoes it. **Delete permanently**
+  (purge) is offered only for a soft-deleted user: `UserManager.DeleteAsync` removes roles, logins, passkeys,
+  tokens and profile, and frees the email. Content keeps its `CreatedBy` Guid. A soft-deleted user refuses
+  every other write.
+- **Password re-entry:** delete, purge and granting Admin (invite or role change) take the acting Admin's
+  password, checked with `CheckPasswordSignInAsync(lockoutOnFailure: true)`. An Admin with no password is told to
+  set one. MCP calls skip re-entry (the token authenticated the call); the guards still apply.
+- **Roles:** built-in Admin/Editor/User (`UserProfileRules.BuiltInRoles`) can't be renamed or deleted. A custom
+  role can be deleted only once it has no members.
+
+**Self-registration.** `Register` and `ExternalLogin` add new users to the **User** role
+(`UserProfileRules.DefaultRole`); a failed role assignment is surfaced as a form error instead of
+signing the user in (the account exists but is unusable until an Admin fixes the role).
+`Identity:AllowRegistration` (`IdentityRegistrationOptions`, default true) set to false makes `Register`
+answer 404, hides Login's "Register" link, and stops `ExternalLogin` creating accounts (existing linked users
+still sign in). **Resend email confirmation stays available** either way: an Admin's email change unconfirms
+an existing account, and this is how that user recovers (its answer is the same for every email).
+
+**Last login.** `CmsSignInManager` (registered with `AddSignInManager`) overrides `SignInWithClaimsAsync`, the
+step every successful sign-in ends in, and stamps `LastLoginUtc`. `RefreshSignInAsync` (the cookie re-issue
+after a password, 2FA or profile change on the Manage pages) ends there too and is **not** recorded. A failure
+is logged, never fatal; a failed first-login insert (two concurrent first sign-ins) is detached from the scoped
+context so a later save in the same request doesn't retry it.
+
+---
+
+## 13. Personal Data Download
 
 `Manage/PersonalData.cshtml`'s "Download" button posts to `DownloadPersonalData`, now scaffolded in
 `WebWayCMS.Presentation`. `DownloadPersonalDataModel.OnPostAsync` reflects over `IdentityUser`'s

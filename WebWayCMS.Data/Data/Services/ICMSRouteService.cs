@@ -31,9 +31,3 @@ public interface ICMSRouteService
     /// <summary>Removes the projected rows of one route item.</summary>
     Task<bool> DeleteByRouteNodeAsync(Guid routeNodeId, CancellationToken ct = default);
 }
-
-public sealed class CMSRouteMatchResult
-{
-    public CMSRouteDTO Route { get; init; } = new();
-    public Dictionary<string, string> RouteValues { get; init; } = new();
-}

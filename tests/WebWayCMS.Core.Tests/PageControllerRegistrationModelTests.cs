@@ -9,16 +9,6 @@ using WebWayCMS.Pages;
 
 namespace WebWayCMS.Core.Tests;
 
-public struct PageThrowingStruct
-{
-    public PageThrowingStruct() => throw new InvalidOperationException("Test exception for coverage");
-}
-
-public class PageConfigWithThrowingDefault
-{
-    public PageThrowingStruct Prop { get; set; }
-}
-
 [TestFixture]
 public class PageControllerRegistrationModelTests
 {

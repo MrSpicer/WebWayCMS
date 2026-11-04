@@ -206,6 +206,24 @@ Render modes are a hard break — there is no compatibility shim:
   context. Views: `view.default`, `list.default`, `_NotFound`, and `edit.default` (one edit view for
   both modes; it receives an `ArticleViewModel` or an `ArticleListViewModel`).
 
+### Built-in user-management widgets: Users and User Roles
+
+Two Admin-only widgets (category **Users**) manage accounts from an admin page. The CMS seeds the Users widget
+on `/wadmin/users` and the User Roles widget on `/wadmin/roles`. Only `admin.*`, `adminlist.*` and `edit.*` views ship (in `WebWayCMS.Admin`), so on a public page
+they render nothing, even for an Admin, and they render nothing for a non-Admin anywhere. A host can add
+`view.*` views to opt in. Their forms post to `/wadmin/usermanagement/…` (`AdminUserManagementController`). See
+[08 → User Management](architecture/08-identity-auth.md#12-user-management-users--user-roles-widgets).
+
+- **`UsersViewComponent`** (`SupportsList = true`, routable):
+  - **List** (`adminlist.default`) is the user table: `?role=` / `?status=` filters, `?skip=` paging, page size
+    and visible columns from `UsersWidgetConfiguration`, and the Invite form.
+  - It **owns `edit/{userId:guid}`** and renders that user's management screen there (`admin.default`, through
+    a Single-mode copy of its configuration). It yields on another item's widget route.
+  - **Single** shows the route's user, else the configured `UserId`, else nothing.
+  - Like Article, a List and a Single on one page would claim the same route.
+- **`UserRolesViewComponent`** (no configuration) lists roles with member counts and creates, renames and
+  deletes custom roles. It steps aside on a widget route (e.g. the Users management screen on the same page).
+
 ---
 
 ## How to Add a New Widget

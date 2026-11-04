@@ -26,7 +26,7 @@ public static class ServiceCollectionExtensions
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services, configuration);
         CmsRenderingRegistration.AddRenderingCoreTypes(services, builder.Profiles, builder.Assemblies);
         CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
-        CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
+        CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services, configuration);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
         services.Configure<MediaOptions>(configuration.GetSection(MediaOptions.SectionName));
         services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = false });
@@ -62,7 +62,7 @@ public static class ServiceCollectionExtensions
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
         CmsRenderingRegistration.AddRenderingCoreTypes(services);
         CmsIdentityRegistration.ConfigureAuthorization(services, new ConfigurationBuilder().Build());
-        CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services);
+        CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services, new ConfigurationBuilder().Build());
         CmsAdminRegistration.MapAdminTypes(services, new ConfigurationBuilder().Build());
         services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = true });
         return services;

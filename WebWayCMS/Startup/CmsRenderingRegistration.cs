@@ -131,7 +131,6 @@ internal static class CmsRenderingRegistration
         services.AddSingleton<ICMSRouteRegistry, CMSRouteRegistry>();
         services.AddScoped<ICMSRouteService, CMSRouteService>();
         services.AddScoped<IRouteRegistrationService, RouteRegistrationService>();
-        services.AddScoped<IDefaultContentSeeder, DefaultContentSeeder>();
         services.AddScoped<CMSRouteTransformer>();
     }
 
@@ -159,6 +158,9 @@ internal static class CmsRenderingRegistration
 
         services.AddScoped<ArticleViewComponent>();
         services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<ArticleViewComponent>());
+        // The Users widget owns its edit/{userId:guid} management route (registered when its page publishes).
+        services.AddScoped<UsersViewComponent>();
+        services.AddScoped<IRoutableViewComponent>(sp => sp.GetRequiredService<UsersViewComponent>());
 
         services.AddScoped<ArticleModel>();
         services.AddScoped<IArticleModel>(sp => sp.GetRequiredService<ArticleModel>());

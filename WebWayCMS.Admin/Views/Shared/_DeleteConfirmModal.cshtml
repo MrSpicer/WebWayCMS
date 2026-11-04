@@ -8,6 +8,14 @@
         </header>
         <section class="modal-card-body">
             <p id="deleteModalMessage">Are you sure you want to delete this item? This cannot be undone.</p>
+            @* Shown for a trigger with data-delete-password (e.g. deleting a user): the acting user's password. *@
+            <div class="field mt-3" id="deleteModalPasswordField" hidden>
+                <label class="label" for="deleteModalPassword">Your password</label>
+                <div class="control">
+                    <input class="input" type="password" id="deleteModalPassword" name="CurrentPassword"
+                           form="deleteConfirmForm" autocomplete="current-password" />
+                </div>
+            </div>
         </section>
         <footer class="modal-card-foot">
             <form id="deleteConfirmForm" method="post" style="display:contents">

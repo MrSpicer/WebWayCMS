@@ -1,0 +1,84 @@
+{
+  "items": [
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000001",
+      "contentType": "routes",
+      "fields": {
+        "mode": "Explicit",
+        "pattern": "/",
+        "navigationName": "Home"
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000002",
+      "contentType": "pages",
+      "publish": true,
+      "fields": {
+        "title": "Home",
+        "slug": "home",
+        "controllerName": "GenericPage",
+        "configurationJson": "{}",
+        "routeIds": [ "@seed:c5ed0000-0000-4000-8000-000000000001" ]
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000003",
+      "contentType": "pages",
+      "publish": true,
+      "fields": {
+        "title": "Dashboard",
+        "slug": "wadmin",
+        "controllerName": "GenericAdminPage",
+        "viewName": "Dashboard",
+        "configurationJson": "{}"
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000004",
+      "contentType": "pages",
+      "publish": true,
+      "fields": {
+        "title": "Users",
+        "slug": "users",
+        "parentNodeId": "@seed:c5ed0000-0000-4000-8000-000000000003",
+        "controllerName": "GenericAdminPage",
+        "viewName": "Index",
+        "configurationJson": "{}"
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000005",
+      "contentType": "contentzoneitems",
+      "zone": { "page": "@seed:c5ed0000-0000-4000-8000-000000000004", "slot": "Main" },
+      "fields": {
+        "componentName": "Users",
+        "componentPropertiesJson": "{}",
+        "metadataJson": "{\"DisplayMode\":\"List\"}",
+        "isActive": true
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000006",
+      "contentType": "pages",
+      "publish": true,
+      "fields": {
+        "title": "Roles",
+        "slug": "roles",
+        "parentNodeId": "@seed:c5ed0000-0000-4000-8000-000000000003",
+        "controllerName": "GenericAdminPage",
+        "viewName": "Index",
+        "configurationJson": "{}"
+      }
+    },
+    {
+      "id": "c5ed0000-0000-4000-8000-000000000007",
+      "contentType": "contentzoneitems",
+      "zone": { "page": "@seed:c5ed0000-0000-4000-8000-000000000006", "slot": "Main" },
+      "fields": {
+        "componentName": "UserRoles",
+        "componentPropertiesJson": "{}",
+        "isActive": true
+      }
+    }
+  ]
+}

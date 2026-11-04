@@ -44,7 +44,7 @@ public class AdminContentController : Controller
 
     // ─── Top-level CRUD ───────────────────────────────────────────────────────
 
-    [HttpGet("{contentType}")]
+    [HttpGet("{contentType:admincontenttype}")]
     public async Task<IActionResult> Index(string contentType, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
@@ -54,7 +54,7 @@ public class AdminContentController : Controller
         return View(handler.IndexViewPath, vm);
     }
 
-    [HttpGet("{contentType}/create")]
+    [HttpGet("{contentType:admincontenttype}/create")]
     [ActionName("Create")]
     public async Task<IActionResult> Create(string contentType, CancellationToken ct)
     {
@@ -69,7 +69,7 @@ public class AdminContentController : Controller
         return View(handler.UpsertViewPath, vm);
     }
 
-    [HttpGet("{contentType}/edit/{id:guid}")]
+    [HttpGet("{contentType:admincontenttype}/edit/{id:guid}")]
     public async Task<IActionResult> Edit(string contentType, Guid id, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
@@ -112,7 +112,7 @@ public class AdminContentController : Controller
     }
 
     /// <summary>Reorders a parent's children through an ordered containment (the children panel's Up/Down).</summary>
-    [HttpPost("{contentType}/relations/{relationName}/{parentNodeId:guid}/reorder")]
+    [HttpPost("{contentType:admincontenttype}/relations/{relationName}/{parentNodeId:guid}/reorder")]
     [ActionName("ReorderRelated")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ReorderRelated(
@@ -128,7 +128,7 @@ public class AdminContentController : Controller
             : BadRequest(new { error = errorMessage ?? "Failed to reorder the items." });
     }
 
-    [HttpPost("{contentType}/edit/{id:guid?}")]
+    [HttpPost("{contentType:admincontenttype}/edit/{id:guid?}")]
     [ActionName("Edit")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> EditPost(
@@ -191,7 +191,7 @@ public class AdminContentController : Controller
         return View(handler.UpsertViewPath, model);
     }
 
-    [HttpPost("{contentType}/delete/{id:guid}")]
+    [HttpPost("{contentType:admincontenttype}/delete/{id:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(string contentType, Guid id, string? returnUrl, CancellationToken ct)
     {
@@ -210,7 +210,7 @@ public class AdminContentController : Controller
 
     // ─── Publishing ───────────────────────────────────────────────────────────
 
-    [HttpPost("{contentType}/publish/{nodeId:guid}")]
+    [HttpPost("{contentType:admincontenttype}/publish/{nodeId:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Publish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
@@ -228,7 +228,7 @@ public class AdminContentController : Controller
         return RedirectAfterPublishing(contentType, returnUrl);
     }
 
-    [HttpPost("{contentType}/unpublish/{nodeId:guid}")]
+    [HttpPost("{contentType:admincontenttype}/unpublish/{nodeId:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Unpublish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
@@ -266,7 +266,7 @@ public class AdminContentController : Controller
     /// Only Admins reach this action (the controller requires the Admin role), but the transformer itself
     /// also admits Editors, so an Editor can preview via the <c>/_preview/{nodeId}</c> URL directly.
     /// </summary>
-    [HttpGet("{contentType}/preview/{nodeId:guid}")]
+    [HttpGet("{contentType:admincontenttype}/preview/{nodeId:guid}")]
     public async Task<IActionResult> Preview(string contentType, Guid nodeId, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
@@ -282,7 +282,7 @@ public class AdminContentController : Controller
     /// A picker's list. A containment picker on an existing item's form passes <paramref name="excludeSubtreeOf"/>
     /// (the item's node id), so the handler can leave out the item and its descendants.
     /// </summary>
-    [HttpGet("{contentType}/api/list")]
+    [HttpGet("{contentType:admincontenttype}/api/list")]
     public async Task<IActionResult> ApiList(string contentType, CancellationToken ct, [FromQuery] Guid? excludeSubtreeOf = null)
     {
         var handler = _registry.GetHandler(contentType);
@@ -294,7 +294,7 @@ public class AdminContentController : Controller
         return Json(items);
     }
 
-    [HttpGet("{contentType}/api/{key}")]
+    [HttpGet("{contentType:admincontenttype}/api/{key}")]
     public async Task<IActionResult> SecondaryApiList(string contentType, string key, CancellationToken ct)
     {
         var handler = _registry.GetHandler(contentType);
@@ -308,7 +308,7 @@ public class AdminContentController : Controller
 
     // ─── Registry endpoints ────────────────────────────────────────────────────
 
-    [HttpGet("{contentType}/registry")]
+    [HttpGet("{contentType:admincontenttype}/registry")]
     public IActionResult RegistryList(string contentType)
     {
         var handler = _registry.GetHandler(contentType);
@@ -318,7 +318,7 @@ public class AdminContentController : Controller
         return handler.RegistryHandler.GetAll();
     }
 
-    [HttpGet("{contentType}/registry/{name}/properties")]
+    [HttpGet("{contentType:admincontenttype}/registry/{name}/properties")]
     public IActionResult RegistryProperties(string contentType, string name)
     {
         var handler = _registry.GetHandler(contentType);
@@ -328,7 +328,7 @@ public class AdminContentController : Controller
         return handler.RegistryHandler.GetProperties(name);
     }
 
-    [HttpPost("{contentType}/registry/{name}/form")]
+    [HttpPost("{contentType:admincontenttype}/registry/{name}/form")]
     [ValidateAntiForgeryToken]
     public IActionResult RegistryForm(string contentType, string name, [FromBody] string? valuesJson, [FromQuery] string? displayMode = null)
     {
@@ -375,7 +375,7 @@ public class AdminContentController : Controller
     /// An item's version history. <paramref name="returnUrl"/> (local URLs only, e.g. the page zone editor
     /// that linked here) replaces the page's Back link and is carried through its restore/delete forms.
     /// </summary>
-    [HttpGet("{contentType}/versions/{nodeId:guid}")]
+    [HttpGet("{contentType:admincontenttype}/versions/{nodeId:guid}")]
     [ActionName("VersionHistory")]
     public async Task<IActionResult> VersionHistory(string contentType, Guid nodeId, string? returnUrl, CancellationToken ct)
     {
@@ -395,7 +395,7 @@ public class AdminContentController : Controller
         return View("~/Views/AdminShared/VersionHistory.cshtml", vm);
     }
 
-    [HttpGet("{contentType}/versions/{nodeId:guid}/edit/{id:guid}")]
+    [HttpGet("{contentType:admincontenttype}/versions/{nodeId:guid}/edit/{id:guid}")]
     [ActionName("VersionRestoreEdit")]
     public async Task<IActionResult> VersionRestoreEdit(string contentType, Guid nodeId, Guid id, CancellationToken ct)
     {
@@ -408,7 +408,7 @@ public class AdminContentController : Controller
         return View(handler.UpsertViewPath, vm);
     }
 
-    [HttpPost("{contentType}/versions/{nodeId:guid}/restore/{id:guid}")]
+    [HttpPost("{contentType:admincontenttype}/versions/{nodeId:guid}/restore/{id:guid}")]
     [ActionName("RestoreVersion")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RestoreVersion(
@@ -428,7 +428,7 @@ public class AdminContentController : Controller
         return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
 
-    [HttpPost("{contentType}/versions/{nodeId:guid}/delete/{id:guid}")]
+    [HttpPost("{contentType:admincontenttype}/versions/{nodeId:guid}/delete/{id:guid}")]
     [ActionName("VersionDelete")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> VersionDelete(string contentType, Guid nodeId, Guid id, string? returnUrl, CancellationToken ct)

@@ -1,5 +1,3 @@
-using System.Security.Claims;
-
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -11,8 +9,6 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-
-using NSubstitute;
 
 using NUnit.Framework;
 
@@ -368,284 +364,115 @@ public class ServiceCollectionExtensionsTests
         Assert.That(app.Services.GetRequiredService<IEmailSender>(), Is.InstanceOf<HostEmailSender>());
     }
 
+    [Test]
+    public void Provider_NoRateLimitConfig_UsesDefaultAuthRateLimit()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        var options = app.Services.GetRequiredService<IOptions<AuthRateLimitOptions>>().Value;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(options.PermitLimit, Is.EqualTo(5));
+            Assert.That(options.WindowSeconds, Is.EqualTo(60));
+        });
+    }
+
+    [Test]
+    public void Provider_RateLimitConfig_BindsAuthRateLimitAndGlobalLimiter()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AuthRateLimiting:PermitLimit"] = "100",
+            ["AuthRateLimiting:WindowSeconds"] = "30",
+        });
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        var options = app.Services.GetRequiredService<IOptions<AuthRateLimitOptions>>().Value;
+        var limiter = app.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>>().Value;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(options.PermitLimit, Is.EqualTo(100));
+            Assert.That(options.WindowSeconds, Is.EqualTo(30));
+            Assert.That(limiter.RejectionStatusCode, Is.EqualTo(StatusCodes.Status429TooManyRequests));
+            Assert.That(limiter.GlobalLimiter, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void Provider_InvalidRateLimitConfig_FailsValidation()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AuthRateLimiting:PermitLimit"] = "0",
+        });
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        Assert.That(() => app.Services.GetRequiredService<IOptions<AuthRateLimitOptions>>().Value,
+            Throws.InstanceOf<OptionsValidationException>());
+    }
+
+    [Test]
+    public void Provider_RegistersUserManagement()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["UserManagement:InvitationLifetimeDays"] = "3",
+            ["Identity:AllowRegistration"] = "false",
+        });
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+        using var scope = app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(services.GetRequiredService<SignInManager<IdentityUser>>(), Is.InstanceOf<WebWayCMS.Users.CmsSignInManager>());
+            Assert.That(services.GetRequiredService<WebWayCMS.Data.Services.Users.IUserAdminService>(), Is.Not.Null);
+            Assert.That(services.GetRequiredService<WebWayCMS.Users.IUserManagementModel>(), Is.Not.Null);
+            Assert.That(services.GetRequiredService<WebWayCMS.Data.Services.IAdminRouteReservations>(),
+                Is.InstanceOf<WebWayCMS.Controllers.Admin.Handlers.AdminContentRouteReservations>());
+            Assert.That(services.GetRequiredService<IOptions<RouteOptions>>().Value.ConstraintMap.ContainsKey("admincontenttype"), Is.True);
+            Assert.That(services.GetRequiredService<IOptions<WebWayCMS.Users.InvitationTokenProviderOptions>>().Value.TokenLifespan,
+                Is.EqualTo(TimeSpan.FromDays(3)));
+            Assert.That(services.GetRequiredService<IOptions<WebWayCMS.Identity.IdentityRegistrationOptions>>().Value.AllowRegistration, Is.False);
+            Assert.That(services.GetRequiredService<IOptions<IdentityOptions>>().Value.Tokens.ProviderMap,
+                Does.ContainKey(WebWayCMS.Users.InvitationTokenProvider.ProviderName));
+            Assert.That(services.GetServices<WebWayCMS.Interfaces.IRoutableViewComponent>(),
+                Has.Some.InstanceOf<WebWayCMS.ViewComponents.UsersViewComponent>());
+        });
+    }
+
+    [Test]
+    public void Provider_InvalidInvitationLifetime_FailsValidation()
+    {
+        var builder = NewBuilder();
+        AddConnection(builder);
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["UserManagement:InvitationLifetimeDays"] = "0",
+        });
+        builder.Services.AddWebWayCms(builder.Configuration);
+        using var app = builder.Build();
+
+        Assert.That(() => app.Services.GetRequiredService<IOptions<WebWayCMS.Users.UserManagementOptions>>().Value,
+            Throws.InstanceOf<OptionsValidationException>());
+    }
+
     private sealed class HostEmailSender : IEmailSender
     {
         public Task SendEmailAsync(string email, string subject, string htmlMessage) => Task.CompletedTask;
-    }
-}
-
-[TestFixture]
-public class ContentReadContextTests
-{
-    private static ClaimsPrincipal Principal(params string[] roles) =>
-        new(new ClaimsIdentity(roles.Select(r => new Claim(ClaimTypes.Role, r)), "TestAuth"));
-
-    private static IHttpContextAccessor Accessor(HttpContext? context) =>
-        new HttpContextAccessor { HttpContext = context };
-
-    private static HttpContext Context(ClaimsPrincipal? user = null, string? previewCookie = null)
-    {
-        var ctx = new DefaultHttpContext();
-        ctx.User = user ?? new ClaimsPrincipal(new ClaimsIdentity());
-        ctx.Request.Cookies = previewCookie == null
-            ? Substitute.For<IRequestCookieCollection>()
-            : Cookies(new Dictionary<string, string> { ["wwcms_preview"] = previewCookie });
-        return ctx;
-    }
-
-    private static IRequestCookieCollection Cookies(IReadOnlyDictionary<string, string> pairs)
-    {
-        var cookies = Substitute.For<IRequestCookieCollection>();
-        foreach (var pair in pairs)
-        {
-            string? value;
-            cookies.TryGetValue(pair.Key, out value).Returns(callInfo =>
-            {
-                callInfo[1] = pair.Value;
-                return true;
-            });
-        }
-
-        return cookies;
-    }
-
-    [Test]
-    public void PublishedContentReadContext_IsAlwaysPublished()
-    {
-        var context = new PublishedContentReadContext();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-            Assert.That(context.Culture, Is.Empty);
-            Assert.That(context.Segment, Is.Empty);
-        });
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_NullAccessor_Throws()
-    {
-        Assert.That(() => new PreviewAwareReadContext(null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_CultureAndSegment_AreEmpty()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context()));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(context.Culture, Is.Empty);
-            Assert.That(context.Segment, Is.Empty);
-        });
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_NoHttpContext_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(null));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_Unauthenticated_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context()));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_NullUser_ReturnsPublished()
-    {
-        var httpContext = Substitute.For<HttpContext>();
-        httpContext.User.Returns((ClaimsPrincipal)null!);
-        var accessor = Substitute.For<IHttpContextAccessor>();
-        accessor.HttpContext.Returns(httpContext);
-        var context = new PreviewAwareReadContext(accessor);
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_NullIdentity_ReturnsPublished()
-    {
-        var ctx = new DefaultHttpContext { User = new ClaimsPrincipal() };
-        var context = new PreviewAwareReadContext(Accessor(ctx));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_AuthenticatedNonEditor_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Guest"))));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_AdminWithoutCookie_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"))));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_AdminWithDraftRequestFlag_ReturnsDraft()
-    {
-        var ctx = Context(Principal("Admin"));
-        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
-
-        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Draft));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_DraftRequestFlagNotTrue_ReturnsPublished()
-    {
-        var ctx = Context(Principal("Admin"));
-        ctx.Items[PreviewConstants.DraftRequestItemKey] = "true";
-
-        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_NonEditorWithDraftRequestFlag_ReturnsPublished()
-    {
-        var ctx = Context(Principal("Guest"));
-        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
-
-        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_EditorWithDraftRequestFlag_ReturnsDraft()
-    {
-        var ctx = Context(Principal("Editor"));
-        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
-
-        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Draft));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_AdminWithSnapshot_ReadsTheSnapshot_EvenWhenAlsoMarkedDraft()
-    {
-        var ctx = Context(Principal("Admin"));
-        var snapshot = new ContentReadSnapshot([Guid.NewGuid()], [Guid.NewGuid()]);
-        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = snapshot;
-        ctx.Items[PreviewConstants.DraftRequestItemKey] = true;
-
-        var context = new PreviewAwareReadContext(Accessor(ctx));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Snapshot));
-            Assert.That(context.Snapshot, Is.SameAs(snapshot));
-        });
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_EditorWithSnapshot_DoesNotReadIt()
-    {
-        var ctx = Context(Principal("Editor"));
-        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = new ContentReadSnapshot([], []);
-
-        var context = new PreviewAwareReadContext(Accessor(ctx));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-            Assert.That(context.Snapshot, Is.Null);
-        });
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_SnapshotItemOfTheWrongType_IsIgnored()
-    {
-        var ctx = Context(Principal("Admin"));
-        ctx.Items[PreviewConstants.SnapshotRequestItemKey] = "not a snapshot";
-
-        Assert.That(new PreviewAwareReadContext(Accessor(ctx)).Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PublishedContentReadContext_NeverReadsASnapshot()
-    {
-        IContentReadContext context = new PublishedContentReadContext();
-
-        Assert.That(context.Snapshot, Is.Null);
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_AdminWithLegacyPreviewCookie_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Admin"), previewCookie: "1")));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void PreviewAwareReadContext_EditorWithLegacyPreviewCookie_ReturnsPublished()
-    {
-        var context = new PreviewAwareReadContext(Accessor(Context(Principal("Editor"), previewCookie: "1")));
-
-        Assert.That(context.Mode, Is.EqualTo(ContentReadMode.Published));
-    }
-
-    [Test]
-    public void HttpContentUserContext_NullAccessor_Throws()
-    {
-        Assert.That(() => new HttpContentUserContext(null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
-    public void HttpContentUserContext_NoHttpContext_ReturnsNull()
-    {
-        var context = new HttpContentUserContext(Accessor(null));
-
-        Assert.That(context.CurrentUserId, Is.Null);
-    }
-
-    [Test]
-    public void HttpContentUserContext_NoNameIdentifierClaim_ReturnsNull()
-    {
-        var context = new HttpContentUserContext(Accessor(Context(Principal("Admin"))));
-
-        Assert.That(context.CurrentUserId, Is.Null);
-    }
-
-    [Test]
-    public void HttpContentUserContext_NullUser_ReturnsNull()
-    {
-        var httpContext = Substitute.For<HttpContext>();
-        httpContext.User.Returns((ClaimsPrincipal)null!);
-        var accessor = Substitute.For<IHttpContextAccessor>();
-        accessor.HttpContext.Returns(httpContext);
-        var context = new HttpContentUserContext(accessor);
-
-        Assert.That(context.CurrentUserId, Is.Null);
-    }
-
-    [Test]
-    public void HttpContentUserContext_InvalidGuidClaim_ReturnsNull()
-    {
-        var user = new ClaimsPrincipal(new ClaimsIdentity(
-            new[] { new Claim(ClaimTypes.NameIdentifier, "not-a-guid") }, "TestAuth"));
-        var context = new HttpContentUserContext(Accessor(Context(user)));
-
-        Assert.That(context.CurrentUserId, Is.Null);
-    }
-
-    [Test]
-    public void HttpContentUserContext_ValidGuidClaim_ReturnsUserId()
-    {
-        var expected = Guid.NewGuid();
-        var user = new ClaimsPrincipal(new ClaimsIdentity(
-            new[] { new Claim(ClaimTypes.NameIdentifier, expected.ToString()) }, "TestAuth"));
-        var context = new HttpContentUserContext(Accessor(Context(user)));
-
-        Assert.That(context.CurrentUserId, Is.EqualTo(expected));
     }
 }

@@ -219,6 +219,30 @@ public class CMSRouteServiceTests
     }
 
     [Test]
+    public async Task UpsertAsync_AdminReservedPattern_IsRefused()
+    {
+        var reservations = Substitute.For<IAdminRouteReservations>();
+        reservations.GetConflict(Arg.Any<string>()).Returns((string?)null);
+        reservations.GetConflict("/wadmin/pages").Returns("taken by the admin");
+        var service = new CMSRouteService(NewContext(), _registry, reservations);
+
+        var refused = await service.UpsertAsync(new CMSRouteDTO { Pattern = "/WADMIN/pages/" });
+        var free = await service.UpsertAsync(new CMSRouteDTO { Pattern = "/wadmin/users" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That((refused.Success, refused.ErrorMessage), Is.EqualTo((false, "taken by the admin")));
+            Assert.That(free.Success, Is.True);
+        });
+    }
+
+    [Test]
+    public void NoAdminRouteReservations_ReservesNothing()
+    {
+        Assert.That(new NoAdminRouteReservations().GetConflict("/wadmin/pages"), Is.Null);
+    }
+
+    [Test]
     public async Task UpsertAsync_StoresIsReserved()
     {
         var route = new CMSRouteDTO

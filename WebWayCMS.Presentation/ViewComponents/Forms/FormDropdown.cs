@@ -48,9 +48,3 @@ public sealed class FormDropdown : FormFieldViewComponentBase
         return FieldView(field, viewModel);
     }
 }
-
-public sealed class DropdownViewModel
-{
-    public FormFieldContext Field { get; set; } = null!;
-    public Dictionary<string, string> Options { get; set; } = new();
-}

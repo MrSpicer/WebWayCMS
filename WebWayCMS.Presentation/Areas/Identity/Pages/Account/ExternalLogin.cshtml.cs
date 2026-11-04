@@ -17,6 +17,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+using WebWayCMS.Data.Models;
+using WebWayCMS.Identity;
+using WebWayCMS.Users;
 
 namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
 {
@@ -28,14 +33,19 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
         private readonly IUserEmailStore<IdentityUser> _emailStore;
         private readonly IEmailSender _emailSender;
         private readonly ILogger<ExternalLoginModel> _logger;
+        private readonly IdentityRegistrationOptions _registration;
+
+        internal const string RegistrationClosedMessage = "New accounts can't be created on this site. Ask an administrator for an invitation.";
 
         public ExternalLoginModel(
             SignInManager<IdentityUser> signInManager,
             UserManager<IdentityUser> userManager,
             IUserStore<IdentityUser> userStore,
             ILogger<ExternalLoginModel> logger,
-            IEmailSender emailSender)
+            IEmailSender emailSender,
+            IOptions<IdentityRegistrationOptions> registration)
         {
+            _registration = registration.Value;
             _signInManager = signInManager;
             _userManager = userManager;
             _userStore = userStore;
@@ -132,6 +142,13 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
             }
             else
             {
+                // An external sign-in never creates an account while public registration is off.
+                if (!_registration.AllowRegistration)
+                {
+                    ErrorMessage = RegistrationClosedMessage;
+                    return RedirectToPage("./Login", new { ReturnUrl = returnUrl });
+                }
+
                 // If the user does not have an account, then ask the user to create an account.
                 ReturnUrl = returnUrl;
                 ProviderDisplayName = info.ProviderDisplayName;
@@ -157,6 +174,12 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                 return RedirectToPage("./Login", new { ReturnUrl = returnUrl });
             }
 
+            if (!_registration.AllowRegistration)
+            {
+                ErrorMessage = RegistrationClosedMessage;
+                return RedirectToPage("./Login", new { ReturnUrl = returnUrl });
+            }
+
             if (ModelState.IsValid)
             {
                 var user = CreateUser();
@@ -172,6 +195,12 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                     {
                         _logger.LogInformation("User created an account using {Name} provider.", info.LoginProvider);
 
+                        var roleResult = await _userManager.AddToRoleAsync(user, UserProfileRules.DefaultRole);
+                        if (!roleResult.Succeeded)
+                        {
+                            _logger.LogWarning("Could not add the new user to the {Role} role.", UserProfileRules.DefaultRole);
+                        }
+
                         var userId = await _userManager.GetUserIdAsync(user);
                         var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                         code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
@@ -181,10 +210,20 @@ namespace WebWayCMS.Presentation.Areas.Identity.Pages.Account
                             values: new { area = "Identity", userId = userId, code = code },
                             protocol: Request.Scheme);
 
-                        await _emailSender.SendEmailAsync(Input.Email, "Confirm your email",
-                            $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
+                        await _emailSender.TrySendEmailAsync(Input.Email, "Confirm your email",
+                            $"Please confirm your account by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.",
+                            _logger);
 
                         // If account confirmation is required, we need to show the link if we don't have a real email sender
+                        // If account confirmation is required, we need to show the link if we don't have a real email sender.
+                        // A failed role assignment surfaces instead: the account exists but is unusable until an Admin fixes it.
+                        if (!roleResult.Succeeded)
+                        {
+                            ModelState.AddModelError(string.Empty,
+                                "Your account was created, but the initial role could not be assigned. Contact an administrator before signing in.");
+                            return Page();
+                        }
+
                         if (_userManager.Options.SignIn.RequireConfirmedAccount)
                         {
                             return RedirectToPage("RegisterConfirmation", new { Email = Input.Email });

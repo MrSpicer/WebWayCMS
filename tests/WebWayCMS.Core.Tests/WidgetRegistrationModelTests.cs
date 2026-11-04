@@ -14,16 +14,6 @@ using WebWayCMS.Services;
 
 namespace WebWayCMS.Core.Tests;
 
-public struct WidgetThrowingStruct
-{
-    public WidgetThrowingStruct() => throw new InvalidOperationException("Test exception for coverage");
-}
-
-public class WidgetConfigWithThrowingDefault
-{
-    public WidgetThrowingStruct Prop { get; set; }
-}
-
 [TestFixture]
 public class WidgetRegistrationModelTests
 {

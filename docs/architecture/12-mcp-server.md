@@ -187,6 +187,25 @@ items and after every publish; see [04 → History in the Zone Editor](04-conten
 | `revert_page_to_entry(pageNodeId, entryId, stateToken)` | Revert the page and every zone item to the entry as drafts (non-destructive; refused when the page changed since the token) — publish with `publish_content("pages", …)` |
 | `delete_page_history_entry(pageNodeId, entryId)` | Delete the entry record (its versions are kept) |
 
+**`UserToolset`** — user and role management, everything the Users / User Roles widgets do (see
+[08 → User Management](08-identity-auth.md#12-user-management-users--user-roles-widgets)). Admin only, acting as
+the token's user. Destructive tools take no password (the token authenticated the call), but the safety rules
+still apply: never leave no active Admin, no self-destructive actions. A refusal is an `McpException` with the
+reason. Status values are strings (`active`, `unconfirmed`, `locked`, `deleted`).
+
+| Tool | Purpose |
+|---|---|
+| `list_users(role?, status?, skip?, take?)` | Users by email, with roles, status, pending invite, last login; deleted users only with `status: "deleted"` (`ReadOnly`) |
+| `get_user(userId)` | Account, profile, roles and sign-in details (`ReadOnly`) |
+| `list_roles` | Roles with member counts (`ReadOnly`) |
+| `invite_user(email, roles?, displayName?, firstName?, lastName?)` | Create a passwordless user and email the set-password link |
+| `update_user(userId, email?, phoneNumber?, displayName?, firstName?, lastName?)` | Partial update; an empty string clears a phone or name; a new email must be confirmed |
+| `set_user_roles(userId, roles)` | Make the user's roles exactly the list |
+| `send_password_reset`, `send_confirmation_email`, `resend_invitation`, `confirm_user_email` | Account emails, and confirming by hand |
+| `lock_user`, `unlock_user`, `sign_out_user_everywhere`, `reset_user_2fa`, `revoke_user_api_tokens`, `remove_user_passkeys`, `remove_user_external_login` | Account security |
+| `delete_user`, `restore_user`, `purge_user` | Soft delete, undo, permanent delete of a soft-deleted user |
+| `create_role`, `rename_role`, `delete_role` | Custom roles (built-ins are fixed; a role with members can't be deleted) |
+
 **`ChildContentToolset`** — generic over **containment** (a child is ordinary content of its own type,
 placed under a parent by a `[ContentRelation(Kind = Containment)]`; there is no child-handler contract):
 
