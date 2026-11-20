@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Models.Shared;
 using WebWayCMS.Services.Relations;
 
@@ -22,12 +24,18 @@ public class AdminContentController : Controller
     private readonly IAdminHandlerRegistry _registry;
     private readonly IWidgetRegistry _widgetRegistry;
     private readonly ContentRelationRegistry _relations;
+    private readonly IContentTypeRegistrationService? _contentTypeRegistrations;
 
-    public AdminContentController(IAdminHandlerRegistry registry, IWidgetRegistry widgetRegistry, ContentRelationRegistry relations)
+    public AdminContentController(
+        IAdminHandlerRegistry registry,
+        IWidgetRegistry widgetRegistry,
+        ContentRelationRegistry relations,
+        IContentTypeRegistrationService? contentTypeRegistrations = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _widgetRegistry = widgetRegistry ?? throw new ArgumentNullException(nameof(widgetRegistry));
         _relations = relations ?? throw new ArgumentNullException(nameof(relations));
+        _contentTypeRegistrations = contentTypeRegistrations;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -109,6 +117,10 @@ public class AdminContentController : Controller
     private async Task<IReadOnlyList<RelationChildrenPanelViewModel>> RelationChildrenAsync(string contentType, Guid parentNodeId, CancellationToken ct)
     {
         var panels = new List<RelationChildrenPanelViewModel>();
+        // The child types' admin-given names; without the registry the handlers' own names.
+        var names = _contentTypeRegistrations == null
+            ? new Dictionary<string, ContentTypeRegistrationDTO>()
+            : await _contentTypeRegistrations.GetPublishedByKeyAsync(ct);
         foreach (var declaration in _relations.GetContainmentsTargeting(contentType).Where(d => d.Attribute.ShowInParentAdmin))
         {
             var child = _registry.GetHandler(declaration.SourceContentType);
@@ -118,7 +130,8 @@ public class AdminContentController : Controller
             panels.Add(new RelationChildrenPanelViewModel
             {
                 ChildContentType = child.ContentType,
-                ChildDisplayName = child.DisplayName,
+                ChildDisplayName = names.DisplayNameOr(child.ContentType, child.DisplayName),
+                ChildPluralDisplayName = names.PluralDisplayNameOr(child.ContentType, ContentTypeDescriptor.Pluralize(child.DisplayName)),
                 RelationName = declaration.Name,
                 ParentNodeId = parentNodeId,
                 Ordered = declaration.Attribute.Ordered,

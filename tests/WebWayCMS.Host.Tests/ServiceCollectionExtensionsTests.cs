@@ -243,7 +243,7 @@ public class ServiceCollectionExtensionsTests
             Assert.That(p.GetService<IChangeSetScope>(), Is.Not.Null);
             Assert.That(p.GetService<IContentUserContext>(), Is.Not.Null);
             Assert.That(p.GetService<IContentZoneService>(), Is.Not.Null);
-            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(12));
+            Assert.That(p.GetServices<IAdminCrudHandler>().Count(), Is.EqualTo(13));
         });
     }
 

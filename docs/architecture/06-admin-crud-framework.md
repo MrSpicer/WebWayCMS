@@ -27,7 +27,23 @@ The admin CRUD framework handles all content management HTTP routes through a si
 
 `AdminHandlerRegistry` is the dispatch table: a dictionary keyed on `ContentType` string (case-insensitive), built from all `IAdminCrudHandler` instances in the DI container.
 
-Ten handlers ship in the box: `pages`, `contentblocks`, `images`, `articlelists`, `articles`, `contentzones`, `widgets`, `pagetypes`, `cmsroutes`, `formcomponents`.
+Thirteen handlers ship in the box: `pages`, `contentblocks`, `images`, `articlelists`, `articles`, `contentzones`, `contentzoneitems`, `widgets`, `pagetypes`, `contenttypes`, `routes`, `cmsroutes`, `formcomponents`. All but `cmsroutes` and `formcomponents` edit a **content type** (`IsContentType`, default true): a key registered with a content store, which admin boot validation checks.
+
+### The content type registry
+
+`IContentTypeRegistry` (Data, `Services/ContentTypes`) is the one list of content types, in both modes: every
+content store registration (`CmsRenderingRegistration.AddContentStore`, which `IWebWayCmsBuilder.AddContentType`
+calls) adds a `ContentTypeDescriptor` (key, CLR type, optional starting names); two sharing a key throw. The boot
+sync keeps one versioned **`ContentTypeRegistrations`** row per key (`ContentTypeRegistrationDTO`: code-owned
+`ContentTypeKey`/`ClrTypeName`, admin-edited `DisplayName`, `PluralDisplayName`, `Description`, `Category`,
+`IconClass`, `Order`; no `IsActive` — a registration is metadata only and never changes whether a type works).
+`ContentTypeRegistrationModel` (key `contenttypes`, Admin only, navbar Advanced → Content Types) edits, publishes
+and restores them; create and delete are refused (admin and MCP), and a row whose key is no longer registered is
+flagged "Orphaned". The **published** registration's names (`IContentTypeRegistrationService`, read once per
+request; `ContentTypeRegistrationNames.DisplayNameOr/PluralDisplayNameOr` with the caller's fallback) label the
+admin navbar's content items, the children panel heading ("Posts") and its New button ("New Post"), the entity
+picker's New/Edit buttons and placeholders ("New Article List", "-- Select Article List --"), and MCP
+`list_content_types`.
 
 **The same registry backs the MCP server.** `WebWayCMS.Mcp`'s toolsets resolve
 `IAdminHandlerRegistry` and drive the identical handler methods, so any content type reachable in
@@ -43,6 +59,7 @@ public interface IAdminCrudHandler
 {
     string ContentType { get; }      // URL segment, e.g. "contentblocks"
     string DisplayName { get; }      // Human-readable, e.g. "Content Block"
+    bool IsContentType => true;      // false for admin surfaces over other tables (cmsroutes, formcomponents)
     string[]? WriteRoles { get; }    // null = Admin only; ["Admin","Editor"] to allow editors
     string IndexViewPath { get; }    // Absolute Razor view path for the list view
     string UpsertViewPath { get; }   // Absolute Razor view path for create/edit form
@@ -337,7 +354,9 @@ Adding or removing an item also calls `IRouteRegistrationService.TryRegisterWidg
    ```
 3. Create Razor views at the paths returned by `IndexViewPath` and `UpsertViewPath` (follow the
    list page pattern below for the index view)
-4. The routes appear automatically; no controller changes required
+4. Register its content store with the same key (`cms.AddContentType<TDto>("mythings")` in a host); admin
+   boot refuses a content-type handler whose key has no store. The type then gets a content type registration.
+5. The routes appear automatically; no controller changes required
 
 ### List page pattern
 

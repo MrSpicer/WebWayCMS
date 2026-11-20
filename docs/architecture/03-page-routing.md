@@ -288,7 +288,8 @@ The attribute is a **seeding** input, not a runtime lookup. At startup,
 for `Controller` subclasses carrying `[PageController]` and inserts a
 `PageControllerRegistrationDTO` row for each `ControllerName` not already present. For existing rows
 the seeder re-syncs `ConfigurationTypeName` and `PropertyDefinitionsJson` (the only two fields
-derived from code analysis); display metadata (DisplayName, Description, Category, Icon, Order) is
+derived from code analysis) on every version row in place, without minting a version (the shared registry
+sync, see [Area 7](07-cms-bootstrap.md)); display metadata (DisplayName, Description, Category, Icon, Order) is
 never overwritten after the first run. The database is the source of truth and the admin UI
 at `/wadmin/pagetypes` is how you change page-type metadata.
 

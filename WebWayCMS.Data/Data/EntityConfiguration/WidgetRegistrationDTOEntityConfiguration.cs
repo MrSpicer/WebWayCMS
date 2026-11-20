@@ -12,7 +12,8 @@ public sealed class WidgetRegistrationDTOEntityConfiguration : IEntityTypeConfig
     {
         entity.ConfigureContentLink();
         entity.Property(e => e.ComponentName).IsRequired().HasMaxLength(256);
-        entity.HasIndex(e => e.ComponentName).IsUnique();
+        // Not unique: every version of a registration is its own row.
+        entity.HasIndex(e => e.ComponentName);
         entity.ConfigureRegistrationColumns();
         entity.ToTable("WidgetRegistrations");
     }

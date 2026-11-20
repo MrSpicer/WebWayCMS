@@ -12,7 +12,11 @@ public sealed class RelationChildrenPanelViewModel
     public const string ViewDataKey = "Admin:RelationChildren";
 
     public string ChildContentType { get; init; } = string.Empty;
+    /// <summary>The child type's singular name ("New {name}").</summary>
     public string ChildDisplayName { get; init; } = string.Empty;
+
+    /// <summary>The child type's plural name (the panel heading).</summary>
+    public string ChildPluralDisplayName { get; init; } = string.Empty;
     public string RelationName { get; init; } = string.Empty;
     public Guid ParentNodeId { get; init; }
     public bool Ordered { get; init; }

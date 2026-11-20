@@ -35,7 +35,7 @@ catalogs that the existing registration reads.
 |---|---|
 | `AddApplicationAssembly(Assembly)` | one call → EF model scan **+** the four seeders **+** MVC `AssemblyPart`/`CompiledRazorAssemblyPart` |
 | `AddModelConfiguration<TConfig>()` / `AddModelConfiguration(ICmsModelExtension)` / `ConfigureModel(Action<ModelBuilder>)` | explicit model contribution |
-| `AddContentType<T>(string key)` | registers `IContentStore<T>` |
+| `AddContentType<T>(string key, string? displayName = null, string? pluralDisplayName = null)` | registers `IContentStore<T>` and a `ContentTypeDescriptor` (the type joins `IContentTypeRegistry` and gets a content type registration at boot; the names are its starting names) |
 | `AddMappingProfile(Profile)` | contributes to the `IMapper` singleton |
 | `AddMigrationsContext<TContext>(string historyTable)` | `AddDbContext<TContext>` over Npgsql with that history table, and enrolls it in the migration runner |
 | `AddContentSeedFile(string path)` | registers a JSON content seed file applied at startup (admin mode only) |
@@ -102,8 +102,11 @@ deleting a `ContentVersion` cascades to the host row.
 `AdminHandlerRegistry` consumes `IEnumerable<IAdminCrudHandler>`, so a host `AdminCrudModel<T>` is
 registered and served by `AdminContentController` (`/wadmin/{contentType}`) with no controller code.
 Because the MCP toolsets dispatch through the same registry, the host type is MCP-visible for free.
-`ContentNode.ContentTypeKey` is a free-form string; the host picks a key that does not collide with the
-built-ins (two handlers sharing a `ContentType` key throw at first registry resolution).
+The host picks a key that does not collide with the built-ins (two handlers, or two content stores, sharing a
+key throw at first resolution). `AddContentType` also registers the type in `IContentTypeRegistry`, so it gets
+a content type registration (`/wadmin/contenttypes`, named from the `AddContentType` names, else its handler's
+`DisplayName`) and appears in MCP `list_content_types` — with `hasAdminHandler: false` when the host registers
+a store but no handler. An admin handler whose `ContentType` has no content store stops the admin boot.
 
 ### The model contract
 

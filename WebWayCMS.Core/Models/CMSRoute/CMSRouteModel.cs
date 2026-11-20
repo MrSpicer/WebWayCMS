@@ -16,6 +16,7 @@ public sealed class CMSRouteModel : ICMSRouteModel, IAdminCrudHandler
 
     public string ContentType => "cmsroutes";
     public string DisplayName => "CMS Route";
+    public bool IsContentType => false;
     public string[]? WriteRoles => null;
     public bool SupportsPublishing => false;
     public bool SupportsVersionHistory => false;

@@ -9,8 +9,10 @@ using Serilog;
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers;
 using WebWayCMS.Controllers.Admin;
+using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Data.Services.Registrations;
 using WebWayCMS.Forms;
 
 namespace WebWayCMS.Startup;
@@ -18,75 +20,34 @@ namespace WebWayCMS.Startup;
 [ExcludeFromCodeCoverage]
 internal static class CmsPageControllerSeeder
 {
+    /// <summary>
+    /// One registration per <c>[PageController]</c> controller. The configuration type and its property
+    /// definitions are code-owned, kept in line on every boot.
+    /// </summary>
     internal static WebApplication EnsurePageControllerRegistrationsSeeded(this WebApplication app, bool throwOnError = false)
+        => app.EnsureRegistrationsSynced(
+            "page controller",
+            "WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS",
+            throwOnError,
+            services => new VersionedRegistrationSyncTarget<PageControllerRegistrationDTO>(
+                services.GetRequiredService<CmsDbContext>(),
+                services.GetRequiredService<IContentStore<PageControllerRegistrationDTO>>(),
+                p => p.ControllerName),
+            (services, logger) => Declared(
+                CmsStartupHelpers.SeedAssemblies(
+                    services,
+                    typeof(GenericPageController).Assembly,
+                    typeof(AdminContentController).Assembly),
+                logger));
+
+    private static IEnumerable<RegistrationSyncItem<PageControllerRegistrationDTO>> Declared(IEnumerable<Assembly> assemblies, ILogger logger)
     {
-        if (CmsStartupHelpers.IsSkipped("WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS"))
+        foreach (var (type, attribute) in CmsRegistrationSync.TypesWith<PageControllerAttribute>(
+                     assemblies,
+                     t => typeof(Microsoft.AspNetCore.Mvc.Controller).IsAssignableFrom(t)
+                          && !typeof(Microsoft.AspNetCore.Mvc.ViewComponent).IsAssignableFrom(t),
+                     logger))
         {
-            Log.ForContext(typeof(CmsPageControllerSeeder)).Information("Skipping page controller registration seeding due to WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true");
-            return app;
-        }
-
-        using var scope = app.Services.CreateScope();
-        var services = scope.ServiceProvider;
-        var logger = Log.ForContext(typeof(CmsPageControllerSeeder));
-
-        try
-        {
-            var store = services.GetRequiredService<IContentStore<PageControllerRegistrationDTO>>();
-            var pageControllerService = services.GetRequiredService<IPageControllerRegistrationService>();
-            var existing = pageControllerService.GetActiveAsync().GetAwaiter().GetResult();
-
-            var existingByName = new Dictionary<string, PageControllerRegistrationDTO>(
-                StringComparer.OrdinalIgnoreCase);
-            foreach (var p in existing)
-            {
-                existingByName[p.ControllerName] = p;
-            }
-
-            var assemblies = CmsStartupHelpers.SeedAssemblies(
-                services,
-                typeof(GenericPageController).Assembly,
-                typeof(AdminContentController).Assembly);
-
-            foreach (var assembly in assemblies)
-            {
-                try
-                {
-                    SeedAssemblyPageControllers(assembly, store, existingByName, logger);
-                }
-                catch (Exception ex)
-                {
-                    logger.Warning(ex, "Failed to scan assembly {Assembly} for page controller registrations", assembly.FullName);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.Error(ex, "An error occurred seeding page controller registrations.");
-            if (throwOnError)
-                throw;
-        }
-
-        return app;
-    }
-
-    private static void SeedAssemblyPageControllers(
-        Assembly assembly,
-        IContentStore<PageControllerRegistrationDTO> store,
-        Dictionary<string, PageControllerRegistrationDTO> existingByName,
-        ILogger logger)
-    {
-        var controllerTypes = assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract
-                && typeof(Microsoft.AspNetCore.Mvc.Controller).IsAssignableFrom(t)
-                && !typeof(Microsoft.AspNetCore.Mvc.ViewComponent).IsAssignableFrom(t));
-
-        foreach (var type in controllerTypes)
-        {
-            var attribute = type.GetCustomAttribute<PageControllerAttribute>();
-            if (attribute == null)
-                continue;
-
             var controllerName = CmsStartupHelpers.GetControllerName(type);
 
             var attributeConfigType = attribute.ConfigurationType;
@@ -108,60 +69,46 @@ internal static class CmsPageControllerSeeder
                 }
             }
 
-            var expectedConfigTypeName = effectiveConfigType?.FullName;
-
-            if (existingByName.TryGetValue(controllerName, out var existing))
-            {
-                if (existing.ConfigurationTypeName != expectedConfigTypeName
-                    || existing.PropertyDefinitionsJson != propertyDefinitionsJson)
+            var configTypeName = effectiveConfigType?.FullName;
+            yield return new RegistrationSyncItem<PageControllerRegistrationDTO>(
+                controllerName,
+                () => Create(type, controllerName, attribute, configTypeName, propertyDefinitionsJson),
+                row =>
                 {
-                    var updated = existing with
-                    {
-                        ConfigurationTypeName = expectedConfigTypeName,
-                        PropertyDefinitionsJson = propertyDefinitionsJson
-                    };
-                    var save = store.SaveDraftAsync(updated, null).GetAwaiter().GetResult();
-                    store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
-                    logger.Information("Re-synced config metadata for page controller '{ControllerName}'", controllerName);
-                }
-                continue;
-            }
-
-            var dto = new PageControllerRegistrationDTO
-            {
-                Version = new ContentVersion
-                {
-                    Title = string.IsNullOrEmpty(attribute.DisplayName)
-                        ? FormPropertyBuilder.InsertSpaces(controllerName)
-                        : attribute.DisplayName,
-                    Slug = controllerName.ToLowerInvariant(),
-                },
-                ControllerName = controllerName,
-                ControllerTypeName = type.FullName ?? type.Name,
-                DisplayName = string.IsNullOrEmpty(attribute.DisplayName)
-                    ? FormPropertyBuilder.InsertSpaces(controllerName)
-                    : attribute.DisplayName,
-                Description = attribute.Description ?? string.Empty,
-                Category = attribute.Category ?? "General",
-                IconClass = attribute.IconClass ?? string.Empty,
-                Order = attribute.Order,
-                ConfigurationTypeName = expectedConfigTypeName,
-                PropertyDefinitionsJson = propertyDefinitionsJson,
-                IsActive = true,
-            };
-
-            try
-            {
-                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
-                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
-                existingByName[controllerName] = dto;
-                logger.Information("Seeded page controller registration '{ControllerName}' as '{DisplayName}'", controllerName, dto.DisplayName);
-            }
-            catch (Exception ex)
-            {
-                logger.Warning(ex, "Failed to seed page controller registration '{ControllerName}'", controllerName);
-            }
+                    if (row.ConfigurationTypeName == configTypeName && row.PropertyDefinitionsJson == propertyDefinitionsJson)
+                        return false;
+                    row.ConfigurationTypeName = configTypeName;
+                    row.PropertyDefinitionsJson = propertyDefinitionsJson;
+                    return true;
+                });
         }
+    }
+
+    private static PageControllerRegistrationDTO Create(
+        Type type, string controllerName, PageControllerAttribute attribute, string? configTypeName, string propertyDefinitionsJson)
+    {
+        var displayName = string.IsNullOrEmpty(attribute.DisplayName)
+            ? FormPropertyBuilder.InsertSpaces(controllerName)
+            : attribute.DisplayName;
+
+        return new PageControllerRegistrationDTO
+        {
+            Version = new ContentVersion
+            {
+                Title = displayName,
+                Slug = controllerName.ToLowerInvariant(),
+            },
+            ControllerName = controllerName,
+            ControllerTypeName = type.FullName ?? type.Name,
+            DisplayName = displayName,
+            Description = attribute.Description ?? string.Empty,
+            Category = attribute.Category ?? "General",
+            IconClass = attribute.IconClass ?? string.Empty,
+            Order = attribute.Order,
+            ConfigurationTypeName = configTypeName,
+            PropertyDefinitionsJson = propertyDefinitionsJson,
+            IsActive = true,
+        };
     }
 
     internal static Type? ResolveConfigTypeFromBaseClass(Type controllerType)

@@ -154,7 +154,7 @@ throttle and `ApiTokenService` are unit-tested to the 100% gate.
 
 | Tool | Purpose |
 |---|---|
-| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s (including each type's `secondaryApiListKeys` and `childTypes`: the types a containment places under it) |
+| `list_content_types` | Enumerate the registered `IAdminCrudHandler`s plus every content type registered with a store but without a handler (`hasAdminHandler: false`); each with its `secondaryApiListKeys`, `childTypes` (the types a containment places under it), `isContentType` (false for `cmsroutes`/`formcomponents`) and the published content type registration's `displayName`, `pluralDisplayName`, `description` and `category` |
 | `describe_content_type` | Field/metadata description for one type. A `[ContentRelation]` field carries `relation: { kind, target, many, required }` (kind `containment`/`reference`/`owned`); its value is the target's node id, or an array of ids when `many` |
 | `list_content` | List items of a type |
 | `list_secondary_content` | List a type's additional named list, keyed by one of its `secondaryApiListKeys` |
@@ -247,8 +247,10 @@ non-destructive; and `update_*`, `delete_*`, `publish_content`, and `unpublish_c
 `Destructive` default, with `publish_content` additionally `Idempotent`.
 
 Because `list_content_types` reads the handler registrations, the content-type keys an agent sees
-are exactly the admin URL segments: `pages`, `contentblocks`, `images`, `articlelists`, `articles`,
-`contentzones`, `contentzoneitems`, `widgets`, `pagetypes`, `formcomponents`, `cmsroutes`, `routes`.
+are the admin URL segments: `pages`, `contentblocks`, `images`, `articlelists`, `articles`,
+`contentzones`, `contentzoneitems`, `widgets`, `pagetypes`, `contenttypes`, `formcomponents`, `cmsroutes`,
+`routes` (plus any host types). `contenttypes` registrations can be read, edited and published over MCP but
+`create_content`/`delete_content` refuse them: they come from code.
 
 Articles and article lists are two ordinary top-level types: create a list with
 `create_content("articlelists", …)`, then an article with `create_content("articles", …)` whose `fields`

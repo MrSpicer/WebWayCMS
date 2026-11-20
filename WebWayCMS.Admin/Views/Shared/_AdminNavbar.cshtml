@@ -1,8 +1,12 @@
 @using Microsoft.AspNetCore.Identity
 @using WebWayCMS.Models.CMSRoute;
+@using WebWayCMS.Data.Services.ContentTypes
 @inject SignInManager<IdentityUser> SignInManager
+@inject IContentTypeRegistrationService ContentTypeRegistrations
 @{
     var currentPath = Context.Request.Path.Value ?? "";
+    // Content type entries use the plural names admins gave them (/wadmin/contenttypes).
+    var names = await ContentTypeRegistrations.GetPublishedByKeyAsync();
 }
 
 <nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
@@ -28,19 +32,19 @@
             })
             <a class="navbar-item" href="/wadmin/pages" @(currentPath.StartsWith("/wadmin/pages") ?
                   "aria-current=\"page\"" : "") role="listitem">
-                Pages
+                @names.PluralDisplayNameOr("pages", "Pages")
             </a>
             <a class="navbar-item" href="/wadmin/contentblocks" @(currentPath.StartsWith("/wadmin/contentblocks") ?
                            "aria-current=\"page\"" : "") role="listitem">
-                Content Blocks
+                @names.PluralDisplayNameOr("contentblocks", "Content Blocks")
             </a>
             <a class="navbar-item" href="/wadmin/articlelists" @(currentPath.StartsWith("/wadmin/article") ?
                                "aria-current=\"page\"" : "") role="listitem">
-                Articles
+                @names.PluralDisplayNameOr("articles", "Articles")
             </a>
             <a class="navbar-item" href="/wadmin/images" @(currentPath.StartsWith("/wadmin/images") ?
                                "aria-current=\"page\"" : "") role="listitem">
-                Images
+                @names.PluralDisplayNameOr("images", "Images")
             </a>
             <div class="navbar-item has-dropdown" id="advancedDropdown" role="listitem">
                 <button class="navbar-link" id="advancedDropdownTrigger" aria-expanded="false" aria-controls="advancedDropdownMenu">
@@ -48,21 +52,24 @@
                 </button>
                 <div class="navbar-dropdown" id="advancedDropdownMenu">
                     <a class="navbar-item" href="/wadmin/widgets" @(currentPath.StartsWith("/wadmin/widgets") ? "aria-current=\"page\"" : "")>
-                        Widgets
+                        @names.PluralDisplayNameOr("widgets", "Widgets")
                     </a>
                     <a class="navbar-item" href="/wadmin/formcomponents" @(currentPath.StartsWith("/wadmin/formcomponents") ?
                             "aria-current=\"page\"" : "")>
                         Form Components
                     </a>
                     <a class="navbar-item" href="/wadmin/pagetypes" @(currentPath.StartsWith("/wadmin/pagetypes") ? "aria-current=\"page\"" : "")>
-                        Page Types
+                        @names.PluralDisplayNameOr("pagetypes", "Page Types")
                     </a>
                     <a class="navbar-item" href="/wadmin/cmsroutes" @(currentPath.StartsWith("/wadmin/cmsroutes") ? "aria-current=\"page\"" : "")>
                         CMS Routes
                     </a>
                     <a class="navbar-item" href="/wadmin/contentzones" @(currentPath.StartsWith("/wadmin/contentzones") ?
                                    "aria-current=\"page\"" : "")>
-                        Content Zones
+                        @names.PluralDisplayNameOr("contentzones", "Content Zones")
+                    </a>
+                    <a class="navbar-item" href="/wadmin/contenttypes" @(currentPath.StartsWith("/wadmin/contenttypes") ? "aria-current=\"page\"" : "")>
+                        @names.PluralDisplayNameOr("contenttypes", "Content Types")
                     </a>
                     <a class="navbar-item" href="/wadmin/apitokens" @(currentPath.StartsWith("/wadmin/apitokens") ? "aria-current=\"page\"" : "")>
                         API Tokens

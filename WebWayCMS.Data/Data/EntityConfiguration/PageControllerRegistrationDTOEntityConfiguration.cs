@@ -12,7 +12,8 @@ public sealed class PageControllerRegistrationDTOEntityConfiguration : IEntityTy
     {
         entity.ConfigureContentLink();
         entity.Property(e => e.ControllerName).IsRequired().HasMaxLength(256);
-        entity.HasIndex(e => e.ControllerName).IsUnique();
+        // Not unique: every version of a registration is its own row.
+        entity.HasIndex(e => e.ControllerName);
         entity.Property(e => e.ControllerTypeName).IsRequired().HasMaxLength(1024);
         entity.ConfigureRegistrationColumns();
         entity.ToTable("PageControllerRegistrations");

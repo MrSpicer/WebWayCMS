@@ -4,7 +4,6 @@ using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Serilog;
@@ -13,6 +12,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Data.Services.Registrations;
 using WebWayCMS.Forms;
 using WebWayCMS.ViewComponents;
 
@@ -21,150 +21,79 @@ namespace WebWayCMS.Startup;
 [ExcludeFromCodeCoverage]
 internal static class CmsWidgetRegistrationSeeder
 {
+    /// <summary>
+    /// One registration per <c>[ContentZoneComponent]</c> view component. <see cref="WidgetRegistrationDTO.SupportsList"/>
+    /// is a code capability, so it is the code-owned column kept in line on every boot.
+    /// </summary>
     internal static WebApplication EnsureWidgetRegistrationsSeeded(this WebApplication app, bool throwOnError = false)
+        => app.EnsureRegistrationsSynced(
+            "widget",
+            "WEBWAYCMS_SKIP_DEFAULTWIDGETS",
+            throwOnError,
+            services => new VersionedRegistrationSyncTarget<WidgetRegistrationDTO>(
+                services.GetRequiredService<CmsDbContext>(),
+                services.GetRequiredService<IContentStore<WidgetRegistrationDTO>>(),
+                w => w.ComponentName),
+            (services, logger) => Declared(
+                CmsStartupHelpers.SeedAssemblies(services, typeof(ContentZoneViewComponent).Assembly), logger));
+
+    private static IEnumerable<RegistrationSyncItem<WidgetRegistrationDTO>> Declared(IEnumerable<Assembly> assemblies, ILogger logger)
     {
-        if (CmsStartupHelpers.IsSkipped("WEBWAYCMS_SKIP_DEFAULTWIDGETS"))
+        foreach (var (type, attribute) in CmsRegistrationSync.TypesWith<ContentZoneComponentAttribute>(
+                     assemblies, t => typeof(ViewComponent).IsAssignableFrom(t), logger))
         {
-            Log.ForContext(typeof(CmsWidgetRegistrationSeeder)).Information("Skipping widget registration seeding due to WEBWAYCMS_SKIP_DEFAULTWIDGETS=true");
-            return app;
-        }
-
-        using var scope = app.Services.CreateScope();
-        var services = scope.ServiceProvider;
-        var logger = Log.ForContext(typeof(CmsWidgetRegistrationSeeder));
-
-        try
-        {
-            var store = services.GetRequiredService<IContentStore<WidgetRegistrationDTO>>();
-            var widgetService = services.GetRequiredService<IWidgetRegistrationService>();
-            var existing = widgetService.GetActiveAsync().GetAwaiter().GetResult();
-
-            var existingNames = new HashSet<string>(
-                existing.Select(w => w.ComponentName),
-                StringComparer.OrdinalIgnoreCase);
-
-            var assemblies = CmsStartupHelpers.SeedAssemblies(services, typeof(ContentZoneViewComponent).Assembly);
-            var db = services.GetRequiredService<CmsDbContext>();
-
-            foreach (var assembly in assemblies)
-            {
-                try
+            var componentName = GetWidgetComponentName(type);
+            var supportsList = attribute.SupportsList;
+            yield return new RegistrationSyncItem<WidgetRegistrationDTO>(
+                componentName,
+                () => Create(componentName, attribute, logger),
+                row =>
                 {
-                    SeedAssemblyWidgets(assembly, store, db, existingNames, logger);
-                }
-                catch (Exception ex)
-                {
-                    logger.Warning(ex, "Failed to scan assembly {Assembly} for widget registrations", assembly.FullName);
-                }
-            }
+                    if (row.SupportsList == supportsList)
+                        return false;
+                    row.SupportsList = supportsList;
+                    return true;
+                });
         }
-        catch (Exception ex)
-        {
-            logger.Error(ex, "An error occurred seeding widget registrations.");
-            if (throwOnError)
-                throw;
-        }
-
-        return app;
     }
 
-    private static void SeedAssemblyWidgets(
-        Assembly assembly,
-        IContentStore<WidgetRegistrationDTO> store,
-        CmsDbContext db,
-        HashSet<string> existingNames,
-        ILogger logger)
+    private static WidgetRegistrationDTO Create(string componentName, ContentZoneComponentAttribute attribute, ILogger logger)
     {
-        var viewComponentTypes = assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract && typeof(ViewComponent).IsAssignableFrom(t));
-
-        foreach (var type in viewComponentTypes)
+        var propertyDefinitionsJson = PropertyDefinitionsJson.Empty;
+        if (attribute.ConfigurationType != null)
         {
-            var attribute = type.GetCustomAttribute<ContentZoneComponentAttribute>();
-            if (attribute == null)
-                continue;
-
-            var componentName = GetWidgetComponentName(type);
-
-            // Every registration of this widget, active or not (existingNames only holds active
-            // ones), so a deactivated widget is already correct when it is reactivated.
-            SyncSupportsList(db, componentName, attribute.SupportsList, logger);
-
-            if (existingNames.Contains(componentName))
-                continue;
-
-            var propertyDefinitionsJson = PropertyDefinitionsJson.Empty;
-            if (attribute.ConfigurationType != null)
-            {
-                try
-                {
-                    propertyDefinitionsJson = PropertyDefinitionsJson.Build(attribute.ConfigurationType);
-                }
-                catch (Exception ex)
-                {
-                    logger.Warning(ex, "Failed to build property definitions for widget '{ComponentName}'", componentName);
-                }
-            }
-
-            var dto = new WidgetRegistrationDTO
-            {
-                Version = new ContentVersion
-                {
-                    Title = attribute.DisplayName ?? FormPropertyBuilder.InsertSpaces(componentName),
-                    Slug = componentName.ToLowerInvariant(),
-                },
-                ComponentName = componentName,
-                DisplayName = string.IsNullOrEmpty(attribute.DisplayName)
-                    ? FormPropertyBuilder.InsertSpaces(componentName)
-                    : attribute.DisplayName,
-                Description = attribute.Description ?? string.Empty,
-                Category = attribute.Category ?? "General",
-                IconClass = attribute.IconClass ?? string.Empty,
-                Order = attribute.Order,
-                ConfigurationTypeName = attribute.ConfigurationType?.FullName,
-                PropertyDefinitionsJson = propertyDefinitionsJson,
-                SupportsList = attribute.SupportsList,
-                IsActive = true,
-            };
-
             try
             {
-                var save = store.SaveDraftAsync(dto, null).GetAwaiter().GetResult();
-                store.PublishAsync(save.NodeId).GetAwaiter().GetResult();
-                existingNames.Add(componentName);
-                logger.Information("Seeded widget registration '{ComponentName}' as '{DisplayName}'", componentName, dto.DisplayName);
+                propertyDefinitionsJson = PropertyDefinitionsJson.Build(attribute.ConfigurationType);
             }
             catch (Exception ex)
             {
-                logger.Warning(ex, "Failed to seed widget registration '{ComponentName}'", componentName);
+                logger.Warning(ex, "Failed to build property definitions for widget '{ComponentName}'", componentName);
             }
         }
-    }
 
-    /// <summary>
-    /// <see cref="WidgetRegistrationDTO.SupportsList"/> is a code capability (the widget's
-    /// attribute), not admin-edited content, so an existing registration is brought in line on every
-    /// boot. It is written to every version row directly rather than through the content store:
-    /// saving a draft would mint a version and publishing it would also publish any in-progress
-    /// admin edit of the registration. The name match is case-insensitive like the rest of the
-    /// widget registry (a plain <c>==</c> is case-sensitive in Postgres).
-    /// </summary>
-    private static void SyncSupportsList(CmsDbContext db, string componentName, bool supportsList, ILogger logger)
-    {
-        try
-        {
-            var lowered = componentName.ToLowerInvariant();
-            var updated = db.Set<WidgetRegistrationDTO>()
-                .Where(w => w.ComponentName.ToLower() == lowered && w.SupportsList != supportsList)
-                .ExecuteUpdate(u => u.SetProperty(w => w.SupportsList, supportsList));
+        var displayName = string.IsNullOrEmpty(attribute.DisplayName)
+            ? FormPropertyBuilder.InsertSpaces(componentName)
+            : attribute.DisplayName;
 
-            if (updated > 0)
-                logger.Information("Synced SupportsList={SupportsList} for widget registration '{ComponentName}'", supportsList, componentName);
-        }
-        catch (Exception ex)
+        return new WidgetRegistrationDTO
         {
-            logger.Warning(ex, "Failed to sync SupportsList for widget registration '{ComponentName}'", componentName);
-        }
+            Version = new ContentVersion
+            {
+                Title = displayName,
+                Slug = componentName.ToLowerInvariant(),
+            },
+            ComponentName = componentName,
+            DisplayName = displayName,
+            Description = attribute.Description ?? string.Empty,
+            Category = attribute.Category ?? "General",
+            IconClass = attribute.IconClass ?? string.Empty,
+            Order = attribute.Order,
+            ConfigurationTypeName = attribute.ConfigurationType?.FullName,
+            PropertyDefinitionsJson = propertyDefinitionsJson,
+            SupportsList = attribute.SupportsList,
+            IsActive = true,
+        };
     }
 
     /// <summary>

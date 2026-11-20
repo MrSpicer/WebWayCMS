@@ -1,0 +1,39 @@
+@using WebWayCMS.Models.ContentTypeRegistration
+
+@model ContentTypeRegistrationUpsertViewModel
+
+@{
+    const string contentType = ContentTypeRegistrationModel.ContentTypeKey;
+    var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
+    ViewData["Title"] = isEdit ? "Edit Content Type" : "Content Type";
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Fluid = false,
+        NodeId = Model?.NodeId,
+        Crumbs = [new AdminCrumb("Content Types", Url.Action("Index", "AdminContent", new { contentType })!)],
+    };
+    var form = new UpsertFormModel(contentType, Model!)
+    {
+        NodeId = Model?.NodeId,
+        IsPublished = Model?.IsPublished == true,
+    };
+}
+
+<partial name="_AdminPageHeader" model="header" />
+
+<div class="container admin-page-body">
+    @if (!isEdit)
+    {
+        <div class="notification is-info is-light">@ContentTypeRegistrationModel.CreateRefusedMessage</div>
+    }
+    else
+    {
+        <dl class="box">
+            <dt class="has-text-weight-semibold">Key</dt>
+            <dd><code>@Model!.ContentTypeKey</code></dd>
+            <dt class="has-text-weight-semibold mt-2">CLR type</dt>
+            <dd><code>@Model.ClrTypeName</code></dd>
+        </dl>
+        <partial name="_UpsertForm" model="form" />
+    }
+</div>

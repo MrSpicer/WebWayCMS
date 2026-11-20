@@ -1,0 +1,79 @@
+@using WebWayCMS.Data.Models
+@using WebWayCMS.Models.ContentTypeRegistration
+
+@model ContentTypeRegistrationIndexViewModel
+
+@{
+    ViewData["Title"] = "Content Types";
+    const string contentType = ContentTypeRegistrationModel.ContentTypeKey;
+}
+
+<partial name="_AdminPageHeader" model='new AdminPageHeaderModel("Content Types") { Subtitle = "Every content type registered in code. Names and descriptions are editable; registrations are created and kept in sync by the code." }' />
+
+<div class="container is-fluid admin-page-body">
+
+        @if (!Model.Registrations.Any())
+        {
+            <partial name="_EmptyState" model='new EmptyStateModel("fa-shapes", "No content type registrations") { Subtitle = "Registrations are created at startup for every registered content store." }' />
+        }
+        else
+        {
+            <div class="table-container admin-list-container">
+                <table class="table is-fullwidth is-hoverable admin-list-table">
+                    <caption class="is-sr-only">List of content type registrations</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Display Name</th>
+                            <th scope="col" class="is-hidden-mobile">Key</th>
+                            <th scope="col" class="is-hidden-mobile">Category</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="is-hidden-mobile">Version</th>
+                            <th scope="col" class="admin-actions-col"><span class="is-sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in Model.Registrations)
+                        {
+                            var isPublished = r.Version.State == ContentVersionState.Published;
+                            <tr>
+                                <td class="admin-list-main">
+                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="@contentType" asp-route-id="@r.Version.Node.Id" class="admin-list-title">
+                                        @if (!string.IsNullOrEmpty(r.IconClass))
+                                        {
+                                            <span class="icon"><i class="@r.IconClass" aria-hidden="true"></i></span>
+                                        }
+                                        @r.DisplayName
+                                    </a>
+                                    @if (Model.OrphanedKeys.Contains(r.ContentTypeKey))
+                                    {
+                                        <span class="tag is-warning is-light" title="No content store is registered for this key any more.">Orphaned</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(r.Description))
+                                    {
+                                        <span class="admin-list-sub">@r.Description</span>
+                                    }
+                                </td>
+                                <td class="is-hidden-mobile"><code>@r.ContentTypeKey</code></td>
+                                <td class="is-hidden-mobile"><span class="tag is-info is-light">@r.Category</span></td>
+                                <td><partial name="_StatusBadge" model="(isPublished, false)" /></td>
+                                <td class="is-hidden-mobile"><span class="tag is-light">v@(r.Version.VersionNumber)</span></td>
+                                <td>
+                                    <div class="admin-row-actions">
+                                        <partial name="_RowPublishToggle" model='new RowPublishToggleModel(contentType, r.Version.Node.Id, isPublished)' />
+                                        <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="@contentType" asp-route-id="@r.Version.Node.Id" class="button is-small">
+                                            <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
+                                            <span>Edit</span>
+                                        </a>
+                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="@contentType" asp-route-nodeId="@r.Version.Node.Id" class="button is-small">
+                                            <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                                            <span>History</span>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+</div>

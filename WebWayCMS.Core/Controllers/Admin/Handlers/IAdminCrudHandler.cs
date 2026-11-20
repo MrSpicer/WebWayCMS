@@ -16,6 +16,13 @@ public interface IAdminCrudHandler
     string DisplayName { get; }
 
     /// <summary>
+    /// Whether this handler edits a content type (a key registered with a content store, so it has content nodes
+    /// and a content type registration). False for admin surfaces over other tables (CMS routes, form
+    /// components), which boot validation and the content type registry then leave alone.
+    /// </summary>
+    bool IsContentType => true;
+
+    /// <summary>
     /// Roles allowed for write operations (Edit POST, Delete).
     /// null = Admin only. Provide ["Admin","Editor"] to also allow editors.
     /// </summary>

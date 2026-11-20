@@ -14,12 +14,14 @@ using WebWayCMS.Data;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Forms;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Mapping;
 using WebWayCMS.Models.Article;
 using WebWayCMS.Models.CMSRoute;
 using WebWayCMS.Models.ContentBlock;
+using WebWayCMS.Models.ContentTypeRegistration;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Models.Image;
 using WebWayCMS.Models.FormComponentRegistration;
@@ -88,16 +90,21 @@ internal static class CmsRenderingRegistration
         // admin handler, so the cascade gets their deleter explicitly (zones' is ContentZoneModel).
         services.AddScoped<IContentDeleter, ZoneItemDeleter>();
 
-        AddContentStore<PageDTO>(services, "pages");
-        AddContentStore<ArticleDTO>(services, "articles");
-        AddContentStore<ArticleListDTO>(services, "articlelists");
-        AddContentStore<ContentBlockDTO>(services, "contentblocks");
-        AddContentStore<ImageDTO>(services, "images");
-        AddContentStore<ContentZoneDTO>(services, "contentzones");
-        AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems");
-        AddContentStore<WidgetRegistrationDTO>(services, "widgets");
-        AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes");
-        AddContentStore<RouteDTO>(services, "routes");
+        // Every content store also registers its content type (IContentTypeRegistry). The names are the
+        // registrations' starting names, matching the admin's labels; admins can change them.
+        services.TryAddSingleton<IContentTypeRegistry, ContentTypeRegistry>();
+        services.AddScoped<IContentTypeRegistrationService, ContentTypeRegistrationService>();
+        AddContentStore<PageDTO>(services, "pages", "Page", "Pages");
+        AddContentStore<ArticleDTO>(services, "articles", "Article", "Articles");
+        AddContentStore<ArticleListDTO>(services, "articlelists", "Article List", "Article Lists");
+        AddContentStore<ContentBlockDTO>(services, "contentblocks", "Content Block", "Content Blocks");
+        AddContentStore<ImageDTO>(services, "images", "Image", "Images");
+        AddContentStore<ContentZoneDTO>(services, "contentzones", "Content Zone", "Content Zones");
+        AddContentStore<ContentZoneItemDTO>(services, "contentzoneitems", "Content Zone Item", "Content Zone Items");
+        AddContentStore<WidgetRegistrationDTO>(services, "widgets", "Widget", "Widgets");
+        AddContentStore<PageControllerRegistrationDTO>(services, "pagetypes", "Page Type", "Page Types");
+        AddContentStore<RouteDTO>(services, "routes", "Route", "Routes");
+        AddContentStore<ContentTypeRegistrationDTO>(services, ContentTypeRegistrationModel.ContentTypeKey, "Content Type", "Content Types");
 
         // Registered for both deployment modes: a rendering-only host still serves media bytes.
         services.TryAddScoped<IMediaBlobStore, MediaBlobStore>();
@@ -113,9 +120,11 @@ internal static class CmsRenderingRegistration
         services.AddScoped<IFormComponentRegistrationService, FormComponentRegistrationService>();
     }
 
-    internal static void AddContentStore<T>(IServiceCollection services, string contentTypeKey)
+    internal static void AddContentStore<T>(
+        IServiceCollection services, string contentTypeKey, string? displayName = null, string? pluralDisplayName = null)
         where T : class, IVersionedContent
     {
+        services.AddSingleton(new ContentTypeDescriptor(contentTypeKey, typeof(T), displayName, pluralDisplayName));
         services.AddScoped<IContentStore<T>>(sp => new ContentStore<T>(
             sp.GetRequiredService<CmsDbContext>(),
             sp.GetRequiredService<IContentReadContext>(),
@@ -152,6 +161,7 @@ internal static class CmsRenderingRegistration
 
         services.AddScoped<WidgetRegistrationModel>();
         services.AddScoped<PageControllerRegistrationModel>();
+        services.AddScoped<ContentTypeRegistrationModel>();
         services.AddScoped<CMSRouteModel>();
         services.AddScoped<FormComponentRegistrationModel>();
         services.AddScoped<Models.Route.RouteModel>();

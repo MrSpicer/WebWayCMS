@@ -32,8 +32,8 @@
   source changes. The entry point is a builder callback on the `Add*` overloads:
   `AddWebWayCms(config, cms => …)` / `AddWebWayCmsAdmin` / `AddWebWayCmsRendering`.
 - `IWebWayCmsBuilder` methods: `AddApplicationAssembly(asm)` (EF model scan + the four seeders + MVC
-  parts), `AddModelConfiguration`/`ConfigureModel`, `AddContentType<T>(key)` (registers
-  `IContentStore<T>`), `AddMappingProfile(Profile)`, `AddMigrationsContext<TContext>(historyTable)`.
+  parts), `AddModelConfiguration`/`ConfigureModel`, `AddContentType<T>(key, displayName?, pluralDisplayName?)`
+  (registers `IContentStore<T>` and the type's `ContentTypeDescriptor`, see Content Type Registry), `AddMappingProfile(Profile)`, `AddMigrationsContext<TContext>(historyTable)`.
 - Host model contribution flows through `ICmsModelExtension` singletons (shipped:
   `AssemblyModelExtension`, `DelegateModelExtension`), applied by `CmsDbContext.OnModelCreating` in
   registration order. `CmsModelCacheKeyFactory` keeps distinct extension sets from sharing a stale model.
@@ -68,6 +68,37 @@
   is an optional containment (children panel, MCP child tools, visibility, delete cascade), and the Faq widget's /
   configured page's FAQ pickers are `config.*` references.
 - See [docs/architecture/14-host-extensibility.md](docs/architecture/14-host-extensibility.md).
+
+## Content Type Registry
+
+- **One list of content types, both modes:** every content store registration
+  (`CmsRenderingRegistration.AddContentStore`, which `AddContentType` calls) adds a singleton
+  `ContentTypeDescriptor` (key ≤ 64, `IVersionedContent` CLR type, optional starting names);
+  `IContentTypeRegistry` (Data, `Services/ContentTypes`) collects them, case-insensitive; duplicate keys throw.
+- **Registrations are metadata only** (no `IsActive`; nothing changes whether a type works): versioned
+  `ContentTypeRegistrations` rows (`ContentTypeRegistrationDTO`: code-owned `ContentTypeKey`/`ClrTypeName`;
+  admin-edited `DisplayName`, `PluralDisplayName`, `Description`, `Category`, `IconClass`, `Order`). Key index is
+  non-unique (every version is a row; same for the widget/page-type name indexes).
+- **Boot sync (both modes)** `EnsureContentTypeRegistrationsSeeded` (`WEBWAYCMS_SKIP_DEFAULTCONTENTTYPES`) reads the
+  descriptors, inserts a published row per missing key (names: descriptor, else the admin handler's
+  `DisplayName`, else the CLR type; plural via `ContentTypeDescriptor.Pluralize`), syncs `ClrTypeName`, never
+  deletes (orphans and `ContentNodes` keys with no registration are logged warnings).
+- **All four registry seeders are one mechanism:** `CmsRegistrationSync.EnsureRegistrationsSynced` +
+  `RegistrationSynchronizer` (Data, `Services/Registrations`; targets `VersionedRegistrationSyncTarget<T>`,
+  `FormComponentRegistrationSyncTarget`). A seeder only declares `RegistrationSyncItem<T>`s (key, create, sync
+  code-owned columns); code-owned columns are written to every version row in place (no version minted, so a
+  pending admin draft is never published by a boot). A new registry gets a sync item list, not a new seeder.
+- **Admin boot validation** (`EnsureContentRelationsValid`): a handler with `IAdminCrudHandler.IsContentType`
+  (default true; `cmsroutes`/`formcomponents` are false) must name a registered key
+  (`AdminHandlerContentTypeValidator`), and a `[ContentRelation]` target must have a content store too. Throws.
+- **Admin + MCP:** `ContentTypeRegistrationModel` (`contenttypes`, Admin only, navbar Advanced → Content Types):
+  edit/publish/restore only; create and delete are refused (`CreateRefusedMessage`/`DeleteRefusedMessage`).
+  MCP `list_content_types` lists handlers plus store-only types (`hasAdminHandler`, `isContentType`, registration
+  names/description/category).
+- **Consumers use the published registration's names** via `IContentTypeRegistrationService` (scoped, read once)
+  + `ContentTypeRegistrationNames.DisplayNameOr/PluralDisplayNameOr(key, fallback)`: admin navbar content items,
+  children panel heading/"New X", entity picker "New X"/"Edit X" and its JS placeholders (`data-type-name`/
+  `data-type-plural`), MCP `list_content_types`.
 
 ## Content Versioning (Node/Version model)
 

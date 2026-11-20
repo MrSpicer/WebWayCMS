@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using WebWayCMS.Attributes;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Forms;
 
 namespace WebWayCMS.ViewComponents.Forms;
@@ -21,6 +22,12 @@ public sealed class FormEntityPicker : FormFieldViewComponentBase
     /// <summary>ViewData key carrying whether the current user may create/edit the target type.</summary>
     public const string CanWriteViewDataKey = "EntityPicker:CanWrite";
 
+    /// <summary>ViewData key carrying the target type's singular name ("New {name}"), or null when unknown.</summary>
+    public const string TypeNameViewDataKey = "EntityPicker:TypeName";
+
+    /// <summary>ViewData key carrying the target type's plural name ("Loading {plural}..."), or null when unknown.</summary>
+    public const string TypePluralViewDataKey = "EntityPicker:TypePlural";
+
     public override IViewComponentResult Invoke(FormFieldContext field)
     {
         // Optional: a rendering-only host has no admin handler registry, so the picker has no endpoint.
@@ -31,6 +38,16 @@ public sealed class FormEntityPicker : FormFieldViewComponentBase
         var handler = EntityPickerEndpoint.ResolveHandler(field.EntityType, registry);
         var canWrite = handler != null && RoleAccess.Allows(handler.WriteRoles, HttpContext.User);
         ViewData[CanWriteViewDataKey] = canWrite;
+
+        // The names admins gave the target type (its published registration), else its handler's name.
+        if (handler != null)
+        {
+            var names = HttpContext.RequestServices.GetService<IContentTypeRegistrationService>()?.GetPublishedByKey()
+                ?? new Dictionary<string, Data.Models.ContentTypeRegistrationDTO>();
+            ViewData[TypeNameViewDataKey] = names.DisplayNameOr(handler.ContentType, handler.DisplayName);
+            ViewData[TypePluralViewDataKey] = names.PluralDisplayNameOr(
+                handler.ContentType, ContentTypeDescriptor.Pluralize(handler.DisplayName));
+        }
 
         return FieldView(field, field);
     }

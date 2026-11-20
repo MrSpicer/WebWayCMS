@@ -70,10 +70,11 @@ internal sealed class WebWayCmsBuilder : IWebWayCmsBuilder
         return this;
     }
 
-    public IWebWayCmsBuilder AddContentType<T>(string contentTypeKey) where T : class, IVersionedContent
+    public IWebWayCmsBuilder AddContentType<T>(string contentTypeKey, string? displayName = null, string? pluralDisplayName = null)
+        where T : class, IVersionedContent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(contentTypeKey);
-        CmsRenderingRegistration.AddContentStore<T>(Services, contentTypeKey);
+        CmsRenderingRegistration.AddContentStore<T>(Services, contentTypeKey, displayName, pluralDisplayName);
         return this;
     }
 

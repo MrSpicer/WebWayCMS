@@ -5,6 +5,10 @@
     var endpoint = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.EndpointViewDataKey] as string;
     var contentType = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.ContentTypeViewDataKey] as string;
     var canWrite = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.CanWriteViewDataKey] as bool? == true;
+    var typeName = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.TypeNameViewDataKey] as string;
+    var typePlural = ViewData[WebWayCMS.ViewComponents.Forms.FormEntityPicker.TypePluralViewDataKey] as string;
+    var newLabel = string.IsNullOrWhiteSpace(typeName) ? "New" : "New " + typeName;
+    var editLabel = string.IsNullOrWhiteSpace(typeName) ? "Edit" : "Edit " + typeName;
     var createUrl = canWrite && !string.IsNullOrEmpty(contentType)
         ? $"/wadmin/{Uri.EscapeDataString(contentType!)}/create?modal=1"
         : null;
@@ -32,6 +36,8 @@
             .Data("name", Model.InputName)
             .Data("modal-create", createUrl ?? string.Empty)
             .Data("modal-edit-base", editBase ?? string.Empty)
+            .Data("type-name", typeName ?? string.Empty)
+            .Data("type-plural", typePlural ?? string.Empty)
             .Attr("id", Model.ElementId);
 
         if (Model.JsonBound)
@@ -52,7 +58,7 @@
                     }
                     @if (createUrl != null)
                     {
-                        <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">New</button>
+                        <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">@newLabel</button>
                     }
                 </div>
             </div>
@@ -69,6 +75,8 @@
             .Data("current-value", Model.StringValue)
             .Data("modal-create", createUrl ?? string.Empty)
             .Data("modal-edit-base", editBase ?? string.Empty)
+            .Data("type-name", typeName ?? string.Empty)
+            .Data("type-plural", typePlural ?? string.Empty)
             .Build();
         <form-field field="@Model">
             <div class="entity-picker-actions">
@@ -79,8 +87,8 @@
                 </div>
                 @if (createUrl != null)
                 {
-                    <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">New</button>
-                    <button type="button" class="button is-small entity-picker-edit" data-modal-edit-base="@editBase" disabled>Edit</button>
+                    <button type="button" class="button is-small entity-picker-new" data-modal-url="@createUrl">@newLabel</button>
+                    <button type="button" class="button is-small entity-picker-edit" data-modal-edit-base="@editBase" disabled>@editLabel</button>
                 }
             </div>
         </form-field>

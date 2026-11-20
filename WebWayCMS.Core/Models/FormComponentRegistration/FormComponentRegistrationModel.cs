@@ -19,6 +19,7 @@ public sealed class FormComponentRegistrationModel : IAdminCrudHandler
 
     public string ContentType => "formcomponents";
     public string DisplayName => "Form Component Registration";
+    public bool IsContentType => false;
     public string[]? WriteRoles => null;
     public bool SupportsPublishing => false;
     public bool SupportsVersionHistory => false;

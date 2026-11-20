@@ -90,7 +90,7 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     /// with it in one transaction, and a reference to it from elsewhere blocks the delete or is removed,
     /// per the referrer's declaration. The item itself is deleted by <see cref="DeleteSelfAsync"/>.
     /// </summary>
-    public Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> TryDeleteAsync(Guid id, CancellationToken ct = default)
+    public virtual Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> TryDeleteAsync(Guid id, CancellationToken ct = default)
         => _deletes.DeleteAsync(id, DeleteSelfAsync, ct);
 
     /// <summary>

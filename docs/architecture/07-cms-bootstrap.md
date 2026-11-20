@@ -128,21 +128,40 @@ UseWebWayCmsRendering                 UseWebWayCmsAdmin
                                       2. EnsureContentRelationsValid
                                       3. EnsureCmsRolesAndAdminSeeded
                                       4. EnsureMcpSeedTokens
-2. EnsureWidgetRegistrationsSeeded    5. EnsureWidgetRegistrationsSeeded
-3. EnsureFormComponentRegistrations   6. EnsureFormComponentRegistrations
+2. EnsureContentTypeRegistrations     5. EnsureContentTypeRegistrations
      Seeded                                Seeded
-4. EnsurePageControllerRegistrations   7. EnsurePageControllerRegistrations
+3. EnsureWidgetRegistrationsSeeded    6. EnsureWidgetRegistrationsSeeded
+4. EnsureFormComponentRegistrations   7. EnsureFormComponentRegistrations
      Seeded                                Seeded
-5. EnsureCodeBasedRoutesSeeded        8. EnsureCodeBasedRoutesSeeded
-                                      9. EnsureJsonContentSeeded
-6. ConfigureRenderingPipeline        10. ConfigureAdminPipeline
+5. EnsurePageControllerRegistrations   8. EnsurePageControllerRegistrations
+     Seeded                                Seeded
+6. EnsureCodeBasedRoutesSeeded        9. EnsureCodeBasedRoutesSeeded
+                                     10. EnsureJsonContentSeeded
+7. ConfigureRenderingPipeline        11. ConfigureAdminPipeline
 ```
 
 `UseWebWayCms(app)` simply calls `UseWebWayCmsAdmin(app)`.
 
-Every step is idempotent — calling `UseWebWayCms*` on a fully-initialized database is safe and fast. The
-three registration seeders **only insert**: a widget, page type, or route pattern that already
-exists is skipped and never updated, so after the first run the database is authoritative. The JSON
+Every step is idempotent — calling `UseWebWayCms*` on a fully-initialized database is safe and fast.
+
+`EnsureContentRelationsValid` (admin mode) checks the content type keys the code declares: every admin
+handler with `IsContentType` (all but `cmsroutes` and `formcomponents`) must name a key registered with a
+content store (`AdminHandlerContentTypeValidator` over `IContentTypeRegistry`), and every `[ContentRelation]`
+target must have both a handler and a content store. A violation throws (subject to `throwOnError`).
+
+The four **registry seeders** (content types, widgets, form components, page types) are one mechanism:
+each declares its registrations (`RegistrationSyncItem<T>`: key, how to build a row, how to sync the
+code-owned columns) and `CmsRegistrationSync.EnsureRegistrationsSynced` hands them to
+`RegistrationSynchronizer` (Data, `Services/Registrations`). A declared key with no row gets a new
+(published) row; a declared key with rows gets its **code-owned** columns set on every version row in place
+(no new version, so an admin's pending draft is never published by a boot) and its admin-edited columns
+left alone; a row the code no longer declares is logged as an orphan and never deleted. Code-owned columns:
+content types `ClrTypeName`; widgets `SupportsList`; page types `ConfigurationTypeName` +
+`PropertyDefinitionsJson`; form components `DataTypeNamesJson`, `EditorTypeAlias`, `IsDefaultForType`,
+`ViewComponentName`. The content type seeder reads `IContentTypeRegistry` (the DI descriptors, no assembly
+scan), starts each registration's names from the descriptor, else the type's admin handler, else the CLR
+type name, and warns about `ContentNodes` whose key no registration covers. The code-based route seeder
+only inserts. The JSON
 content seeder (`EnsureJsonContentSeeded`, admin mode only) is the exception: it re-applies an item
 when its content hash changes, so it is the one place where shipped content *updates* the database.
 See [Area 15](15-content-seeding.md).
@@ -178,6 +197,7 @@ per host context), so the host's migrations never touch the CMS history table.
 |----------|--------|
 | `WEBWAYCMS_SKIP_MIGRATIONS=true` | Skip migration application entirely (read-only replicas, integration tests) |
 | `WEBWAYCMS_SKIP_ROLESEED=true` | Skip role creation and admin user seeding |
+| `WEBWAYCMS_SKIP_DEFAULTCONTENTTYPES=true` | Skip syncing content type registrations from `IContentTypeRegistry` |
 | `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` | Skip seeding widget registrations from `[ContentZoneComponent]` |
 | `WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true` | Skip seeding page-type registrations from `[PageController]` |
 | `WEBWAYCMS_SKIP_CODEBASEDROUTES=true` | Skip seeding routes from `[CmsRoute]` |
@@ -196,6 +216,7 @@ registered via `cms.AddApplicationAssembly` (`CmsAssemblyCatalog`), distinct and
 
 | Seeder | Assemblies |
 |---|---|
+| Content type registrations | none: `IContentTypeRegistry` (every `AddContentStore`/`AddContentType` call) |
 | Widget registrations | `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |
 | Page-controller registrations | `WebWayCMS.Core`, `WebWayCMS.Admin`, entry assembly, `CmsAssemblyCatalog` |
 | Code-based routes | `WebWayCMS.Core`, `WebWayCMS.Admin`, `WebWayCMS.Presentation`, entry assembly, `CmsAssemblyCatalog` |

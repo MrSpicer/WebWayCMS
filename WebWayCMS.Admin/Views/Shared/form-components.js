@@ -47,12 +47,30 @@
         return window.WebWayAdmin.fetchJson(endpoint, { fallbackError: 'Failed to load entities' });
     }
 
+    // The target type's names (data-type-name / data-type-plural, from its content type registration),
+    // falling back to the raw entity type.
+    function typeNames(el, entityType) {
+        var name = (el && el.dataset.typeName) || '';
+        var plural = (el && el.dataset.typePlural) || '';
+        return {
+            name: name,
+            plural: plural || (name ? name + 's' : entityType + 's')
+        };
+    }
+
     // The single-option placeholder a picker shows while it loads or when it cannot.
-    function placeholderOption(kind, entityType) {
+    function placeholderOption(kind, entityType, el) {
+        var names = typeNames(el, entityType);
         var text = kind === 'unknown' ? 'Unknown entity type: ' + entityType
-            : kind === 'loading' ? 'Loading ' + entityType + 's...'
-            : 'Failed to load ' + entityType + 's';
+            : kind === 'loading' ? 'Loading ' + names.plural + '...'
+            : 'Failed to load ' + names.plural;
         return '<option value="">-- ' + escapeHtml(text) + ' --</option>';
+    }
+
+    // The empty option of a loaded picker: "-- Select Article List --" (or "-- Add … --" for a multi picker).
+    function emptyOption(verb, entityType, el) {
+        var name = typeNames(el, entityType).name;
+        return '<option value="">-- ' + escapeHtml(name ? verb + ' ' + name : verb) + ' --</option>';
     }
 
     function loadEntityPickerOptions(select, entityType) {
@@ -63,18 +81,18 @@
         // host content types work without a client-side map.
         var endpoint = pickerEndpoint(select);
         if (!endpoint) {
-            select.innerHTML = placeholderOption('unknown', entityType);
+            select.innerHTML = placeholderOption('unknown', entityType, select);
             select.style.display = '';
             return;
         }
 
         var currentValue = select.dataset.currentValue || '';
-        select.innerHTML = placeholderOption('loading', entityType);
+        select.innerHTML = placeholderOption('loading', entityType, select);
         select.style.display = '';
 
         fetchEntities(endpoint)
             .then(function (entities) {
-                var options = '<option value="">-- Select --</option>';
+                var options = emptyOption('Select', entityType, select);
                 entities.forEach(function (entity) {
                     var id = entityId(entity);
                     var title = entityTitle(entity);
@@ -86,7 +104,7 @@
             })
             .catch(function (error) {
                 console.error('Error loading entities for ' + entityType + ':', error);
-                select.innerHTML = placeholderOption('failed', entityType);
+                select.innerHTML = placeholderOption('failed', entityType, select);
             });
     }
 
@@ -99,12 +117,12 @@
         var endpoint = pickerEndpoint(container);
         var addSelect = container.querySelector('select.entity-picker-add');
         if (!endpoint) {
-            if (addSelect) addSelect.innerHTML = placeholderOption('unknown', entityType);
+            if (addSelect) addSelect.innerHTML = placeholderOption('unknown', entityType, container);
             return;
         }
 
         container._entityTitles = {};
-        if (addSelect) addSelect.innerHTML = placeholderOption('loading', entityType);
+        if (addSelect) addSelect.innerHTML = placeholderOption('loading', entityType, container);
 
         fetchEntities(endpoint)
             .then(function (entities) {
@@ -112,7 +130,7 @@
                     container._entityTitles[String(entityId(entity))] = entityTitle(entity);
                 });
 
-                var options = '<option value="">-- Add --</option>';
+                var options = emptyOption('Add', entityType, container);
                 entities.forEach(function (entity) {
                     options += '<option value="' + escapeHtml(entityId(entity)) + '">' + escapeHtml(entityTitle(entity)) + '</option>';
                 });
@@ -130,7 +148,7 @@
             })
             .catch(function (error) {
                 console.error('Error loading entities for ' + entityType + ':', error);
-                if (addSelect) addSelect.innerHTML = placeholderOption('failed', entityType);
+                if (addSelect) addSelect.innerHTML = placeholderOption('failed', entityType, container);
             });
     }
 

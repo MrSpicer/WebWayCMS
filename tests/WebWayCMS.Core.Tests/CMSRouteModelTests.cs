@@ -364,4 +364,8 @@ public class CMSRouteModelTests
 
         Assert.That(titles, Is.EqualTo(new[] { "About Us", "/unnamed", "/blank" }));
     }
+
+    [Test]
+    public void IsContentType_IsFalse_CmsRoutesAreNotAContentType()
+        => Assert.That(_model.IsContentType, Is.False);
 }

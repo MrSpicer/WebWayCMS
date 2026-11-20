@@ -1,6 +1,7 @@
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Forms;
 using WebWayCMS.Models.ContentZone;
 using WebWayCMS.Pages;
@@ -24,16 +25,19 @@ public sealed class ContentRelationRegistry
     private readonly IAdminHandlerRegistry _handlers;
     private readonly IWidgetRegistry? _widgets;
     private readonly IPageControllerRegistry? _pages;
+    private readonly IContentTypeRegistry? _contentTypes;
     private Dictionary<string, IReadOnlyList<ContentRelationDeclaration>>? _bySource;
 
     public ContentRelationRegistry(
         IAdminHandlerRegistry handlers,
         IWidgetRegistry? widgets = null,
-        IPageControllerRegistry? pages = null)
+        IPageControllerRegistry? pages = null,
+        IContentTypeRegistry? contentTypes = null)
     {
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
         _widgets = widgets;
         _pages = pages;
+        _contentTypes = contentTypes;
     }
 
     /// <summary>The relations <paramref name="sourceContentType"/> declares (none for an unknown type).</summary>
@@ -130,6 +134,8 @@ public sealed class ContentRelationRegistry
             throw Invalid(declaration, "sets OnTargetDelete, which a containment may not set (its children are deleted with it)");
         if (_handlers.GetHandler(attr.TargetContentType) == null && _handlers.GetHandler(attr.TargetContentType + "s") == null)
             throw Invalid(declaration, $"targets '{attr.TargetContentType}', which is not a registered content type");
+        if (_contentTypes != null && _contentTypes.Get(attr.TargetContentType) == null && _contentTypes.Get(attr.TargetContentType + "s") == null)
+            throw Invalid(declaration, $"targets '{attr.TargetContentType}', which is not registered with a content store");
         if (siblings.Count(d => d.Name == declaration.Name) > 1)
             throw Invalid(declaration, "shares its name with another relation on the same type");
     }

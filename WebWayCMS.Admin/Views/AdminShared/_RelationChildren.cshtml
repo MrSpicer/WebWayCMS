@@ -11,7 +11,7 @@
     @foreach (var panel in Model)
     {
         var headingId = $"relation-children-{panel.ChildContentType}-{panel.RelationName}";
-        var plural = panel.ChildDisplayName.EndsWith('s') ? panel.ChildDisplayName : panel.ChildDisplayName + "s";
+        var plural = panel.ChildPluralDisplayName;
         <section class="card mb-4" aria-labelledby="@headingId"
                  data-relation-children
                  data-reorder-url="@(panel.Ordered && panel.CanWrite ? Url.Action("ReorderRelated", "AdminContent", new { contentType = panel.ChildContentType, relationName = panel.RelationName, parentNodeId = panel.ParentNodeId }) : null)">

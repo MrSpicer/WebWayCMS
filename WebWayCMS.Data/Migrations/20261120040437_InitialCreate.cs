@@ -462,6 +462,31 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ContentTypeRegistrations",
+                columns: table => new
+                {
+                    VersionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ContentTypeKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    ClrTypeName = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
+                    DisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    PluralDisplayName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    Description = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    Category = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    IconClass = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Order = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ContentTypeRegistrations", x => x.VersionId);
+                    table.ForeignKey(
+                        name: "FK_ContentTypeRegistrations_ContentVersions_VersionId",
+                        column: x => x.VersionId,
+                        principalTable: "ContentVersions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ContentZoneItems",
                 columns: table => new
                 {
@@ -772,6 +797,16 @@ namespace WebWayCMS.Data.Migrations
                 column: "NodeId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_ContentTypeRegistrations_Category",
+                table: "ContentTypeRegistrations",
+                column: "Category");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ContentTypeRegistrations_ContentTypeKey",
+                table: "ContentTypeRegistrations",
+                column: "ContentTypeKey");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ContentVersions_ChangeSetId",
                 table: "ContentVersions",
                 column: "ChangeSetId");
@@ -835,8 +870,7 @@ namespace WebWayCMS.Data.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_PageControllerRegistrations_ControllerName",
                 table: "PageControllerRegistrations",
-                column: "ControllerName",
-                unique: true);
+                column: "ControllerName");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PageControllerRegistrations_IsActive",
@@ -881,8 +915,7 @@ namespace WebWayCMS.Data.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_WidgetRegistrations_ComponentName",
                 table: "WidgetRegistrations",
-                column: "ComponentName",
-                unique: true);
+                column: "ComponentName");
 
             migrationBuilder.CreateIndex(
                 name: "IX_WidgetRegistrations_IsActive",
@@ -934,6 +967,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ContentSeedRecords");
+
+            migrationBuilder.DropTable(
+                name: "ContentTypeRegistrations");
 
             migrationBuilder.DropTable(
                 name: "ContentZoneItems");

@@ -115,9 +115,10 @@ derived by stripping the `"ViewComponent"` suffix from the class name; the attri
 `ConfigurationType` is reflected through `FormPropertyBuilder.BuildPropertyInfos` and stored as
 `PropertyDefinitionsJson`.
 
-Seeding **only inserts**. A component name that already has a row is skipped, and the existing row
-is never updated — so editing a `[ContentZoneComponent]` attribute in code has no effect on an
-already-seeded widget. Change it at `/wadmin/widgets` instead. Set
+Seeding inserts missing widgets and otherwise keeps only the code-owned `SupportsList` in line (written to
+every version row in place; the shared registry sync, see [Area 7](07-cms-bootstrap.md)). Every other field
+of an existing row is never updated — so editing a `[ContentZoneComponent]` attribute's display metadata in
+code has no effect on an already-seeded widget. Change it at `/wadmin/widgets` instead. Set
 `WEBWAYCMS_SKIP_DEFAULTWIDGETS=true` to suppress seeding.
 
 Because the registration is a row rather than a reflection result, widgets can be renamed,

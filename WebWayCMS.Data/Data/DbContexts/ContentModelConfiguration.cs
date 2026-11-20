@@ -19,15 +19,24 @@ public static class ContentModelConfiguration
     }
 
     /// <summary>
-    /// The catalog columns a component registration table shares (<see cref="IRegistrationDescriptor"/>):
-    /// required display name and category, the icon class, and the category / active indexes.
+    /// The catalog columns every registration table shares (<see cref="IRegistrationCatalog"/>): required display
+    /// name and category, the icon class, and the category index.
+    /// </summary>
+    public static void ConfigureCatalogColumns<T>(this EntityTypeBuilder<T> entity) where T : class, IRegistrationCatalog
+    {
+        entity.Property<string>(nameof(IRegistrationCatalog.DisplayName)).IsRequired().HasMaxLength(256);
+        entity.Property<string>(nameof(IRegistrationCatalog.Category)).IsRequired().HasMaxLength(128);
+        entity.HasIndex(nameof(IRegistrationCatalog.Category));
+        entity.Property<string>(nameof(IRegistrationCatalog.IconClass)).HasMaxLength(128);
+    }
+
+    /// <summary>
+    /// The columns a component registration table shares (<see cref="IRegistrationDescriptor"/>): the catalog
+    /// columns plus the active index.
     /// </summary>
     public static void ConfigureRegistrationColumns<T>(this EntityTypeBuilder<T> entity) where T : class, IRegistrationDescriptor
     {
-        entity.Property<string>(nameof(IRegistrationDescriptor.DisplayName)).IsRequired().HasMaxLength(256);
-        entity.Property<string>(nameof(IRegistrationDescriptor.Category)).IsRequired().HasMaxLength(128);
-        entity.HasIndex(nameof(IRegistrationDescriptor.Category));
-        entity.Property<string>(nameof(IRegistrationDescriptor.IconClass)).HasMaxLength(128);
+        entity.ConfigureCatalogColumns();
         entity.HasIndex(nameof(IRegistrationDescriptor.IsActive));
     }
 

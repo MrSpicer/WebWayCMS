@@ -83,6 +83,7 @@ ApplyCmsPendingMigrations              ApplyCmsPendingMigrations
                                        EnsureContentRelationsValid
                                        EnsureCmsRolesAndAdminSeeded
                                        EnsureMcpSeedTokens
+EnsureContentTypeRegistrationsSeeded   EnsureContentTypeRegistrationsSeeded
 EnsureWidgetRegistrationsSeeded        EnsureWidgetRegistrationsSeeded
 EnsureFormComponentRegistrationsSeeded EnsureFormComponentRegistrationsSeeded
 EnsurePageControllerRegistrationsSeeded EnsurePageControllerRegistrationsSeeded
@@ -104,6 +105,7 @@ rendering replicas behind a load balancer), set the skip variables:
 
 ```
 WEBWAYCMS_SKIP_MIGRATIONS=true
+WEBWAYCMS_SKIP_DEFAULTCONTENTTYPES=true
 WEBWAYCMS_SKIP_DEFAULTWIDGETS=true
 WEBWAYCMS_SKIP_DEFAULTPAGECONTROLLERS=true
 WEBWAYCMS_SKIP_CODEBASEDROUTES=true

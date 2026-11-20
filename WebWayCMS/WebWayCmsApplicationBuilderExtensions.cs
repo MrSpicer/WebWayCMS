@@ -7,13 +7,14 @@ namespace WebWayCMS;
 public static class WebWayCmsApplicationBuilderExtensions
 {
     /// <summary>
-    /// Applies pending migrations, seeds the code-based registrations, and configures the rendering
+    /// Applies pending migrations, seeds the code-based registrations (content types, widgets, form components, page types), and configures the rendering
     /// middleware pipeline. Seeds no content (the admin host sharing the database seeds the pages), and
     /// no admin roles/user or MCP.
     /// </summary>
     public static WebApplication UseWebWayCmsRendering(this WebApplication app, bool throwOnError = true)
     {
         app.ApplyCmsPendingMigrations(throwOnError);
+        app.EnsureContentTypeRegistrationsSeeded(throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
         app.EnsureFormComponentRegistrationsSeeded(throwOnError);
         app.EnsurePageControllerRegistrationsSeeded(throwOnError);
@@ -32,6 +33,7 @@ public static class WebWayCmsApplicationBuilderExtensions
         app.EnsureContentRelationsValid(throwOnError);
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);
         app.EnsureMcpSeedTokens(throwOnError);
+        app.EnsureContentTypeRegistrationsSeeded(throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
         app.EnsureFormComponentRegistrationsSeeded(throwOnError);
         app.EnsurePageControllerRegistrationsSeeded(throwOnError);

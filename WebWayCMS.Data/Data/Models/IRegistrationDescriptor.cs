@@ -1,14 +1,10 @@
 namespace WebWayCMS.Data.Models;
 
 /// <summary>
-/// The catalog fields every component registration shares (widgets, page types, form components): how the
-/// admin lists, groups and orders it.
+/// A component registration (widgets, page types, form components): the catalog fields plus the switch that
+/// takes the component out of the admin's choices.
 /// </summary>
-public interface IRegistrationDescriptor
+public interface IRegistrationDescriptor : IRegistrationCatalog
 {
-    string DisplayName { get; }
-    string Category { get; }
-    string IconClass { get; }
-    int Order { get; }
     bool IsActive { get; }
 }

@@ -5,6 +5,8 @@ using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Services.Relations;
 
 namespace WebWayCMS.Mcp;
@@ -20,35 +22,90 @@ public sealed class ContentToolset
     private readonly IEnumerable<IAdminCrudHandler> _handlers;
     private readonly IMcpCaller _caller;
     private readonly ContentRelationRegistry? _relations;
+    private readonly IContentTypeRegistry? _contentTypes;
+    private readonly IContentTypeRegistrationService? _registrations;
 
     public ContentToolset(
         IAdminHandlerRegistry registry,
         IEnumerable<IAdminCrudHandler> handlers,
         IMcpCaller caller,
-        ContentRelationRegistry? relations = null)
+        ContentRelationRegistry? relations = null,
+        IContentTypeRegistry? contentTypes = null,
+        IContentTypeRegistrationService? registrations = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _handlers = handlers ?? throw new ArgumentNullException(nameof(handlers));
         _caller = caller ?? throw new ArgumentNullException(nameof(caller));
         _relations = relations;
+        _contentTypes = contentTypes;
+        _registrations = registrations;
     }
 
     [McpServerTool(Name = "list_content_types", ReadOnly = true, OpenWorld = false)]
-    [Description("Lists every content type the CMS admin exposes (e.g. contentblocks, pages, articles, contentzones), including whether each supports versioning, publishing or a component registry, and its childTypes: the content types that can be placed under it (list_children / create_child).")]
-    public IReadOnlyList<McpContentTypeInfo> ListContentTypes() =>
-        _handlers
-            .Select(h => new McpContentTypeInfo(
-                h.ContentType,
-                h.DisplayName,
-                h.SupportsVersionHistory,
-                h.SupportsPublishing,
-                _relations?.GetContainmentsTargeting(h.ContentType)
-                    .Select(d => d.SourceContentType)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList() ?? [],
-                h.RegistryHandler != null,
-                h.SecondaryApiListKeys))
-            .ToList();
+    [Description("Lists every content type the CMS knows (e.g. contentblocks, pages, articles, contentzones) plus the admin surfaces over other tables (isContentType false, e.g. cmsroutes): whether each supports versioning, publishing or a component registry, its childTypes (the content types that can be placed under it: list_children / create_child), and the names, description and category admins gave it. A content type with hasAdminHandler false is registered in code without an admin screen, so the content tools can't edit it.")]
+    public IReadOnlyList<McpContentTypeInfo> ListContentTypes()
+    {
+        var names = _registrations?.GetPublishedByKey() ?? new Dictionary<string, ContentTypeRegistrationDTO>();
+        var listed = new List<McpContentTypeInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var handler in _handlers)
+        {
+            seen.Add(handler.ContentType);
+            listed.Add(WithRegistration(
+                new McpContentTypeInfo(
+                    handler.ContentType,
+                    names.DisplayNameOr(handler.ContentType, handler.DisplayName),
+                    handler.SupportsVersionHistory,
+                    handler.SupportsPublishing,
+                    ChildTypes(handler.ContentType),
+                    handler.RegistryHandler != null,
+                    handler.SecondaryApiListKeys)
+                {
+                    IsContentType = handler.IsContentType,
+                },
+                names));
+        }
+
+        foreach (var descriptor in _contentTypes?.All ?? [])
+        {
+            if (!seen.Add(descriptor.Key))
+                continue;
+            listed.Add(WithRegistration(
+                new McpContentTypeInfo(
+                    descriptor.Key,
+                    names.DisplayNameOr(descriptor.Key, descriptor.DisplayName ?? ContentTypeDescriptor.DeriveDisplayName(descriptor.ClrType)),
+                    SupportsVersionHistory: false,
+                    SupportsPublishing: false,
+                    ChildTypes(descriptor.Key),
+                    HasRegistry: false,
+                    SecondaryApiListKeys: [])
+                {
+                    HasAdminHandler = false,
+                },
+                names));
+        }
+
+        return listed;
+    }
+
+    private IReadOnlyList<string> ChildTypes(string contentType)
+        => _relations?.GetContainmentsTargeting(contentType)
+               .Select(d => d.SourceContentType)
+               .Distinct(StringComparer.OrdinalIgnoreCase)
+               .ToList()
+           ?? [];
+
+    private static McpContentTypeInfo WithRegistration(
+        McpContentTypeInfo info, IReadOnlyDictionary<string, ContentTypeRegistrationDTO> names)
+        => names.TryGetValue(info.ContentType, out var registration)
+            ? info with
+            {
+                PluralDisplayName = registration.PluralDisplayName,
+                Description = registration.Description,
+                Category = registration.Category,
+            }
+            : info;
 
     [McpServerTool(Name = "describe_content_type", ReadOnly = true, OpenWorld = false)]
     [Description("Describes the editable fields (name, label, editor type, whether required) for a content type's create/edit form. A field that links to other content carries a relation block { kind, target, many, required }: send the target item's id (or an array of ids when many). Call this before create_content or update_content to learn which fields to send.")]

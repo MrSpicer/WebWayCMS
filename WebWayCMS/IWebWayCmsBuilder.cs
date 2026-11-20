@@ -37,8 +37,14 @@ public interface IWebWayCmsBuilder
     /// <summary>Registers an inline model contribution into the EF model.</summary>
     IWebWayCmsBuilder ConfigureModel(Action<ModelBuilder> configure);
 
-    /// <summary>Registers the generic content store for a host-defined content type.</summary>
-    IWebWayCmsBuilder AddContentType<T>(string contentTypeKey) where T : class, IVersionedContent;
+    /// <summary>
+    /// Registers the generic content store for a host-defined content type, and the content type itself: it joins
+    /// <c>IContentTypeRegistry</c> and gets a content type registration (<c>/wadmin/contenttypes</c>) at boot.
+    /// <paramref name="displayName"/> / <paramref name="pluralDisplayName"/> are the registration's starting
+    /// names; when omitted they come from the type's admin handler, else from <typeparamref name="T"/>'s name.
+    /// </summary>
+    IWebWayCmsBuilder AddContentType<T>(string contentTypeKey, string? displayName = null, string? pluralDisplayName = null)
+        where T : class, IVersionedContent;
 
     /// <summary>Contributes a mapping profile to the shared <see cref="IMapper"/> singleton.</summary>
     IWebWayCmsBuilder AddMappingProfile(Profile profile);
