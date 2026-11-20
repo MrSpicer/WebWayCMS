@@ -26,10 +26,7 @@ public sealed class PageZoneTree
     public IQueryable<ContentZoneItemDTO> CurrentDraftItems()
         => _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
-            .Where(i => i.Version.IsCurrentDraft
-                     && i.Version.Culture == string.Empty
-                     && i.Version.Segment == string.Empty
-                     && !i.Version.Node.IsDeleted);
+            .CurrentDrafts();
 
     /// <summary>
     /// Every zone's owner, from the current draft of its <see cref="ZoneRelations.Owner"/> relation (ownership
@@ -38,11 +35,7 @@ public sealed class PageZoneTree
     /// zone page-owned (never global, which would auto-publish), as the old assignment row did.
     /// </summary>
     public IQueryable<OwnedZone> ZoneOwners()
-        => from v in _context.Set<ContentVersion>().AsNoTracking()
-           where v.IsCurrentDraft
-              && v.Culture == string.Empty
-              && v.Segment == string.Empty
-              && !v.Node.IsDeleted
+        => from v in _context.Set<ContentVersion>().AsNoTracking().CurrentDrafts()
            from r in v.Relations
            where r.Name == ZoneRelations.Owner
            join n in _context.Set<ContentNode>() on r.TargetNodeId equals n.Id into owners
@@ -60,9 +53,8 @@ public sealed class PageZoneTree
     public IQueryable<PageDTO> Pages()
         => _context.Set<PageDTO>()
             .AsNoTracking()
-            .Where(p => p.Version.Culture == string.Empty
-                     && p.Version.Segment == string.Empty
-                     && !p.Version.Node.IsDeleted);
+            .DefaultVariant()
+            .Where(p => !p.Version.Node.IsDeleted);
 
     /// <summary>
     /// The zone an item's current draft sits in, or null when the item no longer exists. Resolving from
@@ -232,10 +224,8 @@ public sealed class PageZoneTree
                 .AsNoTracking()
                 .Where(version)
                 .Where(ZoneRelations.InZones(zoneIds))
-                .Where(i => i.IsActive
-                         && i.Version.Culture == string.Empty
-                         && i.Version.Segment == string.Empty
-                         && !i.Version.Node.IsDeleted)
+                .DefaultVariant()
+                .Where(i => i.IsActive && !i.Version.Node.IsDeleted)
                 .ToListAsync(ct);
             items.AddRange(level);
 
@@ -275,10 +265,8 @@ public sealed class PageZoneTree
         var nodeIds = drafts.Select(i => i.Version.NodeId).ToList();
         var published = (await _context.Set<ContentZoneItemDTO>()
                 .AsNoTracking()
-                .Where(i => nodeIds.Contains(i.Version.NodeId)
-                         && i.Version.State == ContentVersionState.Published
-                         && i.Version.Culture == string.Empty
-                         && i.Version.Segment == string.Empty)
+                .DefaultVariant()
+                .Where(i => nodeIds.Contains(i.Version.NodeId) && i.Version.State == ContentVersionState.Published)
                 .ToListAsync(ct))
             .ToDictionary(i => i.Version.NodeId);
 

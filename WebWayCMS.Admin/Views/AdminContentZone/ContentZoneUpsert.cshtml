@@ -1,53 +1,23 @@
 @model WebWayCMS.Models.ContentZone.ContentZoneUpsertViewModel
+
 @{
     var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Content Zone" : "New Content Zone";
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Fluid = false,
+        NodeId = Model?.NodeId,
+        Crumbs = [new AdminCrumb("Content Zones", Url.Action("Index", "AdminContent", new { contentType = "contentzones" })!)],
+    };
+    var form = new UpsertFormModel("contentzones", Model!)
+    {
+        NodeId = Model?.NodeId,
+        IsPublished = Model?.IsPublished == true,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="contentzones">Content Zones</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container admin-page-body">
-        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="contentzones" method="post" novalidate>
-            @Html.AntiForgeryToken()
-            <div role="alert" aria-live="polite">
-                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
-            </div>
-            <div class="card">
-                <div class="card-content">
-                    <form-fields for="@Model" />
-                </div>
-                <footer class="card-footer">
-                    <div class="card-footer-item is-justify-content-flex-start">
-                        <button class="button is-primary mr-3" type="submit">Save as Draft</button>
-                        @if (Model != null)
-                        {
-                            @if (Model.IsPublished)
-                            {
-                                <button type="submit" class="button is-warning mr-3"
-                                        asp-controller="AdminContent" asp-action="Unpublish"
-                                        asp-route-contentType="contentzones" asp-route-nodeId="@Model.NodeId">Unpublish</button>
-                            }
-                            else
-                            {
-                                <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
-                            }
-                        }
-                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="contentzones" class="button">Cancel</a>
-                    </div>
-                </footer>
-            </div>
-        </form>
+    <partial name="_UpsertForm" model="form" />
 </div>

@@ -13,11 +13,7 @@ public sealed class WidgetRegistrationDTOEntityConfiguration : IEntityTypeConfig
         entity.ConfigureContentLink();
         entity.Property(e => e.ComponentName).IsRequired().HasMaxLength(256);
         entity.HasIndex(e => e.ComponentName).IsUnique();
-        entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(256);
-        entity.Property(e => e.Category).IsRequired().HasMaxLength(128);
-        entity.HasIndex(e => e.Category);
-        entity.Property(e => e.IconClass).HasMaxLength(128);
-        entity.HasIndex(e => e.IsActive);
+        entity.ConfigureRegistrationColumns();
         entity.ToTable("WidgetRegistrations");
     }
 }

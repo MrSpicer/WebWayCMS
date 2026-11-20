@@ -315,24 +315,7 @@ public sealed class ContentZoneItemModel : IAdminCrudHandler
     {
         var maxVersion = versions.Max(v => v.Version.VersionNumber);
         var currentVersion = versions.FirstOrDefault(v => v.Version.IsCurrentDraft)?.Version.VersionNumber;
-        return versions.Select(v => new VersionItemViewModel
-        {
-            Id = v.VersionId,
-            Version = v.Version.VersionNumber,
-            Title = v.ComponentName,
-            CreationDate = v.Version.Node.CreatedUtc,
-            ModificationDate = v.Version.CreatedUtc,
-            IsPublished = v.Version.State == ContentVersionState.Published,
-            IsDeleted = v.Version.Node.IsDeleted,
-            IsLatest = v.Version.VersionNumber == maxVersion,
-            CreatedBy = v.Version.CreatedBy,
-            ChangeNote = v.Version.ChangeNote,
-            State = v.Version.State,
-            ChangeSetId = v.Version.ChangeSetId,
-            NodeId = v.Version.Node.Id,
-            WidgetLabel = widgetLabel,
-            NodeCurrentVersionNumber = currentVersion
-        }).ToList();
+        return versions.Select(v => VersionItemViewModel.From(v, maxVersion, v.ComponentName, widgetLabel, currentVersion)).ToList();
     }
 
     /// <summary>

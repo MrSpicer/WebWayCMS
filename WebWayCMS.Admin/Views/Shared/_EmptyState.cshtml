@@ -1,0 +1,19 @@
+@* The empty-list card of an admin index. *@
+@model WebWayCMS.Admin.Partials.EmptyStateModel
+
+<div class="card admin-empty-state">
+    <div class="card-content has-text-centered py-6">
+        <span class="icon is-large has-text-grey-light mb-4">
+            <i class="fas @Model.Icon fa-3x" aria-hidden="true"></i>
+        </span>
+        <p class="title is-5">@Model.Title</p>
+        @if (!string.IsNullOrEmpty(Model.Subtitle))
+        {
+            <p class="subtitle is-6 has-text-grey">@Model.Subtitle</p>
+        }
+        @if (!string.IsNullOrEmpty(Model.CreateUrl) && !string.IsNullOrEmpty(Model.CreateLabel))
+        {
+            <a href="@Model.CreateUrl" class="button is-primary mt-2">@Model.CreateLabel</a>
+        }
+    </div>
+</div>

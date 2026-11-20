@@ -4,59 +4,30 @@
     var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
     ViewData["Title"] = isEdit ? "Edit Article" : "New Article";
     var listId = Model?.ArticleListId is { } id && id != Guid.Empty ? id : (Guid?)null;
+    // The list's article index (filtered to this article's list) is both the last crumb and where Cancel goes.
+    var articlesUrl = Url.Action("Index", "AdminContent", new { contentType = "articles", list = listId })!;
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Fluid = false,
+        NodeId = Model?.NodeId,
+        Crumbs =
+        [
+            new AdminCrumb("Article Lists", Url.Action("Index", "AdminContent", new { contentType = "articlelists" })!),
+            new AdminCrumb("Articles", articlesUrl),
+        ],
+    };
+    var form = new UpsertFormModel("articles", Model!)
+    {
+        NodeId = Model?.NodeId,
+        IsPublished = Model?.IsPublished == true,
+        CancelUrl = articlesUrl,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articlelists">Article Lists</a></li>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@listId">Articles</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-                @if (isEdit)
-                {
-                    <p class="subtitle is-7 has-text-grey"><code class="is-size-7" title="@Model?.NodeId">@Model?.NodeId</code></p>
-                }
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container admin-page-body">
-        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="articles" method="post" novalidate>
-            @Html.AntiForgeryToken()
-            <div role="alert" aria-live="polite">
-                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
-            </div>
-            <div class="card">
-                <div class="card-content">
-                    <form-fields for="@Model" />
-                </div>
-                <footer class="card-footer">
-                    <div class="card-footer-item is-justify-content-flex-start">
-                        <button type="submit" class="button is-primary mr-3">Save as Draft</button>
-                        @if (Model != null)
-                        {
-                            @if (Model.IsPublished)
-                            {
-                                <button type="submit" class="button is-warning mr-3"
-                                        asp-controller="AdminContent" asp-action="Unpublish"
-                                        asp-route-contentType="articles" asp-route-nodeId="@Model.NodeId">Unpublish</button>
-                            }
-                            else
-                            {
-                                <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
-                            }
-                        }
-                        <a asp-action="Index" asp-controller="AdminContent" asp-route-contentType="articles" asp-route-list="@listId" class="button">Cancel</a>
-                    </div>
-                </footer>
-            </div>
-        </form>
+    <partial name="_UpsertForm" model="form" />
 </div>
 
 @section Scripts {

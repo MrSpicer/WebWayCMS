@@ -4,34 +4,16 @@
 
 @{
     ViewData["Title"] = "Pages";
+    var newUrl = Url.Action("Create", "AdminContent", new { contentType = "pages" })!;
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <h1 class="title is-5">Pages</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary is-small">
-                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-                <span>New Page</span>
-            </a>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model='new AdminPageHeaderModel("Pages") { NewUrl = newUrl, NewLabel = "New Page" }' />
 
 <div class="container is-fluid admin-page-body">
 
         @if (!Model.Pages.Any())
         {
-            <div class="card admin-empty-state">
-                <div class="card-content has-text-centered py-6">
-                    <span class="icon is-large has-text-grey-light mb-4">
-                        <i class="fas fa-file-alt fa-3x" aria-hidden="true"></i>
-                    </span>
-                    <p class="title is-5">No pages yet</p>
-                    <p class="subtitle is-6 has-text-grey">Create your first page to get started.</p>
-                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" class="button is-primary mt-2">New Page</a>
-                </div>
-            </div>
+            <partial name="_EmptyState" model='new EmptyStateModel("fa-file-alt", "No pages yet") { Subtitle = "Create your first page to get started.", CreateUrl = newUrl, CreateLabel = "New Page" }' />
         }
         else
         {
@@ -60,7 +42,6 @@
     {
         foreach (var node in nodes)
         {
-            var menuId = $"page-menu-{node.PageNodeId ?? Guid.NewGuid()}";
             <tr>
                 <td class="admin-list-main">
                     <div style="margin-left: @((depth > 0 ? (depth - 1) * 1.25 : 0).ToString(System.Globalization.CultureInfo.InvariantCulture))rem;">
@@ -102,38 +83,17 @@
                                 </a>
                             }
                             @* One publish button: Publish while anything is pending, otherwise Unpublish. *@
-                            @if (!node.IsPublished || node.HasPendingChanges)
-                            {
-                                <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
-                                    <button type="submit" class="button is-small is-success">
-                                        <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
-                                        <span>Publish</span>
-                                    </button>
-                                </form>
-                            }
-                            else
-                            {
-                                <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
-                                    <button type="submit" class="button is-small is-warning is-light">
-                                        <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
-                                        <span>Unpublish</span>
-                                    </button>
-                                </form>
-                            }
+                            <partial name="_RowPublishToggle" model='new RowPublishToggleModel("pages", node.PageNodeId.Value, node.IsPublished) { HasPendingChanges = node.HasPendingChanges }' />
                             <a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@node.PageNodeId" class="button is-small">
                                 <span class="icon"><i class="fas fa-th-large" aria-hidden="true"></i></span>
                                 <span>Edit zones</span>
                             </a>
-                            <div class="dropdown is-right admin-row-menu">
-                                <div class="dropdown-trigger">
-                                    <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
-                                            aria-haspopup="true" aria-expanded="false" aria-controls="@menuId"
-                                            aria-label="More actions for @node.Title">
-                                        <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
-                                    </button>
-                                </div>
-                                <div class="dropdown-menu" id="@menuId" role="menu">
-                                    <div class="dropdown-content">
+                            @{
+                                var rowMenu = new RowMenuModel("pages", node.PageNodeId.Value.ToString(), node.Title)
+                                {
+                                    DeleteDescendants = node.DescendantCount,
+                                    DeleteDescendantLabel = "child page",
+                                    ItemsBefore = @<text>
                                         <a asp-controller="AdminContent" asp-action="Preview" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="dropdown-item" role="menuitem">
                                             <span class="icon"><i class="fas fa-eye" aria-hidden="true"></i></span>
                                             <span>Preview draft</span>
@@ -142,15 +102,13 @@
                                             <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
                                             <span>Page settings</span>
                                         </a>
-                                        <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" class="dropdown-item" role="menuitem">
-                                            <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
-                                            <span>Version history</span>
-                                        </a>
-                                        <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" asp-route-parentRoute="@node.Path" class="dropdown-item" role="menuitem">
-                                            <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-                                            <span>Add child page</span>
-                                        </a>
-                                        <hr class="dropdown-divider" />
+                                    </text>,
+                                    ItemsAfter = @<a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="pages" asp-route-parentRoute="@node.Path" class="dropdown-item" role="menuitem">
+                                        <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                                        <span>Add child page</span>
+                                    </a>,
+                                    // The row's button publishes while changes are pending, so Unpublish moves here.
+                                    DangerItems = @<text>
                                         @if (node.IsPublished && node.HasPendingChanges)
                                         {
                                             <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="pages" asp-route-nodeId="@node.PageNodeId" method="post">
@@ -160,18 +118,10 @@
                                                 </button>
                                             </form>
                                         }
-                                        <button type="button" class="dropdown-item is-danger" role="menuitem"
-                                                data-delete-trigger
-                                                data-delete-name="@node.Title"
-                                                data-delete-descendants="@node.DescendantCount"
-                                                data-delete-descendant-label="child page"
-                                                data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "pages", id = node.PageNodeId })">
-                                            <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                            <span>Delete</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                                    </text>,
+                                };
+                            }
+                            <partial name="_RowMenu" model="rowMenu" />
                         </div>
                     }
                 </td>

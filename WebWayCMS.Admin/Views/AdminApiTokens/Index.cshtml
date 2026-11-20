@@ -5,19 +5,16 @@
     Layout = "~/Views/Shared/_AdminLayout.cshtml";
     ViewData["Title"] = "API Tokens";
     var now = DateTime.UtcNow;
+    var header = new AdminPageHeaderModel("API Tokens")
+    {
+        Actions = @<a href="/Identity/Account/Manage/ApiTokens" class="button is-primary is-small">
+                       <span class="icon"><i class="fas fa-key" aria-hidden="true"></i></span>
+                       <span>My tokens</span>
+                   </a>,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <h1 class="title is-5">API Tokens</h1>
-            <a href="/Identity/Account/Manage/ApiTokens" class="button is-primary is-small">
-                <span class="icon"><i class="fas fa-key" aria-hidden="true"></i></span>
-                <span>My tokens</span>
-            </a>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container is-fluid admin-page-body">
     <p class="mb-3 has-text-grey">
@@ -27,14 +24,7 @@
 
     @if (Model.Count == 0)
     {
-        <div class="card admin-empty-state">
-            <div class="card-content has-text-centered py-6">
-                <span class="icon is-large has-text-grey-light mb-4">
-                    <i class="fas fa-key fa-3x" aria-hidden="true"></i>
-                </span>
-                <p class="title is-5">No API tokens yet</p>
-            </div>
-        </div>
+        <partial name="_EmptyState" model='new EmptyStateModel("fa-key", "No API tokens yet")' />
     }
     else
     {

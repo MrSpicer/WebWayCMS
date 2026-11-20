@@ -4,7 +4,7 @@ namespace WebWayCMS.Data.Models;
 /// A form component registration. Registrations are not versioned — they are seeded and re-synced
 /// from code by <c>CmsFormComponentSeeder</c>, and edited in place via the admin UI.
 /// </summary>
-public record FormComponentRegistrationDTO
+public record FormComponentRegistrationDTO : IRegistrationDescriptor
 {
     public Guid Id { get; set; }
 

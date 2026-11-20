@@ -14,11 +14,7 @@ public sealed class PageControllerRegistrationDTOEntityConfiguration : IEntityTy
         entity.Property(e => e.ControllerName).IsRequired().HasMaxLength(256);
         entity.HasIndex(e => e.ControllerName).IsUnique();
         entity.Property(e => e.ControllerTypeName).IsRequired().HasMaxLength(1024);
-        entity.Property(e => e.DisplayName).IsRequired().HasMaxLength(256);
-        entity.Property(e => e.Category).IsRequired().HasMaxLength(128);
-        entity.HasIndex(e => e.Category);
-        entity.Property(e => e.IconClass).HasMaxLength(128);
-        entity.HasIndex(e => e.IsActive);
+        entity.ConfigureRegistrationColumns();
         entity.ToTable("PageControllerRegistrations");
     }
 }

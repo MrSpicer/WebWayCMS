@@ -361,8 +361,8 @@ changes. "Pending changes" compares content, so drafts equal to what is live are
 | `POST .../history/{entryId}/revert` | Reverts the page and every zone item to the entry as **drafts**; later items become inactive drafts; back to the editor to review and publish. A stale token returns to the comparison with an error |
 | `POST .../history/{entryId}/delete` | Deletes the entry record only (its versions are kept, and become deletable) |
 
-The model is `IPageHistoryModel` (Core) over `IPageHistoryService` (Data). The confirmations use
-`Views/AdminPageHistory/PageHistory.js` (→ `wwwroot/js/page-history.js`).
+The model is `IPageHistoryModel` (Core) over `IPageHistoryService` (Data). The confirmations are
+`form[data-confirm]` forms, handled by the shared listener in `wwwroot/js/admin.js`.
 
 ---
 

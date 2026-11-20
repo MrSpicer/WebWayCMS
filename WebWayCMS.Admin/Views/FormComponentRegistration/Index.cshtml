@@ -4,34 +4,16 @@
 
 @{
     ViewData["Title"] = "Form Components";
+    var newUrl = Url.Action("Create", "AdminContent", new { contentType = "formcomponents" })!;
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <h1 class="title is-5">Form Components</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="formcomponents" class="button is-primary is-small">
-                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-                <span>New Form Component</span>
-            </a>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model='new AdminPageHeaderModel("Form Components") { NewUrl = newUrl, NewLabel = "New Form Component" }' />
 
 <div class="container is-fluid admin-page-body">
 
         @if (!Model.Registrations.Any())
         {
-            <div class="card admin-empty-state">
-                <div class="card-content has-text-centered py-6">
-                    <span class="icon is-large has-text-grey-light mb-4">
-                        <i class="fas fa-sliders-h fa-3x" aria-hidden="true"></i>
-                    </span>
-                    <p class="title is-5">No form component registrations</p>
-                    <p class="subtitle is-6 has-text-grey">Register field editors to make them available in admin forms.</p>
-                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="formcomponents" class="button is-primary mt-2">New Form Component</a>
-                </div>
-            </div>
+            <partial name="_EmptyState" model='new EmptyStateModel("fa-sliders-h", "No form component registrations") { Subtitle = "Register field editors to make them available in admin forms.", CreateUrl = newUrl, CreateLabel = "New Form Component" }' />
         }
         else
         {
@@ -85,26 +67,7 @@
                                             <span class="icon"><i class="fas fa-pencil-alt" aria-hidden="true"></i></span>
                                             <span>Edit</span>
                                         </a>
-                                        <div class="dropdown is-right admin-row-menu">
-                                            <div class="dropdown-trigger">
-                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
-                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@f.Id"
-                                                        aria-label="More actions for @f.DisplayName">
-                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
-                                                </button>
-                                            </div>
-                                            <div class="dropdown-menu" id="row-menu-@f.Id" role="menu">
-                                                <div class="dropdown-content">
-                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
-                                                            data-delete-trigger
-                                                            data-delete-name="@f.DisplayName"
-                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "formcomponents", id = f.Id })">
-                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                                        <span>Delete</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <partial name="_RowMenu" model='new RowMenuModel("formcomponents", f.Id.ToString(), f.DisplayName) { ShowHistory = false }' />
                                     </div>
                                 </td>
                             </tr>

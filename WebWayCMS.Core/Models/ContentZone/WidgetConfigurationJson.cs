@@ -65,25 +65,8 @@ public static class WidgetConfigurationJson
         return ResolveType(registry.GetByName(componentName)?.ConfigurationTypeName);
     }
 
-    /// <summary>Resolves a configuration type name, searching every loaded assembly.</summary>
-    public static Type? ResolveType(string? typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return null;
-
-        var type = Type.GetType(typeName, throwOnError: false);
-        if (type != null)
-            return type;
-
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            type = asm.GetType(typeName, throwOnError: false);
-            if (type != null)
-                return type;
-        }
-
-        return null;
-    }
+    /// <summary>Resolves a configuration type name, searching every loaded assembly (<see cref="ClrTypeResolver"/>).</summary>
+    public static Type? ResolveType(string? typeName) => ClrTypeResolver.Resolve(typeName);
 
     /// <summary>
     /// Sanitizes the rich-text properties of a widget configuration payload in place. Only the

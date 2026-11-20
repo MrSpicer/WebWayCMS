@@ -64,11 +64,11 @@ public class AdminPageHistoryController : Controller
         var (success, error) = await _model.RevertAsync(pageNodeId, entryId, stateToken ?? string.Empty, ct);
         if (!success)
         {
-            TempData["Error"] = error;
+            TempData.FlashError(error);
             return RedirectToAction(nameof(Compare), new { pageNodeId, entryId });
         }
 
-        TempData["Success"] = "The page was reverted as a draft. Review it, then publish to make it live.";
+        TempData.FlashSuccess("The page was reverted as a draft. Review it, then publish to make it live.");
         return RedirectToAction("PageZones", "AdminContentZone", new { pageNodeId });
     }
 
@@ -78,9 +78,9 @@ public class AdminPageHistoryController : Controller
     public async Task<IActionResult> Delete(Guid pageNodeId, Guid entryId, CancellationToken ct)
     {
         if (await _model.DeleteAsync(pageNodeId, entryId, ct))
-            TempData["Success"] = "History entry deleted.";
+            TempData.FlashSuccess("History entry deleted.");
         else
-            TempData["Error"] = "History entry not found.";
+            TempData.FlashError("History entry not found.");
 
         return RedirectToAction(nameof(Index), new { pageNodeId });
     }

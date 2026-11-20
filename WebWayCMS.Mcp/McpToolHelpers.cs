@@ -34,6 +34,31 @@ internal static class McpToolHelpers
         return handler;
     }
 
+    /// <summary>Resolves a content handler that keeps version history, or throws a protocol error.</summary>
+    public static IAdminCrudHandler ResolveVersioned(IAdminHandlerRegistry registry, string contentType)
+    {
+        var handler = ResolveHandler(registry, contentType);
+        if (!handler.SupportsVersionHistory)
+            throw new McpException($"Content type '{contentType}' does not support version history.");
+        return handler;
+    }
+
+    /// <summary>
+    /// Restores a historical version in one step, refused as stale when <paramref name="expectedVersionNumber"/>
+    /// is given and the item has moved past it; a version that does not exist is a protocol error. Shared by
+    /// <c>restore_version</c> and <c>restore_child_version</c>.
+    /// </summary>
+    public static async Task<AdminSaveResult> RestoreVersionAsync(
+        IAdminCrudHandler handler, Guid versionId, int? expectedVersionNumber, CancellationToken ct)
+    {
+        var result = expectedVersionNumber.HasValue
+            ? await handler.RestoreVersionAsync(versionId, expectedVersionNumber, ct)
+            : await handler.RestoreVersionAsync(versionId, ct);
+        if (!result.Success && result.ErrorMessage == IAdminCrudHandler.VersionNotFoundMessage)
+            throw new McpException($"No version found with id '{versionId}'.");
+        return result;
+    }
+
     /// <summary>
     /// Refuses the call unless the caller holds one of the handler's <see cref="IAdminCrudHandler.WriteRoles"/>
     /// (the rule <c>AdminContentController</c> applies, via <see cref="RoleAccess"/>).

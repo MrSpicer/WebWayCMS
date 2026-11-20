@@ -16,11 +16,6 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
 
     protected override IContentStore<ContentBlockDTO> Store => _store;
 
-    protected override string VersionHistoryContentType => "contentblocks";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentblocks";
-    protected override Task<List<ContentBlockDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
-
     public override string ContentType => "contentblocks";
     public override string DisplayName => "Content Block";
     public override string IndexViewPath => "~/Views/AdminContentBlock/ContentBlocks.cshtml";
@@ -48,48 +43,14 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
         return new ContentBlockIndexViewModel { ContentBlocks = items };
     }
 
-    public async Task<ContentBlockUpsertViewModel?> GetUpsertModelAsync(Guid? nodeId, CancellationToken ct = default)
-    {
-        if (nodeId == null || nodeId == Guid.Empty)
-            return new ContentBlockUpsertViewModel();
-
-        var dto = await _store.GetCurrentDraftAsync(nodeId.Value, ct);
-        if (dto == null)
-            return null;
-
-        return _mapper.Map<ContentBlockUpsertViewModel>(dto);
-    }
-
-    public async Task<(bool Success, string? ErrorMessage)> SaveUpsertAsync(ContentBlockUpsertViewModel model, CancellationToken ct = default)
-    {
-        if (model == null) throw new ArgumentNullException(nameof(model));
-
-        var dto = _mapper.Map<ContentBlockDTO>(model);
-        var result = await _store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
-        if (!result.Success) return (false, result.ErrorMessage ?? "An error occurred while saving the content block.");
-        model.NodeId = result.NodeId;
-        return (true, null);
-    }
-
-    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
-    {
-        return await _store.DeleteAsync(nodeId, softDelete: false, ct);
-    }
+    public Task<ContentBlockUpsertViewModel?> GetUpsertModelAsync(Guid? nodeId, CancellationToken ct = default)
+        => LoadUpsertAsync(nodeId, _mapper.Map<ContentBlockUpsertViewModel>, ct);
 
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
 
-    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
-        if (loaded == null) return null;
-        var vm = _mapper.Map<ContentBlockUpsertViewModel>(loaded.Value.Historical);
-        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
-        return vm;
-    }
-
-    public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
-        => DeleteVersionCoreAsync(id, ct);
+    public override Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+        => MapRestoreAsync(historicalId, _mapper.Map<ContentBlockUpsertViewModel>, ct);
 
     // IAdminCrudHandler members
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
@@ -100,18 +61,9 @@ public sealed class ContentBlockModel : AdminCrudModel<ContentBlockDTO>, IConten
 
     public override object CreateEmptyUpsertViewModel() => new ContentBlockUpsertViewModel();
 
-    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
+    protected override Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ContentBlockUpsertViewModel)model;
-        var result = await SaveUpsertAsync(vm, ct);
-        return result.Success
-            ? new AdminSaveResult(true, NodeId: vm.NodeId)
-            : new AdminSaveResult(false, result.ErrorMessage);
-    }
-
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
-    {
-        var vm = await GetContentBlockIndexAsync(ct);
-        return vm.ContentBlocks.Select(cb => (object)new { id = cb.NodeId, title = cb.Title });
+        return SaveDraftAsync(_mapper.Map<ContentBlockDTO>(vm), vm, "An error occurred while saving the content block.", ct);
     }
 }

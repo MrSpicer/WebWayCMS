@@ -1,4 +1,4 @@
-// Page Upsert - Controller picker and dynamic config fields
+// Page Upsert - Controller picker and dynamic config fields. Loaded after admin.js (WebWayAdmin).
 (function () {
     var form = document.getElementById('pageForm');
     var controllerSelect = document.getElementById('ControllerName');
@@ -22,18 +22,11 @@
     });
 
     function loadControllerForm(name) {
-        fetch('/wadmin/pages/registry/' + encodeURIComponent(name) + '/form', {
+        window.WebWayAdmin.fetchText('/wadmin/pages/registry/' + encodeURIComponent(name) + '/form', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'RequestVerificationToken': getAntiForgeryToken()
-            },
-            body: JSON.stringify(configJsonInput ? configJsonInput.value : '{}')
+            json: configJsonInput ? configJsonInput.value : '{}',
+            fallbackError: 'Failed to load configuration form'
         })
-            .then(function (r) {
-                if (!r.ok) throw new Error('Failed to load configuration form');
-                return r.text();
-            })
             .then(function (html) {
                 configFields.innerHTML = html;
                 configArea.classList.remove('is-hidden');
@@ -51,11 +44,9 @@
     }
 
     function loadControllerViews(name) {
-        fetch('/wadmin/pages/registry/' + encodeURIComponent(name) + '/properties')
-            .then(function (r) {
-                if (!r.ok) throw new Error('Failed to load available views');
-                return r.json();
-            })
+        window.WebWayAdmin.fetchJson('/wadmin/pages/registry/' + encodeURIComponent(name) + '/properties', {
+            fallbackError: 'Failed to load available views'
+        })
             .then(function (data) {
                 var availableViews = data.availableViews || [];
                 rebuildViewNameOptions(availableViews);
@@ -92,17 +83,8 @@
 
     function resetViewNameOptions() {
         if (!viewNameSelect) return;
-        viewNameSelect.innerHTML = '';
-        var defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = '-- Default --';
-        viewNameSelect.appendChild(defaultOption);
         viewNameSelect.value = '';
-    }
-
-    function getAntiForgeryToken() {
-        var tokenInput = document.querySelector('input[name="__RequestVerificationToken"]');
-        return tokenInput ? tokenInput.value : '';
+        rebuildViewNameOptions([]);
     }
 
     // Collect config values before form submission

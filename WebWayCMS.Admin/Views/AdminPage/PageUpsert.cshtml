@@ -2,64 +2,34 @@
 @model PageUpsertViewModel
 
 @{
-    var isNew = Model.NodeId == null || Model.NodeId == Guid.Empty;
-    ViewData["Title"] = isNew ? "Create Page" : "Edit Page";
+    var isEdit = Model?.NodeId != null && Model.NodeId != Guid.Empty;
+    ViewData["Title"] = isEdit ? "Edit Page" : "Create Page";
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Fluid = false,
+        NodeId = Model?.NodeId,
+        Crumbs = [new AdminCrumb("Pages", Url.Action("Index", "AdminContent", new { contentType = "pages" })!)],
+    };
+    var form = new UpsertFormModel("pages", Model!)
+    {
+        NodeId = Model?.NodeId,
+        IsPublished = Model?.IsPublished == true,
+        FormId = "pageForm",
+        // Filled by page-upsert.js with the selected page type's configuration fields.
+        AfterFields = @<div id="configurationArea" class="is-hidden">
+                           <h2 id="configurationHeading" class="subtitle mt-4">Configuration</h2>
+                           <p class="help mb-3">These settings belong to the selected page type and will be applied when the page renders.</p>
+                           <div id="configFields"></div>
+                       </div>,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container admin-page-body">
-        <form asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" method="post" id="pageForm"
-              data-controller="@Model.ControllerName"
-              data-view-name="@Model.ViewName"
-              novalidate>
-            @Html.AntiForgeryToken()
-
-            <div role="alert" aria-live="polite">
-                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
-            </div>
-
-            <div class="card">
-                <div class="card-content">
-                    <form-fields for="@Model" />
-
-                    <div id="configurationArea" class="is-hidden">
-                        <h2 id="configurationHeading" class="subtitle mt-4">Configuration</h2>
-                        <p class="help mb-3">These settings belong to the selected page type and will be applied when the page renders.</p>
-                        <div id="configFields"></div>
-                    </div>
-                </div>
-                <footer class="card-footer">
-                    <div class="card-footer-item is-justify-content-flex-start">
-                        <button class="button is-primary mr-3" type="submit">Save as Draft</button>
-                        @if (Model.IsPublished)
-                        {
-                            <button type="submit" class="button is-warning mr-3"
-                                    asp-controller="AdminContent" asp-action="Unpublish"
-                                    asp-route-contentType="pages" asp-route-nodeId="@Model.NodeId">Unpublish</button>
-                        }
-                        else
-                        {
-                            <button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Publish</button>
-                        }
-                        <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages" class="button">Cancel</a>
-                    </div>
-                </footer>
-            </div>
-        </form>
+    <partial name="_UpsertForm" model="form" />
 </div>
 
-<script src="~/_content/WebWayCMS.Admin/js/page-upsert.js"></script>
+@section Scripts {
+    <script src="~/_content/WebWayCMS.Admin/js/page-upsert.js" asp-append-version="true"></script>
+}

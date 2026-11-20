@@ -17,11 +17,6 @@ public sealed class ImageModel : AdminCrudModel<ImageDTO>, IImageModel
 
     protected override IContentStore<ImageDTO> Store => _store;
 
-    protected override string VersionHistoryContentType => "images";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/images";
-    protected override Task<List<ImageDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
-
     public override string ContentType => "images";
     public override string DisplayName => "Image";
     public override string IndexViewPath => "~/Views/AdminImage/Images.cshtml";
@@ -64,54 +59,14 @@ public sealed class ImageModel : AdminCrudModel<ImageDTO>, IImageModel
         return new ImageIndexViewModel { Images = items };
     }
 
-    public async Task<ImageUpsertViewModel?> GetUpsertModelAsync(Guid? nodeId, CancellationToken ct = default)
-    {
-        if (nodeId == null || nodeId == Guid.Empty)
-            return new ImageUpsertViewModel();
-
-        var dto = await _store.GetCurrentDraftAsync(nodeId.Value, ct);
-        if (dto == null)
-            return null;
-
-        return _mapper.Map<ImageUpsertViewModel>(dto);
-    }
-
-    public async Task<(bool Success, string? ErrorMessage)> SaveUpsertAsync(ImageUpsertViewModel model, CancellationToken ct = default)
-    {
-        if (model == null) throw new ArgumentNullException(nameof(model));
-
-        // The hash must name a blob that actually exists: it arrives as an ordinary string field, so
-        // an MCP client or a seed file can set it to anything.
-        var blob = await _mediaLibrary.GetMetadataAsync(model.BlobHash, ct);
-        if (blob == null)
-            return (false, "That image file could not be found. Upload the image again.");
-
-        var dto = _mapper.Map<ImageDTO>(model);
-        var result = await _store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
-        if (!result.Success) return (false, result.ErrorMessage ?? "An error occurred while saving the image.");
-        model.NodeId = result.NodeId;
-        return (true, null);
-    }
-
-    protected override async Task<bool> DeleteSelfAsync(Guid nodeId, CancellationToken ct = default)
-    {
-        return await _store.DeleteAsync(nodeId, softDelete: false, ct);
-    }
+    public Task<ImageUpsertViewModel?> GetUpsertModelAsync(Guid? nodeId, CancellationToken ct = default)
+        => LoadUpsertAsync(nodeId, _mapper.Map<ImageUpsertViewModel>, ct);
 
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)
         => BuildVersionHistoryAsync(nodeId, ct: ct);
 
-    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
-        if (loaded == null) return null;
-        var vm = _mapper.Map<ImageUpsertViewModel>(loaded.Value.Historical);
-        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
-        return vm;
-    }
-
-    public override Task<bool> DeleteVersionAsync(Guid id, CancellationToken ct = default)
-        => DeleteVersionCoreAsync(id, ct);
+    public override Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+        => MapRestoreAsync(historicalId, _mapper.Map<ImageUpsertViewModel>, ct);
 
     // IAdminCrudHandler members
     public override async Task<object> GetIndexViewModelAsync(CancellationToken ct = default)
@@ -125,15 +80,13 @@ public sealed class ImageModel : AdminCrudModel<ImageDTO>, IImageModel
     protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (ImageUpsertViewModel)model;
-        var result = await SaveUpsertAsync(vm, ct);
-        return result.Success
-            ? new AdminSaveResult(true, NodeId: vm.NodeId)
-            : new AdminSaveResult(false, result.ErrorMessage);
-    }
 
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
-    {
-        var vm = await GetImageIndexAsync(ct);
-        return vm.Images.Select(i => (object)new { id = i.NodeId, title = i.Title });
+        // The hash must name a blob that actually exists: it arrives as an ordinary string field, so
+        // an MCP client or a seed file can set it to anything.
+        var blob = await _mediaLibrary.GetMetadataAsync(vm.BlobHash, ct);
+        if (blob == null)
+            return new AdminSaveResult(false, "That image file could not be found. Upload the image again.");
+
+        return await SaveDraftAsync(_mapper.Map<ImageDTO>(vm), vm, "An error occurred while saving the image.", ct);
     }
 }

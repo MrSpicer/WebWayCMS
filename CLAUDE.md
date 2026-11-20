@@ -159,7 +159,9 @@
   are untouched. Unpublish removes the projection but keeps
   the route items as drafts; deleting the page deletes its route items. Projected `cmsroutes` rows are
   read-only (edit them from their owner). Publish/unpublish are
-  `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`. Restore is one-step (`RestoreVersionAsync`,
+  `POST /wadmin/{contentType}/publish|unpublish/{nodeId}`; every edit form's footer (the shared
+  `_UpsertPublishActions` partial) offers **Save and Publish** (`submitAction=publish`, gated on `PublishRoles`;
+  without them the draft is kept) for new and live items, plus Unpublish when live. Restore is one-step (`RestoreVersionAsync`,
   DTO-level clone); a zone item restore is one-step too (`RestoreVersion` POST on `contentzoneitems` →
   `ContentZoneItemModel.RestoreVersionAsync` → `IContentZoneService.RestoreItemVersionAsync`: content,
   metadata (List→Single via `WidgetMetadataJson.Restorable`), active state, **zone and ordinal**, re-inserted
@@ -716,9 +718,21 @@
 - Test naming: `MethodName_Scenario_ExpectedBehavior`, NUnit constraint model (`Assert.That(...)`)
 - Import order: System > Microsoft > Third-party > Project
 - Configuration form fields use `[FormProperty]` attribute with `EditorType` enum
-- Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageHistory,PageUpsert,form-components}.js`
+- Admin scripts exist in two places: the `Views/**/{edit,drag,PageZonesEdit,PageUpsert,form-components,relation-modal,relation-children}.js`
   sources and the `wwwroot/js/*` copies the `CopyViewScripts` MSBuild target generates on every build.
   Edit only the `Views/**` source — a hand-edit to a `wwwroot` copy is silently reverted by the next build.
+  Shared client helpers live on `window.WebWayAdmin` in `wwwroot/js/admin.js` (loaded first by `_AdminLayout`):
+  `token()` (the layout's `csrf-token` meta), `request`/`fetchJson`/`fetchText` (antiforgery header, `{ json }`
+  bodies, throw the server's `{ error }`), `ready`, `isEmptyGuid`; `admin.js` also handles every
+  `form[data-confirm]`. Use them instead of a local token lookup or fetch wrapper. A view-level script that runs
+  before the layout's scripts (the zone editor's) loads with `defer`.
+- **Admin screens are built from shared partials** in `WebWayCMS.Admin/Views/Shared` (models are records in
+  `WebWayCMS.Admin/Models/Partials`, namespace `WebWayCMS.Admin.Partials`): `_AdminPageHeader` (crumbs, title,
+  node id/subtitle, "New …", actions), `_EmptyState`, `_RowPublishToggle`, `_RowMenu` (⋯ menu: extra items,
+  Version history, Delete via the shared modal) and `_UpsertForm` (validation summary, `returnUrl` round trip via
+  `AdminReturnUrl.Resolve`, `<form-fields>`, `_UpsertPublishActions` or Save, Cancel). Extra markup goes in as
+  Razor templates (`ItemsBefore = @<a …>…</a>`). Flash messages use `TempData.FlashSuccess/FlashError/Flash`
+  (`FlashKeys`); local return URLs use `Url.LocalOrDefault`.
 - The admin is deliberately **dense**: `_AdminLayout` sets `<html class="admin-html">` (14px base) and
   `admin.css` → "Density" tightens Bulma's variables under `.admin-shell`. An admin page header is one row:
   `.admin-page-header` > `.admin-page-title-row` > `.admin-page-heading` (the ancestor crumbs in a `.breadcrumb`,

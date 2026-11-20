@@ -288,13 +288,8 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
     private readonly IContentStore<MyContentDTO> _store;
     private readonly IMapper _mapper;
 
+    // Version history, DeleteSelfAsync and GetApiListAsync default to this Store and ContentType.
     protected override IContentStore<MyContentDTO> Store => _store;
-    protected override string VersionHistoryContentType => "mycontents";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/mycontents";
-    protected override Task<List<MyContentDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
-        => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => "mycontents";
     public override string DisplayName => "My Content";
@@ -315,36 +310,25 @@ public sealed class MyContentModel : AdminCrudModel<MyContentDTO>
         return dtos.Select(d => _mapper.Map<MyContentViewModel>(d)).ToList();
     }
 
+    // New for a null/empty id, else the mapped current draft (null when it doesn't exist).
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
-    {
-        if (id == null || id == Guid.Empty)
-            return new MyContentUpsertViewModel();
-
-        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
-        return dto == null ? null : _mapper.Map<MyContentUpsertViewModel>(dto);
-    }
+        => await LoadUpsertAsync(id, _mapper.Map<MyContentUpsertViewModel>, ct);
 
     public override object CreateEmptyUpsertViewModel() => new MyContentUpsertViewModel();
 
-    protected override async Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
+    // Saves a new draft against the form's expected version and writes the node id back to the form.
+    protected override Task<AdminSaveResult> SaveUpsertCoreAsync(object model, CancellationToken ct = default)
     {
         var vm = (MyContentUpsertViewModel)model;
-        var dto = _mapper.Map<MyContentDTO>(vm);
-        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
-        return result.Success
-            ? new AdminSaveResult(true, NodeId: result.NodeId)
-            : new AdminSaveResult(false, result.ErrorMessage ?? "Save failed.");
+        return SaveDraftAsync(_mapper.Map<MyContentDTO>(vm), vm, "Save failed.", ct);
     }
 
-    // This node only; the base DeleteAsync deletes its relation children with it.
-    protected override Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
-        => _store.DeleteAsync(id, softDelete: false, ct);
+    // A restore-edit form: the historical version, expecting the current draft's version.
+    public override Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+        => MapRestoreAsync(historicalId, _mapper.Map<MyContentUpsertViewModel>, ct);
 
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
-    {
-        var dtos = await _store.GetAllCurrentDraftsAsync(ct);
-        return dtos.Select(d => (object)new { id = d.Version.Node.Id, title = d.Version.Title });
-    }
+    // Override DeleteSelfAsync only to delete more than this node (the base deletes it from Store), and
+    // PickerTitle only when the picker should not show the version title.
 }
 ```
 

@@ -1,4 +1,4 @@
-// Page zone editor: Edit zones / Preview tabs, draft preview iframe, and toolbar confirmations.
+// Page zone editor: Edit zones / Preview tabs and the draft preview iframe.
 // No inline script (the CSP forbids it) and no jQuery.
 (function () {
     'use strict';
@@ -60,10 +60,5 @@
         if (previewPanel.hidden) loadPreview();
     }
 
-    // Toolbar actions that cannot be undone ask first.
-    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-        form.addEventListener('submit', function (e) {
-            if (!window.confirm(form.dataset.confirm)) e.preventDefault();
-        });
-    });
+    // Toolbar actions that cannot be undone ask first: their forms carry data-confirm, handled by admin.js.
 })();

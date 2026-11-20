@@ -26,21 +26,7 @@ public abstract class VersionedModel<TDto> where TDto : class, IVersionedContent
             BackUrl = GetVersionHistoryBackUrl(parentKey),
             ParentKey = parentKey,
             ChildType = childType,
-            Versions = versions.Select(v => new VersionItemViewModel
-            {
-                Id = v.VersionId,
-                Version = v.Version.VersionNumber,
-                Title = v.Version.Title ?? string.Empty,
-                CreationDate = v.Version.Node.CreatedUtc,
-                ModificationDate = v.Version.CreatedUtc,
-                IsPublished = v.Version.State == ContentVersionState.Published,
-                IsDeleted = v.Version.Node.IsDeleted,
-                IsLatest = v.Version.VersionNumber == maxVersion,
-                CreatedBy = v.Version.CreatedBy,
-                ChangeNote = v.Version.ChangeNote,
-                State = v.Version.State,
-                ChangeSetId = v.Version.ChangeSetId
-            }).ToList()
+            Versions = versions.Select(v => VersionItemViewModel.From(v, maxVersion, v.Version.Title ?? string.Empty)).ToList()
         };
     }
 }

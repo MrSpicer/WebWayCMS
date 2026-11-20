@@ -4,6 +4,7 @@ using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Forms;
 using WebWayCMS.Interfaces;
 using WebWayCMS.Models.ContentZone;
 
@@ -172,7 +173,7 @@ public sealed class RouteRegistrationService : IRouteRegistrationService
         try
         {
             return JsonSerializer.Deserialize<T>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                CmsJson.CaseInsensitive);
         }
         catch
         {

@@ -3,34 +3,16 @@
 
 @{
     ViewData["Title"] = "Article Lists";
+    var newUrl = Url.Action("Create", "AdminContent", new { contentType = "articlelists" })!;
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <h1 class="title is-5">Article Lists</h1>
-            <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articlelists" class="button is-primary is-small">
-                <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-                <span>New Article List</span>
-            </a>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model='new AdminPageHeaderModel("Article Lists") { NewUrl = newUrl, NewLabel = "New Article List" }' />
 
 <div class="container is-fluid admin-page-body">
 
         @if (!Model.ArticleLists.Any())
         {
-            <div class="card admin-empty-state">
-                <div class="card-content has-text-centered py-6">
-                    <span class="icon is-large has-text-grey-light mb-4">
-                        <i class="fas fa-list fa-3x" aria-hidden="true"></i>
-                    </span>
-                    <p class="title is-5">No article lists yet</p>
-                    <p class="subtitle is-6 has-text-grey">Create your first article list to get started.</p>
-                    <a asp-controller="AdminContent" asp-action="Create" asp-route-contentType="articlelists" class="button is-primary mt-2">New Article List</a>
-                </div>
-            </div>
+            <partial name="_EmptyState" model='new EmptyStateModel("fa-list", "No article lists yet") { Subtitle = "Create your first article list to get started.", CreateUrl = newUrl, CreateLabel = "New Article List" }' />
         }
         else
         {
@@ -60,57 +42,22 @@
                                 <td class="is-hidden-mobile">@list.ModificationDate.ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
                                     <div class="admin-row-actions">
-                                        @if (!list.IsPublished)
-                                        {
-                                            <form asp-controller="AdminContent" asp-action="Publish" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" method="post">
-                                                <button type="submit" class="button is-small is-success">
-                                                    <span class="icon"><i class="fas fa-upload" aria-hidden="true"></i></span>
-                                                    <span>Publish</span>
-                                                </button>
-                                            </form>
-                                        }
-                                        else
-                                        {
-                                            <form asp-controller="AdminContent" asp-action="Unpublish" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" method="post">
-                                                <button type="submit" class="button is-small is-warning is-light">
-                                                    <span class="icon"><i class="fas fa-eye-slash" aria-hidden="true"></i></span>
-                                                    <span>Unpublish</span>
-                                                </button>
-                                            </form>
-                                        }
+                                        <partial name="_RowPublishToggle" model='new RowPublishToggleModel("articlelists", list.NodeId, list.IsPublished)' />
                                         <a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="articles" asp-route-list="@list.NodeId" class="button is-small">
                                             <span class="icon"><i class="fas fa-newspaper" aria-hidden="true"></i></span>
                                             <span>Articles</span>
                                         </a>
-                                        <div class="dropdown is-right admin-row-menu">
-                                            <div class="dropdown-trigger">
-                                                <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
-                                                        aria-haspopup="true" aria-expanded="false" aria-controls="row-menu-@list.NodeId"
-                                                        aria-label="More actions for @list.Title">
-                                                    <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
-                                                </button>
-                                            </div>
-                                            <div class="dropdown-menu" id="row-menu-@list.NodeId" role="menu">
-                                                <div class="dropdown-content">
-                                                    <a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articlelists" asp-route-id="@list.NodeId" class="dropdown-item" role="menuitem">
-                                                        <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
-                                                        <span>Settings</span>
-                                                    </a>
-                                                    <a asp-controller="AdminContent" asp-action="VersionHistory" asp-route-contentType="articlelists" asp-route-nodeId="@list.NodeId" class="dropdown-item" role="menuitem">
-                                                        <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
-                                                        <span>Version history</span>
-                                                    </a>
-                                                    <hr class="dropdown-divider" />
-                                                    <button type="button" class="dropdown-item is-danger" role="menuitem"
-                                                            data-delete-trigger
-                                                            data-delete-name="@list.Title and its @list.ArticleCount article(s)"
-                                                            data-delete-url="@Url.Action("Delete", "AdminContent", new { contentType = "articlelists", id = list.NodeId })">
-                                                        <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
-                                                        <span>Delete</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        @{
+                                            var rowMenu = new RowMenuModel("articlelists", list.NodeId.ToString(), list.Title)
+                                            {
+                                                DeleteName = $"{list.Title} and its {list.ArticleCount} article(s)",
+                                                ItemsBefore = @<a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="articlelists" asp-route-id="@list.NodeId" class="dropdown-item" role="menuitem">
+                                                    <span class="icon"><i class="fas fa-cog" aria-hidden="true"></i></span>
+                                                    <span>Settings</span>
+                                                </a>,
+                                            };
+                                        }
+                                        <partial name="_RowMenu" model="rowMenu" />
                                     </div>
                                 </td>
                             </tr>

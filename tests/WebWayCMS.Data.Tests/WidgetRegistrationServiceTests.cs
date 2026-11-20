@@ -176,4 +176,16 @@ public class WidgetRegistrationServiceTests
         Assert.That(() => new WidgetRegistrationService(null!),
             Throws.ArgumentNullException);
     }
+
+    [Test]
+    public async Task GetActiveAsync_PublishedNonDefaultVariant_IsExcluded()
+    {
+        var variant = Widget(componentName: "Variant");
+        variant.Version.Culture = "fr";
+        await SeedAsync(Widget(componentName: "Default"), variant);
+
+        var active = await NewService().GetActiveAsync();
+
+        Assert.That(active.Select(w => w.ComponentName), Is.EqualTo(new[] { "Default" }));
+    }
 }

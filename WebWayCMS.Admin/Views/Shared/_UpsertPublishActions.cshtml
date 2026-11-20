@@ -1,0 +1,13 @@
+@* Upsert form footer actions shared by every admin edit screen: Save as Draft, Save and Publish (always offered,
+   so a live item can be edited and republished in one step; posts submitAction=publish to the Edit action), and
+   Unpublish when the item is live (the same form posted to the Unpublish action). Cancel stays in the view. *@
+@model (string ContentType, Guid? NodeId, bool IsPublished)
+
+<button type="submit" class="button is-primary mr-3">Save as Draft</button>
+<button type="submit" class="button is-success mr-3" name="submitAction" value="publish">Save and Publish</button>
+@if (Model.IsPublished && Model.NodeId.HasValue)
+{
+    <button type="submit" class="button is-warning mr-3"
+            asp-controller="AdminContent" asp-action="Unpublish"
+            asp-route-contentType="@Model.ContentType" asp-route-nodeId="@Model.NodeId">Unpublish</button>
+}

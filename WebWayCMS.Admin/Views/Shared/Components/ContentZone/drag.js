@@ -1,11 +1,10 @@
 // Content Zone Drag - move widgets within a zone and between the zones of one page.
 // Pointer events (mouse, touch, pen) on each item's drag handle, plus ArrowUp/ArrowDown on the
 // focused handle. Every move is saved through the move API and the page reloads, like every other
-// zone edit. Loaded after content-zone-edit.js (uses getAntiForgeryToken, czItemVersion). No jQuery, no inline script.
+// zone edit. Loaded after content-zone-edit.js (uses czItemVersion) and admin.js (WebWayAdmin). No jQuery, no inline script.
 (function () {
     'use strict';
 
-    const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
     const DRAG_THRESHOLD = 4;
     const SCROLL_EDGE = 40;
     const SCROLL_STEP = 14;
@@ -22,7 +21,7 @@
 
     function isPersistedZone(zone) {
         const id = zoneIdOf(zone);
-        return !!id && id !== EMPTY_GUID;
+        return !window.WebWayAdmin.isEmptyGuid(id);
     }
 
     // A zone's own items are its direct children (nested zones' items live deeper).
@@ -55,24 +54,17 @@
         saving = true;
         document.body.classList.add('cz-saving');
         try {
-            const response = await fetch('/api/contentzones/items/' + encodeURIComponent(itemId) + '/move', {
+            await window.WebWayAdmin.request('/api/contentzones/items/' + encodeURIComponent(itemId) + '/move', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'RequestVerificationToken': getAntiForgeryToken()
-                },
                 // The version the page rendered the item with; the API rejects the move when the
                 // item changed since.
-                body: JSON.stringify({
+                json: {
                     targetZoneId: zoneId,
                     position: position,
                     expectedVersionNumber: czItemVersion(item)
-                })
+                },
+                fallbackError: 'Failed to move widget'
             });
-            if (!response.ok) {
-                const errorData = await response.json().catch(function () { return {}; });
-                throw new Error(errorData.error || 'Failed to move widget');
-            }
         } catch (error) {
             console.error('Error moving widget:', error);
             alert('Failed to move widget: ' + error.message);
@@ -289,9 +281,5 @@
         }
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', restoreFocus);
-    } else {
-        restoreFocus();
-    }
+    window.WebWayAdmin.ready(restoreFocus);
 })();

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 using WebWayCMS.Attributes;
+using WebWayCMS.Forms;
 
 namespace WebWayCMS.Forms;
 
@@ -32,10 +33,7 @@ public static class DynamicConfigurationForm
         try
         {
             var deserialized = JsonSerializer.Deserialize(
-                trimmed!, configurationType, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
+                trimmed!, configurationType, CmsJson.CaseInsensitive);
             if (deserialized != null)
                 return deserialized;
         }

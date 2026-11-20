@@ -1,3 +1,4 @@
+@using WebWayCMS.Controllers.Admin
 @using WebWayCMS.Models.ContentZone
 @model ContentZoneItemUpsertViewModel
 
@@ -7,44 +8,29 @@
     var zoneName = Model.ZoneName ?? "Zone";
     var zoneItemsUrl = Url.Action("Index", "AdminContent", new { contentType = "contentzoneitems" })
         + "?" + ContentZoneItemModel.ZoneQueryKey + "=" + Model.ContentZoneNodeId;
-    var returnUrl = Context.Request.Query["returnUrl"].FirstOrDefault() is { } r && Url.IsLocalUrl(r) ? r : zoneItemsUrl;
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Fluid = false,
+        NodeId = Model.NodeId,
+        Crumbs =
+        [
+            new AdminCrumb("Content Zones", Url.Action("Index", "AdminContent", new { contentType = "contentzones" })!),
+            new AdminCrumb(zoneName, zoneItemsUrl),
+        ],
+    };
+    var form = new UpsertFormModel("contentzoneitems", Model)
+    {
+        NodeId = Model.NodeId,
+        UsePublishActions = false,
+        // Always round-trips: a save goes back to where the item was opened from, else the zone's items.
+        ReturnUrl = AdminReturnUrl.Resolve(Context.Request, Url) ?? zoneItemsUrl,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="contentzones">Content Zones</a></li>
-                        <li><a href="@zoneItemsUrl">@zoneName</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container admin-page-body">
-        <form asp-action="Edit" asp-controller="AdminContent" asp-route-contentType="contentzoneitems" method="post" novalidate>
-            @Html.AntiForgeryToken()
-            <input type="hidden" name="returnUrl" value="@returnUrl" />
-            <div role="alert" aria-live="polite">
-                @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
-            </div>
-            <div class="card">
-                <div class="card-content">
-                    <form-fields for="@Model" />
-                </div>
-                <footer class="card-footer">
-                    <div class="card-footer-item is-justify-content-flex-start">
-                        <button type="submit" class="button is-primary mr-3">Save</button>
-                        <a href="@returnUrl" class="button">Cancel</a>
-                    </div>
-                </footer>
-            </div>
-        </form>
+    <partial name="_UpsertForm" model="form" />
 </div>
 
 @section Scripts {

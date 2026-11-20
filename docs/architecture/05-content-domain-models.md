@@ -38,7 +38,7 @@ Models are registered in DI as **scoped** services by `AddWebWayCmsRendering`, e
 
 ## 2. `VersionedModel<T>`
 
-Abstract base class for any model that supports version history. Subclasses implement:
+Abstract base class for any model that supports version history. It declares:
 
 ```csharp
 protected abstract Task<List<TDto>> GetAllVersionsAsync(Guid masterId, CancellationToken ct);
@@ -47,7 +47,11 @@ protected abstract string VersionHistoryContentType { get; }
 protected abstract string GetVersionHistoryBackUrl(string? parentKey = null);
 ```
 
-`BuildVersionHistoryAsync` is the shared implementation that calls `GetAllVersionsAsync`, finds the maximum version number, and builds a `VersionHistoryViewModel` containing `VersionItemViewModel` entries with an `IsLatest` flag.
+`AdminCrudModel<T>` implements all four from its `Store` and `ContentType` (history of `Store`, back to
+`/wadmin/{ContentType}`), so a content type overrides one only to differ (`RouteModel` goes back to
+`/wadmin/cmsroutes`).
+
+`BuildVersionHistoryAsync` is the shared implementation that calls `GetAllVersionsAsync`, finds the maximum version number, and builds a `VersionHistoryViewModel` whose rows come from `VersionItemViewModel.From(version, maxVersion, title)` (the zone item model's combined history uses the same factory) with an `IsLatest` flag.
 
 `VersionHistoryViewModel` is rendered by the shared `Views/AdminShared/VersionHistory.cshtml` view in `WebWayCMS.Admin`.
 
@@ -143,7 +147,7 @@ Subclasses override what they need; everything else inherits the sensible defaul
 - **ContentType:** `"widgets"` — **DisplayName:** `"Widget Registration"`
 - Admin surface for the `WidgetRegistrations` table seeded from `[ContentZoneComponent]`
 - Every mutation calls `IWidgetRegistry.Invalidate()` so the 5-minute cache does not mask edits
-- `BuildPropertyDefinitions(configurationTypeName)` resolves the CLR type and re-serializes `FormPropertyBuilder.BuildPropertyInfos(type)` into `PropertyDefinitionsJson`, returning an error if the type cannot be resolved
+- `PropertyDefinitionsJson.TryBuild(configurationTypeName)` (Forms) resolves the CLR type (`ClrTypeResolver`, the one resolver every registry uses) and serializes `FormPropertyBuilder.BuildPropertyInfos(type)` into `PropertyDefinitionsJson`, returning an error if the type cannot be resolved; the seeders use `PropertyDefinitionsJson.Build(type)` and the runtime registries read it back with `PropertyDefinitionsJson.Deserialize`
 - Exposes the same `ContentZoneRegistryHandler : IAdminRegistryHandler` as `ContentZoneModel` (one shared implementation of the component registry endpoints), which resolves `EditorType.ViewPicker` options through `IViewDiscoveryService`
 
 ### `PageControllerRegistrationModel`

@@ -19,6 +19,13 @@ public static class FormPropertyConstraints
     /// <summary>How long one pattern match may run before the value is treated as not matching.</summary>
     public static readonly TimeSpan PatternTimeout = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// Whether a configuration value counts as missing for a required field: null, a blank string, or an empty
+    /// <see cref="Guid"/> (an unset picker). The rule both configuration registries apply.
+    /// </summary>
+    public static bool IsMissing(object? value)
+        => value == null || (value is string s && string.IsNullOrWhiteSpace(s)) || (value is Guid g && g == Guid.Empty);
+
     /// <summary>The constraint errors of <paramref name="value"/> against <paramref name="property"/>.</summary>
     public static IReadOnlyList<string> Check(FormPropertyInfo property, object? value)
     {

@@ -58,13 +58,7 @@ public sealed class ChildContentToolset
         };
     }
 
-    private IAdminCrudHandler ResolveVersioned(string childType)
-    {
-        var child = McpToolHelpers.ResolveHandler(_registry, childType);
-        if (!child.SupportsVersionHistory)
-            throw new McpException($"Content type '{childType}' does not support version history.");
-        return child;
-    }
+    private IAdminCrudHandler ResolveVersioned(string childType) => McpToolHelpers.ResolveVersioned(_registry, childType);
 
     [McpServerTool(Name = "list_children", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the items placed under a parent by a containment, as { id, title, state, ordinal } (current drafts, by position): e.g. parentType \"articlelists\" + childType \"articles\", \"pages\" + \"pages\" for child pages, or \"contentzones\" + \"contentzoneitems\" for a zone's items. list_content_types shows each type's childTypes.")]
@@ -212,10 +206,7 @@ public sealed class ChildContentToolset
     {
         var child = ResolveVersioned(childType);
         McpToolHelpers.RequireWrite(child, _caller);
-        var result = await child.RestoreVersionAsync(versionId, expectedVersionNumber, ct);
-        if (!result.Success && result.ErrorMessage == IAdminCrudHandler.VersionNotFoundMessage)
-            throw new McpException($"No version found with id '{versionId}'.");
-        return result;
+        return await McpToolHelpers.RestoreVersionAsync(child, versionId, expectedVersionNumber, ct);
     }
 
     [McpServerTool(Name = "delete_child_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a child version

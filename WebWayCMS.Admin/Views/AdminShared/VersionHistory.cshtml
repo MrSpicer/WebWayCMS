@@ -5,23 +5,14 @@
 
 @{
     ViewData["Title"] = "Version History — " + Model.ItemTitle;
+    var header = new AdminPageHeaderModel("Version History")
+    {
+        Crumbs = [new AdminCrumb(Model.ReturnUrl != null ? "Back" : "Back to listing", Model.BackUrl)],
+        Subtitle = Model.ItemTitle,
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a href="@Model.BackUrl">@(Model.ReturnUrl != null ? "Back" : "Back to listing")</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">Version History</h1>
-                <p class="subtitle is-7 has-text-grey">@Model.ItemTitle</p>
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container is-fluid admin-page-body">
 
@@ -112,7 +103,6 @@
                                               asp-route-nodeId="@Model.NodeId"
                                               asp-route-id="@v.Id"
                                               method="post" class="is-inline-block">
-                                            @Html.AntiForgeryToken()
                                             @if (expectedVersion.HasValue)
                                             {
                                                 <input type="hidden" name="expectedVersionNumber" value="@expectedVersion" />

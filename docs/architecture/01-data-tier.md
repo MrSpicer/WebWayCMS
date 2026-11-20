@@ -417,7 +417,10 @@ and is read-context aware.
 Every read in this table also applies **containment visibility** (an item whose containment parent is not
 visible in the read context is dropped; a single-row read returns null).
 
-Version selection lives in exactly one place, `ContentQueryExtensions.AtReadContext(ctx)`:
+Read-context version selection lives in exactly one place, `ContentQueryExtensions.AtReadContext(ctx)`. The
+admin-side filters (the default variant, its current drafts, its published versions) are
+`VersionQueryExtensions.DefaultVariant()` / `CurrentDrafts()` / `Published()`, for content rows and for
+`ContentVersion` rows alike; services compose them instead of spelling out the culture/segment conditions:
 
 ```csharp
 q.Where(e => e.Version.Culture == ctx.Culture
@@ -472,6 +475,11 @@ as two `SaveChanges` calls inside one transaction — the filtered `UX_ContentVe
 index is checked per-statement and EF Core does not order INSERTs before UPDATEs within one
 `SaveChanges` — and the transaction is skipped when the caller already opened one (Npgsql has no
 nested transactions).
+
+`ICmsTransaction` (`CmsTransaction`) is the shared helper for other multi-save writes: `RunAsync` commits when the
+work returns `true`, `RunWithResultAsync` when it returns `(Success: true, …)`; otherwise (or on an exception) it
+rolls back and clears the scoped change tracker. Both join a transaction a caller already opened (the caller then
+commits or rolls back). `ContentZoneService` runs its reorder/move/remap and global-zone creation through it.
 
 **Slug generation:** `SlugNormalizer.Normalize` (in `WebWayCMS.Data/Slugs/`) is the single source of truth
 for slug shape, called from both `ContentStore<T>.NormalizeSlug` (the write path) and `PageModel`'s

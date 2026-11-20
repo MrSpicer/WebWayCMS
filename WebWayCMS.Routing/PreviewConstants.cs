@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Net.Http.Headers;
 
+using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
 
 namespace WebWayCMS;
@@ -23,10 +24,10 @@ public static class PreviewConstants
     public const string DraftRequestItemKey = "WebWayCMS:ReadDrafts";
 
     /// <summary>Role allowed to read drafts (see <see cref="DraftRequestItemKey"/>).</summary>
-    public const string AdminRole = "Admin";
+    public const string AdminRole = UserProfileRules.AdminRole;
 
     /// <summary>Second role allowed to read drafts (see <see cref="DraftRequestItemKey"/>).</summary>
-    public const string EditorRole = "Editor";
+    public const string EditorRole = UserProfileRules.EditorRole;
 
     /// <summary><c>Cache-Control</c> sent on every draft-read response (see <see cref="MarkDraftRequest"/>).</summary>
     public const string DraftCacheControl = "no-store, max-age=0";

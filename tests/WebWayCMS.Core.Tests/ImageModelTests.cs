@@ -169,15 +169,11 @@ public class ImageModelTests
     }
 
     [Test]
-    public void SaveUpsertAsync_NullModel_Throws() =>
-        Assert.That(() => _model.SaveUpsertAsync((ImageUpsertViewModel)null!), Throws.ArgumentNullException);
-
-    [Test]
     public async Task SaveUpsertAsync_HashNamingNoStoredBlob_Fails()
     {
         _library.GetMetadataAsync("ghost", Arg.Any<CancellationToken>()).Returns((MediaBlobDTO?)null);
 
-        var (success, error) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { BlobHash = "ghost", AltText = "a" });
+        var (success, error, _, _) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { Title = "T", BlobHash = "ghost", AltText = "a" });
 
         Assert.Multiple(() =>
         {
@@ -193,7 +189,7 @@ public class ImageModelTests
         _store.SaveDraftAsync(Arg.Any<ImageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(false, "changed by someone else"));
 
-        var (success, error) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { BlobHash = Hash, AltText = "a" });
+        var (success, error, _, _) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { Title = "T", BlobHash = Hash, AltText = "a" });
 
         Assert.Multiple(() =>
         {
@@ -209,7 +205,7 @@ public class ImageModelTests
         _store.SaveDraftAsync(Arg.Any<ImageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(false));
 
-        var (_, error) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { BlobHash = Hash, AltText = "a" });
+        var (_, error, _, _) = await _model.SaveUpsertAsync(new ImageUpsertViewModel { Title = "T", BlobHash = Hash, AltText = "a" });
         Assert.That(error, Does.Contain("error occurred while saving"));
     }
 
@@ -221,8 +217,8 @@ public class ImageModelTests
         _store.SaveDraftAsync(Arg.Any<ImageDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new ContentWriteResult(true, null, Guid.NewGuid(), nodeId));
 
-        var model = new ImageUpsertViewModel { BlobHash = Hash, AltText = "a" };
-        var (success, _) = await _model.SaveUpsertAsync(model);
+        var model = new ImageUpsertViewModel { Title = "T", BlobHash = Hash, AltText = "a" };
+        var (success, _, _, _) = await _model.SaveUpsertAsync(model);
 
         Assert.Multiple(() =>
         {

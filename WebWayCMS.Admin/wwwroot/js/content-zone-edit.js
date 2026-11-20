@@ -1,15 +1,10 @@
-// Content Zone Edit - Widget CRUD
+// Content Zone Edit - Widget CRUD (requests go through WebWayAdmin, admin.js)
 // Each zone container has data-modal-id pointing to its modal
 
 function czOwnElements(container, selector) {
     return Array.from(container.querySelectorAll(selector)).filter(function (el) {
         return el.closest('.content-zone-edit') === container;
     });
-}
-
-function getAntiForgeryToken() {
-    const tokenInput = document.querySelector('input[name="__RequestVerificationToken"]');
-    return tokenInput ? tokenInput.value : '';
 }
 
 // The version a zone item was rendered with (its data-version), sent as expectedVersionNumber so the
@@ -143,7 +138,7 @@ function initContentZones() {
                 const itemId = zoneObject.dataset.itemId;
                 const componentName = zoneObject.querySelector('.zone-object-label')?.textContent.trim() || 'this widget';
 
-                if (!itemId || itemId === '00000000-0000-0000-0000-000000000000') {
+                if (window.WebWayAdmin.isEmptyGuid(itemId)) {
                     alert('Cannot delete: Item ID not found.');
                     return;
                 }
@@ -159,17 +154,10 @@ function initContentZones() {
                 }
 
                 try {
-                    const response = await fetch('/api/contentzones/items/' + encodeURIComponent(itemId), {
+                    await window.WebWayAdmin.request('/api/contentzones/items/' + encodeURIComponent(itemId), {
                         method: 'DELETE',
-                        headers: {
-                            'RequestVerificationToken': getAntiForgeryToken()
-                        }
+                        fallbackError: 'Failed to delete'
                     });
-
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Failed to delete');
-                    }
 
                     zoneObject.remove();
                 } catch (error) {
@@ -185,18 +173,15 @@ function initContentZones() {
                 const zoneObject = this.closest('.zone-object-edit');
                 const itemId = zoneObject.dataset.itemId;
 
-                if (!itemId || itemId === '00000000-0000-0000-0000-000000000000') {
+                if (window.WebWayAdmin.isEmptyGuid(itemId)) {
                     alert('Cannot edit: Item ID not found.');
                     return;
                 }
 
                 try {
-                    const response = await fetch('/api/contentzones/items/' + encodeURIComponent(itemId));
-                    if (!response.ok) {
-                        throw new Error('Failed to load item data');
-                    }
-
-                    const data = await response.json();
+                    const data = await window.WebWayAdmin.fetchJson('/api/contentzones/items/' + encodeURIComponent(itemId), {
+                        fallbackError: 'Failed to load item data'
+                    });
 
                     editingItemId = itemId;
                     editingItemVersion = czItemVersion(zoneObject);
@@ -240,17 +225,11 @@ function initContentZones() {
                 // Single and List have different configuration fields.
                 const formUrl = '/wadmin/widgets/registry/' + encodeURIComponent(componentName) + '/form'
                     + (selectedSupportsList() ? '?displayMode=' + encodeURIComponent(displayMode.toLowerCase()) : '');
-                const response = await fetch(formUrl, {
+                const html = await window.WebWayAdmin.fetchText(formUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': getAntiForgeryToken()
-                    },
-                    body: JSON.stringify(propsJsonInput ? propsJsonInput.value : '{}')
+                    json: propsJsonInput ? propsJsonInput.value : '{}',
+                    fallbackError: 'Failed to load form'
                 });
-                if (!response.ok) throw new Error('Failed to load form');
-
-                const html = await response.text();
                 dynamicProperties.innerHTML = html;
                 dynamicContainer.style.display = 'block';
 
@@ -333,7 +312,7 @@ function initContentZones() {
                     settingsComponentName = zoneObject.dataset.componentName || 'widget';
                     settingsItemVersion = czItemVersion(zoneObject);
 
-                    if (!settingsItemId || settingsItemId === '00000000-0000-0000-0000-000000000000') {
+                    if (window.WebWayAdmin.isEmptyGuid(settingsItemId)) {
                         alert('Cannot open settings: item ID not found.');
                         return;
                     }
@@ -344,25 +323,16 @@ function initContentZones() {
                     settingsModal.classList.add('is-active');
 
                     try {
-                        const response = await fetch('/api/contentzones/items/' + encodeURIComponent(settingsItemId));
-                        if (!response.ok) {
-                            throw new Error('Failed to load item');
-                        }
-                        const data = await response.json();
-
-                        const formResponse = await fetch('/wadmin/widgets/registry/' + encodeURIComponent(settingsComponentName) + '/metadata-form', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'RequestVerificationToken': getAntiForgeryToken()
-                            },
-                            body: JSON.stringify(data.metadataJson || '{}')
+                        const data = await window.WebWayAdmin.fetchJson('/api/contentzones/items/' + encodeURIComponent(settingsItemId), {
+                            fallbackError: 'Failed to load item'
                         });
-                        if (!formResponse.ok) {
-                            throw new Error('Failed to load the settings form');
-                        }
 
-                        settingsFields.innerHTML = await formResponse.text();
+                        settingsFields.innerHTML = await window.WebWayAdmin.fetchText(
+                            '/wadmin/widgets/registry/' + encodeURIComponent(settingsComponentName) + '/metadata-form', {
+                                method: 'POST',
+                                json: data.metadataJson || '{}',
+                                fallbackError: 'Failed to load the settings form'
+                            });
                     } catch (error) {
                         console.error('Error loading widget settings:', error);
                         settingsFields.innerHTML = '';
@@ -380,19 +350,11 @@ function initContentZones() {
                         ? window.WebWayFormComponents.serializeDataProps(settingsModal)
                         : '{}';
 
-                    const response = await fetch('/api/contentzones/items/' + encodeURIComponent(settingsItemId) + '/metadata', {
+                    await window.WebWayAdmin.request('/api/contentzones/items/' + encodeURIComponent(settingsItemId) + '/metadata', {
                         method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'RequestVerificationToken': getAntiForgeryToken()
-                        },
-                        body: JSON.stringify({ metadataJson: metadataJson, expectedVersionNumber: settingsItemVersion })
+                        json: { metadataJson: metadataJson, expectedVersionNumber: settingsItemVersion },
+                        fallbackError: 'Failed to save settings'
                     });
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(function () { return {}; });
-                        throw new Error(errorData.error || 'Failed to save settings');
-                    }
 
                     window.location.reload();
                 } catch (error) {
@@ -420,15 +382,12 @@ function initContentZones() {
             const slotNameField = form.querySelector('[name="slotName"]');
 
             try {
-                const response = await fetch('/api/contentzones/items', {
+                await window.WebWayAdmin.request('/api/contentzones/items', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': getAntiForgeryToken()
-                    },
-                    body: JSON.stringify({
+                    fallbackError: 'Failed to save',
+                    json: {
                         zoneName: zoneName,
-                        zoneId: zoneId && zoneId !== '00000000-0000-0000-0000-000000000000' ? zoneId : null,
+                        zoneId: window.WebWayAdmin.isEmptyGuid(zoneId) ? null : zoneId,
                         parentPageNodeId: parentPageNodeIdField ? parentPageNodeIdField.value : null,
                         slotName: slotNameField ? slotNameField.value : null,
                         itemId: editingItemId,
@@ -441,13 +400,8 @@ function initContentZones() {
                         metadataJson: !editingItemId && selectedSupportsList()
                             ? JSON.stringify({ DisplayMode: displayMode })
                             : null
-                    })
+                    }
                 });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to save');
-                }
 
                 window.location.reload();
             } catch (error) {
@@ -458,8 +412,4 @@ function initContentZones() {
     });
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initContentZones);
-} else {
-    initContentZones();
-}
+window.WebWayAdmin.ready(initContentZones);

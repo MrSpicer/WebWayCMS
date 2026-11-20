@@ -38,6 +38,12 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     /// <summary>The store backing this content type's reads and writes.</summary>
     protected abstract IContentStore<TDto> Store { get; }
 
+    // Version history defaults: this type's key, its admin index, and the store. Override only to differ.
+    protected override string VersionHistoryContentType => ContentType;
+    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/" + ContentType;
+    protected override Task<List<TDto>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => Store.GetAllVersionsAsync(nodeId, ct);
+    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => Store.DeleteVersionAsync(id, ct);
+
     public abstract string ContentType { get; }
     public abstract string DisplayName { get; }
     public virtual string[]? WriteRoles => null;
@@ -87,13 +93,26 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
     public Task<(bool Success, string? ErrorMessage, int DeletedDescendants)> TryDeleteAsync(Guid id, CancellationToken ct = default)
         => _deletes.DeleteAsync(id, DeleteSelfAsync, ct);
 
-    /// <summary>Hard-deletes this one item (and anything only it owns outside the relation engine).</summary>
-    protected abstract Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default);
+    /// <summary>
+    /// Hard-deletes this one item (and anything only it owns outside the relation engine). The default
+    /// deletes the node from <see cref="Store"/>.
+    /// </summary>
+    protected virtual Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
+        => Store.DeleteAsync(id, softDelete: false, ct);
 
     string IContentDeleter.ContentTypeKey => ContentType;
 
     Task<bool> IContentDeleter.DeleteSelfAsync(Guid nodeId, CancellationToken ct) => DeleteSelfAsync(nodeId, ct);
-    public abstract Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default);
+
+    /// <summary>The picker list: every current draft as <c>{ id, title }</c>, titled by <see cref="PickerTitle"/>.</summary>
+    public virtual async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
+    {
+        var drafts = await Store.GetAllCurrentDraftsAsync(ct);
+        return drafts.Select(d => (object)new { id = d.Version.Node.Id, title = PickerTitle(d) });
+    }
+
+    /// <summary>The title a picker shows for an item; the version title by default.</summary>
+    protected virtual string PickerTitle(TDto item) => item.Version.Title ?? string.Empty;
 
     public virtual Task<IEnumerable<object>> GetApiListExcludingSubtreeAsync(Guid excludeSubtreeOf, CancellationToken ct = default)
         => GetApiListAsync(ct);
@@ -215,6 +234,47 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
         => Task.FromResult<object?>(null);
 
     /// <summary>
+    /// The upsert view model for <paramref name="id"/>: a new <typeparamref name="TViewModel"/> when the id is
+    /// null or empty, the mapped current draft when it exists, else null.
+    /// </summary>
+    protected async Task<TViewModel?> LoadUpsertAsync<TViewModel>(Guid? id, Func<TDto, TViewModel> map, CancellationToken ct = default)
+        where TViewModel : class, new()
+    {
+        if (id is not { } nodeId || nodeId == Guid.Empty)
+            return new TViewModel();
+
+        var draft = await Store.GetCurrentDraftAsync(nodeId, ct);
+        return draft == null ? null : map(draft);
+    }
+
+    /// <summary>
+    /// A restore-edit form: the historical version mapped to its upsert view model, carrying the current draft's
+    /// version number as <see cref="BaseContentViewModel.ExpectedVersionNumber"/>. Null when either is missing.
+    /// </summary>
+    protected async Task<object?> MapRestoreAsync<TViewModel>(Guid historicalId, Func<TDto, TViewModel> map, CancellationToken ct = default)
+        where TViewModel : BaseContentViewModel
+    {
+        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
+        if (loaded == null) return null;
+        var vm = map(loaded.Value.Historical);
+        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
+        return vm;
+    }
+
+    /// <summary>
+    /// Saves <paramref name="dto"/> as a new draft against <paramref name="model"/>'s expected version and writes
+    /// the node id back to the model. A failure without a store message reports <paramref name="failureMessage"/>.
+    /// </summary>
+    protected async Task<AdminSaveResult> SaveDraftAsync(TDto dto, BaseContentViewModel model, string failureMessage, CancellationToken ct = default)
+    {
+        var result = await Store.SaveDraftAsync(dto, model.ExpectedVersionNumber, ct);
+        if (!result.Success)
+            return new AdminSaveResult(false, result.ErrorMessage ?? failureMessage);
+        model.NodeId = result.NodeId;
+        return new AdminSaveResult(true, NodeId: result.NodeId);
+    }
+
+    /// <summary>
     /// Loads a historical version together with the current draft's version number, so a restore-edit
     /// form always carries the <see cref="BaseContentViewModel.ExpectedVersionNumber"/> of the *current*
     /// draft rather than the historical row. Returns null when either is missing.
@@ -233,26 +293,17 @@ public abstract class AdminCrudModel<TDto> : VersionedModel<TDto>, IAdminCrudHan
 
     public virtual async Task<AdminSaveResult> PublishAsync(Guid nodeId, CancellationToken ct = default)
     {
-        var result = await Store.PublishAsync(nodeId, ct);
-        return result.Success
-            ? new AdminSaveResult(true)
-            : new AdminSaveResult(false, result.ErrorMessage);
+        return AdminSaveResult.FromWrite(await Store.PublishAsync(nodeId, ct));
     }
 
     public virtual async Task<AdminSaveResult> UnpublishAsync(Guid nodeId, CancellationToken ct = default)
     {
-        var result = await Store.UnpublishAsync(nodeId, ct);
-        return result.Success
-            ? new AdminSaveResult(true)
-            : new AdminSaveResult(false, result.ErrorMessage);
+        return AdminSaveResult.FromWrite(await Store.UnpublishAsync(nodeId, ct));
     }
 
     public virtual async Task<AdminSaveResult> RestoreVersionAsync(Guid versionId, CancellationToken ct = default)
     {
-        var result = await Store.RestoreAsync(versionId, ct);
-        return result.Success
-            ? new AdminSaveResult(true)
-            : new AdminSaveResult(false, result.ErrorMessage);
+        return AdminSaveResult.FromWrite(await Store.RestoreAsync(versionId, ct));
     }
 
     /// <summary>The restore, refused with the stale-version message when the current draft moved past <paramref name="expectedVersionNumber"/>.</summary>

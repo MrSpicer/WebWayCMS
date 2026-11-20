@@ -1,0 +1,39 @@
+@* The admin edit form shared by every create/edit screen: validation summary, the returnUrl round trip, the
+   model's fields, the footer actions (_UpsertPublishActions or a plain Save) and Cancel. *@
+@using WebWayCMS.Controllers.Admin
+@model WebWayCMS.Admin.Partials.UpsertFormModel
+@{
+    var returnUrl = Model.ReturnUrl ?? AdminReturnUrl.Resolve(Context.Request, Url);
+    var cancelUrl = returnUrl
+        ?? Model.CancelUrl
+        ?? Url.Action("Index", "AdminContent", new { contentType = Model.ContentType });
+}
+
+<form asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="@Model.ContentType" method="post" id="@Model.FormId" novalidate>
+    <div role="alert" aria-live="polite">
+        @Html.ValidationSummary(false, "", new { @class = "notification is-danger" })
+    </div>
+    @if (!string.IsNullOrEmpty(returnUrl))
+    {
+        <input type="hidden" name="@AdminReturnUrl.FieldName" value="@returnUrl" />
+    }
+    <div class="card">
+        <div class="card-content">
+            <form-fields for="@Model.Model" />
+            @Model.AfterFields?.Invoke(null)
+        </div>
+        <footer class="card-footer">
+            <div class="card-footer-item is-justify-content-flex-start">
+                @if (Model.UsePublishActions)
+                {
+                    <partial name="_UpsertPublishActions" model='(Model.ContentType, Model.NodeId, Model.IsPublished)' />
+                }
+                else
+                {
+                    <button type="submit" class="button is-primary mr-3">Save</button>
+                }
+                <a href="@cancelUrl" class="button">Cancel</a>
+            </div>
+        </footer>
+    </div>
+</form>

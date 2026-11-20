@@ -150,7 +150,7 @@ public sealed class FormComponentRegistry : IFormComponentRegistry
             {
                 foreach (var typeName in info.DataTypeNames)
                 {
-                    var type = ResolveClrType(typeName);
+                    var type = ClrTypeResolver.Resolve(typeName);
                     if (type != null)
                     {
                         if (!defaultCandidates.TryGetValue(type, out var candidates))
@@ -209,41 +209,11 @@ public sealed class FormComponentRegistry : IFormComponentRegistry
 
         try
         {
-            return JsonSerializer.Deserialize<List<string>>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }) ?? new List<string>();
+            return JsonSerializer.Deserialize<List<string>>(json, CmsJson.CaseInsensitive) ?? new List<string>();
         }
         catch
         {
             return new List<string>();
-        }
-    }
-
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static Type? ResolveClrType(string typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return null;
-
-        try
-        {
-            var type = Type.GetType(typeName, throwOnError: false);
-            if (type != null)
-                return type;
-
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                type = asm.GetType(typeName, throwOnError: false);
-                if (type != null)
-                    return type;
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
         }
     }
 }

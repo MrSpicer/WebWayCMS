@@ -14,17 +14,34 @@ public sealed class CmsTransaction : ICmsTransaction
         _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
-    public async Task<bool> RunAsync(Func<CancellationToken, Task<bool>> work, CancellationToken ct = default)
+    public Task<bool> RunAsync(Func<CancellationToken, Task<bool>> work, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(work);
+        return RunCoreAsync(work, ok => ok, ct);
+    }
+
+    public Task<(bool Success, string? ErrorMessage)> RunWithResultAsync(
+        Func<CancellationToken, Task<(bool Success, string? ErrorMessage)>> work, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        return RunCoreAsync(work, result => result.Success, ct);
+    }
+
+    private async Task<T> RunCoreAsync<T>(Func<CancellationToken, Task<T>> work, Func<T, bool> succeeded, CancellationToken ct)
+    {
+        // A caller's open transaction owns the commit and the rollback.
+        if (_context.Database.CurrentTransaction != null)
+            return await work(ct);
 
         await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        T result;
         try
         {
-            if (await work(ct))
+            result = await work(ct);
+            if (succeeded(result))
             {
                 await transaction.CommitAsync(ct);
-                return true;
+                return result;
             }
         }
         catch
@@ -34,7 +51,7 @@ public sealed class CmsTransaction : ICmsTransaction
         }
 
         await RollbackAsync(transaction);
-        return false;
+        return result;
     }
 
     private async Task RollbackAsync(IDbContextTransaction transaction)

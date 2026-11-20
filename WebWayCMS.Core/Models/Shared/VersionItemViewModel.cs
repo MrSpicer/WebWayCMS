@@ -27,4 +27,33 @@ public sealed class VersionItemViewModel
 
     /// <summary>The row's item's current draft version number (its restore's expected version), when known.</summary>
     public int? NodeCurrentVersionNumber { get; init; }
+
+    /// <summary>
+    /// The history row for <paramref name="version"/>; <paramref name="maxVersion"/> is the newest version number
+    /// of the same item. A combined history also names the row's widget and its current version.
+    /// </summary>
+    public static VersionItemViewModel From(
+        IVersionedContent version, int maxVersion, string title, string? widgetLabel = null, int? nodeCurrentVersionNumber = null)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        var v = version.Version;
+        return new VersionItemViewModel
+        {
+            Id = version.VersionId,
+            Version = v.VersionNumber,
+            Title = title,
+            CreationDate = v.Node.CreatedUtc,
+            ModificationDate = v.CreatedUtc,
+            IsPublished = v.State == ContentVersionState.Published,
+            IsDeleted = v.Node.IsDeleted,
+            IsLatest = v.VersionNumber == maxVersion,
+            CreatedBy = v.CreatedBy,
+            ChangeNote = v.ChangeNote,
+            State = v.State,
+            ChangeSetId = v.ChangeSetId,
+            NodeId = v.Node.Id,
+            WidgetLabel = widgetLabel,
+            NodeCurrentVersionNumber = nodeCurrentVersionNumber,
+        };
+    }
 }

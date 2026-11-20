@@ -23,14 +23,12 @@ public sealed class RouteModel : AdminCrudModel<RouteDTO>
     private readonly IMapper _mapper;
 
     protected override IContentStore<RouteDTO> Store => _store;
-    protected override string VersionHistoryContentType => ContentTypeKey;
+    // Routes have no index of their own in the navbar: their history goes back to the projected CMS routes.
     protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/cmsroutes";
-    protected override Task<List<RouteDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
 
     public override string ContentType => ContentTypeKey;
     public override string DisplayName => "Route";
-    public override string[]? WriteRoles => ["Admin", "Editor"];
+    public override string[]? WriteRoles => UserProfileRules.AdminOrEditor;
     public override bool SupportsPublishing => false;
     public override string IndexViewPath => "~/Views/AdminRoute/Routes.cshtml";
     public override string UpsertViewPath => "~/Views/AdminRoute/RouteUpsert.cshtml";
@@ -53,11 +51,7 @@ public sealed class RouteModel : AdminCrudModel<RouteDTO>
         => await _store.GetAllCurrentDraftsAsync(ct);
 
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
-    {
-        if (id == null) return new RouteUpsertViewModel();
-        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
-        return dto == null ? null : _mapper.Map<RouteUpsertViewModel>(dto);
-    }
+        => await LoadUpsertAsync(id, _mapper.Map<RouteUpsertViewModel>, ct);
 
     public override object CreateEmptyUpsertViewModel() => new RouteUpsertViewModel();
 
@@ -81,8 +75,8 @@ public sealed class RouteModel : AdminCrudModel<RouteDTO>
             vm.Pattern = pattern;
         }
 
-        var dto = _mapper.Map<RouteDTO>(vm);
-        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
+        // RouteUpsertViewModel is not a BaseContentViewModel, so it saves without the SaveDraftAsync helper.
+        var result = await Store.SaveDraftAsync(_mapper.Map<RouteDTO>(vm), vm.ExpectedVersionNumber, ct);
         if (!result.Success) return new AdminSaveResult(false, result.ErrorMessage ?? "Unable to save the route.");
         vm.NodeId = result.NodeId;
         return new AdminSaveResult(true, NodeId: vm.NodeId);
@@ -91,7 +85,7 @@ public sealed class RouteModel : AdminCrudModel<RouteDTO>
     protected override async Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
     {
         await _routeService.DeleteByRouteNodeAsync(id, ct);
-        return await _store.DeleteAsync(id, softDelete: false, ct);
+        return await base.DeleteSelfAsync(id, ct);
     }
 
     public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)

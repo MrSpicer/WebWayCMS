@@ -4,26 +4,17 @@
 (function () {
     'use strict';
 
-    function token() {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        return meta ? meta.content : '';
-    }
-
     async function save(panel) {
         const order = Array.from(panel.querySelectorAll('tr[data-child-id]')).map(function (row) {
             return row.dataset.childId;
         });
         const error = panel.querySelector('[data-reorder-error]');
         try {
-            const response = await fetch(panel.dataset.reorderUrl, {
+            await window.WebWayAdmin.request(panel.dataset.reorderUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token() },
-                body: JSON.stringify(order)
+                json: order,
+                fallbackError: 'The new order could not be saved.'
             });
-            if (!response.ok) {
-                const body = await response.json().catch(function () { return {}; });
-                throw new Error(body.error || 'The new order could not be saved.');
-            }
         } catch (e) {
             if (error) {
                 error.textContent = e.message + ' Reloading…';

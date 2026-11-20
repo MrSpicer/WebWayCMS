@@ -121,12 +121,11 @@ public class ContentZoneApiController : ControllerBase
             {
                 var existingItem = await _service.GetItemByNodeIdAsync(request.ItemId.Value, ct);
                 if (existingItem == null)
-                    return NotFound(new { error = "Item not found." });
+                    return ItemNotFound();
 
                 // Reject up front so the client gets the friendly message, not "item not found".
-                if (request.ExpectedVersionNumber.HasValue
-                    && existingItem.Version.VersionNumber != request.ExpectedVersionNumber.Value)
-                    return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
+                if (StaleCheck(existingItem, request.ExpectedVersionNumber) is { } stale)
+                    return stale;
 
                 if (ConfigurationError(request, existingItem.MetadataJson) is { } updateConfigError)
                     return updateConfigError;
@@ -208,7 +207,7 @@ public class ContentZoneApiController : ControllerBase
 
             var deleted = await _service.RemoveItemAsync(itemId, ct);
             if (!deleted)
-                return NotFound(new { error = "Item not found." });
+                return ItemNotFound();
 
             return Ok(new { success = true });
         }
@@ -243,7 +242,7 @@ public class ContentZoneApiController : ControllerBase
                     return NotFound(new { error = errorMessage });
 
                 if (errorMessage == ContentStore<ContentZoneItemDTO>.StaleVersionMessage)
-                    return Conflict(new { error = errorMessage });
+                    return StaleItem();
 
                 return BadRequest(new { error = errorMessage ?? "Failed to move item." });
             }
@@ -266,7 +265,7 @@ public class ContentZoneApiController : ControllerBase
         var item = await _service.GetItemByNodeIdAsync(itemId, ct);
 
         if (item == null)
-            return NotFound(new { error = "Item not found." });
+            return ItemNotFound();
 
         return Ok(new
         {
@@ -324,11 +323,11 @@ public class ContentZoneApiController : ControllerBase
         {
             var existing = await _service.GetItemByNodeIdAsync(itemId, ct);
             if (existing == null)
-                return NotFound(new { error = "Item not found." });
+                return ItemNotFound();
 
             // Reject up front so the client gets the friendly message, not "item not found".
-            if (request.ExpectedVersionNumber.HasValue && existing.Version.VersionNumber != request.ExpectedVersionNumber.Value)
-                return Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
+            if (StaleCheck(existing, request.ExpectedVersionNumber) is { } stale)
+                return stale;
 
             // The dialog always saves the whole document, so an empty body clears the metadata. It
             // still goes through Normalize, so clearing keeps a grandfathered List (the dialog of a
@@ -364,9 +363,15 @@ public class ContentZoneApiController : ControllerBase
     /// pre-check rather than a misleading "not found".
     /// </summary>
     private IActionResult ItemWriteFailed(int? expectedVersionNumber)
-        => expectedVersionNumber.HasValue
-            ? Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage })
-            : NotFound(new { error = "Item not found." });
+        => expectedVersionNumber.HasValue ? StaleItem() : ItemNotFound();
+
+    private IActionResult ItemNotFound() => NotFound(new { error = IContentZoneService.ItemNotFoundMessage });
+
+    private IActionResult StaleItem() => Conflict(new { error = ContentStore<ContentZoneItemDTO>.StaleVersionMessage });
+
+    /// <summary>The 409 when <paramref name="item"/> is no longer the version the client rendered, else null.</summary>
+    private IActionResult? StaleCheck(ContentZoneItemDTO item, int? expectedVersionNumber)
+        => expectedVersionNumber.HasValue && item.Version.VersionNumber != expectedVersionNumber.Value ? StaleItem() : null;
 
     /// <summary>
     /// Registers a widget's routes for an item in a global zone. An item in a page's zone is a draft

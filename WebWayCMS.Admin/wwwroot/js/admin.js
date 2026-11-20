@@ -1,4 +1,70 @@
-// Admin JS — burger toggle + delete modal
+// Admin JS — shared helpers (window.WebWayAdmin), burger toggle, delete modal, confirm forms
+
+// Shared helpers for every admin script. admin.js is loaded by _AdminLayout before any other admin
+// script, so the others can rely on window.WebWayAdmin being defined.
+window.WebWayAdmin = (function () {
+    const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
+
+    // The antiforgery request token: the layout's csrf-token meta tag, else a rendered hidden input.
+    function token() {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta && meta.content) return meta.content;
+        const input = document.querySelector('input[name="__RequestVerificationToken"]');
+        return input ? input.value : '';
+    }
+
+    // fetch() with the antiforgery header. options: method, json (serialized as the JSON body),
+    // body (sent as is, e.g. FormData), fallbackError. A non-2xx response throws an Error carrying the
+    // server's { error } message, or fallbackError when the body has none (or is not JSON).
+    async function request(url, options) {
+        const opts = options || {};
+        const headers = { 'RequestVerificationToken': token() };
+        let body = opts.body;
+        if (opts.json !== undefined) {
+            headers['Content-Type'] = 'application/json';
+            body = JSON.stringify(opts.json);
+        }
+        const response = await fetch(url, { method: opts.method || 'GET', headers: headers, body: body });
+        if (!response.ok) {
+            const data = await response.json().catch(function () { return {}; });
+            throw new Error((data && data.error) || opts.fallbackError || 'Request failed');
+        }
+        return response;
+    }
+
+    async function fetchJson(url, options) {
+        const response = await request(url, options);
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
+    }
+
+    async function fetchText(url, options) {
+        const response = await request(url, options);
+        return response.text();
+    }
+
+    function ready(fn) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn);
+        } else {
+            fn();
+        }
+    }
+
+    function isEmptyGuid(id) {
+        return !id || id === EMPTY_GUID;
+    }
+
+    return { token: token, request: request, fetchJson: fetchJson, fetchText: fetchText, ready: ready, isEmptyGuid: isEmptyGuid };
+})();
+
+// A form with data-confirm="message" asks before it submits (page history, page zone editor, ...).
+document.addEventListener('submit', function (e) {
+    const form = e.target;
+    if (form instanceof HTMLFormElement && form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+        e.preventDefault();
+    }
+});
 
 document.addEventListener('DOMContentLoaded', function () {
 
@@ -316,8 +382,4 @@ function initRichTextEditor() {
 		.catch(error => console.log(error));
 }
 
-if (document.readyState === 'loading') {
-	document.addEventListener('DOMContentLoaded', initRichTextEditor);
-} else {
-	initRichTextEditor();
-}
+window.WebWayAdmin.ready(initRichTextEditor);

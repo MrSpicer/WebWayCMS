@@ -18,12 +18,9 @@ public sealed class PageControllerRegistrationService : IPageControllerRegistrat
     {
         return await _context.Set<PageControllerRegistrationDTO>()
             .AsNoTracking()
-            .Where(p => p.IsActive
-                && p.Version.State == ContentVersionState.Published
-                && !p.Version.Node.IsDeleted)
-            .OrderBy(p => p.Category)
-            .ThenBy(p => p.Order)
-            .ThenBy(p => p.DisplayName)
+            .Published()
+            .Where(p => p.IsActive)
+            .InDisplayOrder()
             .ToListAsync(ct);
     }
 
@@ -39,8 +36,6 @@ public sealed class PageControllerRegistrationService : IPageControllerRegistrat
     public async Task<Dictionary<string, List<PageControllerRegistrationDTO>>> GetActiveByCategoryAsync(CancellationToken ct = default)
     {
         var active = await GetActiveAsync(ct);
-        return active
-            .GroupBy(p => p.Category, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        return active.GroupByCategory();
     }
 }

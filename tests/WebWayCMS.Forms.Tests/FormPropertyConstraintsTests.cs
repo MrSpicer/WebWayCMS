@@ -121,4 +121,22 @@ public class FormPropertyConstraintsTests
 
         Assert.That(FormPropertyConstraints.MatchesPattern(text, @"(\w+\s?)*"), Is.False);
     }
+
+    [TestCase(null, true)]
+    [TestCase("", true)]
+    [TestCase("  ", true)]
+    [TestCase("x", false)]
+    [TestCase(0, false)]
+    public void IsMissing_ByValue(object? value, bool expected)
+        => Assert.That(FormPropertyConstraints.IsMissing(value), Is.EqualTo(expected));
+
+    [Test]
+    public void IsMissing_EmptyGuidIsMissing_OtherGuidIsNot()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(FormPropertyConstraints.IsMissing(Guid.Empty), Is.True);
+            Assert.That(FormPropertyConstraints.IsMissing(Guid.NewGuid()), Is.False);
+        });
+    }
 }

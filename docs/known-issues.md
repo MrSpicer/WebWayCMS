@@ -38,7 +38,7 @@ automated and manual testing. This is not a security issue; do not flag it in fu
 
 | Finding | Location |
 |---------|----------|
-| `ContentQueryExtensions.AtReadContext` — documented as "the single place version selection happens" but **never referenced anywhere**; the hand-copied anti-joins it was meant to replace may still exist (refactoring debt / inconsistency risk) | `WebWayCMS.Data/Data/Services/ContentQueryExtensions.cs` |
+| _(none open)_ — the `AtReadContext` entry was resolved on 2026-11-19: it is used by every read-context store read, and the hand-copied admin-side variant/draft/published filters now go through `VersionQueryExtensions` (`DefaultVariant` / `CurrentDrafts` / `Published`) | `WebWayCMS.Data/Data/Services/VersionQueryExtensions.cs` |
 
 ## Resolved (fixed during this review)
 

@@ -664,4 +664,19 @@ public class WidgetRegistrationModelTests
 
         Assert.That(result, Is.InstanceOf<PartialViewResult>());
     }
+
+    [Test]
+    public async Task GetApiListAsync_TitlesByDisplayNameElseComponentName()
+    {
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<WidgetRegistrationDTO>
+        {
+            Dto(componentName: "A", displayName: "Alpha"),
+            Dto(componentName: "B", displayName: null!),
+        });
+
+        Assert.That(Titles(await _model.GetApiListAsync()), Is.EqualTo(new object?[] { "Alpha", "B" }));
+    }
+
+    private static List<object?> Titles(IEnumerable<object> list)
+        => list.Select(o => o.GetType().GetProperty("title")!.GetValue(o)).ToList();
 }

@@ -24,13 +24,7 @@ public sealed class VersionToolset
         _caller = caller ?? throw new ArgumentNullException(nameof(caller));
     }
 
-    private IAdminCrudHandler ResolveVersioned(string contentType)
-    {
-        var handler = McpToolHelpers.ResolveHandler(_registry, contentType);
-        if (!handler.SupportsVersionHistory)
-            throw new McpException($"Content type '{contentType}' does not support version history.");
-        return handler;
-    }
+    private IAdminCrudHandler ResolveVersioned(string contentType) => McpToolHelpers.ResolveVersioned(_registry, contentType);
 
     [McpServerTool(Name = "list_versions", ReadOnly = true, OpenWorld = false)]
     [Description("Lists the version history for a content item, identified by its nodeId (shared across all versions).")]
@@ -65,11 +59,12 @@ public sealed class VersionToolset
     public async Task<AdminSaveResult> RestoreVersion(
         [Description("The content type.")] string contentType,
         [Description("The id of the historical version to restore.")] Guid versionId,
+        [Description("Optional: the item's current version number as you last read it; the restore is refused if it has changed since.")] int? expectedVersionNumber = null,
         CancellationToken ct = default)
     {
         var handler = ResolveVersioned(contentType);
         McpToolHelpers.RequireWrite(handler, _caller);
-        return await handler.RestoreVersionAsync(versionId, ct);
+        return await McpToolHelpers.RestoreVersionAsync(handler, versionId, expectedVersionNumber, ct);
     }
 
     [McpServerTool(Name = "delete_version", OpenWorld = false)] // Destructive left at its true default: permanently deletes a version

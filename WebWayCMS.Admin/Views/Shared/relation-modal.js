@@ -160,7 +160,7 @@
 
         if (target.classList.contains('entity-picker-multi')) {
             var container = target;
-            var values = readValues(container);
+            var values = window.WebWayFormComponents.readMultiValues(container);
             if (values.indexOf(id) < 0) values.push(id);
             container.dataset.values = JSON.stringify(values);
             if (window.WebWayFormComponents && window.WebWayFormComponents.setMultiValues) {
@@ -186,15 +186,6 @@
             var actions = target.closest('.entity-picker-actions');
             var edit = actions && actions.querySelector('.entity-picker-edit');
             if (edit) edit.disabled = false;
-        }
-    }
-
-    function readValues(container) {
-        try {
-            var parsed = JSON.parse(container.dataset.values || '[]');
-            return Array.isArray(parsed) ? parsed.map(String) : [];
-        } catch (e) {
-            return [];
         }
     }
 })();

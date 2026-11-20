@@ -180,7 +180,7 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 | GET | `/wadmin/{contentType}` | `Index` — list view |
 | GET | `/wadmin/{contentType}/create` | `Create` — empty create form |
 | GET | `/wadmin/{contentType}/edit/{id:guid}` | `Edit` — populated edit form |
-| POST | `/wadmin/{contentType}/edit/{id:guid?}` | `EditPost` — save (create or update); an optional local `returnUrl` form field is where it redirects |
+| POST | `/wadmin/{contentType}/edit/{id:guid?}` | `EditPost` — save (create or update); an optional local `returnUrl` form field is where it redirects. `submitAction=publish` (the form's **Save and Publish**, offered for new and live items alike) then publishes, gated on `PublishRoles`: a caller without them keeps the saved draft with an error flash (`PublishDeniedMessage`). The footer is the shared `_UpsertPublishActions` partial (Save as Draft, Save and Publish, Unpublish when live); each view keeps its own Cancel |
 | POST | `/wadmin/{contentType}/delete/{id:guid}` | `Delete` — delete (a page takes its subtree); optional local `returnUrl` |
 | POST | `/wadmin/{contentType}/relations/{relationName}/{parentNodeId:guid}/reorder` | `ReorderRelated` — the children panel's reorder (JSON body: `List<Guid>`; 400 with the reason) |
 
@@ -245,7 +245,23 @@ Flow:
 the node's current draft, and every handler's `GetRestoreVersionViewModelAsync` stamps the returned
 ViewModel's `ExpectedVersionNumber` with the **current** draft's `VersionNumber` (never the historical
 row's). This is what lets a restore-edit of an *older* version save cleanly instead of failing the
-concurrency check with "changed by someone else".
+concurrency check with "changed by someone else". `MapRestoreAsync(historicalId, map)` wraps it for a handler
+whose form is a `BaseContentViewModel`.
+
+**Base defaults and helpers.** `AdminCrudModel<T>` supplies what most content types would otherwise copy:
+the version-history members (from `Store` and `ContentType`), `DeleteSelfAsync` (delete the node from `Store`),
+`GetApiListAsync` (every current draft as `{ id, title }`, titled by the overridable `PickerTitle`), and the
+protected helpers `LoadUpsertAsync(id, map)` (new form for a null/empty id, else the mapped current draft),
+`SaveDraftAsync(dto, form, failureMessage)` (save against the form's expected version and write back the node
+id) and `MapRestoreAsync`. `AdminSaveResult.FromWrite` maps a store write result. Override a default only where
+the type differs (`PageModel` and `RouteModel` delete more than their node; `RouteModel`'s history goes back to
+`/wadmin/cmsroutes`; registrations title pickers by display name). The typed per-type save overloads are gone from
+`IContentBlockModel`/`IImageModel`: every save goes through `SaveUpsertAsync(object)`, the sanitize/validate
+choke point.
+
+**Shared admin markup.** Index and edit views compose `_AdminPageHeader`, `_EmptyState`, `_RowPublishToggle`,
+`_RowMenu` and `_UpsertForm` (see the CLAUDE.md conventions); `AdminContentController` starts every action with
+one `Guard(contentType, out handler, supports:, roles:)` (404 / 404 / 403).
 
 ---
 

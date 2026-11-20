@@ -145,7 +145,7 @@ public class AdminUserManagementController : Controller
 
     private IActionResult Finish(UserManagementResult result, string? returnUrl, string fallback = DefaultReturnUrl)
     {
-        TempData[result.Success ? "Success" : "Error"] = result.Message;
-        return LocalRedirect(!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : fallback);
+        TempData.Flash(result.Success, result.Message);
+        return LocalRedirect(Url.LocalOrDefault(returnUrl, fallback)!);
     }
 }

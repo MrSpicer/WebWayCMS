@@ -16,6 +16,9 @@ public class AdminContentController : Controller
 {
     private static readonly Serilog.ILogger Logger = Serilog.Log.ForContext<AdminContentController>();
 
+    /// <summary>The flash when a Save and Publish saved the draft but the caller lacks the type's publish roles.</summary>
+    public const string PublishDeniedMessage = "Saved as a draft; you are not allowed to publish this content.";
+
     private readonly IAdminHandlerRegistry _registry;
     private readonly IWidgetRegistry _widgetRegistry;
     private readonly ContentRelationRegistry _relations;
@@ -32,6 +35,24 @@ public class AdminContentController : Controller
     private IActionResult HandlerNotFound(string contentType) =>
         NotFound($"No admin handler registered for content type '{contentType}'.");
 
+    /// <summary>
+    /// The checks every action starts with: the content type's handler must exist (404), support the action
+    /// (<paramref name="supports"/>, else 404), and the caller must hold the action's roles (<paramref name="roles"/>,
+    /// else 403). Returns the refusal, or null with <paramref name="handler"/> set.
+    /// </summary>
+    private IActionResult? Guard(
+        string contentType,
+        out IAdminCrudHandler handler,
+        Func<IAdminCrudHandler, bool>? supports = null,
+        Func<IAdminCrudHandler, string[]?>? roles = null)
+    {
+        handler = _registry.GetHandler(contentType)!;
+        if (handler == null) return HandlerNotFound(contentType);
+        if (supports != null && !supports(handler)) return NotFound();
+        if (roles != null && !HasWriteAccess(roles(handler))) return Forbid();
+        return null;
+    }
+
     private bool HasWriteAccess(string[]? writeRoles)
     {
         var granted = RoleAccess.Allows(writeRoles, User);
@@ -47,8 +68,7 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}")]
     public async Task<IActionResult> Index(string contentType, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
+        if (Guard(contentType, out var handler) is { } denied) return denied;
 
         var vm = await handler.GetIndexViewModelAsync(Request.Query, ct);
         return View(handler.IndexViewPath, vm);
@@ -58,8 +78,7 @@ public class AdminContentController : Controller
     [ActionName("Create")]
     public async Task<IActionResult> Create(string contentType, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
+        if (Guard(contentType, out var handler) is { } denied) return denied;
 
         var vm = await handler.GetUpsertViewModelAsync(null, Request.Query, ct) ?? handler.CreateEmptyUpsertViewModel();
         // A parent's "New {child}" link names the parent by its relation property (e.g. ?ArticleListId=…).
@@ -72,8 +91,7 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}/edit/{id:guid}")]
     public async Task<IActionResult> Edit(string contentType, Guid id, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
+        if (Guard(contentType, out var handler) is { } denied) return denied;
 
         var vm = await handler.GetUpsertViewModelAsync(id, Request.Query, ct);
         if (vm == null) return NotFound();
@@ -118,9 +136,7 @@ public class AdminContentController : Controller
     public async Task<IActionResult> ReorderRelated(
         string contentType, string relationName, Guid parentNodeId, [FromBody] List<Guid> orderedIds, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+        if (Guard(contentType, out var handler, roles: h => h.WriteRoles) is { } denied) return denied;
 
         var (success, errorMessage) = await handler.ReorderRelatedAsync(relationName, parentNodeId, orderedIds ?? [], ct);
         return success
@@ -134,10 +150,7 @@ public class AdminContentController : Controller
     public async Task<IActionResult> EditPost(
         string contentType, Guid? id, CancellationToken ct, string? submitAction = null, string? returnUrl = null)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+        if (Guard(contentType, out var handler, roles: h => h.WriteRoles) is { } denied) return denied;
 
         var model = handler.CreateEmptyUpsertViewModel();
         await TryUpdateModelAsync(model, model.GetType(), prefix: "");
@@ -156,14 +169,23 @@ public class AdminContentController : Controller
         }
 
         // Publishing applies to the modal path too: the picker's Publish button must go live, not
-        // strand the new item as a draft behind the early JSON return below.
+        // strand the new item as a draft behind the early JSON return below. "Save and Publish" posts this for a
+        // live item too. The publish is gated on PublishRoles like the Publish action; a caller who may write but
+        // not publish keeps the saved draft rather than losing the edit to a 403.
         if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase)
             && handler.SupportsPublishing
             && result.NodeId.HasValue)
         {
-            var publishResult = await handler.PublishAsync(result.NodeId.Value, ct);
-            if (!publishResult.Success)
-                TempData["Error"] = publishResult.ErrorMessage;
+            if (!HasWriteAccess(handler.PublishRoles))
+            {
+                TempData.FlashError(PublishDeniedMessage);
+            }
+            else
+            {
+                var publishResult = await handler.PublishAsync(result.NodeId.Value, ct);
+                if (!publishResult.Success)
+                    TempData.FlashError(publishResult.ErrorMessage);
+            }
         }
 
         if (isModal)
@@ -195,16 +217,13 @@ public class AdminContentController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(string contentType, Guid id, string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+        if (Guard(contentType, out var handler, roles: h => h.WriteRoles) is { } denied) return denied;
 
         var result = await handler.TryDeleteAsync(id, ct);
         if (!result.Success)
-            TempData["Error"] = result.ErrorMessage ?? "The item could not be deleted.";
+            TempData.FlashError(result.ErrorMessage ?? "The item could not be deleted.");
         else if (result.DeletedDescendants > 0)
-            TempData["Success"] = $"Deleted, together with the {result.DeletedDescendants} item(s) it contained.";
+            TempData.FlashSuccess($"Deleted, together with the {result.DeletedDescendants} item(s) it contained.");
         return RedirectToLocalOrIndex(contentType, returnUrl);
     }
 
@@ -214,42 +233,29 @@ public class AdminContentController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Publish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsPublishing) return NotFound();
-        if (!HasWriteAccess(handler.PublishRoles)) return Forbid();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsPublishing, roles: h => h.PublishRoles) is { } denied) return denied;
 
         var result = await handler.PublishAsync(nodeId, ct);
         if (!result.Success)
-            TempData["Error"] = result.ErrorMessage;
+            TempData.FlashError(result.ErrorMessage);
         else if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
-            TempData["Success"] = result.ErrorMessage;
+            TempData.FlashSuccess(result.ErrorMessage);
 
-        return RedirectAfterPublishing(contentType, returnUrl);
+        return RedirectToLocalOrIndex(contentType, returnUrl);
     }
 
     [HttpPost("{contentType:admincontenttype}/unpublish/{nodeId:guid}")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Unpublish(string contentType, Guid nodeId, [FromForm] string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsPublishing) return NotFound();
-        if (!HasWriteAccess(handler.PublishRoles)) return Forbid();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsPublishing, roles: h => h.PublishRoles) is { } denied) return denied;
 
         var result = await handler.UnpublishAsync(nodeId, ct);
         if (!result.Success)
-            TempData["Error"] = result.ErrorMessage;
+            TempData.FlashError(result.ErrorMessage);
 
-        return RedirectAfterPublishing(contentType, returnUrl);
+        return RedirectToLocalOrIndex(contentType, returnUrl);
     }
-
-    /// <summary>
-    /// Back to where the publish was requested from (e.g. the page zone editor's toolbar) when that is
-    /// a local URL; otherwise to the content type's index. Never redirects off-site.
-    /// </summary>
-    private IActionResult RedirectAfterPublishing(string contentType, string? returnUrl)
-        => RedirectToLocalOrIndex(contentType, returnUrl);
 
     /// <summary>
     /// To <paramref name="returnUrl"/> when it is local (e.g. a zone's item list, or the parent whose
@@ -269,9 +275,7 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}/preview/{nodeId:guid}")]
     public async Task<IActionResult> Preview(string contentType, Guid nodeId, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsPreview) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsPreview) is { } denied) return denied;
 
         return Redirect($"{PreviewConstants.PathPrefix}/{nodeId}");
     }
@@ -285,8 +289,7 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}/api/list")]
     public async Task<IActionResult> ApiList(string contentType, CancellationToken ct, [FromQuery] Guid? excludeSubtreeOf = null)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
+        if (Guard(contentType, out var handler) is { } denied) return denied;
 
         var items = excludeSubtreeOf is { } nodeId && nodeId != Guid.Empty
             ? await handler.GetApiListExcludingSubtreeAsync(nodeId, ct)
@@ -297,10 +300,7 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}/api/{key}")]
     public async Task<IActionResult> SecondaryApiList(string contentType, string key, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (!handler.HasSecondaryApiList) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.HasSecondaryApiList) is { } denied) return denied;
 
         var items = await handler.GetSecondaryApiListAsync(key, ct);
         return Json(items);
@@ -311,20 +311,14 @@ public class AdminContentController : Controller
     [HttpGet("{contentType:admincontenttype}/registry")]
     public IActionResult RegistryList(string contentType)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (handler.RegistryHandler == null) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.RegistryHandler != null) is { } denied) return denied;
         return handler.RegistryHandler.GetAll();
     }
 
     [HttpGet("{contentType:admincontenttype}/registry/{name}/properties")]
     public IActionResult RegistryProperties(string contentType, string name)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (handler.RegistryHandler == null) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.RegistryHandler != null) is { } denied) return denied;
         return handler.RegistryHandler.GetProperties(name);
     }
 
@@ -332,10 +326,7 @@ public class AdminContentController : Controller
     [ValidateAntiForgeryToken]
     public IActionResult RegistryForm(string contentType, string name, [FromBody] string? valuesJson, [FromQuery] string? displayMode = null)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-
-        if (handler.RegistryHandler == null) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.RegistryHandler != null) is { } denied) return denied;
 
         // ?displayMode=single|list renders only that mode's configuration fields; anything else
         // (including no value) renders every field.
@@ -379,9 +370,7 @@ public class AdminContentController : Controller
     [ActionName("VersionHistory")]
     public async Task<IActionResult> VersionHistory(string contentType, Guid nodeId, string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsVersionHistory) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsVersionHistory) is { } denied) return denied;
 
         var vm = await handler.GetVersionHistoryViewModelAsync(nodeId, ct);
         if (vm == null) return NotFound();
@@ -399,9 +388,7 @@ public class AdminContentController : Controller
     [ActionName("VersionRestoreEdit")]
     public async Task<IActionResult> VersionRestoreEdit(string contentType, Guid nodeId, Guid id, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsVersionHistory) return NotFound();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsVersionHistory) is { } denied) return denied;
 
         var vm = await handler.GetRestoreVersionViewModelAsync(id, ct);
         if (vm == null) return NotFound();
@@ -414,16 +401,13 @@ public class AdminContentController : Controller
     public async Task<IActionResult> RestoreVersion(
         string contentType, Guid nodeId, Guid id, int? expectedVersionNumber, string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsVersionHistory) return NotFound();
-        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsVersionHistory, roles: h => h.WriteRoles) is { } denied) return denied;
 
         var result = await handler.RestoreVersionAsync(id, expectedVersionNumber, ct);
         if (result.Success)
-            TempData["Success"] = "Version restored as a draft.";
+            TempData.FlashSuccess("Version restored as a draft.");
         else
-            TempData["Error"] = result.ErrorMessage;
+            TempData.FlashError(result.ErrorMessage);
 
         return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
@@ -433,19 +417,15 @@ public class AdminContentController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> VersionDelete(string contentType, Guid nodeId, Guid id, string? returnUrl, CancellationToken ct)
     {
-        var handler = _registry.GetHandler(contentType);
-        if (handler == null) return HandlerNotFound(contentType);
-        if (!handler.SupportsVersionHistory) return NotFound();
-        if (!HasWriteAccess(handler.WriteRoles)) return Forbid();
+        if (Guard(contentType, out var handler, supports: h => h.SupportsVersionHistory, roles: h => h.WriteRoles) is { } denied) return denied;
 
         var (success, error) = await handler.TryDeleteVersionAsync(id, ct);
         if (!success)
-            TempData["Error"] = error;
+            TempData.FlashError(error);
 
         return RedirectToAction(nameof(VersionHistory), new { contentType, nodeId, returnUrl = LocalReturnUrl(returnUrl) });
     }
 
     /// <summary>The return URL when it is local to this site, else null (never an open redirect).</summary>
-    private string? LocalReturnUrl(string? returnUrl)
-        => !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+    private string? LocalReturnUrl(string? returnUrl) => Url.LocalOrDefault(returnUrl);
 }

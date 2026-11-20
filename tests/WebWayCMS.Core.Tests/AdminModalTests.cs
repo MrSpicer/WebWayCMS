@@ -35,6 +35,7 @@ public class AdminModalTests
         _handler.UpsertViewPath.Returns("~/Upsert.cshtml");
         _handler.CreateEmptyUpsertViewModel().Returns(_ => new ModalModel());
         _handler.WriteRoles.Returns((string[]?)null);
+        _handler.PublishRoles.Returns((string[]?)null);
         _handler.RegistryHandler.Returns((IAdminRegistryHandler?)null);
         _registry.GetHandler("notes").Returns(_handler);
 

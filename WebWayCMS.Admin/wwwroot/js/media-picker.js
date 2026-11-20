@@ -8,11 +8,6 @@
 
     var UPLOAD_URL = '/api/media/upload';
 
-    function antiForgeryToken() {
-        var input = document.querySelector('input[name="__RequestVerificationToken"]');
-        return input ? input.value : '';
-    }
-
     function showError(picker, message) {
         var error = picker.querySelector('[data-image-picker-error]');
         if (!error) return;
@@ -42,19 +37,11 @@
         body.append('file', file);
 
         try {
-            var response = await fetch(UPLOAD_URL, {
+            var payload = await window.WebWayAdmin.fetchJson(UPLOAD_URL, {
                 method: 'POST',
                 body: body,
-                headers: { 'RequestVerificationToken': antiForgeryToken() },
-                credentials: 'same-origin'
+                fallbackError: 'The image could not be uploaded.'
             });
-
-            var payload = await response.json();
-
-            if (!response.ok) {
-                showError(picker, payload && payload.error ? payload.error : 'The image could not be uploaded.');
-                return;
-            }
 
             if (hidden) {
                 hidden.value = payload.hash;
@@ -63,7 +50,7 @@
             }
             setPreview(picker, payload.url);
         } catch (e) {
-            showError(picker, 'The image could not be uploaded.');
+            showError(picker, e.message || 'The image could not be uploaded.');
         }
     }
 

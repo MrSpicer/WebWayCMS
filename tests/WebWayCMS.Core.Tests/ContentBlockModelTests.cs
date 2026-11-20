@@ -119,12 +119,6 @@ public class ContentBlockModelTests
     }
 
     [Test]
-    public void SaveUpsertAsync_NullModel_Throws()
-    {
-        Assert.That(async () => await _model.SaveUpsertAsync((ContentBlockUpsertViewModel)null!), Throws.ArgumentNullException);
-    }
-
-    [Test]
     public async Task SaveUpsertAsync_SuccessAndFailure()
     {
         _store.SaveDraftAsync(Arg.Any<ContentBlockDTO>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())

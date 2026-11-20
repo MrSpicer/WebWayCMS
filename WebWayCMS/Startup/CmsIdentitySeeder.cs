@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Serilog;
 
+using WebWayCMS.Data.Models;
+
 namespace WebWayCMS.Startup;
 
 [ExcludeFromCodeCoverage]
@@ -30,7 +32,7 @@ internal static class CmsIdentitySeeder
             var userManager = services.GetRequiredService<UserManager<IdentityUser>>();
             var config = services.GetRequiredService<IConfiguration>();
 
-            var roles = new[] { "Admin", "Editor", "User" };
+            var roles = UserProfileRules.BuiltInRoles;
             foreach (var role in roles)
             {
                 var exists = roleManager.RoleExistsAsync(role).GetAwaiter().GetResult();
@@ -63,10 +65,10 @@ internal static class CmsIdentitySeeder
                 }
             }
 
-            var inRole = userManager.IsInRoleAsync(admin, "Admin").GetAwaiter().GetResult();
+            var inRole = userManager.IsInRoleAsync(admin, UserProfileRules.AdminRole).GetAwaiter().GetResult();
             if (!inRole)
             {
-                var ar = userManager.AddToRoleAsync(admin, "Admin").GetAwaiter().GetResult();
+                var ar = userManager.AddToRoleAsync(admin, UserProfileRules.AdminRole).GetAwaiter().GetResult();
                 if (!ar.Succeeded)
                 {
                     logger.Warning("Failed to add admin user {Email} to Admin role: {Errors}", adminEmail, string.Join(", ", ar.Errors.Select(e => e.Description)));

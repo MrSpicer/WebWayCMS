@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -96,13 +95,12 @@ internal static class CmsPageControllerSeeder
             if (attributeConfigType != null && baseConfigType != null && attributeConfigType != baseConfigType)
                 logger.Warning("Page controller '{ControllerName}' declares ConfigurationType={AttributeType} but its PageControllerBase<T> generic parameter is {BaseType} — they differ.", controllerName, attributeConfigType.FullName, baseConfigType.FullName);
 
-            var propertyDefinitionsJson = "[]";
+            var propertyDefinitionsJson = PropertyDefinitionsJson.Empty;
             if (effectiveConfigType != null)
             {
                 try
                 {
-                    var properties = FormPropertyBuilder.BuildPropertyInfos(effectiveConfigType);
-                    propertyDefinitionsJson = JsonSerializer.Serialize(properties);
+                    propertyDefinitionsJson = PropertyDefinitionsJson.Build(effectiveConfigType);
                 }
                 catch (Exception ex)
                 {

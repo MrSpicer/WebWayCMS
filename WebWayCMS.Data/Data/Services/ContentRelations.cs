@@ -61,11 +61,8 @@ public sealed class ContentRelations : IContentRelations
         => await _context.Set<ContentVersion>()
             .AsNoTracking()
             .IgnoreAutoIncludes()
-            .Where(v => v.NodeId == sourceNodeId
-                     && v.Culture == string.Empty
-                     && v.Segment == string.Empty
-                     && v.IsCurrentDraft
-                     && !v.Node.IsDeleted)
+            .CurrentDrafts()
+            .Where(v => v.NodeId == sourceNodeId)
             .SelectMany(v => v.Relations.Where(r => r.Name == name))
             .OrderBy(r => r.Ordinal)
             .Select(r => (Guid?)r.TargetNodeId)
@@ -80,11 +77,8 @@ public sealed class ContentRelations : IContentRelations
         return await _context.Set<ContentVersion>()
             .AsNoTracking()
             .IgnoreAutoIncludes()
-            .Where(v => ids.Contains(v.NodeId)
-                     && v.Culture == string.Empty
-                     && v.Segment == string.Empty
-                     && v.IsCurrentDraft
-                     && !v.Node.IsDeleted)
+            .CurrentDrafts()
+            .Where(v => ids.Contains(v.NodeId))
             .Select(v => new RelationNode(v.NodeId, v.Node.ContentTypeKey, v.Title))
             .ToDictionaryAsync(n => n.NodeId, ct);
     }

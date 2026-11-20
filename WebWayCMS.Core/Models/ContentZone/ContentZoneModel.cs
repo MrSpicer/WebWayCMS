@@ -28,13 +28,6 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
 
     protected override IContentStore<ContentZoneDTO> Store => _zoneStore;
 
-    protected override string VersionHistoryContentType => "contentzones";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/contentzones";
-    protected override Task<List<ContentZoneDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct)
-        => _zoneStore.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct)
-        => _zoneStore.DeleteVersionAsync(id, ct);
-
     public override string ContentType => "contentzones";
     public override string DisplayName => "Content Zone";
     public override string[]? WriteRoles => null;
@@ -351,21 +344,19 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
     }
 
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
+        => await LoadUpsertAsync(id, ToUpsertViewModel, ct);
+
+    /// <summary>The edit form for <paramref name="zone"/>, expecting its own version (a restore replaces the expectation).</summary>
+    private static ContentZoneUpsertViewModel ToUpsertViewModel(ContentZoneDTO zone) => new()
     {
-        if (id == null) return new ContentZoneUpsertViewModel();
-        var zone = await _zoneStore.GetCurrentDraftAsync(id.Value, ct);
-        if (zone == null) return null;
-        return new ContentZoneUpsertViewModel
-        {
-            NodeId = zone.Version.Node.Id,
-            ExpectedVersionNumber = zone.Version.VersionNumber,
-            Title = zone.Version.Title,
-            Slug = zone.Version.Slug,
-            Name = zone.Name,
-            Description = zone.Description,
-            IsPublished = zone.Version.State == ContentVersionState.Published,
-        };
-    }
+        NodeId = zone.Version.Node.Id,
+        ExpectedVersionNumber = zone.Version.VersionNumber,
+        Title = zone.Version.Title,
+        Slug = zone.Version.Slug,
+        Name = zone.Name,
+        Description = zone.Description,
+        IsPublished = zone.Version.State == ContentVersionState.Published,
+    };
 
     public override object CreateEmptyUpsertViewModel() => new ContentZoneUpsertViewModel();
 
@@ -374,64 +365,35 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
         var vm = (ContentZoneUpsertViewModel)model;
         var isEdit = vm.NodeId.HasValue && vm.NodeId != Guid.Empty;
 
-        ContentZoneDTO zone;
+        // An edit starts from the current draft (keeping what the form doesn't carry); a create from an empty zone.
+        var baseline = new ContentZoneDTO { Version = new ContentVersion() };
         if (isEdit)
         {
             var existing = await _zoneStore.GetCurrentDraftAsync(vm.NodeId!.Value, ct);
             if (existing == null)
                 return new AdminSaveResult(false, "Content zone not found.");
-
-            zone = existing with
-            {
-                Version = existing.Version with
-                {
-                    Title = vm.Title,
-                    Slug = vm.Slug ?? string.Empty,
-                },
-                Name = vm.Name,
-                Description = vm.Description,
-            };
-        }
-        else
-        {
-            zone = new ContentZoneDTO
-            {
-                Version = new ContentVersion
-                {
-                    Title = vm.Title,
-                    Slug = vm.Slug ?? string.Empty,
-                },
-                Name = vm.Name,
-                Description = vm.Description,
-            };
+            baseline = existing;
         }
 
-        var result = await _zoneStore.SaveDraftAsync(zone, vm.ExpectedVersionNumber, ct);
-        return result.Success ? new AdminSaveResult(true, NodeId: result.NodeId) : new AdminSaveResult(false, result.ErrorMessage ?? "Update failed.");
-    }
-
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
-    {
-        var zones = await _zoneStore.GetAllCurrentDraftsAsync(ct);
-        return zones.Select(z => (object)new { id = z.Version.Node.Id, title = !string.IsNullOrEmpty(z.Version.Title) ? z.Version.Title : z.Name });
-    }
-
-    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
-        if (loaded == null) return null;
-        var historical = loaded.Value.Historical;
-        return new ContentZoneUpsertViewModel
+        var zone = baseline with
         {
-            NodeId = historical.Version.Node.Id,
-            ExpectedVersionNumber = loaded.Value.CurrentVersionNumber,
-            Title = historical.Version.Title,
-            Slug = historical.Version.Slug,
-            Name = historical.Name,
-            Description = historical.Description,
-            IsPublished = historical.Version.State == ContentVersionState.Published,
+            Version = baseline.Version with
+            {
+                Title = vm.Title,
+                Slug = vm.Slug ?? string.Empty,
+            },
+            Name = vm.Name,
+            Description = vm.Description,
         };
+
+        return await SaveDraftAsync(zone, vm, "Update failed.", ct);
     }
+
+    protected override string PickerTitle(ContentZoneDTO item)
+        => !string.IsNullOrEmpty(item.Version.Title) ? item.Version.Title : item.Name;
+
+    public override Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+        => MapRestoreAsync(historicalId, ToUpsertViewModel, ct);
 
     internal async Task RegisterWidgetRouteIfRoutableAsync(
         string componentName, Guid itemNodeId, Guid zoneNodeId, bool isActive, CancellationToken ct)
@@ -576,10 +538,7 @@ public class ContentZoneModel : AdminCrudModel<ContentZoneDTO>, IContentZoneMode
                 var configType = ResolveType(_registry.GetByName(componentName)?.ConfigurationTypeName);
                 if (configType != null)
                 {
-                    var deserialized = JsonSerializer.Deserialize(json, configType, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                    var deserialized = JsonSerializer.Deserialize(json, configType, CmsJson.CaseInsensitive);
                     if (deserialized != null)
                     {
                         config = deserialized;

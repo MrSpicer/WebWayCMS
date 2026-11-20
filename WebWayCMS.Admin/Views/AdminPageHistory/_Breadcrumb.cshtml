@@ -1,23 +1,13 @@
 @* Shared header of the page-history screens. Model: (page node id, page title, current crumb, entry id or null). *@
 @model (Guid PageNodeId, string PageTitle, string Current, Guid? EntryId)
+@{
+    var crumbs = new List<AdminCrumb>
+    {
+        new("Pages", Url.Action("Index", "AdminContent", new { contentType = "pages" })!),
+        new(Model.PageTitle, Url.Action("PageZones", "AdminContentZone", new { pageNodeId = Model.PageNodeId })!),
+    };
+    if (Model.EntryId.HasValue)
+        crumbs.Add(new("History", Url.Action("Index", "AdminPageHistory", new { pageNodeId = Model.PageNodeId })!));
+}
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
-                        <li><a asp-controller="AdminContentZone" asp-action="PageZones" asp-route-pageNodeId="@Model.PageNodeId">@Model.PageTitle</a></li>
-                        @if (Model.EntryId.HasValue)
-                        {
-                            <li><a asp-controller="AdminPageHistory" asp-action="Index" asp-route-pageNodeId="@Model.PageNodeId">History</a></li>
-                        }
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-            </div>
-        </div>
-    </div>
-</div>
-
+<partial name="_AdminPageHeader" model='new AdminPageHeaderModel((string)ViewData["Title"]!) { Crumbs = crumbs }' />

@@ -1392,4 +1392,19 @@ public class ContentZoneModelTests
         Assert.That(result, Does.Contain("Safe"));
         Assert.That(result, Does.Not.Contain("script"));
     }
+
+    [Test]
+    public async Task GetApiListAsync_TitlesByVersionTitleElseName()
+    {
+        _zoneStore.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<ContentZoneDTO>
+        {
+            new ContentZoneDTO { Name = "named", Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "" } },
+            new ContentZoneDTO { Name = "n", Version = new ContentVersion { Node = new ContentNode { Id = Guid.NewGuid() }, Title = "HasTitle" } },
+        });
+
+        Assert.That(Titles(await _model.GetApiListAsync()), Is.EqualTo(new object?[] { "named", "HasTitle" }));
+    }
+
+    private static List<object?> Titles(IEnumerable<object> list)
+        => list.Select(o => o.GetType().GetProperty("title")!.GetValue(o)).ToList();
 }

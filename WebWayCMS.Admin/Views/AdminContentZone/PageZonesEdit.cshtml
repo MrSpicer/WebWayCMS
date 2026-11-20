@@ -4,23 +4,17 @@
 @{
     ViewData["Title"] = $"Edit Zones: {Model.PageTitle}";
     var editorUrl = Url.Action("PageZones", "AdminContentZone", new { pageNodeId = Model.PageNodeId });
+    var header = new AdminPageHeaderModel((string)ViewData["Title"]!)
+    {
+        Crumbs =
+        [
+            new AdminCrumb("Pages", Url.Action("Index", "AdminContent", new { contentType = "pages" })!),
+            new AdminCrumb(Model.PageTitle, Url.Action("Edit", "AdminContent", new { contentType = "pages", id = Model.PageNodeId })!),
+        ],
+    };
 }
 
-<div class="admin-page-header">
-    <div class="container is-fluid">
-        <div class="admin-page-title-row">
-            <div class="admin-page-heading">
-                <nav class="breadcrumb" aria-label="breadcrumbs">
-                    <ul>
-                        <li><a asp-controller="AdminContent" asp-action="Index" asp-route-contentType="pages">Pages</a></li>
-                        <li><a asp-controller="AdminContent" asp-action="Edit" asp-route-contentType="pages" asp-route-id="@Model.PageNodeId">@Model.PageTitle</a></li>
-                    </ul>
-                </nav>
-                <h1 class="title is-5">@ViewData["Title"]</h1>
-            </div>
-        </div>
-    </div>
-</div>
+<partial name="_AdminPageHeader" model="header" />
 
 <div class="container is-fluid admin-page-body">
 

@@ -1,0 +1,44 @@
+@* The "⋯" actions menu of an admin list row: optional items, Version history, a divider, then Delete (opens the
+   shared delete modal, _DeleteConfirmModal + admin.js). *@
+@model WebWayCMS.Admin.Partials.RowMenuModel
+@{
+    var menuId = "row-menu-" + Model.Id;
+    var deleteUrl = Url.Action("Delete", "AdminContent", new { contentType = Model.ContentType, id = Model.Id, returnUrl = Model.DeleteReturnUrl });
+}
+
+<div class="dropdown is-right admin-row-menu">
+    <div class="dropdown-trigger">
+        <button type="button" class="button is-small admin-row-menu-trigger" data-row-menu-trigger
+                aria-haspopup="true" aria-expanded="false" aria-controls="@menuId"
+                aria-label="More actions for @Model.Title">
+            <span class="icon"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></span>
+        </button>
+    </div>
+    <div class="dropdown-menu" id="@menuId" role="menu">
+        <div class="dropdown-content">
+            @Model.ItemsBefore?.Invoke(null)
+            @if (Model.ShowHistory)
+            {
+                <a href="@Url.Action("VersionHistory", "AdminContent", new { contentType = Model.ContentType, nodeId = Model.Id })" class="dropdown-item" role="menuitem">
+                    <span class="icon"><i class="fas fa-history" aria-hidden="true"></i></span>
+                    <span>Version history</span>
+                </a>
+            }
+            @Model.ItemsAfter?.Invoke(null)
+            @if (Model.HasItemsAboveDivider)
+            {
+                <hr class="dropdown-divider" />
+            }
+            @Model.DangerItems?.Invoke(null)
+            <button type="button" class="dropdown-item is-danger" role="menuitem"
+                    data-delete-trigger
+                    data-delete-name="@(Model.DeleteName ?? Model.Title)"
+                    data-delete-descendants="@Model.DeleteDescendants"
+                    data-delete-descendant-label="@Model.DeleteDescendantLabel"
+                    data-delete-url="@deleteUrl">
+                <span class="icon"><i class="fas fa-trash" aria-hidden="true"></i></span>
+                <span>Delete</span>
+            </button>
+        </div>
+    </div>
+</div>

@@ -42,6 +42,19 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
+    // The picker's list endpoint answers [{ id, title }] (see entityId / entityTitle).
+    function fetchEntities(endpoint) {
+        return window.WebWayAdmin.fetchJson(endpoint, { fallbackError: 'Failed to load entities' });
+    }
+
+    // The single-option placeholder a picker shows while it loads or when it cannot.
+    function placeholderOption(kind, entityType) {
+        var text = kind === 'unknown' ? 'Unknown entity type: ' + entityType
+            : kind === 'loading' ? 'Loading ' + entityType + 's...'
+            : 'Failed to load ' + entityType + 's';
+        return '<option value="">-- ' + escapeHtml(text) + ' --</option>';
+    }
+
     function loadEntityPickerOptions(select, entityType) {
         if (select.dataset.entityPickerLoading) return;
         select.dataset.entityPickerLoading = 'true';
@@ -50,20 +63,16 @@
         // host content types work without a client-side map.
         var endpoint = pickerEndpoint(select);
         if (!endpoint) {
-            select.innerHTML = '<option value="">-- Unknown entity type: ' + escapeHtml(entityType) + ' --</option>';
+            select.innerHTML = placeholderOption('unknown', entityType);
             select.style.display = '';
             return;
         }
 
         var currentValue = select.dataset.currentValue || '';
-        select.innerHTML = '<option value="">-- Loading ' + escapeHtml(entityType) + 's... --</option>';
+        select.innerHTML = placeholderOption('loading', entityType);
         select.style.display = '';
 
-        fetch(endpoint)
-            .then(function (r) {
-                if (!r.ok) throw new Error('Failed to load entities');
-                return r.json();
-            })
+        fetchEntities(endpoint)
             .then(function (entities) {
                 var options = '<option value="">-- Select --</option>';
                 entities.forEach(function (entity) {
@@ -77,7 +86,7 @@
             })
             .catch(function (error) {
                 console.error('Error loading entities for ' + entityType + ':', error);
-                select.innerHTML = '<option value="">-- Failed to load ' + escapeHtml(entityType) + 's --</option>';
+                select.innerHTML = placeholderOption('failed', entityType);
             });
     }
 
@@ -90,18 +99,14 @@
         var endpoint = pickerEndpoint(container);
         var addSelect = container.querySelector('select.entity-picker-add');
         if (!endpoint) {
-            if (addSelect) addSelect.innerHTML = '<option value="">-- Unknown entity type: ' + escapeHtml(entityType) + ' --</option>';
+            if (addSelect) addSelect.innerHTML = placeholderOption('unknown', entityType);
             return;
         }
 
         container._entityTitles = {};
-        if (addSelect) addSelect.innerHTML = '<option value="">-- Loading ' + escapeHtml(entityType) + 's... --</option>';
+        if (addSelect) addSelect.innerHTML = placeholderOption('loading', entityType);
 
-        fetch(endpoint)
-            .then(function (r) {
-                if (!r.ok) throw new Error('Failed to load entities');
-                return r.json();
-            })
+        fetchEntities(endpoint)
             .then(function (entities) {
                 entities.forEach(function (entity) {
                     container._entityTitles[String(entityId(entity))] = entityTitle(entity);
@@ -125,7 +130,7 @@
             })
             .catch(function (error) {
                 console.error('Error loading entities for ' + entityType + ':', error);
-                if (addSelect) addSelect.innerHTML = '<option value="">-- Failed to load ' + escapeHtml(entityType) + 's --</option>';
+                if (addSelect) addSelect.innerHTML = placeholderOption('failed', entityType);
             });
     }
 
@@ -279,6 +284,7 @@
     window.WebWayFormComponents = {
         loadEntityPickerOptions: loadEntityPickerOptions,
         serializeDataProps: serializeDataProps,
+        readMultiValues: readMultiValues,
         setMultiValues: function (container, values) {
             writeMultiValues(container, values.map(String));
         },

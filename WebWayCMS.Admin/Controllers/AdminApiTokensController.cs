@@ -36,8 +36,7 @@ public class AdminApiTokensController : Controller
     {
         var actingUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         var (success, error) = await _tokens.RevokeAsync(id, actingUserId, actingIsAdmin: true, ct);
-        if (success) TempData["Success"] = "The token was revoked.";
-        else TempData["Error"] = error;
+        TempData.Flash(success, success ? "The token was revoked." : error);
         return RedirectToAction(nameof(Index));
     }
 }

@@ -31,14 +31,9 @@ public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IA
 
     protected override IContentStore<ArticleDTO> Store => _store;
 
-    protected override string VersionHistoryContentType => "articles";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/articles";
-    protected override Task<List<ArticleDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
-
     public override string ContentType => "articles";
     public override string DisplayName => "Article";
-    public override string[]? WriteRoles => ["Admin", "Editor"];
+    public override string[]? WriteRoles => UserProfileRules.AdminOrEditor;
     public override string IndexViewPath => "~/Views/AdminArticle/Articles.cshtml";
     public override string UpsertViewPath => "~/Views/AdminArticle/Upsert.cshtml";
 
@@ -120,13 +115,7 @@ public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IA
     }
 
     public override async Task<object?> GetUpsertViewModelAsync(Guid? id, IQueryCollection query, CancellationToken ct = default)
-    {
-        if (id == null || id == Guid.Empty)
-            return new ArticleUpsertViewModel();
-
-        var dto = await _store.GetCurrentDraftAsync(id.Value, ct);
-        return dto == null ? null : _mapper.Map<ArticleUpsertViewModel>(dto);
-    }
+        => await LoadUpsertAsync(id, _mapper.Map<ArticleUpsertViewModel>, ct);
 
     public override object CreateEmptyUpsertViewModel() => new ArticleUpsertViewModel();
 
@@ -139,13 +128,7 @@ public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IA
         if (!await IsSlugAvailableAsync(vm.Title, vm.Slug, excludeNodeId, ct))
             return new AdminSaveResult(false, "Another article already uses this slug.", nameof(ArticleUpsertViewModel.Slug));
 
-        var dto = _mapper.Map<ArticleDTO>(vm);
-        var result = await _store.SaveDraftAsync(dto, vm.ExpectedVersionNumber, ct);
-        if (!result.Success)
-            return new AdminSaveResult(false, result.ErrorMessage ?? "Unable to update article. It may have been removed.");
-
-        vm.NodeId = result.NodeId;
-        return new AdminSaveResult(true, NodeId: result.NodeId);
+        return await SaveDraftAsync(_mapper.Map<ArticleDTO>(vm), vm, "Unable to update article. It may have been removed.", ct);
     }
 
     /// <summary>
@@ -159,23 +142,8 @@ public sealed class ArticleModel : AdminCrudModel<ArticleDTO>, IArticleModel, IA
         return clashes.All(a => a.Version.Node.Id == excludeNodeId);
     }
 
-    protected override Task<bool> DeleteSelfAsync(Guid id, CancellationToken ct = default)
-        => _store.DeleteAsync(id, softDelete: false, ct);
-
-    public override async Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
-    {
-        var loaded = await LoadRestoreVersionAsync(historicalId, ct);
-        if (loaded == null) return null;
-        var vm = _mapper.Map<ArticleUpsertViewModel>(loaded.Value.Historical);
-        vm.ExpectedVersionNumber = loaded.Value.CurrentVersionNumber;
-        return vm;
-    }
-
-    public override async Task<IEnumerable<object>> GetApiListAsync(CancellationToken ct = default)
-    {
-        var articles = await _store.GetAllCurrentDraftsAsync(ct);
-        return articles.Select(a => (object)new { id = a.Version.Node.Id, title = a.Version.Title ?? string.Empty });
-    }
+    public override Task<object?> GetRestoreVersionViewModelAsync(Guid historicalId, CancellationToken ct = default)
+        => MapRestoreAsync(historicalId, _mapper.Map<ArticleUpsertViewModel>, ct);
 
     private static Guid? ParseListFilter(IQueryCollection query)
         => Guid.TryParse(query[ListQueryKey].FirstOrDefault(), out var id) && id != Guid.Empty

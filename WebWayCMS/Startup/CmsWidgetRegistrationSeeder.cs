@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
@@ -94,13 +93,12 @@ internal static class CmsWidgetRegistrationSeeder
             if (existingNames.Contains(componentName))
                 continue;
 
-            var propertyDefinitionsJson = "[]";
+            var propertyDefinitionsJson = PropertyDefinitionsJson.Empty;
             if (attribute.ConfigurationType != null)
             {
                 try
                 {
-                    var properties = FormPropertyBuilder.BuildPropertyInfos(attribute.ConfigurationType);
-                    propertyDefinitionsJson = JsonSerializer.Serialize(properties);
+                    propertyDefinitionsJson = PropertyDefinitionsJson.Build(attribute.ConfigurationType);
                 }
                 catch (Exception ex)
                 {

@@ -28,6 +28,8 @@ public sealed class ContentZoneService : IContentZoneService
     private readonly ICMSRouteService _routeService;
     private readonly PageZoneTree _tree;
     private readonly IPageHistoryRecorder _recorder;
+    // Built over the same scoped context (not injected): every zone write path shares its transaction semantics.
+    private readonly ICmsTransaction _transaction;
 
     /// <summary>The change note of a widget renumbered because another widget moved past it.</summary>
     internal const string SiblingNote = "Position changed (moved by another widget)";
@@ -50,6 +52,7 @@ public sealed class ContentZoneService : IContentZoneService
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
         _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
+        _transaction = new CmsTransaction(_context);
     }
 
     // ─── item resolution ──────────────────────────────────────────────────────
@@ -103,25 +106,13 @@ public sealed class ContentZoneService : IContentZoneService
         if (zone != null)
             return zone;
 
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
+        // Re-read inside the transaction: a concurrent first use may have created it meanwhile.
+        await _transaction.RunAsync(async token =>
         {
-            zone = await GetZoneByNameIncludingDraftsAsync(name, ct);
-            if (zone != null)
-            {
-                await transaction.RollbackAsync(ct);
-                return zone;
-            }
-
-            zone = await CreatePublishedZoneAsync(name, ct);
-            await transaction.CommitAsync(ct);
-            return zone;
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+            zone = await GetZoneByNameIncludingDraftsAsync(name, token) ?? await CreatePublishedZoneAsync(name, token);
+            return true;
+        }, ct);
+        return zone!;
     }
 
     public async Task<List<OwnedZone>> GetOwnedZonesForPageAsync(Guid pageNodeId, CancellationToken ct = default)
@@ -803,35 +794,14 @@ public sealed class ContentZoneService : IContentZoneService
     }
 
     /// <summary>
-    /// Runs a multi-save write in one DB transaction, committing only when it succeeds. On failure the
-    /// rollback restores the rows, and the change tracker is cleared too: the earlier saves left it
-    /// holding values the database no longer has, which the scoped context would otherwise serve back
+    /// Runs a multi-save write in one DB transaction (<see cref="CmsTransaction"/>), committing only when it
+    /// succeeds. On failure the rollback restores the rows and clears the change tracker: the earlier saves left
+    /// it holding values the database no longer has, which the scoped context would otherwise serve back
     /// (identity resolution) or replay on its next SaveChanges.
     /// </summary>
-    private async Task<(bool Success, string? ErrorMessage)> RunAtomicallyAsync(
+    private Task<(bool Success, string? ErrorMessage)> RunAtomicallyAsync(
         Func<Task<(bool Success, string? ErrorMessage)>> write, CancellationToken ct)
-    {
-        using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        try
-        {
-            var result = await write();
-            if (result.Success)
-            {
-                await transaction.CommitAsync(ct);
-                return result;
-            }
-
-            await transaction.RollbackAsync(ct);
-            _context.ChangeTracker.Clear();
-            return result;
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            _context.ChangeTracker.Clear();
-            throw;
-        }
-    }
+        => _transaction.RunWithResultAsync(_ => write(), ct);
 
     /// <summary>
     /// Writes ordinals 1..n for <paramref name="itemsInOrder"/>, all placed in <paramref name="zoneNodeId"/>
@@ -927,11 +897,8 @@ public sealed class ContentZoneService : IContentZoneService
             ? []
             : await _context.Set<ContentZoneItemDTO>()
                 .AsNoTracking()
-                .Where(i => i.Version.State == ContentVersionState.Published
-                         && i.Version.Culture == string.Empty
-                         && i.Version.Segment == string.Empty
-                         && !i.Version.Node.IsDeleted
-                         && !liveIds.Contains(i.Version.NodeId))
+                .Published()
+                .Where(i => !liveIds.Contains(i.Version.NodeId))
                 .Where(ZoneRelations.InZones(zoneIds))
                 .ToListAsync(ct);
 
@@ -982,11 +949,8 @@ public sealed class ContentZoneService : IContentZoneService
     private IQueryable<ContentZoneItemDTO> PendingItems()
         => _context.Set<ContentZoneItemDTO>()
             .AsNoTracking()
-            .Where(i => i.Version.IsCurrentDraft
-                     && i.Version.Culture == string.Empty
-                     && i.Version.Segment == string.Empty
-                     && i.Version.State != ContentVersionState.Published
-                     && !i.Version.Node.IsDeleted);
+            .CurrentDrafts()
+            .Where(i => i.Version.State != ContentVersionState.Published);
 
     /// <summary>
     /// The owner's zone in <paramref name="slotName"/>: the existing one when <paramref name="owned"/> resolves,

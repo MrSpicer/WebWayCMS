@@ -1,0 +1,40 @@
+@* The one-row admin page header: ancestor crumbs, title, optional node id subtitle, "New …" button and actions. *@
+@model WebWayCMS.Admin.Partials.AdminPageHeaderModel
+
+<div class="admin-page-header">
+    <div class="container@(Model.Fluid ? " is-fluid" : "")">
+        <div class="admin-page-title-row">
+            <div class="admin-page-heading">
+                @if (Model.Crumbs.Count > 0)
+                {
+                    <nav class="breadcrumb" aria-label="breadcrumbs">
+                        <ul>
+                            @foreach (var crumb in Model.Crumbs)
+                            {
+                                <li><a href="@crumb.Url">@crumb.Label</a></li>
+                            }
+                        </ul>
+                    </nav>
+                }
+                <h1 class="title is-5">@Model.Title</h1>
+                @if (Model.NodeId is { } nodeId && nodeId != Guid.Empty)
+                {
+                    <p class="subtitle is-7 has-text-grey"><code class="is-size-7" title="@nodeId">@nodeId</code></p>
+                }
+                @if (!string.IsNullOrEmpty(Model.Subtitle))
+                {
+                    <p class="subtitle is-7 has-text-grey">@Model.Subtitle</p>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(Model.NewUrl) && !string.IsNullOrEmpty(Model.NewLabel))
+            {
+                <a href="@Model.NewUrl" class="button is-primary is-small">
+                    <span class="icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+                    <span>@Model.NewLabel</span>
+                </a>
+            }
+            @Model.Actions?.Invoke(null)
+        </div>
+        @Model.Below?.Invoke(null)
+    </div>
+</div>

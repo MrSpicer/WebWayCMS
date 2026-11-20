@@ -24,12 +24,7 @@
     </span>
 </div>
 
-@if (!Context.Items.ContainsKey("ContentZoneEditAntiForgeryLoaded"))
-{
-    Context.Items["ContentZoneEditAntiForgeryLoaded"] = true;
-    @Html.AntiForgeryToken()
-}
-
+@* The zone scripts send the antiforgery token from _AdminLayout's csrf-token meta tag (WebWayAdmin.token()). *@
 @if (!Context.Items.ContainsKey("ContentZoneEditCssLoaded"))
 {
     Context.Items["ContentZoneEditCssLoaded"] = true;
@@ -207,6 +202,7 @@
 @if (!Context.Items.ContainsKey("ContentZoneEditJsLoaded"))
 {
     Context.Items["ContentZoneEditJsLoaded"] = true;
-    <script src="~/_content/WebWayCMS.Admin/js/content-zone-edit.js"></script>
-    <script src="~/_content/WebWayCMS.Admin/js/content-zone-drag.js"></script>
+    @* Deferred so they run after _AdminLayout's admin.js (WebWayAdmin), which loads at the end of the body. *@
+    <script src="~/_content/WebWayCMS.Admin/js/content-zone-edit.js" asp-append-version="true" defer></script>
+    <script src="~/_content/WebWayCMS.Admin/js/content-zone-drag.js" asp-append-version="true" defer></script>
 }

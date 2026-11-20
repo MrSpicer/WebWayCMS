@@ -264,7 +264,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
         try
         {
             return JsonSerializer.Deserialize<T>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                CmsJson.CaseInsensitive);
         }
         catch
         {
@@ -282,7 +282,7 @@ public class CMSRouteTransformer : DynamicRouteValueTransformer
             try
             {
                 config = JsonSerializer.Deserialize(json, configurationType,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    CmsJson.CaseInsensitive)
                     ?? Activator.CreateInstance(configurationType)!;
             }
             catch

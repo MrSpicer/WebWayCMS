@@ -109,23 +109,13 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     // ─── current-draft reads (admin) ──────────────────────────────────────────
 
     public Task<T?> GetCurrentDraftAsync(Guid nodeId, CancellationToken ct = default)
-        => _set.AsNoTracking()
-               .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
-                                      && e.Version.Culture == string.Empty
-                                      && e.Version.Segment == string.Empty
-                                      && e.Version.IsCurrentDraft
-                                      && !e.Version.Node.IsDeleted, ct);
+        => CurrentDrafts().FirstOrDefaultAsync(e => e.Version.NodeId == nodeId, ct);
 
     public Task<T?> GetCurrentDraftBySlugAsync(string slug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(slug))
             return Task.FromResult<T?>(null);
-        return _set.AsNoTracking()
-                   .FirstOrDefaultAsync(e => e.Version.Culture == string.Empty
-                                          && e.Version.Segment == string.Empty
-                                          && e.Version.IsCurrentDraft
-                                          && !e.Version.Node.IsDeleted
-                                          && e.Version.Slug == slug, ct);
+        return CurrentDrafts().FirstOrDefaultAsync(e => e.Version.Slug == slug, ct);
     }
 
     public Task<List<T>> GetAllCurrentDraftsAsync(CancellationToken ct = default)
@@ -170,18 +160,11 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
     /// <summary>The invariant-culture, live (not deleted) current draft of every node.</summary>
     private IQueryable<T> CurrentDrafts()
-        => _set.AsNoTracking()
-               .Where(e => e.Version.Culture == string.Empty
-                        && e.Version.Segment == string.Empty
-                        && e.Version.IsCurrentDraft
-                        && !e.Version.Node.IsDeleted);
+        => _set.AsNoTracking().CurrentDrafts();
 
     public Task<HashSet<Guid>> GetPublishedNodeIdsAsync(CancellationToken ct = default)
         => _set.AsNoTracking()
-               .Where(e => e.Version.Culture == string.Empty
-                        && e.Version.Segment == string.Empty
-                        && e.Version.State == ContentVersionState.Published
-                        && !e.Version.Node.IsDeleted)
+               .Published()
                .Select(e => e.Version.NodeId)
                .Distinct()
                .ToHashSetAsync(ct);
@@ -214,9 +197,8 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
             return new ContentWriteResult(true, VersionId: currentDraft.Id, NodeId: nodeId);
 
         var otherPublished = await _versions
+            .DefaultVariant()
             .Where(v => v.NodeId == nodeId
-                     && v.Culture == string.Empty
-                     && v.Segment == string.Empty
                      && v.State == ContentVersionState.Published
                      && v.Id != currentDraft.Id)
             .ToListAsync(ct);
@@ -256,10 +238,8 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         if (currentDraft.State == ContentVersionState.Draft)
         {
             var published = await _versions
-                .Where(v => v.NodeId == nodeId
-                         && v.Culture == string.Empty
-                         && v.Segment == string.Empty
-                         && v.State == ContentVersionState.Published)
+                .DefaultVariant()
+                .Where(v => v.NodeId == nodeId && v.State == ContentVersionState.Published)
                 .ToListAsync(ct);
             foreach (var v in published)
                 v.State = ContentVersionState.Archived;
@@ -350,21 +330,12 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         var nodeId = historical.Version.NodeId;
         using var _ = EnsureScope(ChangeSetKind.Restore, nodeId);
 
-        var currentDraft = await _set
-            .Include(e => e.Version)
-            .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
-                                   && e.Version.Culture == string.Empty
-                                   && e.Version.Segment == string.Empty
-                                   && e.Version.IsCurrentDraft, ct);
+        var currentDraft = await TrackedCurrentDraftAsync(nodeId, ct);
 
         if (currentDraft != null && currentDraft.VersionId == versionId)
             return new ContentWriteResult(true, VersionId: versionId, NodeId: nodeId);
 
-        var maxNumber = await _set
-            .Where(e => e.Version.NodeId == nodeId
-                     && e.Version.Culture == string.Empty
-                     && e.Version.Segment == string.Empty)
-            .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
+        var maxNumber = await MaxVersionNumberAsync(nodeId, ct);
         var newNumber = maxNumber + 1;
 
         // A restore brings back exactly the historical relations (a loaded version has no pending writes).
@@ -569,12 +540,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     private async Task<ContentWriteResult> EditDraftAsync(T entity, Guid nodeId, int? expectedVersionNumber, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var currentDraft = await _set
-            .Include(e => e.Version)
-            .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId
-                                   && e.Version.Culture == string.Empty
-                                   && e.Version.Segment == string.Empty
-                                   && e.Version.IsCurrentDraft, ct);
+        var currentDraft = await TrackedCurrentDraftAsync(nodeId, ct);
 
         if (currentDraft == null)
             return new ContentWriteResult(false, NotFoundMessage);
@@ -584,11 +550,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
         // Every save is history: versions are never rewritten in place, so each save mints a new current
         // draft and the previous one (published or not) stays restorable.
-        var maxNumber = await _set
-            .Where(e => e.Version.NodeId == nodeId
-                     && e.Version.Culture == string.Empty
-                     && e.Version.Segment == string.Empty)
-            .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
+        var maxNumber = await MaxVersionNumberAsync(nodeId, ct);
 
         // The current draft's relations carry forward; only the names the caller wrote change.
         var newVersion = BuildVersion(entity.Version, currentDraft.Version.Relations, nodeId, maxNumber + 1,
@@ -692,11 +654,19 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     }
 
     private Task<ContentVersion?> FindCurrentDraftAsync(Guid nodeId, CancellationToken ct)
-        => _versions.FirstOrDefaultAsync(
-            v => v.NodeId == nodeId
-              && v.Culture == string.Empty
-              && v.Segment == string.Empty
-              && v.IsCurrentDraft, ct);
+        => _versions.DefaultVariant().FirstOrDefaultAsync(v => v.NodeId == nodeId && v.IsCurrentDraft, ct);
+
+    /// <summary>The default variant's current draft of <paramref name="nodeId"/>, tracked, with its version (deleted nodes included).</summary>
+    private Task<T?> TrackedCurrentDraftAsync(Guid nodeId, CancellationToken ct)
+        => _set.Include(e => e.Version)
+               .DefaultVariant()
+               .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId && e.Version.IsCurrentDraft, ct);
+
+    /// <summary>The highest version number of <paramref name="nodeId"/>'s default variant (0 for none).</summary>
+    private async Task<int> MaxVersionNumberAsync(Guid nodeId, CancellationToken ct)
+        => await _set.DefaultVariant()
+               .Where(e => e.Version.NodeId == nodeId)
+               .MaxAsync(e => (int?)e.Version.VersionNumber, ct) ?? 0;
 
     private IDisposable? EnsureScope(ChangeSetKind kind, Guid? rootNodeId)
         => _changeSetScope.Current == Guid.Empty

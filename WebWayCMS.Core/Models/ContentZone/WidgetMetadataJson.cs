@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Forms;
 using WebWayCMS.Security;
 
 namespace WebWayCMS.Models.ContentZone;
@@ -19,7 +20,7 @@ public static class WidgetMetadataJson
     /// <summary>Column length cap (matches the EF configuration).</summary>
     public const int MaxLength = 4000;
 
-    private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions ReadOptions = CmsJson.CaseInsensitive;
 
     private static readonly JsonSerializerOptions WriteOptions = new()
     {

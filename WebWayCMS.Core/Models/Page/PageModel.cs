@@ -34,11 +34,6 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
 
     protected override IContentStore<PageDTO> Store => _store;
 
-    protected override string VersionHistoryContentType => "pages";
-    protected override string GetVersionHistoryBackUrl(string? parentKey = null) => "/wadmin/pages";
-    protected override Task<List<PageDTO>> GetAllVersionsAsync(Guid nodeId, CancellationToken ct) => _store.GetAllVersionsAsync(nodeId, ct);
-    protected override Task<bool> DeleteVersionCoreAsync(Guid id, CancellationToken ct) => _store.DeleteVersionAsync(id, ct);
-
     public override string ContentType => "pages";
     public override string DisplayName => "Page";
     public override string IndexViewPath => "~/Views/AdminPage/Pages.cshtml";
@@ -168,7 +163,7 @@ public sealed class PageModel : AdminCrudModel<PageDTO>, IPageModel, IRoutableCo
             await _routeRegistration.UnregisterContentRoutesAsync(nodeId, ct);
             await _contentZoneService.DeletePageZonesAsync(nodeId, ct);
         }
-        return await _store.DeleteAsync(nodeId, softDelete: false, ct);
+        return await base.DeleteSelfAsync(nodeId, ct);
     }
 
     public Task<VersionHistoryViewModel?> GetVersionHistoryAsync(Guid nodeId, CancellationToken ct = default)

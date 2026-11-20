@@ -18,12 +18,9 @@ public sealed class WidgetRegistrationService : IWidgetRegistrationService
     {
         return await _context.Set<WidgetRegistrationDTO>()
             .AsNoTracking()
-            .Where(w => w.IsActive
-                && w.Version.State == ContentVersionState.Published
-                && !w.Version.Node.IsDeleted)
-            .OrderBy(w => w.Category)
-            .ThenBy(w => w.Order)
-            .ThenBy(w => w.DisplayName)
+            .Published()
+            .Where(w => w.IsActive)
+            .InDisplayOrder()
             .ToListAsync(ct);
     }
 
@@ -39,8 +36,6 @@ public sealed class WidgetRegistrationService : IWidgetRegistrationService
     public async Task<Dictionary<string, List<WidgetRegistrationDTO>>> GetActiveByCategoryAsync(CancellationToken ct = default)
     {
         var active = await GetActiveAsync(ct);
-        return active
-            .GroupBy(w => w.Category, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        return active.GroupByCategory();
     }
 }

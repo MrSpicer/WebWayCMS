@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using WebWayCMS.Attributes;
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers.Admin.Handlers;
+using WebWayCMS.Forms;
 using WebWayCMS.Services;
 
 namespace WebWayCMS.Models.ContentZone;
@@ -14,33 +15,6 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
     private readonly IViewDiscoveryService _viewDiscoveryService;
     private readonly Serilog.ILogger _logger =
         Serilog.Log.ForContext<ContentZoneRegistryHandler>();
-
-    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    private static Type? ResolveConfigurationType(string? configurationTypeName)
-    {
-        if (string.IsNullOrWhiteSpace(configurationTypeName))
-            return null;
-
-        try
-        {
-            var type = Type.GetType(configurationTypeName, throwOnError: false);
-            if (type != null)
-                return type;
-
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
-                type = asm.GetType(configurationTypeName, throwOnError: false);
-                if (type != null)
-                    return type;
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     public ContentZoneRegistryHandler(
         IWidgetRegistry registry,
@@ -138,7 +112,7 @@ internal sealed class ContentZoneRegistryHandler : IAdminRegistryHandler
         object? instance = null;
         if (!string.IsNullOrWhiteSpace(component.ConfigurationTypeName))
         {
-            var configType = ResolveConfigurationType(component.ConfigurationTypeName);
+            var configType = ClrTypeResolver.Resolve(component.ConfigurationTypeName);
             if (configType != null)
                 instance = WebWayCMS.Forms.DynamicConfigurationForm.Materialize(configType, valuesJson);
         }

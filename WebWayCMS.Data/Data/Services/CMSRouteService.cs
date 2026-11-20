@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
@@ -47,14 +49,9 @@ public sealed class CMSRouteService : ICMSRouteService
         return Task.FromResult<CMSRouteMatchResult?>(null);
     }
 
-    public async Task<List<CMSRouteDTO>> GetActiveRoutesAsync(CancellationToken ct = default)
-    {
-        return await _context.Set<CMSRouteDTO>()
-            .AsNoTracking()
-            .OrderBy(r => r.Order)
-            .ThenBy(r => r.Pattern.Length)
-            .ToListAsync(ct);
-    }
+    // Every row is active (a route is removed, never deactivated), so both reads are the whole table in match order.
+    public Task<List<CMSRouteDTO>> GetActiveRoutesAsync(CancellationToken ct = default)
+        => GetAllRoutesAsync(ct);
 
     public async Task<List<CMSRouteDTO>> GetAllRoutesAsync(CancellationToken ct = default)
     {
@@ -199,59 +196,32 @@ public sealed class CMSRouteService : ICMSRouteService
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
-    {
-        var entity = await _context.Set<CMSRouteDTO>()
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
-        if (entity == null) return false;
-
-        _context.Set<CMSRouteDTO>().Remove(entity);
-        await _context.SaveChangesAsync(ct);
-        _registry.Invalidate();
-        return true;
-    }
+        => await DeleteWhereAsync(r => r.Id == id, ct) > 0;
 
     public async Task<bool> DeleteByRouteNodeAsync(Guid routeNodeId, CancellationToken ct = default)
-    {
-        var routes = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.RouteNodeId == routeNodeId)
-            .ToListAsync(ct);
-
-        if (routes.Count == 0) return false;
-
-        _context.Set<CMSRouteDTO>().RemoveRange(routes);
-        await _context.SaveChangesAsync(ct);
-        _registry.Invalidate();
-        return true;
-    }
+        => await DeleteWhereAsync(r => r.RouteNodeId == routeNodeId, ct) > 0;
 
     public async Task<int> DeleteByOwningContentsAsync(IReadOnlyCollection<Guid> owningContentNodeIds, CancellationToken ct = default)
     {
         if (owningContentNodeIds.Count == 0) return 0;
 
-        var routes = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.OwningContentNodeId != null && owningContentNodeIds.Contains(r.OwningContentNodeId.Value))
-            .ToListAsync(ct);
+        return await DeleteWhereAsync(
+            r => r.OwningContentNodeId != null && owningContentNodeIds.Contains(r.OwningContentNodeId.Value), ct);
+    }
 
+    public async Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
+        => await DeleteWhereAsync(r => r.OwningContentNodeId == owningContentNodeId, ct) > 0;
+
+    /// <summary>Deletes the rows matching <paramref name="predicate"/> and invalidates the registry; returns how many.</summary>
+    private async Task<int> DeleteWhereAsync(Expression<Func<CMSRouteDTO, bool>> predicate, CancellationToken ct)
+    {
+        var routes = await _context.Set<CMSRouteDTO>().Where(predicate).ToListAsync(ct);
         if (routes.Count == 0) return 0;
 
         _context.Set<CMSRouteDTO>().RemoveRange(routes);
         await _context.SaveChangesAsync(ct);
         _registry.Invalidate();
         return routes.Count;
-    }
-
-    public async Task<bool> DeleteByOwningContentAsync(Guid owningContentNodeId, CancellationToken ct = default)
-    {
-        var routes = await _context.Set<CMSRouteDTO>()
-            .Where(r => r.OwningContentNodeId == owningContentNodeId)
-            .ToListAsync(ct);
-
-        if (routes.Count == 0) return false;
-
-        _context.Set<CMSRouteDTO>().RemoveRange(routes);
-        await _context.SaveChangesAsync(ct);
-        _registry.Invalidate();
-        return true;
     }
 
 

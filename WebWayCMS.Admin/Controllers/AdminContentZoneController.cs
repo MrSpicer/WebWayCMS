@@ -87,7 +87,7 @@ public class AdminContentZoneController : Controller
     {
         var (success, errorMessage) = await _pageHistory.DiscardUnpublishedChangesAsync(pageNodeId, ct);
         if (!success)
-            TempData["Error"] = errorMessage;
+            TempData.FlashError(errorMessage);
 
         return RedirectToAction(nameof(PageZones), new { pageNodeId });
     }

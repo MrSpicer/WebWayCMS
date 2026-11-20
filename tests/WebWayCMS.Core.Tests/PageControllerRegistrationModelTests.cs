@@ -440,4 +440,19 @@ public class PageControllerRegistrationModelTests
 
         Assert.That((await _model.PublishAsync(Guid.NewGuid())).Success, Is.True);
     }
+
+    [Test]
+    public async Task GetApiListAsync_TitlesByDisplayNameElseControllerName()
+    {
+        _store.GetAllCurrentDraftsAsync(Arg.Any<CancellationToken>()).Returns(new List<PageControllerRegistrationDTO>
+        {
+            Dto(controllerName: "A", displayName: "Alpha"),
+            Dto(controllerName: "B", displayName: null!),
+        });
+
+        Assert.That(Titles(await _model.GetApiListAsync()), Is.EqualTo(new object?[] { "Alpha", "B" }));
+    }
+
+    private static List<object?> Titles(IEnumerable<object> list)
+        => list.Select(o => o.GetType().GetProperty("title")!.GetValue(o)).ToList();
 }

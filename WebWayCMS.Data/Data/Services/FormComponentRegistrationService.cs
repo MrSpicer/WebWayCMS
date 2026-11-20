@@ -45,9 +45,7 @@ public sealed class FormComponentRegistrationService : IFormComponentRegistratio
     public async Task<Dictionary<string, List<FormComponentRegistrationDTO>>> GetActiveByCategoryAsync(CancellationToken ct = default)
     {
         var active = await GetActiveAsync(ct);
-        return active
-            .GroupBy(f => f.Category, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        return active.GroupByCategory();
     }
 
     public async Task<(bool Success, string? ErrorMessage, FormComponentRegistrationDTO? Registration)> UpsertAsync(
@@ -95,7 +93,5 @@ public sealed class FormComponentRegistrationService : IFormComponentRegistratio
     private IQueryable<FormComponentRegistrationDTO> OrderedQuery()
         => _context.Set<FormComponentRegistrationDTO>()
             .AsNoTracking()
-            .OrderBy(f => f.Category)
-            .ThenBy(f => f.Order)
-            .ThenBy(f => f.DisplayName);
+            .InDisplayOrder();
 }

@@ -107,4 +107,19 @@ public class VersionToolsetTests
         Assert.That(async () => await _tools.DeleteVersion("contentblocks", Guid.NewGuid()),
             Throws.TypeOf<McpException>().With.Message.EqualTo("part of page history"));
     }
+
+    [Test]
+    public async Task RestoreVersion_WithExpectedVersion_PassesIt_AndReportsAMissingVersion()
+    {
+        var versionId = Guid.NewGuid();
+        _handler.RestoreVersionAsync(versionId, 3, Arg.Any<CancellationToken>())
+            .Returns(new AdminSaveResult(false, "stale"), new AdminSaveResult(false, IAdminCrudHandler.VersionNotFoundMessage));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That((await _tools.RestoreVersion("contentblocks", versionId, 3)).ErrorMessage, Is.EqualTo("stale"));
+            Assert.That(async () => await _tools.RestoreVersion("contentblocks", versionId, 3),
+                Throws.TypeOf<McpException>().With.Message.Contains(versionId.ToString()));
+        });
+    }
 }

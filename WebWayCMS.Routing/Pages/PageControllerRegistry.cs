@@ -92,10 +92,7 @@ public class PageControllerRegistry : IPageControllerRegistry
         {
             try
             {
-                configObj = JsonSerializer.Deserialize(jsonString, info.ConfigurationType, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
+                configObj = JsonSerializer.Deserialize(jsonString, info.ConfigurationType, CmsJson.CaseInsensitive);
             }
             catch (JsonException ex)
             {
@@ -118,14 +115,8 @@ public class PageControllerRegistry : IPageControllerRegistry
 
             var value = prop.GetValue(configObj);
 
-            if (propInfo.IsRequired)
-            {
-                if (value == null || (value is string s && string.IsNullOrWhiteSpace(s)) ||
-                    (value is Guid g && g == Guid.Empty))
-                {
-                    errors.Add($"{propInfo.Label} is required.");
-                }
-            }
+            if (propInfo.IsRequired && FormPropertyConstraints.IsMissing(value))
+                errors.Add($"{propInfo.Label} is required.");
 
             errors.AddRange(FormPropertyConstraints.Check(propInfo, value));
         }
@@ -205,49 +196,7 @@ public class PageControllerRegistry : IPageControllerRegistry
     }
 
     private static List<FormPropertyInfo> DeserializePropertyDefinitions(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json) || json == "[]")
-            return new List<FormPropertyInfo>();
+        => PropertyDefinitionsJson.Deserialize(json);
 
-        try
-        {
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-
-            var list = JsonSerializer.Deserialize<List<FormPropertyInfo>>(json, options);
-            return list ?? new List<FormPropertyInfo>();
-        }
-        catch
-        {
-            return new List<FormPropertyInfo>();
-        }
-    }
-
-    internal static Type? ResolveType(string typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return null;
-
-        try
-        {
-            var type = Type.GetType(typeName, throwOnError: false);
-            if (type != null)
-                return type;
-
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                type = asm.GetType(typeName, throwOnError: false);
-                if (type != null)
-                    return type;
-            }
-
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    internal static Type? ResolveType(string typeName) => ClrTypeResolver.Resolve(typeName);
 }
