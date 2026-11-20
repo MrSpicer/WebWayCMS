@@ -10,10 +10,10 @@
 
 **Depends on:** Data Tier (`IContentZoneService`), Form Generation Metadata (`FormPropertyBuilder`), Page Routing Subsystem (`CMS:PageData` from `HttpContext`)
 
-> **Versioning note (Node/Version model):** zone **items** and zones are keyed on `ContentNode.Id`
+> **Versioning (Node/Version model):** zone **items** and zones are keyed on `ContentNode.Id`
 > (not a version row), and the structure is relations: an item's version sits in its zone through a `Zone`
 > containment (with its ordinal), a zone's version names its page or container item through an `Owner`
-> containment (slot in the qualifier) — see [17-content-relations](17-content-relations.md) §7. Items have no static `Items` navigation and are resolved through
+> containment (slot in the qualifier) — see [17-content-relations](17-content-relations.md) §6. Items have no static `Items` navigation and are resolved through
 > `IContentZoneService.GetItemsAsync(zoneNodeId)` at the read context. Items in a page's zones are
 > drafts until the page is published (the page publish cascades to them); items in global zones
 > auto-publish on write. See [01-data-tier](01-data-tier.md) §7.
@@ -164,8 +164,7 @@ field would otherwise read as `Guid.Empty`) and the item's effective display mod
 (`WidgetMetadataJson.EffectiveDisplayMode`: a create's chosen metadata, an update's stored metadata). An
 empty payload is validated as `{}`.
 
-> The older reflection-based `ContentZoneComponentRegistry` has been removed. `IWidgetRegistry`
-> (backed by the database) is the sole source of widget metadata at runtime.
+`IWidgetRegistry` (backed by the database) is the sole source of widget metadata at runtime.
 
 ---
 
@@ -243,7 +242,7 @@ three would strand the old columns' zones (still owned by the item, never render
 restore therefore goes through `ContentZoneModel.PlanSlotRemapAsync`:
 
 1. **Fast path.** An item that is being removed, is unchanged, or owns no zone holding a current-draft
-   widget (`IContentZoneService.GetOwnedSlotsWithItemsAsync`) saves as before, with no render.
+   widget (`IContentZoneService.GetOwnedSlotsWithItemsAsync`) saves without a render.
 2. **Discovery by dry render.** `IWidgetSlotDiscovery.DiscoverSlotsAsync` (`ViewComponentSlotDiscovery`)
    invokes the widget twice — old and new configuration, built exactly as the zone would
    (`BuildComponentProperties`: metadata, List→Single downgrade, `ZoneItemNodeId`) — with a
@@ -420,12 +419,10 @@ which has no registry) the attribute is omitted and the picker shows "Unknown en
 
 ## 10. Known Gaps (configuration contract)
 
-Building a full end-to-end widget test surfaced these gaps. None are silently papered over here.
-
 1. **Widget config validation covers the constraints, not the shapes.** Every zone-item write path
    (`ContentZoneApiController.SaveItem`, the `ContentZoneItemModel` handler behind the admin form,
-   MCP and the seeder) runs `RichTextSanitizer` via `WidgetConfigurationJson.Sanitize` and — since the
-   2026-10 review closes-out — `IWidgetRegistry.ValidateConfiguration` (no longer dead code): a
+   MCP and the seeder) runs `RichTextSanitizer` via `WidgetConfigurationJson.Sanitize` and
+   `IWidgetRegistry.ValidateConfiguration`: a
    config's `IsRequired` / `Min` / `Max` / `MaxLength` / `Pattern` are enforced server-side for the
    item's display mode (see Stage 2 above), and an
    over-length payload is rejected with a friendly message before it can overflow the 4000-char

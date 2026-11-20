@@ -225,7 +225,7 @@ client IP **and per endpoint family**, to slow credential brute force and passwo
 `MatchLimitedPath(path)` returns the matched prefix (or `null`); `IsRateLimitedPath` is
 `MatchLimitedPath(path) is not null`. A single external sign-up costs four requests (Login GET →
 ExternalLogin POST → callback GET → confirmation POST); because those span distinct prefixes, a retry or
-a second user behind the same NAT egress IP no longer 429s an unrelated login.
+a second user behind the same NAT egress IP does not 429 an unrelated login.
 
 **Configuration (`AuthRateLimiting` section, `AuthRateLimitOptions`):**
 
@@ -422,12 +422,7 @@ WebWayCMS is an MVC/Razor Pages app rather than the Blazor Web App template that
 scaffolding, the endpoints and UI are hand-written against those framework-agnostic APIs.
 
 **Storage.** `CmsDbContext` sets `identityOptions.Stores.SchemaVersion =
-IdentitySchemaVersions.Version3`, which is what maps the new `AspNetUserPasskeys` table (see the
-`AddUserPasskeys` EF migration).
-
-> **Upgrade note:** bumping `SchemaVersion` to `Version3` also narrows `AspNetUsers.PhoneNumber` from
-> `text` to `varchar(256)` as a side effect. The `AddUserPasskeys` migration aborts if any existing row
-> has a `PhoneNumber` longer than 256 characters; truncate (or clear) such rows before applying it.
+IdentitySchemaVersions.Version3`, which is what maps the `AspNetUserPasskeys` table.
 
 **Endpoints** (minimal APIs in `WebWayCMS/Startup/CmsPasskeyEndpoints.cs`, mapped from
 `CmsMiddlewarePipeline.MapCmsEndpoints` so both pipelines get them):

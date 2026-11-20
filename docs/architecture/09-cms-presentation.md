@@ -120,19 +120,13 @@ inherited `WidgetConfiguration` view picker (`ViewName`, over the `view.*` files
 `Views/Shared/Components/RouteNavigation/`).
 
 **In-CMS consumer:** `WebWayCMS.Admin/Views/Shared/_AdminNavbar.cshtml` invokes it with
-`AdminRoutes = true` and `ViewName = "Navbar"` (it replaced an equivalent `PageViewComponent` call —
-`PageViewComponent` itself remains a placeable zone widget). The navbar renders on `/wadmin` pages, so
+`AdminRoutes = true` and `ViewName = "Navbar"`. The navbar renders on `/wadmin` pages, so
 the widget resolves admin render mode automatically and renders `admin.Navbar.cshtml`, so a host
 re-skinning `view.default.cshtml` cannot break the admin navbar. It is a named variant rather than
 `admin.default` so that a `RouteNavigation` widget placed in a zone on an admin page still falls back
 to its own `view.{ViewName}` instead of rendering as bare navbar links;
 see the warning in §6. The integration host drives its whole public navbar from it; see §6
 for how that host re-skins the view for Bootstrap.
-
-> The widget seeder (`CmsWidgetRegistrationSeeder`) is insert-only. A database seeded before this widget
-> gained a `ConfigurationType` keeps `PropertyDefinitionsJson = "[]"` and shows no config form; delete
-> and re-seed the row, or set its **Configuration Type Name** to
-> `WebWayCMS.Models.CMSRoute.RouteNavigationConfiguration` at `/wadmin/widgetregistration` and re-save.
 
 ---
 
@@ -309,9 +303,9 @@ Things worth copying from that view:
 > the public `view.*` files, while the admin renders different files — the zone editor renders
 > `edit.*` views (or the generic edit card), and the admin navbar renders `RouteNavigation` in
 > `Admin` mode (`WebWayCMS.Admin/Views/Shared/Components/RouteNavigation/admin.Navbar.cshtml`). A host
-> is therefore free to re-skin `view.*` for its own CSS framework without touching the admin UI. Any
-> future CMS view rendered on both sides should get its own mode-prefixed admin/edit file the same way.
-> **Remember to rename overrides** to the `{mode}.{variant}.cshtml` scheme: an un-prefixed
+> is therefore free to re-skin `view.*` for its own CSS framework without touching the admin UI. A CMS
+> view rendered on both sides gets its own mode-prefixed admin/edit file the same way.
+> **Name overrides** with the `{mode}.{variant}.cshtml` scheme: an un-prefixed
 > `Default.cshtml` is ignored by discovery and silently stops overriding the CMS's `view.default`.
 
 ### ImageViewComponent

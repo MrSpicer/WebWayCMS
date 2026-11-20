@@ -10,13 +10,13 @@
 - **Rebuild Ef Migrations (destructive):** `./scripts/RebuildEFMigrations.sh`
 - **Run all tests + coverage gate:** `./scripts/RunTests.sh` (or `dotnet test WebWayCMS.sln`)
 - **Run one project's tests:** `dotnet test tests/WebWayCMS.Core.Tests/WebWayCMS.Core.Tests.csproj`
-- **Run integration host end-to-end (dev secrets + docker compose; builds the libraries from source via project references, polls `http://localhost:45847`):** `./scripts/StartIntegrationHost.sh`
-- **Tear down integration host (add `-v` to also drop the DB volume):** `./scripts/TearDownIntegrationhost.sh`
+- **Run integration host end-to-end (dev secrets + docker compose; builds the libraries from source via project references, polls `http://localhost:45847`; tears down any existing stack and its DB volume first, so every start is a fresh database — add `-p`/`--persist` to keep the existing volume):** `./scripts/StartIntegrationHost.sh`
+- **Tear down integration host (drops the DB volume; add `-p`/`--persist` to keep it):** `./scripts/TearDownIntegrationhost.sh`
 
 ## Deployment Modes
 
 - The CMS boots in one of two modes, chosen by which pair of extension methods the host calls:
-  - **Full / admin:** `AddWebWayCms(config)` + `UseWebWayCms()` (back-compat aliases for
+  - **Full / admin:** `AddWebWayCms(config)` + `UseWebWayCms()` (aliases for
     `AddWebWayCmsAdmin` / `UseWebWayCmsAdmin`). Registers the admin CRUD surface from
     `WebWayCMS.Admin`, seeds roles + the admin user, runs the JSON content seed (every CMS page: Home, `/wadmin`, …), and maps MCP.
   - **Rendering-only:** `AddWebWayCmsRendering(config)` + `UseWebWayCmsRendering()`. Same database,
@@ -46,11 +46,10 @@
   on a `Guid`/`Guid?`/`IEnumerable<Guid>` upsert view-model property; see Content Relations below): no FK
   column, no `HasOne<ContentNode>()`, nothing in the host migration. Every `AdminCrudModel<T>` constructor
   passes `(IChangeSetScope, IRelationBinder, IContentDeleteService)` to the base, and implements
-  `DeleteSelfAsync` (its own node only) instead of `DeleteAsync` (now the base's, through the relation engine).
+  `DeleteSelfAsync` (its own node only) instead of `DeleteAsync` (the base's, through the relation engine).
 - A host `AdminCrudModel<T>` registered as `IAdminCrudHandler` is served by `AdminContentController`
   and MCP-visible for free. Two handlers sharing a `ContentType` key throw at first registry resolution.
-- **Containment is the parent–child mechanism** (`IAdminCrudChildHandler` and the `/{parentKey}/{childType}`
-  routes are gone). A containment shows on the parent's edit screen as a **children panel**
+- **Containment is the parent–child mechanism.** A containment shows on the parent's edit screen as a **children panel**
   (`_RelationChildren.cshtml`, rendered by `_AdminLayout` from `RelationChildrenPanelViewModel`s the Edit GET
   builds via `ContentRelationRegistry.GetContainmentsTargeting`; not in the modal; `ShowInParentAdmin = false`
   opts out): the children (`IAdminCrudHandler.GetRelatedChildrenAsync`), a **New** link that preselects the
@@ -79,8 +78,8 @@
   `PublishStartUtc/EndUtc` (scheduling seam, not yet filtered), `ChangeNote`, `ChangeSetId`, `CustomFields`).
   Every cross-entity FK points at `ContentNode.Id`. Content types implement `IVersionedContent`
   (`VersionId` + `Version`, shared PK/FK into `ContentVersion`).
-- **One write engine:** `IContentStore<T>` / `ContentStore<T>` (in `WebWayCMS.Data`) replaces the old
-  `ContentService<T>`/`PageService`/zone CRUD. Reads are `GetAsync(nodeId)`/`GetAllAsync()`/… (read-context
+- **One write engine:** `IContentStore<T>` / `ContentStore<T>` (in `WebWayCMS.Data`) is the single read/write
+  engine for every content type, zones included. Reads are `GetAsync(nodeId)`/`GetAllAsync()`/… (read-context
   aware) plus `GetCurrentDraftAsync`/`GetAllCurrentDraftsAsync` (admin) and `GetAllVersionsAsync` (history).
   Writes are `SaveDraftAsync(entity, expectedVersionNumber)`, `PublishAsync`, `UnpublishAsync`,
   `RestoreAsync`, `DeleteAsync`, `DeleteVersionAsync` and return `ContentWriteResult`; a conflicting write
@@ -98,7 +97,7 @@
   previous version. `expectedVersionNumber` (hidden form field) detects concurrent edits ("changed by someone else").
   `DeleteVersionAsync` refuses the max version (matching the admin UI) **and any `Published` version** —
   that row is what is live; unpublish first, then it deletes as an ordinary Archived version.
-- **Content relations** ([doc 17](docs/architecture/17-content-relations.md), all six phases: Article → Article
+- **Content relations** ([doc 17](docs/architecture/17-content-relations.md); used by Article → Article
   List, config pickers, page routes, the zone structure, page → parent page, and the TestHost): a `ContentRelation` row (`SourceVersionId`, `TargetNodeId`, `Name` = the declaring
   property, `Ordinal`, `Qualifier`, `Kind` Containment/Reference/Owned) is **owned by the source's version**
   (auto-included with `ContentVersion.Relations`; no DB FK on `TargetNodeId`), so a relation change mints a
@@ -125,7 +124,7 @@
   The result's `DeletedDescendants` (containment descendants, leaving out zones and zone items, so a page
   delete counts its child pages) reaches the admin flash and MCP `delete_content`. `ContentRelationRegistry`
   (admin) validates every declaration at boot. Page revert/discard copy relations; `PageSetEquality`
-  compares them. **Config relations (phase 2):** a `[ContentRelation]` on a widget or page configuration
+  compares them. **Config relations:** a `[ContentRelation]` on a widget or page configuration
   type is stored as `config.*` rows owned by the zone item's or page's version: `WidgetConfigurationJson`
   `ExtractRelations` strips the ids on write, `ApplyRelations` writes them, and `HydrateRelations` (plus
   `RelationProperties.Write(..., ConfigPrefix)`) puts them back for render, the editor form and MCP. The
@@ -252,14 +251,13 @@
   `POST /wadmin/contentzones/page/{pageNodeId}/discard` → `IPageHistoryService.DiscardUnpublishedChangesAsync`. Slots are created
   lazily by the page template, so an empty page loads the preview in the background and reloads once.
   Below the slots, an **Unplaced content** panel (editor only, never live) lists zones owned by the page's
-  widgets that nothing rendered (e.g. a Layout's columns stranded by an old view change):
+  widgets that nothing rendered (e.g. a Layout's columns stranded when slot discovery failed):
   `ContentZoneViewComponent` logs every edit-mode zone and widget in `ZoneEditRenderLog`
   (`HttpContext.Items`), `IContentZoneModel.GetUnplacedCandidatesAsync` lists the candidates
   (`IContentZoneService.GetItemOwnedZonesForPageAsync`), and the view renders each unrendered one by
   `zoneId` in edit mode (looping, since a stranded zone can hold a container) so its widgets can be dragged
   back or removed. Removing a widget that holds widgets confirms with the nested count (`edit.js`).
-- **The zone structure is relations (phase 4; `ContentZoneAssignments` and the items' `ContentZoneNodeId`/
-  `Ordinal` columns are gone).** An item's version sits in a zone through an ordered **`Zone` containment**
+- **The zone structure is relations** (no assignment table, no zone/ordinal columns on items). An item's version sits in a zone through an ordered **`Zone` containment**
   (`ZoneRelations.Zone`, named `ContentZoneNodeId` after the item form property that declares it; the row's `Ordinal` is its position), and a page's or container item's zone names
   its owner through an **`Owner` containment** on the zone's version (`ZoneRelations.Owner`; `Qualifier` =
   slot). `ContentZoneItemDTO.ContentZoneNodeId`/`Ordinal` are **in-memory accessors** over the `Zone`
@@ -427,9 +425,9 @@
   `[ViewComponent(Name = ...)]` is honoured by the base class, the seeder, and the view directory.
 - The admin navbar renders `RouteNavigation` with `ViewName = "Navbar"` → `admin.Navbar.cshtml`. Don't
   ship navbar markup as `admin.default`: it would take over every admin-page `RouteNavigation` widget.
-- **Hard break, no compat shim:** un-prefixed view files are ignored (a host override not renamed to
-  `view.*` silently stops overriding), list rendering reads `ListViewName`, not a legacy `ViewName`,
-  and old metadata keys (`EditViewName`/`SummaryViewName`/`AdminViewName`) are ignored on parse.
+- **View naming:** un-prefixed view files are ignored (a host override not named `view.*` silently does not
+  override), list rendering reads `ListViewName`, never `ViewName`, and unknown metadata keys
+  (e.g. `EditViewName`/`SummaryViewName`/`AdminViewName`) are ignored on parse.
 - **Routable widgets and display mode:** `IRoutableViewComponent.GenerateRoutesAsync(parentRoute,
   itemNodeId, displayMode, ct)` receives the item's *effective* display mode (a stored `List` counts only
   when the registration `SupportsList`; `RouteRegistrationService` computes it from the item's
@@ -460,8 +458,7 @@
   value on save).
 - `FormFieldViewComponentBase.FieldView(field, model)` is the render call for a control that builds its own
   view model. The resolver comes from `HttpContext.RequestServices`, so constructors stay as they are.
-- **Hard break:** un-prefixed `Write.cshtml`/`Read.cshtml` are ignored, and the registry's
-  `WriteViewName`/`ReadViewName` (attribute, DTO, columns) are gone.
+- Un-prefixed `Write.cshtml`/`Read.cshtml` are ignored; the form-component registry has no view-name columns.
 - See [docs/form-control-system.md](docs/form-control-system.md) → Render Modes.
 
 ## Articles
@@ -502,7 +499,7 @@
   item in its `routeIds`), the `/wadmin` Dashboard and the `/wadmin/users` / `/wadmin/roles` pages with their
   widgets are entries in `WebWayCMS.Admin/ContentSeed/cms-pages.contentseed.json` (an `<EmbeddedResource>`; the
   admin assembly is a scanned seed assembly). A new CMS page is a new entry there, never a new seeder or
-  startup step. A rendering-only host seeds nothing (its admin host does). `WEBWAYCMS_SKIP_DEFAULTPAGE` is gone.
+  startup step. A rendering-only host seeds nothing (its admin host does).
   The seed **owns `/` and `/wadmin`** (no "URL taken" check): a host adapts the seeded Home rather than adding
   its own page at `/` (that collides and retries every boot), and turning seeding off leaves no Home/Dashboard.
 - Three sources: embedded resources named `*.contentseed.json` in the scanned assemblies, `*.json`
@@ -596,7 +593,7 @@
   admin pipeline only — a rendering-only host never maps it). Built on the official
   `ModelContextProtocol.AspNetCore` SDK.
 - **Opt-in via config** (`"Mcp"` section): set `Enabled: true`; the endpoint is mapped at `Path` (default `/mcp`).
-  **There is no shared key** (`Mcp:ApiKey` is gone): every caller sends `Authorization: Bearer <token>` with a
+  **There is no shared key**: every caller sends `Authorization: Bearer <token>` with a
   **per-user personal access token** (`ApiTokens` table, `IApiTokenService`/`ApiTokenService` in Data: `wwc_` + 32
   random bytes, only the SHA-256 stored, optional expiry, revoke = `RevokedUtc`, `LastUsedUtc` at most once a
   minute). An Admin issues/revokes their own on **Identity → Manage → API tokens** (`ApiTokens.cshtml`, Presentation;

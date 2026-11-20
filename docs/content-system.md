@@ -2,9 +2,8 @@
 
 The content system provides a generic, versioned approach to managing all CMS content types. Every content type **composes** a shared `ContentVersion` (the universal fields), is served by a single generic store (`IContentStore<T>`), and plugs into a unified admin CRUD framework.
 
-> **Model change (Node/Version split):** the older `ContentDTO`/`IContent` (identity and version in one
-> row) has been replaced by `ContentNode` (stable identity) + `ContentVersion` (per-version data).
-> Content types implement `IVersionedContent`; `ContentService<T>`/`PageService` are gone, replaced by
+> **Node/Version model:** a content item's identity is a `ContentNode`; its data lives on `ContentVersion`
+> rows. Content types implement `IVersionedContent` and are read and written through
 > `IContentStore<T>`. The authoritative reference is [architecture/01-data-tier.md](architecture/01-data-tier.md).
 
 ## Table of Contents

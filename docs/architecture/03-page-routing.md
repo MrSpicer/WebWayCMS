@@ -11,7 +11,7 @@
 **Depends on:** Data Tier (`ICMSRouteService`, `IContentStore<PageDTO>`), Form Generation Metadata (`FormPropertyBuilder`), ASP.NET Core Routing
 **Consumed by:** All page controllers (Web project + CMS built-ins), Content Zone `ViewComponent` (`CMS:PageData` from `HttpContext`), Admin page-edit UI (page-type dropdown populated from the registry)
 
-> **Versioning note (Node/Version model):** a page's URLs are versioned `routes` content items owned by
+> **Versioning (Node/Version model):** a page's URLs are versioned `routes` content items owned by
 > the page. **Publish** publishes them and projects the live ones into the plain `CMSRoutes` table, so a
 > draft slug or route change does not touch the live table until published. Projected rows are read-only
 > in `/wadmin/cmsroutes`; edit them from the page.
@@ -143,8 +143,8 @@ then iterates that list ordered by `Order` and returns the **first** pattern tha
 `Order` is the primary tie-breaker between competing patterns.
 
 `MatchRouteAsync` delegates loading the active route list to `ICMSRouteRegistry`, a **singleton**
-that caches the result for **60 seconds**. `CMSRouteService` no longer queries the database
-directly on every match request. Every mutation (`UpsertAsync`, `DeleteAsync`,
+that caches the result for **60 seconds**, so a match does not query the database on every request.
+Every mutation (`UpsertAsync`, `DeleteAsync`,
 `DeleteByOwningContentAsync`) calls `ICMSRouteRegistry.Invalidate()` to drop the cache, so
 admin edits take effect within at most one minute. **Invalidation is per-process** — in a
 multi-instance deployment, another instance will not see a route change until its TTL expires.
@@ -179,9 +179,8 @@ request 404s before the page controller runs. Use another name (`{pageNumber:int
 goes through `UpsertAsync` (widget routes, code-based `[CmsRoute]` seeding, the admin route form), so a
 widget's rejected route surfaces as a publish error and a code route as a startup warning. That includes
 the rollback in `PageModel.PublishPageAsync` for a page with no route items: when a republish's new route fails to register, the previous
-routes are re-upserted, and one that is now rejected (a legacy pattern stored before this check, which
-404'd anyway) is appended to the publish error ("The previous route could not be restored: …") rather than
-dropped silently.
+routes are re-upserted, and one that is rejected is appended to the publish error ("The previous route
+could not be restored: …") rather than dropped silently.
 
 **Other members:** `GetActiveRoutesAsync`, `GetByOwningContentAsync`, `GetByIdAsync`,
 `IsPatternAvailableAsync(pattern, excludeNodeId, excludeRouteId)`, `UpsertAsync`, `DeleteAsync`,
@@ -385,7 +384,7 @@ repo (`Controllers/CodeTestController.cs`).
 
 ## 9. How a Page Gets Its URL
 
-Pages no longer store a route. `PageDTO` has no `Route` column — the URL is derived from the page's
+A page has no route column: its URL is derived from the page's
 **Slug** plus its **parent** (a versioned containment, `PageModel.ParentRelation`), and written into `CMSRoutes`
 **on publish, never on save**.
 
@@ -424,7 +423,7 @@ patterns. A collision fails the save (or publish) with
 stealing a URL.
 
 `PublishPageAsync` validates the slug (via `IsSlugAvailableAsync`) first. A page with **route items**
-(every page since phase 3) then publishes in **one `ICmsTransaction`**: the page's publish, the publish
+(every page the CMS creates has one) then publishes in **one `ICmsTransaction`**: the page's publish, the publish
 of each related route item, their projection into `CMSRoutes` (stale owner rows removed), and — when its
 Derived pattern changed — the re-projection of every **live** descendant's Derived routes, from the
 descendant's **published** page and route versions (a never-published child gets no URL; a live child's
@@ -434,7 +433,7 @@ routes and publish again."` — a revert/discard can restore a relation whose it
 deleted), or a descendant whose moved URL collides (`"The publish was rolled back: the child URL '…'
 could not be moved. …"`). The route cache is invalidated again after the transaction, since the route
 service invalidates before the commit. Zone items are published, and page history captured, only after
-it commits. A page with **no** route items (hand-built/legacy) keeps the older path: it publishes, then
+it commits. A page with **no** route items (one built outside the page form) takes a simpler path: it publishes, then
 replaces its route (`UnregisterContentRoutesAsync` + `RegisterContentRoutesAsync`); if that fails it
 reverts the publish (`RevertPublishAsync`) and re-upserts the snapshotted previous route(s). Either way a
 page is never left Published with no route. `UnpublishPageAsync` calls `UnregisterContentRoutesAsync` (which hard-deletes the
@@ -518,8 +517,7 @@ public interface IRoutableViewComponent
 `PageModel` implements `IRoutableContent` (`RouteContentType => "Page"`). `ArticleViewComponent`
 implements `IRoutableViewComponent` — an Article widget on a page (Single or List mode) registers a
 `{slug:regex(^[a-z0-9-]+$)}` sub-route beneath that page's URL, which is how article detail URLs work. A
-List-mode `Faq` (TestHost) registers none: route generation receives the item's display mode. That replaces
-the old `ISubRouteContent` resolver mechanism, which no longer exists.
+List-mode `Faq` (TestHost) registers none: route generation receives the item's display mode.
 
 ---
 
@@ -542,9 +540,8 @@ DI cycle.
 
 ## 11b. `NotReservedConstraint`
 
-Was applied to the `{parentKey}` segment of the admin child routes, which phase 5 of
-[content relations](17-content-relations.md) removed; the constraint is still registered but no admin route
-uses it now. It prevented conflicts with literal action segments. The reserved words are:
+A route constraint that rejects a segment equal to one of the admin controller's literal action segments.
+It is registered, but no shipped admin route uses it. The reserved words are:
 
 ```
 edit, delete, create, registry, api, reorder, versions

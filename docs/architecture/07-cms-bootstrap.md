@@ -12,7 +12,7 @@
 
 ## 1. Entry Points
 
-The CMS exposes two bootstrap pairs plus back-compat aliases. A host calls one `Add*` in
+The CMS exposes two bootstrap pairs plus a pair of aliases. A host calls one `Add*` in
 `Program.cs` before `builder.Build()`, and the matching `Use*` after it.
 
 | DI method | Pipeline method | Mode |

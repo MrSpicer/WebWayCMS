@@ -17,25 +17,24 @@
 
 ---
 
-## 1. The Problem
+## 1. Overview
 
-Before this area the CMS could not render an image at all: there was no upload path, no `IFormFile`
-anywhere in the solution, no `byte[]` on any CMS entity, and no file editor type. An editor's only
-option was to paste an external URL into rich text — which the default CSP
-(`img-src 'self' data: https://cdn.ckeditor.com`) then blocks.
+Images are uploaded to a media library, stored in the database and served from the CMS's own origin, so
+the default CSP (`img-src 'self' …`) covers them. External image URLs pasted into rich text are blocked by
+that CSP.
 
 ## 2. Where the bytes live, and why
 
 Bytes are stored in Postgres (`bytea`), content-addressed by the SHA-256 of the file, behind an
 `IMediaBlobStore` seam.
 
-| Decision | Choice | Why |
+| Aspect | Choice | Why |
 |---|---|---|
 | Medium | Postgres `bytea` | The admin and rendering-only hosts are guaranteed a shared *database*, never a shared filesystem. Disk storage also needs a volume the shipped `docker-compose.yml` does not mount, so uploads would not survive a redeploy. Media stays in the same backup/restore story as content. |
 | Addressing | SHA-256 of the bytes | Identical uploads deduplicate for free; a URL's content can never change, so responses are served `immutable`; a new `ContentVersion` reusing an image costs nothing. |
 | Swappability | `IMediaBlobStore` | Filesystem or cloud storage is an additive package plus one config line, not a migration. |
 | Catalog vs bytes | Two tables | EF materializes every scalar property, so a `Bytes` column on the catalog row would drag megabytes into every library listing. A non-database store also leaves `MediaBlobBytes` empty while the catalog keeps working. |
-| Derivatives | None in v1 | Originals only; thumbnails slot into the same store under derived keys later. |
+| Derivatives | None | Originals only. |
 
 ### Tables
 
@@ -45,7 +44,7 @@ Bytes are stored in Postgres (`bytea`), content-addressed by the SHA-256 of the 
 | `MediaBlobBytes` | no | `Hash` (PK) + `Bytes` (`bytea`) |
 | `Images` | yes | `IVersionedContent` + `BlobHash`, `AltText`, `Caption` |
 
-## 3. Two constraints that shaped the design
+## 3. Two design constraints
 
 **Image bytes never touch a view model.** `ContentFieldMerger.TryMerge` does a full
 `System.Text.Json` serialize→deserialize round-trip of the upsert view model on *every* MCP
@@ -185,8 +184,7 @@ is registered with `TryAdd`, so an explicit host choice wins regardless of regis
 ## 12. Known limitations
 
 - **EXIF is not stripped.** GPS coordinates embedded in phone photos are served verbatim. This is
-  the one hardening step deliberately deferred, because stripping metadata means re-encoding, which
-  means an imaging library. Revisit when derivative generation lands.
+  Stripping it would require re-encoding, and therefore an imaging library.
 - **No derivatives or `srcset`.** Originals are served at full size.
 - **No orphan collection.** A blob whose referencing image versions were all hard-deleted stays in
   the library until deleted explicitly.

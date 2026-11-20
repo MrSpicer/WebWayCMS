@@ -80,8 +80,8 @@ a **Preview** tab shows the draft page in an iframe.
 - **Changing a Layout's view keeps its content.** Switching e.g. two columns to three moves each old
   column's widgets into the new view's zones: a zone with the same name keeps its widgets, the rest pair
   up in order, and any left over go to the last zone. The move is one draft change with the save.
-- **Unplaced content.** Widgets in zones the page no longer renders (e.g. columns stranded before the
-  rule above existed) are listed in an "Unplaced content" panel below the zones, editor only, so they can
+- **Unplaced content.** Widgets in zones the page does not render (e.g. a Layout's columns stranded
+  when view discovery failed) are listed in an "Unplaced content" panel below the zones, editor only, so they can
   be dragged back or removed.
 - **Drag and drop.** Each widget's toolbar has a grip handle: drag it (mouse or touch) to reorder within
   a zone or move the widget to any other zone of the same page, including a Layout's columns. A Layout
@@ -175,16 +175,13 @@ zone-item child save (MCP `create_child`/`update_child`, content seeds) an empty
 `WidgetMetadataJson.Normalize` and stores the CMS's re-serialized canonical form, never the caller's
 JSON verbatim.
 
-### Breaking change: un-prefixed views and legacy `ViewName` values
+### View naming rules
 
-Render modes are a hard break — there is no compatibility shim:
-
-- Un-prefixed view files (`Default.cshtml`, `Compact.cshtml`) are ignored. A host override that is not
-  renamed to `view.default.cshtml` (etc.) **silently stops overriding** and the CMS view renders instead.
-- List rendering reads `ListViewName`, not `ViewName`. Items saved before the switch with a list
-  variant in `viewName` render `list.default` until an editor re-picks the *List View*.
-- Metadata keys from the first render-mode iteration (`EditViewName`, `SummaryViewName`,
-  `AdminViewName`) and the `Summary` mode are gone; stored keys are ignored on parse.
+- Un-prefixed view files (`Default.cshtml`, `Compact.cshtml`) are ignored by discovery. A host override
+  must be named `view.default.cshtml` (etc.), or the CMS view renders instead.
+- List rendering reads `ListViewName`, never `ViewName`.
+- Metadata keys other than the documented ones (e.g. `EditViewName`, `SummaryViewName`, `AdminViewName`)
+  are ignored on parse.
 
 ### Built-in list-capable widget: Article
 

@@ -44,8 +44,7 @@ Bound from the `"Mcp"` section into `McpOptions`:
 }
 ```
 
-There is no shared key: every caller uses its own **personal access token** (§3). `Mcp:ApiKey` was removed;
-a leftover value is ignored.
+There is no shared key: every caller uses its own **personal access token** (§3).
 
 ---
 
@@ -128,15 +127,12 @@ Three SDK options are set deliberately:
   (a content zone's items reference the zone back)
 
 Because `SessionMode` is `Stateless`, the endpoint is **Streamable-HTTP only**: there is no
-`Mcp-Session-Id`, and the legacy `/sse` and `/message` routes are not mapped (SDK 2.x defaults
+`Mcp-Session-Id`, and the SSE `/sse` and `/message` routes are not mapped (SDK 2.x defaults
 `EnableLegacySse` to `false`). A client must be configured `"type": "http"` (see §6), not
 `"type": "sse"`, or it will 404.
 
-One consequence worth knowing when debugging: a client that connected to an *older, stateful* server
-may still be holding an `Mcp-Session-Id`. Against the stateless endpoint that session id is rejected
-(`400: Mcp-Session-Id header is not supported in stateless mode`). The fix is to reconnect — after
-`/mcp` reconnects without the stale header, a real client works normally. This is stale client state,
-not a server bug.
+A client that sends an `Mcp-Session-Id` header gets `400: Mcp-Session-Id header is not supported in
+stateless mode`; reconnecting without the header fixes it.
 
 The tools carry accurate annotation hints for MCP clients: the 16 pure-read tools are `ReadOnly`, the
 recoverable writes (`create_*`/`reorder_children`/`move_child`/`restore_*`/`revert_page_to_entry`) are marked non-destructive, and the
@@ -220,8 +216,7 @@ placed under a parent by a `[ContentRelation(Kind = Containment)]`; there is no 
 
 `parentKey`/`targetParentKey` are node ids. `relation` (the child's relation field name, case-insensitive) is
 needed only when the child type has several containments to the parent type; otherwise the one containment
-is used, and an unrelated pair is refused. This was a hard break of the old `contentType` + `childType: "items"`
-+ string `parentKey` arguments (pre-release). Examples: `articlelists` + `articles`, `pages` + `pages`
+is used, and an unrelated pair is refused. Examples: `articlelists` + `articles`, `pages` + `pages`
 (child pages), `contentzones` + `contentzoneitems` (a zone's items).
 
 Zone items (`contentzoneitems`, `ContentZoneItemModel`): `create_child`/`update_child` results carry the item's

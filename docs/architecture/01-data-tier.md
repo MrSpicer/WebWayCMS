@@ -76,7 +76,7 @@ public interface IVersionedContent
 ```csharp
 public record ContentNode
 {
-    public Guid Id { get; set; }              // stable identity (replaces the old MasterId)
+    public Guid Id { get; set; }              // stable identity
     public string ContentTypeKey { get; set; } // "pages", "articles", "contentzones", ...
     // no parent column: parentage is a containment relation on the version (a page's parent page, an
     // article's list, a zone item's zone), so it is versioned like any other field
@@ -359,7 +359,7 @@ rows as `OwnedZone` records (`ZoneNodeId`, `SlotName`, `ParentPageNodeId` XOR `P
 whose node is a `contentzoneitems` node is an item, any other — including a vanished one — a page). A nested
 zone is owned by the zone *item* that renders it (e.g. a Layout widget), so it moves with the item. An owned
 zone's node id is `ZoneNodeIds.For(ownerNodeId, slot)` (RFC 4122 v5, the slot hashed as given), so the
-`ContentNodes` primary key enforces one zone per (owner, slot) in place of the old unique indexes. A zone has
+`ContentNodes` primary key enforces one zone per (owner, slot). A zone has
 exactly one owner.
 
 ---
@@ -400,8 +400,8 @@ script is the supported path.
 
 ## 5. `IContentStore<T>` — the single write/read engine
 
-`ContentStore<T>` is the single generic engine that replaced the old `ContentService<T>`,
-`PageService`, and the zone CRUD. It is registered once per content type with its `contentTypeKey`,
+`ContentStore<T>` is the single generic engine for every content type's reads and writes, zones
+included. It is registered once per content type with its `contentTypeKey`,
 and is read-context aware.
 
 **Reads (read-context aware — the public rendering path):**
@@ -431,8 +431,8 @@ q.Where(e => e.Version.Culture == ctx.Culture
                  : e.Version.State == ContentVersionState.Published));
 ```
 
-Both branches are single-row index seeks against the filtered unique indexes. (Scheduled-publishing
-predicates are intentionally deferred — `PublishStartUtc`/`PublishEndUtc` ship as columns, unfiltered.)
+Both branches are single-row index seeks against the filtered unique indexes. (Scheduled publishing
+is not filtered yet — `PublishStartUtc`/`PublishEndUtc` exist as columns but reads ignore them.)
 
 A third mode, `ContentReadMode.Snapshot`, renders a page-history entry: when the context carries a
 `ContentReadSnapshot(GovernedNodeIds, VersionIds)` (the `IContentReadContext.Snapshot` default member;
@@ -498,10 +498,7 @@ Because the output is already URL-safe, the encode-on-write / `WebUtility.UrlDec
 is a no-op for newly written slugs. The route pattern is derived on publish by `UrlDecode`ing the stored
 slug (so a non-Latin slug stored percent-encoded resolves to a raw route that matches ASP.NET's decoded
 incoming path — `日本語ページ` serves at `/日本語ページ`, which is what the server sees for either the raw or
-percent-encoded request). **One consequence:** a legacy page whose slug predates the slugify change keeps
-its existing decoded route on a bare republish, but migrates to the slugified URL the moment its draft is
-re-saved (e.g. `/My%20Page` → `/my-page`), because the slug is normalized at write time; with slugify in
-place there is no longer any way to keep a legacy spaced URL once it is edited.
+percent-encoded request).
 
 ---
 
@@ -575,15 +572,7 @@ admin child CRUD, MCP).
 | `GetItemOwnedZonesForPageAsync(pageNodeId)` | `ItemOwnedZone`s (zone, slot, owner draft) owned by the page's active widgets and holding an active current draft — the Unplaced panel's candidates |
 | `DeleteZoneAsync(zoneNodeId)` | Removes the zone (its ownership goes with its versions), its items (each item's nested zone tree first, then its widget routes — `CMSRouteDTO` rows keyed to the item node — so nothing dangles) and the zone. An item whose published version lives in another zone (dragged in) is sent back (if its current draft sits here, a new version restoring the published one — "Returned to its published zone") and only its versions in this zone are dropped. If sending it back or dropping one of those versions fails, the delete stops and returns `false` (logged) instead of deleting a zone a current draft still points at. Nested zones hang off items, so deleting a zone's items recurses into them (a visited set stops a nested-zone cycle from leading back). |
 | `DeleteItemAsync(itemNodeId)` | Hard-deletes one item: the zones it owns (with their content), its widget routes, then the item. The delete cascade's `ZoneItemDeleter` calls it |
-| `DeletePageZonesAsync(pageNodeId)` | Deletes each zone the page owns (`DeleteZoneAsync`). A page delete now reaches its zones and items through the relation cascade first, so this is a safety net |
-
-**Breaking API note (for package hosts):** this change removes `IContentStore<T>.DiscardDraftAsync`
-and `IContentZoneService.DiscardPageZoneDraftsAsync` (a "discard" is now a page-history revert to what
-is live — see `IPageHistoryService.DiscardUnpublishedChangesAsync`), and adds members to
-`IContentZoneService` (`UpdateItemAsync`/`RestoreItemVersionAsync` overloads taking a `SlotRemapPlan`,
-plus `GetOwnedSlotsWithItemsAsync`, `GetDescendantItemNodeIdsAsync`, `GetItemOwnedZonesForPageAsync`).
-A host that *implements* these interfaces directly must add the new members; hosts that only *consume*
-them recompile unchanged. This warrants a package major-version bump on the next release.
+| `DeletePageZonesAsync(pageNodeId)` | Deletes each zone the page owns (`DeleteZoneAsync`). A page delete reaches its zones and items through the relation cascade first, so this is a safety net |
 
 ---
 

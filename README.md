@@ -175,7 +175,9 @@ image builds the CMS from source — no packing step. Being a throwaway test sta
 is hardcoded (see `WebWayCMS.TestHost/docker-compose.yml`); the only value taken from the
 environment is the optional `CKEDITOR_LICENSE_KEY`. One script runs the whole flow
 non-interactively and exits with a meaningful return code: it builds and starts the compose
-stack, then polls `http://localhost:45847` until it answers `200`.
+stack, then polls `http://localhost:45847` until it answers `200`. Every run starts from a clean
+database: any existing stack is torn down together with its Postgres data volume first. Pass
+`-p` (`--persist`) to keep the existing volume instead.
 
 ```
 ./scripts/StartIntegrationHost.sh
@@ -185,7 +187,7 @@ On success the stack is left running and the admin credentials
 (`admin@example.com` / `ChangeMe!Strong12`) are printed; on a startup error or timeout
 the script dumps the compose logs, tears the stack down, and exits non-zero.
 
-Tear the running stack down with (pass `-v` to also delete the Postgres data volume):
+Tear the running stack down with (this deletes the Postgres data volume; pass `-p` / `--persist` to keep it):
 
 ```
 ./scripts/TearDownIntegrationhost.sh

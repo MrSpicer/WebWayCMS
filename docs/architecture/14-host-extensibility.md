@@ -9,17 +9,15 @@
 
 ---
 
-## 1. The Problem
+## 1. Overview
 
-A host consuming WebWayCMS as a NuGet package could not define a content type with its own EF table.
-It could only reuse an existing DTO's `ContentVersion.CustomFields` JSONB column — adding a real table
-meant editing CMS source and re-running `./scripts/RebuildEFMigrations.sh`. The host-extensibility seam
-closes that gap: a host declares a new EF-backed content type entirely in its own project, with zero
-CMS source changes.
+A host consuming WebWayCMS as a NuGet package can declare a new EF-backed content type, with its own
+table, entirely in its own project — with zero CMS source changes. (A type that needs no table of its own
+can instead store extra data in `ContentVersion.CustomFields`.)
 
 ## 2. Two Independent Halves
 
-The seam has two halves, chosen deliberately to keep the CMS's own migrations untouched:
+The seam has two halves, which keep the CMS's own migrations untouched:
 
 - **Runtime model** — the host contributes `IEntityTypeConfiguration<T>` (or arbitrary
   `ICmsModelExtension` implementations) into `CmsDbContext`'s model via the builder callback.
@@ -113,6 +111,16 @@ A host model's constructor passes `(IChangeSetScope, IRelationBinder, IContentDe
 `AdminCrudModel<T>` base (all three are registered by the CMS in both modes), and implements
 `DeleteSelfAsync(id)` — delete this one node — instead of `DeleteAsync`. The base's `DeleteAsync` /
 `TryDeleteAsync` route through the relation engine, which deletes the node's containment children with it.
+
+### Admin views
+
+A host model names its own list and edit views (`IndexViewPath` / `UpsertViewPath`). Build them from the
+same shared partials the core admin screens use (`WebWayCMS.Admin/Views/Shared`; models in
+`WebWayCMS.Admin.Partials`, so add `@using WebWayCMS.Admin.Partials` to the host's `_ViewImports`):
+`_AdminPageHeader`, `_EmptyState`, `_StatusBadge`, `_RowPublishToggle`, `_RowMenu` (Version history and Delete,
+with `DeleteDescendants` for a containment parent) and `_UpsertForm` (validation summary, `returnUrl`,
+Save as Draft / Save and Publish / Unpublish, Cancel). The TestHost's `Views/AdminFaq/*` are the worked
+example.
 
 ### Relations to other content
 
@@ -215,8 +223,7 @@ group) is therefore safe only on **model-bound** forms (a content type's own ups
 - No rollback/uninstall semantics for host migrations, and non-Npgsql providers are unsupported
   (`ContentVersionEntityConfiguration` uses raw Postgres partial-index filters).
 
-> The `EntityPicker` endpoint map used to be a hardcoded-JS limit that prevented a host type from
-> being an `EntityPicker` target. The endpoint is now resolved server-side from the handler registry
+> A host type can be an `EntityPicker` target: the endpoint is resolved server-side from the handler registry
 > (`EntityPickerEndpoint.Resolve`, emitted as `data-endpoint`), so a `[ContentRelation("faqs")]` picker
 > resolves to `GET /wadmin/faqs/api/list` with no JS edit. See
 > [04-content-zone-framework.md](04-content-zone-framework.md#entity-picker-endpoint-resolution).

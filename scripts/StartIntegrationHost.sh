@@ -7,15 +7,34 @@
 #      libraries from source (project references) — no packing step is required.
 #   2. polls http://localhost:45847 until it answers 200, then exits 0
 #
+# By default every run starts from a clean database: any existing stack is torn down
+# together with its postgres data volume first. Pass -p/--persist to keep the volume
+# (a running stack is then updated in place and the existing data reused).
+#
 # On failure (startup error or timeout) the script dumps the compose logs, tears
-# the stack down, and exits non-zero. On success the stack is left running so you
-# can browse to http://localhost:45847 and log in with the printed credentials.
+# the stack down (dropping volumes unless -p), and exits non-zero. On success the
+# stack is left running so you can browse to http://localhost:45847 and log in with
+# the printed credentials.
 #
 # Usage:
-#   ./scripts/StartIntegrationHost.sh        # prompt to tear down any running stack first
-#   ./scripts/StartIntegrationHost.sh -y     # tear down a running stack (with -v) without prompting
+#   ./scripts/StartIntegrationHost.sh        # tear down any existing stack + DB volume, start fresh
+#   ./scripts/StartIntegrationHost.sh -p     # (--persist) keep the existing DB volume
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+usage() {
+    echo "Usage: $0 [-p|--persist]"
+    echo "  -p, --persist   keep the existing postgres data volume (default: start from a clean database)"
+}
+
+PERSIST=false
+for arg in "$@"; do
+    case "$arg" in
+        -p|--persist) PERSIST=true ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
+    esac
+done
 
 REPO_ROOT="$(pwd)"
 HOST_DIR="$REPO_ROOT/WebWayCMS.TestHost"
@@ -23,28 +42,12 @@ TEST_URL="http://localhost:45847"
 TIMEOUT_SECONDS=300
 POLL_INTERVAL=5
 
-# Optional first argument: skip the prompt and tear down a running stack automatically.
-AUTO_TEARDOWN=false
-if [[ "${1:-}" == "-y" || "${1:-}" == "--yes" ]]; then
-    AUTO_TEARDOWN=true
-fi
-
-# --- Step 0: handle an already-running stack ----------------------------------
-# If a previous Integration-Host stack is still up, the postgres data volume from
-# that run will be reused. Offer to tear it down (with -v, dropping the volume)
-# so this run starts from a clean database.
-if [[ -n "$(docker compose -f "$HOST_DIR/docker-compose.yml" ps -q 2>/dev/null)" ]]; then
-    teardown_existing=false
-    if [[ "$AUTO_TEARDOWN" == true ]]; then
-        echo "==> An Integration-Host stack is already running; tearing it down (-v) ..."
-        teardown_existing=true
-    else
-        read -r -p "An Integration-Host stack is already running. Tear it down (including the DB volume) before continuing? [y/N] " reply
-        [[ "$reply" =~ ^[Yy]$ ]] && teardown_existing=true
-    fi
-    if [[ "$teardown_existing" == true ]]; then
-        "$REPO_ROOT/scripts/TearDownIntegrationhost.sh" -v
-    fi
+# --- Step 0: start from a clean database ---------------------------------------
+# Unless persisting, tear down any existing stack (running or stopped) and drop its
+# postgres data volume, so this run seeds a fresh database. A no-op when nothing exists.
+if [[ "$PERSIST" == false ]]; then
+    echo "==> Tearing down any existing stack and its volumes ..."
+    "$REPO_ROOT/scripts/TearDownIntegrationhost.sh"
 fi
 
 
@@ -62,7 +65,11 @@ teardown_on_failure() {
     echo "==> Startup failed - dumping compose logs ..." >&2
     docker compose logs || true
     echo "==> Tearing down the compose stack ..." >&2
-    docker compose down || true
+    if [[ "$PERSIST" == true ]]; then
+        docker compose down || true
+    else
+        docker compose down --volumes || true
+    fi
 }
 
 echo "==> Building and starting the compose stack ..."
@@ -82,7 +89,7 @@ while (( SECONDS < deadline )); do
             echo "Integration host is up at $TEST_URL"
             echo ""
             echo "Stack left running. Stop it with:"
-            echo "  script/TearDownIntegrationhost.sh (-v)"
+            echo "  ./scripts/TearDownIntegrationhost.sh      (add -p to keep the DB volume)"
             exit 0
             ;;
         000)

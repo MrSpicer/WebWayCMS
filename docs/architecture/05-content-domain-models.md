@@ -13,12 +13,12 @@
 - `WebWayCMS.Data` — `MappingProfile`
 - `MySite` — `MappingProfile`
 
-**Depends on:** Data Tier (services consumed — now `IContentStore<T>`), Admin CRUD Framework interfaces (`IAdminCrudHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
+**Depends on:** Data Tier (`IContentStore<T>`), Admin CRUD Framework interfaces (`IAdminCrudHandler`), CMS Routing Subsystem (`IPageControllerRegistry` and `ICMSRouteService` used in `PageModel`), Content Zone Framework (`IWidgetRegistry`)
 
-> **Versioning note (Node/Version model):** `VersionedModel<T>`/`AdminCrudModel<T>` are now generic over
+> **Versioning (Node/Version model):** `VersionedModel<T>`/`AdminCrudModel<T>` are generic over
 > `IVersionedContent` and backed by `IContentStore<T>`. `AdminCrudModel<T>` opens a change-set scope around
-> `SaveUpsertAsync`, and gains `PublishAsync`/`UnpublishAsync`/`RestoreVersionAsync`. View models carry
-> `NodeId` + `ExpectedVersionNumber` (no `Id`/`MasterId`/`Version`/`IsPublished`). See
+> `SaveUpsertAsync`, and provides `PublishAsync`/`UnpublishAsync`/`RestoreVersionAsync`. View models carry
+> `NodeId` + `ExpectedVersionNumber`. See
 > [01-data-tier](01-data-tier.md).
 **Consumed by:** Admin CRUD Framework (resolves `IAdminCrudHandler` implementations), view components/views (consume ViewModels)
 
@@ -174,8 +174,7 @@ registered as `IAdminCrudHandler`. A child is placed under its parent by a **con
 upsert view model (an article's list, a page's parent page, a zone item's zone); the parent's edit screen lists
 it through the generic children panel, and MCP's child tools address it through that relation (see
 [06 §3](06-admin-crud-framework.md#3-containment--children-reorder-move) and
-[17](17-content-relations.md)). The old `IAdminCrudChildHandler` (an inner child handler on the parent's model)
-is gone.
+[17](17-content-relations.md)).
 
 ---
 

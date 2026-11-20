@@ -7,10 +7,10 @@
 
 **Depends on:** Content Domain Models (resolves handlers), Content Zone Component Framework (zone controller uses `IWidgetRegistry`), Identity (`[Authorize]`), Form Generation Metadata (tag helper in views)
 
-> **Versioning note (Node/Version model):** the version routes are keyed on `nodeId` (not `masterId`),
-> and `IAdminCrudHandler` gained `SupportsPublishing`, `PublishRoles`, `PublishAsync`, `UnpublishAsync`,
-> and one-step `RestoreVersionAsync`. New routes: `POST publish|unpublish/{nodeId}`,
-> `POST versions/{nodeId}/restore/{id}`, `GET preview/{nodeId}`. See [01-data-tier](01-data-tier.md).
+> **Versioning (Node/Version model):** the version routes are keyed on `nodeId`, and `IAdminCrudHandler`
+> exposes `SupportsPublishing`, `PublishRoles`, `PublishAsync`, `UnpublishAsync` and one-step
+> `RestoreVersionAsync`, behind the routes `POST publish|unpublish/{nodeId}`,
+> `POST versions/{nodeId}/restore/{id}` and `GET preview/{nodeId}`. See [01-data-tier](01-data-tier.md).
 **Consumed by:** The MCP toolsets, which dispatch through the same `IAdminHandlerRegistry`. Otherwise a leaf layer
 
 > **Where this lives.** The contracts (`IAdminCrudHandler` and friends) and `AdminCrudModel<T>` stay
@@ -215,8 +215,7 @@ All routes are prefixed with `/wadmin` and require `[Authorize(Roles = "Admin")]
 | POST | `/wadmin/{contentType}/unpublish/{nodeId:guid}` | `Unpublish` — same `returnUrl` handling |
 | GET | `/wadmin/{contentType}/preview/{nodeId:guid}` | `Preview` — redirects to `/_preview/{nodeId}` (no cookie; the route transformer marks that request as a draft read) (gated on `SupportsPreview`) |
 
-The old child routes (`/wadmin/{contentType}/{parentKey}/{childType}/…`) are gone: a child is edited under
-its own content type (e.g. a zone item at `/wadmin/contentzoneitems/edit/{id}`), see §3.
+A child is edited under its own content type (e.g. a zone item at `/wadmin/contentzoneitems/edit/{id}`), see §3.
 
 The page-history screens live on their own controller, `AdminPageHistoryController`
 (`/wadmin/contentzones/page/{pageNodeId}/history…`) — see
@@ -255,9 +254,8 @@ protected helpers `LoadUpsertAsync(id, map)` (new form for a null/empty id, else
 `SaveDraftAsync(dto, form, failureMessage)` (save against the form's expected version and write back the node
 id) and `MapRestoreAsync`. `AdminSaveResult.FromWrite` maps a store write result. Override a default only where
 the type differs (`PageModel` and `RouteModel` delete more than their node; `RouteModel`'s history goes back to
-`/wadmin/cmsroutes`; registrations title pickers by display name). The typed per-type save overloads are gone from
-`IContentBlockModel`/`IImageModel`: every save goes through `SaveUpsertAsync(object)`, the sanitize/validate
-choke point.
+`/wadmin/cmsroutes`; registrations title pickers by display name). Every save goes through
+`SaveUpsertAsync(object)`, the sanitize/validate choke point.
 
 **Shared admin markup.** Index and edit views compose `_AdminPageHeader`, `_EmptyState`, `_RowPublishToggle`,
 `_RowMenu` and `_UpsertForm` (see the CLAUDE.md conventions); `AdminContentController` starts every action with

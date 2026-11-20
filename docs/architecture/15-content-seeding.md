@@ -13,28 +13,23 @@
 
 ---
 
-## 1. The Problem
+## 1. Overview
 
-Before this area, the only way to get content into a WebWayCMS database at startup was to write C#:
-a hard-coded C# seeder created the Home and `/wadmin` pages, and the four
-assembly-scanning seeders seed *registrations* (widgets, form components, page types, code-based
-routes), not content. A host that wanted to ship a site's pages and content blocks with its package
-had to fork CMS source or hand-roll its own `IContentStore<T>` calls.
-
-JSON content seeding lets any assembly — the host or a satellite content DLL — ship a JSON file of
+The four assembly-scanning seeders seed *registrations* (widgets, form components, page types,
+code-based routes). Content is seeded from JSON: JSON content seeding lets any assembly — the host or a satellite content DLL — ship a JSON file of
 serialized content that is discovered at startup and created or updated in the database, then
 published.
 
-## 2. Design Principles
+## 2. How It Works
 
-This is deliberately a *minimal* system. It reuses the exact dispatch the MCP server already uses
+It reuses the exact dispatch the MCP server already uses
 (`IAdminHandlerRegistry` → `IAdminCrudHandler.CreateEmptyUpsertViewModel` /
 `GetUpsertViewModelAsync` → JSON field overlay → `SaveUpsertAsync` → `PublishAsync`), so it covers
 every current and future content type generically with no per-type code, and inherits rich-text
 sanitization, required-field validation, change-set grouping, page slug-collision checks, and route
 writing on publish for free.
 
-| Decision | Choice |
+| Aspect | Behavior |
 |---|---|
 | File discovery | Embedded resources in scanned assemblies, a configured disk folder, and explicit registration on `IWebWayCmsBuilder` |
 | Identity | Each item carries a stable Guid `id` that is a *seed key*, mapped through a ledger table to a CMS-generated `ContentNode.Id`. `ContentStore` is not modified. |
@@ -246,8 +241,7 @@ A seed item with a `zone` locator is a **zone item** (a widget placed in a conte
 `contentZoneNodeId` field (any value the file gives there is dropped), so it gets the same metadata
 normalization and widget-route registration as a zone item created in the zone editor or over MCP.
 
-A `zone` locator on any other content type — including the old `"contentzones"` form from before zone
-items were their own content type, which is no longer accepted — is skipped with a warning.
+A `zone` locator on any other content type (including `"contentzones"`) is skipped with a warning.
 
 ```json
 {
@@ -344,8 +338,6 @@ page whose publish collides, logged as publish-pending and retried on every boot
   rather than creating a second page at `/`. Admin edits survive reboots (§5).
 - Don't reuse a CMS seed id in a host file to replace an entry: both items are applied, in source-name
   order, with a duplicate-id warning each boot (§3).
-- Pre-release databases from before the JSON seed (Home/Dashboard created by `DefaultContentSeeder`) are
-  rebuilt, not migrated.
 
 ## Media references (`@media:{path}`)
 
