@@ -85,8 +85,8 @@ consume the whole thing as a NuGet package.
 | **Content as code / deployable seed content** | Yes — JSON seed files | Yes (Site Sync / export-import) | Yes (serialization, SCS) | Via uSync / Umbraco Deploy (paid) | Yes |
 | **Separate public vs. admin widget rendering** | Yes — per-mode widget views, so the site is styled independently of the admin | No | Partial (Experience Editor mode checks) | No | Partial |
 | **Built-in security defaults (CSP, sanitization, auth rate limiting)** | Yes — configurable CSP, server-side rich-text sanitization, account lockout + per-IP auth throttling | Partial (configurable security headers) | No — manual / add-ons | Partial — via packages | Partial |
+| **Output caching** | Yes | Yes | Yes | Yes | Yes |
 | **User role-based permissions** | Coming Soon!* | Yes | Yes | Yes | Yes |
-| **Output caching** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Headless** | Coming Soon!*  | Yes | Yes (native for XM Cloud) | Yes (Content Delivery API) | Yes |
 | **Multi-site / multi-tenant** | Coming Soon!* | Yes | Yes | Yes | Yes |
 | **Localization / multilingual content** | Coming Soon!* | Yes | Yes | Yes | Yes |

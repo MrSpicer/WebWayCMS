@@ -23,55 +23,49 @@
     </div>
 
     <div id="adminNav" class="navbar-menu">
-        <div class="navbar-start" role="list">
+        <div class="navbar-start">
             @* Rendered on an admin page, so the widget resolves admin.{ViewName}: admin.Navbar. *@
             @await Component.InvokeAsync(name: "RouteNavigation", new RouteNavigationConfiguration()
             {
                 AdminRoutes = true,
                 ViewName = "Navbar"
             })
-            <a class="navbar-item" href="/wadmin/pages" @(currentPath.StartsWith("/wadmin/pages") ?
-                  "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/pages" aria-current="@(currentPath.StartsWith("/wadmin/pages") ? "page" : null)">
                 @names.PluralDisplayNameOr("pages", "Pages")
             </a>
-            <a class="navbar-item" href="/wadmin/contentblocks" @(currentPath.StartsWith("/wadmin/contentblocks") ?
-                           "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/contentblocks" aria-current="@(currentPath.StartsWith("/wadmin/contentblocks") ? "page" : null)">
                 @names.PluralDisplayNameOr("contentblocks", "Content Blocks")
             </a>
-            <a class="navbar-item" href="/wadmin/articlelists" @(currentPath.StartsWith("/wadmin/article") ?
-                               "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/articlelists" aria-current="@(currentPath.StartsWith("/wadmin/article") ? "page" : null)">
                 @names.PluralDisplayNameOr("articles", "Articles")
             </a>
-            <a class="navbar-item" href="/wadmin/images" @(currentPath.StartsWith("/wadmin/images") ?
-                               "aria-current=\"page\"" : "") role="listitem">
+            <a class="navbar-item" href="/wadmin/images" aria-current="@(currentPath.StartsWith("/wadmin/images") ? "page" : null)">
                 @names.PluralDisplayNameOr("images", "Images")
             </a>
-            <div class="navbar-item has-dropdown" id="advancedDropdown" role="listitem">
+            <div class="navbar-item has-dropdown" id="advancedDropdown">
                 <button class="navbar-link" id="advancedDropdownTrigger" aria-expanded="false" aria-controls="advancedDropdownMenu">
                     Advanced
                 </button>
                 <div class="navbar-dropdown" id="advancedDropdownMenu">
-                    <a class="navbar-item" href="/wadmin/widgets" @(currentPath.StartsWith("/wadmin/widgets") ? "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/widgets" aria-current="@(currentPath.StartsWith("/wadmin/widgets") ? "page" : null)">
                         @names.PluralDisplayNameOr("widgets", "Widgets")
                     </a>
-                    <a class="navbar-item" href="/wadmin/formcomponents" @(currentPath.StartsWith("/wadmin/formcomponents") ?
-                            "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/formcomponents" aria-current="@(currentPath.StartsWith("/wadmin/formcomponents") ? "page" : null)">
                         Form Components
                     </a>
-                    <a class="navbar-item" href="/wadmin/pagetypes" @(currentPath.StartsWith("/wadmin/pagetypes") ? "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/pagetypes" aria-current="@(currentPath.StartsWith("/wadmin/pagetypes") ? "page" : null)">
                         @names.PluralDisplayNameOr("pagetypes", "Page Types")
                     </a>
-                    <a class="navbar-item" href="/wadmin/cmsroutes" @(currentPath.StartsWith("/wadmin/cmsroutes") ? "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/cmsroutes" aria-current="@(currentPath.StartsWith("/wadmin/cmsroutes") ? "page" : null)">
                         CMS Routes
                     </a>
-                    <a class="navbar-item" href="/wadmin/contentzones" @(currentPath.StartsWith("/wadmin/contentzones") ?
-                                   "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/contentzones" aria-current="@(currentPath.StartsWith("/wadmin/contentzones") ? "page" : null)">
                         @names.PluralDisplayNameOr("contentzones", "Content Zones")
                     </a>
-                    <a class="navbar-item" href="/wadmin/contenttypes" @(currentPath.StartsWith("/wadmin/contenttypes") ? "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/contenttypes" aria-current="@(currentPath.StartsWith("/wadmin/contenttypes") ? "page" : null)">
                         @names.PluralDisplayNameOr("contenttypes", "Content Types")
                     </a>
-                    <a class="navbar-item" href="/wadmin/apitokens" @(currentPath.StartsWith("/wadmin/apitokens") ? "aria-current=\"page\"" : "")>
+                    <a class="navbar-item" href="/wadmin/apitokens" aria-current="@(currentPath.StartsWith("/wadmin/apitokens") ? "page" : null)">
                         API Tokens
                     </a>
                 </div>
@@ -79,7 +73,7 @@
         </div>
 
         <div class="navbar-end">
-            <a class="navbar-item" href="/" target="_blank" rel="noopener" role="listitem">
+            <a class="navbar-item" href="/" target="_blank" rel="noopener">
                 View Site
             </a>
             <partial name="_LoginNavPartial" />

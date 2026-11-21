@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using WebWayCMS.Data.Services;
 
 namespace WebWayCMS.Data.Models;
@@ -16,6 +18,8 @@ public record ContentZoneItemDTO : IVersionedContent
     /// by EF): a query uses <see cref="ZoneRelations.InZone"/> / <see cref="ZoneRelations.ZoneOf"/>, and a
     /// write uses <see cref="ZoneRelations.Place"/>.
     /// </summary>
+    /// <remarks>Computed, so it is excluded from the read cache's JSON round-trip (it rebuilds from <see cref="Version"/>.</remarks>
+    [JsonIgnore]
     public Guid ContentZoneNodeId => Version.TargetOf(ZoneRelations.Zone) ?? Guid.Empty;
 
     /// <summary>
@@ -23,6 +27,8 @@ public record ContentZoneItemDTO : IVersionedContent
     /// relation's ordinal. In-memory only, like <see cref="ContentZoneNodeId"/> (query with
     /// <see cref="ZoneRelations.ZoneOrdinal"/>).
     /// </summary>
+    /// <remarks>Computed, so it is excluded from the read cache's JSON round-trip (it rebuilds from <see cref="Version"/>.</remarks>
+    [JsonIgnore]
     public int Ordinal => Version.OrdinalOf(ZoneRelations.Zone);
 
     /// <summary>Name of the ViewComponent to render (e.g., "ContentBlock", "Article").</summary>

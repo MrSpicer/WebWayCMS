@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 
 # Runs the Integration-Host example end-to-end as a scriptable smoke test:
-#   1. builds and starts the self-contained docker compose stack (web + postgres).
-#      All config is hardcoded (see docker-compose.yml); the only value taken from the
-#      environment is the optional CKEDITOR_LICENSE_KEY. The image builds the WebWayCMS
-#      libraries from source (project references) — no packing step is required.
-#   2. polls http://localhost:45847 until it answers 200, then exits 0
+#   1. builds and starts the self-contained docker compose stack (web + rendering +
+#      postgres). All config is hardcoded (see docker-compose.yml); the only value
+#      taken from the environment is the optional CKEDITOR_LICENSE_KEY. The image
+#      builds the WebWayCMS libraries from source (project references) — no packing
+#      step is required. The rendering service is a rendering-only host on
+#      http://localhost:45854 sharing the same database (WEBWAYCMS_DEPLOYMENT_MODE=
+#      rendering, see WebWayCMS.TestHost/Program.cs); it starts after the admin host
+#      is healthy, so the two never run migrations concurrently.
+#   2. polls http://localhost:45847 and http://localhost:45854 until both answer 200,
+#      then exits 0
 #
 # By default every run starts from a clean database: any existing stack is torn down
 # together with its postgres data volume first. Pass -p/--persist to keep the volume
@@ -39,6 +44,7 @@ done
 REPO_ROOT="$(pwd)"
 HOST_DIR="$REPO_ROOT/WebWayCMS.TestHost"
 TEST_URL="http://localhost:45847"
+RENDERING_URL="http://localhost:45854"
 TIMEOUT_SECONDS=300
 POLL_INTERVAL=5
 
@@ -78,34 +84,43 @@ if ! docker compose up --build -d; then
     exit 1
 fi
 
-# --- Step 2: poll the test URL ------------------------------------------------
-echo "==> Polling $TEST_URL (up to ${TIMEOUT_SECONDS}s) ..."
-deadline=$(( SECONDS + TIMEOUT_SECONDS ))
-while (( SECONDS < deadline )); do
-    code="$(curl -s -L -o /dev/null -w '%{http_code}' "$TEST_URL" || true)"
-    case "$code" in
-        200)
-            echo ""
-            echo "Integration host is up at $TEST_URL"
-            echo ""
-            echo "Stack left running. Stop it with:"
-            echo "  ./scripts/TearDownIntegrationhost.sh      (add -p to keep the DB volume)"
-            exit 0
-            ;;
-        000)
-            # Not accepting connections yet - keep waiting.
-            echo "  ... not ready yet (no response), retrying in ${POLL_INTERVAL}s"
-            ;;
-        *)
-            # The app responded but with an error status - treat as a failure.
-            echo "ERROR: $TEST_URL returned HTTP $code" >&2
-            teardown_on_failure
-            exit 1
-            ;;
-    esac
-    sleep "$POLL_INTERVAL"
-done
+# --- Step 2: poll the test URLs -----------------------------------------------
+# Wait for a URL to answer 200. An error status is a startup failure; no response means
+# the host is not up yet (or, for the rendering host, not started - it waits for the
+# admin host's healthcheck).
+wait_for() {
+    local url="$1"
+    local code
+    echo "==> Polling $url (up to ${TIMEOUT_SECONDS}s) ..."
+    local deadline=$(( SECONDS + TIMEOUT_SECONDS ))
+    while (( SECONDS < deadline )); do
+        code="$(curl -s -L -o /dev/null -w '%{http_code}' "$url" || true)"
+        case "$code" in
+            200)
+                return 0
+                ;;
+            000)
+                echo "  ... not ready yet (no response), retrying in ${POLL_INTERVAL}s"
+                ;;
+            *)
+                echo "ERROR: $url returned HTTP $code" >&2
+                teardown_on_failure
+                exit 1
+                ;;
+        esac
+        sleep "$POLL_INTERVAL"
+    done
+    echo "ERROR: timed out after ${TIMEOUT_SECONDS}s waiting for $url to return 200" >&2
+    teardown_on_failure
+    exit 1
+}
 
-echo "ERROR: timed out after ${TIMEOUT_SECONDS}s waiting for $TEST_URL to return 200" >&2
-teardown_on_failure
-exit 1
+wait_for "$TEST_URL"
+wait_for "$RENDERING_URL"
+
+echo ""
+echo "Integration host is up at $TEST_URL (admin) and $RENDERING_URL (rendering-only)"
+echo ""
+echo "Stack left running. Stop it with:"
+echo "  ./scripts/TearDownIntegrationhost.sh      (add -p to keep the DB volume)"
+exit 0

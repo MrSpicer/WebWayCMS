@@ -12,7 +12,7 @@ using WebWayCMS.Data.DbContexts;
 namespace WebWayCMS.Data.Migrations
 {
     [DbContext(typeof(CmsDbContext))]
-    [Migration("20261120040437_InitialCreate")]
+    [Migration("20261120232525_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -381,6 +381,19 @@ namespace WebWayCMS.Data.Migrations
                     b.HasIndex("RouteNodeId");
 
                     b.ToTable("CMSRoutes", (string)null);
+                });
+
+            modelBuilder.Entity("WebWayCMS.Data.Models.CacheGenerationDTO", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Value")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CacheGenerations", (string)null);
                 });
 
             modelBuilder.Entity("WebWayCMS.Data.Models.ChangeSet", b =>

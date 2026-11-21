@@ -10,6 +10,10 @@ internal static class TestContexts
     public static CmsDbContext Cms(string db) =>
         new(Options<CmsDbContext>(db));
 
+    /// <summary>A context over <paramref name="db"/> that reports an open transaction.</summary>
+    public static CmsDbContext CmsInTransaction(string db) =>
+        new InTransactionCmsDbContext(Options<CmsDbContext>(db));
+
     private static DbContextOptions<T> Options<T>(string db) where T : DbContext =>
         new DbContextOptionsBuilder<T>()
             .UseInMemoryDatabase(db)

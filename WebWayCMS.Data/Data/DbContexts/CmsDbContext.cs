@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -20,6 +21,15 @@ public class CmsDbContext : IdentityDbContext
     {
         _modelExtensions = modelExtensions ?? Array.Empty<ICmsModelExtension>();
     }
+
+    /// <summary>
+    /// True while a database transaction is open on this context. Published-mode reads skip the content
+    /// read cache then: they may see the transaction's uncommitted writes (which a rollback would leave
+    /// cached) and must see them (a cached pre-transaction value would hide them from the writer).
+    /// Virtual because the InMemory provider never reports a transaction; tests override it.
+    /// </summary>
+    [ExcludeFromCodeCoverage]
+    public virtual bool HasOpenTransaction => Database.CurrentTransaction is not null;
 
     internal IReadOnlyList<Type> ModelExtensionTypes => _modelExtensions.Select(e => e.GetType()).ToArray();
 

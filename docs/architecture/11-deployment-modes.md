@@ -41,12 +41,16 @@ Version selection is driven by `IContentReadContext`, registered **per mode**:
 This is the same DI boundary described in §5: the rendering path resolves a context that can only ever
 return published rows.
 
-### Cache staleness on split deployments
+### Cache staleness on split deployments — solved
 
-Publishing is now an explicit action users expect to take effect immediately, but the route registry
-and widget caches are per-process (60s / 5min TTLs) with per-process invalidation. On a split
-admin + rendering-only deployment, a publish will **not** appear on the rendering instance until its
-TTL expires. Not solved here — plan around it if you run a split topology.
+Both modes register the caching stack from [18-caching](18-caching.md): an output cache for
+anonymous public responses and a data read cache for published-mode reads, both per-process, both
+evicted by a **cross-host generation stamp in the shared database**. The admin host's interceptor
+bumps the stamp at commit of every public save; every rendering-only host polls the stamp
+(`Caching:GenerationPollInterval`, default 5 s) and evicts its caches when it moves. A publish
+therefore appears on the rendering instances within one poll interval, and on the admin host itself
+within milliseconds. The cache TTLs (`Caching:*Expiration`, default 10 min) are the backstop for
+failed bumps and database outages; draft-only saves and direct SQL writes do not invalidate.
 
 ---
 

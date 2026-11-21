@@ -596,7 +596,68 @@
   deliberately do not travel over MCP.
 - Config section `"Media"`: `MaxUploadBytes` (default 10 MB), `AllowedContentTypes` (matched against
   the *sniffed* type).
-- See [docs/architecture/16-media-and-images.md](docs/architecture/16-media-and-images.md).
+ - See [docs/architecture/16-media-and-images.md](docs/architecture/16-media-and-images.md).
+
+## Caching (output + data read cache, cross-host generation stamp)
+
+- **Two caches, one invalidation mechanism.** Anonymous public output (ASP.NET Core output cache)
+  and Published-mode content/zone reads (`HybridCache` read-through inside `ContentStore<T>` /
+  `IContentZoneService`; draft/admin/snapshot reads never cache) are both evicted by a **single-row
+  cross-host generation stamp** (`CacheGenerations`, one row `Id=1 Value bigint`, created lazily).
+  The admin and rendering-only hosts share a database, never a filesystem — the stamp is the shared
+  invalidation channel. See [docs/architecture/18-caching.md](docs/architecture/18-caching.md).
+- **Bump (writer side):** `PublicContentChangeInterceptor` (EF interceptor on `CmsDbContext`,
+  registered before `AddDbContext`) asks `PublicContentChangeDetector.IsPublicChange` on every save
+  and bumps the stamp at the **outermost commit** (saves inside a transaction flush at
+  `TransactionCommittedAsync`; a rollback never bumps). The bump is one ADO upsert
+  (`INSERT … ON CONFLICT … DO UPDATE SET "Value" = "Value" + 1 RETURNING`, missing row created at 1
+  — a missing row reads as 0, so a first write must still move the stamp), run on a fresh scope
+  (`ScopeRunner`) post-commit. `PublicContentChangeDetector` bumps only for changes a visitor can
+  see: a version added/modified/deleted at `Published` (a modified one only on a *real* column
+  change — flipping only `IsCurrentDraft` when minting a draft on a live item does not), any
+  `ContentNode` change, any `CMSRouteDTO` change, and relations added/removed from a live published
+  version. Drafts, change sets, snapshots, seed ledger, media, Identity rows never bump. A failed
+  bump calls `AdvanceLocal()` (moves only the local epoch in `Key` = `{Current}.{localEpoch}`, never a
+  stamp value the DB didn't issue) so the writer's host evicts. Sync `SaveChanges`/`Commit` are hooked too.
+- **Listen (reader side):** `CmsCacheGeneration` is a forward-only process-local counter (raises
+  `Changed` at most once per value; cache keys/vary use its `Key`). `CmsCacheInvalidation` subscribes in its constructor and
+  evicts output cache tag `cms-public`, data cache tag `cms-content`, and the four in-memory
+  registries (routes/widgets/page types/form components) — each step independent, none may fail the
+  write. **It is a lazy singleton nothing else resolves, so `UseWebWayCms*` calls
+  `GetRequiredService<CmsCacheInvalidation>()` at startup** — otherwise the subscription never
+  happens and generation advances evict nothing.
+- **Cross-host:** `CacheGenerationMonitor` (BackgroundService) polls the stamp every
+  `Caching:GenerationPollInterval` (default 5 s, 0 = off) and advances — how rendering-only hosts
+  see admin-host publishes. A failing poll is logged and skipped; TTLs are the backstop.
+- **Output cache policy** (`CmsPublicOutputCachePolicy`, attached via `OutputCacheOptions.AddBasePolicy` —
+  the middleware never reads policies from DI; `CacheRequestAsync` sets `AllowCacheLookup`/`AllowCacheStorage`
+  with `EnableOutputCaching`, or nothing is looked up or captured): anonymous
+  200 GET/HEAD on public paths only; key varies by generation `Key` (`VaryByValues["gen"]`) so a
+  bump moves the key before the tag eviction lands, plus `QueryKeys = "*"`; tag `cms-public`.
+  Excluded paths (segment boundary): `/wadmin`, `/_preview`, `/Identity`, `/api`, the MCP path,
+  `/media`, `/.well-known`. Store-time re-checks: 200, no `Set-Cookie`, no `no-store`/`private`,
+  generation unmoved, and the request was not turned into a draft/snapshot read while rendering
+  (the route transformer can mark those after `CacheRequestAsync`). Middleware order:
+  `UseAuthentication` → `UseOutputCache` → `UseRouting` (a hit skips the transformer/rate limiting
+  — safe because only anonymous 200s are stored).
+- **Data read cache:** `IContentReadCache.GetOrCreateAsync` is the read-through seam
+  (`ContentStore.PublishedCachedAsync`, `ContentZoneService.PublishedCachedAsync`); keys are
+  `{typeKey}:{suffix}:{culture}:{segment}` / `zonesvc:{suffix}:{culture}:{segment}`, prefixed with
+  the generation `Key` (`cms:{gen}:{key}`) so a factory racing a publish lands under a dead key.
+  **No caching while a transaction is open** (`CmsDbContext.HasOpenTransaction`): an in-transaction
+  read may see uncommitted writes (a rollback never bumps) and must see its own writes.
+  A factory exception propagates (original stack); a caller cancellation propagates without bypassing;
+  a cache-side serialization failure logs once and bypasses the type for the process lifetime.
+- **Config** (`"Caching"` section, `CacheOptions`, validated at startup): `Enabled` (default true —
+  when false the stores stay registered but `NullContentReadCache` is used and no policy/poller
+  runs), `OutputCacheExpiration` (10 min), `DataCacheExpiration` (10 min), `GenerationPollInterval`
+  (5 s). Ranges: expirations 1 s–1 d, poll 0–10 min.
+- **Staleness:** other hosts see a publish within one poll interval; TTLs bound every failure mode.
+  **Direct SQL writes (bypassing the interceptor) do not invalidate** — stale until the next public
+  write or TTL, by design. The stamp row has **no `HasData` seed**: host migration contexts exclude
+  the table, but EF still diffs seed data of excluded tables (a spurious host migration would be
+  demanded). The integration host (`scripts/StartIntegrationHost.sh`, admin on 45847 + rendering-only
+  on 45854, one DB) verifies the full loop e2e.
 
 ## Testing
 

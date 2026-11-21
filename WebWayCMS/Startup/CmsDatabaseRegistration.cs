@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using WebWayCMS.Data.DbContexts;
+using WebWayCMS.Data.Services.Caching;
 
 namespace WebWayCMS.Startup;
 
@@ -23,10 +24,13 @@ internal static class CmsDatabaseRegistration
         // PendingModelChangesWarning is ignored because a host's ICmsModelExtension contributions are
         // part of the runtime model but are migrated by the host's own migrations-only context, not
         // by CmsDbContext — so the runtime model legitimately differs from the CMS migration history.
-        services.AddDbContext<CmsDbContext>(options =>
+        // The interceptor flags public changes on every save and bumps the cross-host generation
+        // stamp at commit (CmsCachingRegistration registers it before this point).
+        services.AddDbContext<CmsDbContext>((sp, options) =>
             options.UseNpgsql(connectionString, b => b.MigrationsHistoryTable("__EFMigrationsHistory"))
                    .ReplaceService<IModelCacheKeyFactory, CmsModelCacheKeyFactory>()
-                   .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+                   .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
+                   .AddInterceptors(sp.GetRequiredService<PublicContentChangeInterceptor>()));
 
 #if DEBUG
         services.AddDatabaseDeveloperPageExceptionFilter();

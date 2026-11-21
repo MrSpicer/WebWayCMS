@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Extensions.Hosting;
 
+using WebWayCMS.Caching;
 using WebWayCMS.Mcp;
 using WebWayCMS.Routing;
 
@@ -74,6 +75,12 @@ internal static class CmsMiddlewarePipeline
         // marks them), and the transformer calls into it during endpoint matching — which happens
         // inside UseRouting.
         app.UseAuthentication();
+
+        // After authentication (the policy inspects User) and before routing (a hit skips the route
+        // transformer, rate limiting, and authorization — safe because only anonymous 200s are ever
+        // stored; a draft/snapshot mark set later by the transformer is re-checked at store time).
+        if (app.Services.GetRequiredService<IOptions<CacheOptions>>().Value.Enabled)
+            app.UseOutputCache();
 
         app.UseRouting();
 

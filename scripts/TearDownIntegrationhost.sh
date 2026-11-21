@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # Tears down the Integration-Host docker compose stack started by
-# scripts/StartIntegrationHost.sh (stops and removes the web + postgres containers,
-# the compose network and, by default, the postgres data volume).
+# scripts/StartIntegrationHost.sh (stops and removes the web + rendering + postgres
+# containers, the compose network and, by default, the postgres data volume).
 #
 # Usage:
 #   ./scripts/TearDownIntegrationhost.sh        # stop + remove containers/network and the DB volume

@@ -388,6 +388,7 @@ sealed configuration class in `WebWayCMS.Data/Data/EntityConfiguration/`:
 | `PageControllerRegistrationDTOEntityConfiguration` | `PageControllerRegistrations` |
 | `FormComponentRegistrationDTOEntityConfiguration` | `FormComponentRegistrations` |
 | `ContentSeedRecordDTOEntityConfiguration` | `ContentSeedRecords` |
+| `CacheGenerationDTOEntityConfiguration` | `CacheGenerations` |
 
 Migrations live in `WebWayCMS.Data/Migrations/`; `./scripts/RebuildEFMigrations.sh` wipes and
 regenerates a single `InitialCreate` (destructive, not additive). Because the schema is kept as one
@@ -415,7 +416,9 @@ and is read-context aware.
 | `FindRelatedAsync(name, targetNodeId)` | Rows whose read-context version has relation `name` to the target, by that relation's `Ordinal`, then newest first |
 
 Every read in this table also applies **containment visibility** (an item whose containment parent is not
-visible in the read context is dropped; a single-row read returns null).
+visible in the read context is dropped; a single-row read returns null). Published-mode reads run
+read-through under `IContentReadCache` (a generation-prefixed, tag-evicted `HybridCache` — see
+[18-caching](18-caching.md)); draft/admin/snapshot reads never do.
 
 Read-context version selection lives in exactly one place, `ContentQueryExtensions.AtReadContext(ctx)`. The
 admin-side filters (the default variant, its current drafts, its published versions) are
@@ -505,7 +508,8 @@ percent-encoded request).
 ## 6. `ICMSRouteService` and the registration services
 
 `CMSRouteService` wraps plain `CMSRouteDTO` rows and `ICMSRouteRegistry` (a 60s cached list of active
-routes, invalidated on every write).
+routes, invalidated on every write and on every cross-host generation bump — see
+[18-caching](18-caching.md)).
 
 | Method | Behaviour |
 |---|---|

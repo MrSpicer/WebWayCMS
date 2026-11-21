@@ -4,16 +4,19 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 using WebWayCMS.ContentZones;
 using WebWayCMS.Controllers;
+using WebWayCMS.Controllers.Admin.Handlers;
 using WebWayCMS.Data;
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
 using WebWayCMS.Data.Services;
+using WebWayCMS.Data.Services.Caching;
 using WebWayCMS.Data.Services.ContentTypes;
 using WebWayCMS.Forms;
 using WebWayCMS.Interfaces;
@@ -131,7 +134,8 @@ internal static class CmsRenderingRegistration
             sp.GetRequiredService<IChangeSetScope>(),
             sp.GetRequiredService<IContentUserContext>(),
             contentTypeKey,
-            sp.GetRequiredService<ContainmentVisibility>()));
+            sp.GetRequiredService<ContainmentVisibility>(),
+            sp.GetRequiredService<IContentReadCache>()));
     }
 
     private static void AddRoutingServices(IServiceCollection services)
@@ -190,6 +194,13 @@ internal static class CmsRenderingRegistration
     private static void AddMvcApplicationParts(IServiceCollection services, IReadOnlyList<System.Reflection.Assembly>? hostAssemblies = null)
     {
         services.Configure<MvcOptions>(_ => { });
+        // WebWayCMS.Admin carries compiled views, so it registers itself as an application part in
+        // every host that references it (ProvideApplicationPartFactoryAttribute) — a rendering-only
+        // host discovers AdminContentController's {contentType:admincontenttype} routes too. The
+        // constraint resolves to false there (no handler registry), so the routes never match; it
+        // still must be in the constraint map or the route matcher throws on first request.
+        services.Configure<RouteOptions>(o =>
+            o.ConstraintMap[AdminContentTypeConstraint.Name] = typeof(AdminContentTypeConstraint));
         services.AddControllersWithViews().ConfigureApplicationPartManager(apm =>
         {
             AddAssemblyPart(apm, typeof(GenericPageController).Assembly, includeCompiledRazor: false);

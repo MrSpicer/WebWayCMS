@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 
+using WebWayCMS.Caching;
 using WebWayCMS.Startup;
 
 namespace WebWayCMS;
@@ -13,6 +15,9 @@ public static class WebWayCmsApplicationBuilderExtensions
     /// </summary>
     public static WebApplication UseWebWayCmsRendering(this WebApplication app, bool throwOnError = true)
     {
+        // Singletons are lazy: resolving the invalidation subscriber at startup is what runs its
+        // constructor and subscribes it to the generation's Changed event (nothing else resolves it).
+        app.Services.GetRequiredService<CmsCacheInvalidation>();
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureContentTypeRegistrationsSeeded(throwOnError);
         app.EnsureWidgetRegistrationsSeeded(throwOnError);
@@ -29,6 +34,9 @@ public static class WebWayCmsApplicationBuilderExtensions
     /// </summary>
     public static WebApplication UseWebWayCmsAdmin(this WebApplication app, bool throwOnError = true)
     {
+        // The invalidation subscriber is resolved in both modes (a split deployment writes from the
+        // admin host; see UseWebWayCmsRendering).
+        app.Services.GetRequiredService<CmsCacheInvalidation>();
         app.ApplyCmsPendingMigrations(throwOnError);
         app.EnsureContentRelationsValid(throwOnError);
         app.EnsureCmsRolesAndAdminSeeded(throwOnError);

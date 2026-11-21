@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services.Caching;
 
 namespace WebWayCMS.Data.Services;
 
@@ -28,12 +29,17 @@ public sealed class ContentZoneService : IContentZoneService
     private readonly ICMSRouteService _routeService;
     private readonly PageZoneTree _tree;
     private readonly IPageHistoryRecorder _recorder;
+    private readonly IContentReadCache? _readCache;
     // Built over the same scoped context (not injected): every zone write path shares its transaction semantics.
     private readonly ICmsTransaction _transaction;
 
     /// <summary>The change note of a widget renumbered because another widget moved past it.</summary>
     internal const string SiblingNote = "Position changed (moved by another widget)";
 
+    /// <param name="readCache">
+    /// Caches the published-mode zone/item reads (see <see cref="PublishedCachedAsync{TValue}"/>); null when
+    /// caching is disabled.
+    /// </param>
     public ContentZoneService(
         CmsDbContext context,
         IContentStore<ContentZoneDTO> zoneStore,
@@ -42,7 +48,8 @@ public sealed class ContentZoneService : IContentZoneService
         IChangeSetScope changeSetScope,
         ICMSRouteService routeService,
         PageZoneTree tree,
-        IPageHistoryRecorder recorder)
+        IPageHistoryRecorder recorder,
+        IContentReadCache? readCache = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _zoneStore = zoneStore ?? throw new ArgumentNullException(nameof(zoneStore));
@@ -52,37 +59,54 @@ public sealed class ContentZoneService : IContentZoneService
         _routeService = routeService ?? throw new ArgumentNullException(nameof(routeService));
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
         _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
+        _readCache = readCache;
         _transaction = new CmsTransaction(_context);
     }
 
     // ─── item resolution ──────────────────────────────────────────────────────
 
-    public async Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
-    {
-        return await _context.Set<ContentZoneItemDTO>()
-            .AsNoTracking()
-            .AtReadContext(_readContext)
-            .Where(ZoneRelations.InZone(zoneNodeId))
-            .Where(i => i.IsActive)
-            .OrderBy(ZoneRelations.ZoneOrdinal)
-            .ToListAsync(ct);
-    }
+    public Task<List<ContentZoneItemDTO>> GetItemsAsync(Guid zoneNodeId, CancellationToken ct = default)
+        => PublishedCachedAsync(
+            $"items:{zoneNodeId}",
+            async token => await _context.Set<ContentZoneItemDTO>()
+                .AsNoTracking()
+                .AtReadContext(_readContext)
+                .Where(ZoneRelations.InZone(zoneNodeId))
+                .Where(i => i.IsActive)
+                .OrderBy(ZoneRelations.ZoneOrdinal)
+                .ToListAsync(token),
+            ct);
 
     // ─── zone reads ───────────────────────────────────────────────────────────
 
     public Task<ContentZoneDTO?> GetZoneByNodeAsync(Guid zoneNodeId, CancellationToken ct = default)
         => _zoneStore.GetAsync(zoneNodeId, ct);
 
-    public async Task<ContentZoneDTO?> GetZoneByNameAsync(string name, CancellationToken ct = default)
+    public Task<ContentZoneDTO?> GetZoneByNameAsync(string name, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return null;
+            return Task.FromResult<ContentZoneDTO?>(null);
 
-        return await _context.Set<ContentZoneDTO>()
-            .AsNoTracking()
-            .AtReadContext(_readContext)
-            .FirstOrDefaultAsync(z => z.Name == name, ct);
+        return PublishedCachedAsync(
+            $"zone:{name}",
+            async token => await _context.Set<ContentZoneDTO>()
+                .AsNoTracking()
+                .AtReadContext(_readContext)
+                .FirstOrDefaultAsync(z => z.Name == name, token),
+            ct);
     }
+
+    /// <summary>
+    /// The one read-through for the zone reads: Published mode with a cache runs the load under
+    /// <see cref="IContentReadCache"/>; anything else runs the load directly — including any read while a
+    /// transaction is open (<see cref="CmsDbContext.HasOpenTransaction"/>): e.g. the global-zone create's
+    /// in-transaction re-read must see a concurrent creator's commit, not the null cached a moment earlier.
+    /// </summary>
+    private Task<TValue> PublishedCachedAsync<TValue>(
+        string suffix, Func<CancellationToken, ValueTask<TValue>> load, CancellationToken ct)
+        => _readContext.Mode == ContentReadMode.Published && _readCache != null && !_context.HasOpenTransaction
+            ? _readCache.GetOrCreateAsync($"zonesvc:{suffix}:{_readContext.Culture}:{_readContext.Segment}", load, ct)
+            : load(ct).AsTask();
 
     // ─── owned zones ──────────────────────────────────────────────────────────
 

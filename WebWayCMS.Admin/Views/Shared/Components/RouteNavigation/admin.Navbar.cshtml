@@ -14,7 +14,8 @@
 
     The Bulma navbar has no nested-list styling, so the route tree is flattened in pre-order: a
     parent's link is followed by its children's links, all siblings in the navbar-start
-    role="list" (e.g. Dashboard, Users, Roles). Markup matches the hand-written
+    (e.g. Dashboard, Users, Roles). They are plain links: no list role on the <a> (an explicit
+    role replaces its implicit "link" role for assistive tech). Markup matches the hand-written
     <a class="navbar-item"> links in _AdminNavbar.cshtml, including their aria-current="page" on
     the active link.
 *@
@@ -30,7 +31,7 @@
         var currentPath = (Context.Request.Path.Value ?? "").TrimEnd('/');
         var isCurrent = string.Equals(currentPath, item.Path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
 
-        <a class="navbar-item" href="@item.Path" role="listitem"
+        <a class="navbar-item" href="@item.Path"
            aria-current="@(isCurrent ? "page" : null)">@item.Title</a>
         @foreach (var child in item.Children)
         {

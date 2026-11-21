@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
 
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services, configuration);
         CmsRenderingRegistration.AddRenderingCoreTypes(services, builder.Profiles, builder.Assemblies);
+        CmsCachingRegistration.ConfigureCaching(services, configuration);
         CmsIdentityRegistration.ConfigureAuthorization(services, configuration);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services, configuration);
         services.Configure<CspOptions>(configuration.GetSection(CspOptions.SectionName));
@@ -59,9 +60,11 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddWebWayCms(this IServiceCollection services)
     {
+        var emptyConfig = new ConfigurationBuilder().Build();
         CmsHttpInfrastructureRegistration.ConfigureForwardedHeaders(services);
         CmsRenderingRegistration.AddRenderingCoreTypes(services);
-        CmsIdentityRegistration.ConfigureAuthorization(services, new ConfigurationBuilder().Build());
+        CmsCachingRegistration.ConfigureCaching(services, emptyConfig);
+        CmsIdentityRegistration.ConfigureAuthorization(services, emptyConfig);
         CmsHttpInfrastructureRegistration.ConfigureRateLimiting(services, new ConfigurationBuilder().Build());
         CmsAdminRegistration.MapAdminTypes(services, new ConfigurationBuilder().Build());
         services.AddSingleton(new CmsDeploymentOptions { IsAdminMode = true });

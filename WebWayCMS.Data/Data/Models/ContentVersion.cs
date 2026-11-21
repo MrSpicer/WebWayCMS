@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WebWayCMS.Data.Models;
 
 /// <summary>
@@ -58,6 +60,8 @@ public record ContentVersion
     /// through <see cref="ContentVersionRelations"/>, which replaces the dictionary rather than mutating
     /// it, so a <c>with</c> copy never shares writes with its original.
     /// </summary>
+    /// <remarks>Excluded from the read cache's JSON round-trip: it is the pending overlay, not the stored version.</remarks>
+    [JsonIgnore]
     public IReadOnlyDictionary<string, IReadOnlyList<RelationWrite>> RelationWrites { get; set; }
         = new Dictionary<string, IReadOnlyList<RelationWrite>>();
 }

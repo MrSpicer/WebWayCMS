@@ -380,6 +380,19 @@ namespace WebWayCMS.Data.Migrations
                     b.ToTable("CMSRoutes", (string)null);
                 });
 
+            modelBuilder.Entity("WebWayCMS.Data.Models.CacheGenerationDTO", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Value")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CacheGenerations", (string)null);
+                });
+
             modelBuilder.Entity("WebWayCMS.Data.Models.ChangeSet", b =>
                 {
                     b.Property<Guid>("Id")

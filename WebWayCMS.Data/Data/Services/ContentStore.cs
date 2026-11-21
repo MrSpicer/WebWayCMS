@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using WebWayCMS.Data.DbContexts;
 using WebWayCMS.Data.Models;
+using WebWayCMS.Data.Services.Caching;
 
 namespace WebWayCMS.Data.Services;
 
@@ -28,9 +29,14 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
     private readonly IContentUserContext _userContext;
     private readonly string _contentTypeKey;
     private readonly ContainmentVisibility _visibility;
+    private readonly IContentReadCache? _readCache;
 
     /// <param name="visibility">
     /// The request's shared containment filter; when omitted the store uses its own (same rule, its own memo).
+    /// </param>
+    /// <param name="readCache">
+    /// Caches the published-mode reads (see <see cref="PublishedCachedAsync{TValue}"/>); null when caching
+    /// is disabled.
     /// </param>
     public ContentStore(
         CmsDbContext context,
@@ -38,7 +44,8 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         IChangeSetScope changeSetScope,
         IContentUserContext userContext,
         string contentTypeKey,
-        ContainmentVisibility? visibility = null)
+        ContainmentVisibility? visibility = null,
+        IContentReadCache? readCache = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _readContext = readContext ?? throw new ArgumentNullException(nameof(readContext));
@@ -46,6 +53,7 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
         _userContext = userContext ?? throw new ArgumentNullException(nameof(userContext));
         _contentTypeKey = contentTypeKey ?? throw new ArgumentNullException(nameof(contentTypeKey));
         _visibility = visibility ?? new ContainmentVisibility(context, readContext);
+        _readCache = readCache;
 
         _set = _context.Set<T>();
         _versions = _context.Set<ContentVersion>();
@@ -54,30 +62,41 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
 
     // ─── read-context aware ───────────────────────────────────────────────────
     // Every read here also drops items whose containment parent is not visible in the read context.
+    // In Published mode the filtered result is read through the content cache (it is the only
+    // deterministic read context: Draft is per request, Snapshot is governed) — never in Draft or
+    // Snapshot, and never for admin reads.
 
-    public async Task<T?> GetAsync(Guid nodeId, CancellationToken ct = default)
-        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-               .AtReadContext(_readContext)
-               .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId, ct), ct);
+    public Task<T?> GetAsync(Guid nodeId, CancellationToken ct = default)
+        => PublishedCachedAsync(
+            $"get:{nodeId}",
+            async token => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
+                       .AtReadContext(_readContext)
+                       .FirstOrDefaultAsync(e => e.Version.NodeId == nodeId, token), token),
+            ct);
 
-    public async Task<List<T>> GetAllAsync(CancellationToken ct = default)
-        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-               .AtReadContext(_readContext)
-               .OrderByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct), ct);
+    public Task<List<T>> GetAllAsync(CancellationToken ct = default)
+        => PublishedCachedAsync(
+            "all",
+            async token => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
+                       .AtReadContext(_readContext)
+                       .OrderByDescending(e => e.Version.CreatedUtc)
+                       .ToListAsync(token), token),
+            ct);
 
-    public async Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default)
+    public Task<T?> GetBySlugAsync(string slug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(slug))
-            return null;
+            return Task.FromResult<T?>(null);
         // Slugs are unique only between current drafts, so several versions in this read context can share
         // one: filter every candidate, or a hidden first match would hide a visible one.
-        var visible = await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-                   .AtReadContext(_readContext)
-                   .Where(e => e.Version.Slug == slug)
-                   .OrderByDescending(e => e.Version.CreatedUtc)
-                   .ToListAsync(ct), ct);
-        return visible.FirstOrDefault();
+        return PublishedCachedAsync(
+            $"slug:{slug}",
+            async token => (await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
+                       .AtReadContext(_readContext)
+                       .Where(e => e.Version.Slug == slug)
+                       .OrderByDescending(e => e.Version.CreatedUtc)
+                       .ToListAsync(token), token)).FirstOrDefault(),
+            ct);
     }
 
     public async Task<List<T>> FindAsync(Expression<Func<T, bool>> predicate, CancellationToken ct = default)
@@ -87,13 +106,28 @@ public class ContentStore<T> : IContentStore<T> where T : class, IVersionedConte
                .OrderByDescending(e => e.Version.CreatedUtc)
                .ToListAsync(ct), ct);
 
-    public async Task<List<T>> FindRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default)
-        => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
-               .AtReadContext(_readContext)
-               .Where(RelationPredicates.RelatesTo<T>(name, targetNodeId))
-               .OrderBy(RelationPredicates.OrdinalOf<T>(name, targetNodeId))
-               .ThenByDescending(e => e.Version.CreatedUtc)
-               .ToListAsync(ct), ct);
+    public Task<List<T>> FindRelatedAsync(string name, Guid targetNodeId, CancellationToken ct = default)
+        => PublishedCachedAsync(
+            $"related:{name}:{targetNodeId}",
+            async token => await _visibility.FilterVisibleAsync(await _set.AsNoTracking()
+                       .AtReadContext(_readContext)
+                       .Where(RelationPredicates.RelatesTo<T>(name, targetNodeId))
+                       .OrderBy(RelationPredicates.OrdinalOf<T>(name, targetNodeId))
+                       .ThenByDescending(e => e.Version.CreatedUtc)
+                       .ToListAsync(token), token),
+            ct);
+
+    /// <summary>
+    /// The one read-through: Published mode with a cache runs the load under
+    /// <see cref="IContentReadCache"/> (keyed by type, read, args and variant, prefixed with the
+    /// generation by the cache itself); anything else runs the load directly — including any read
+    /// while a transaction is open (see <see cref="CmsDbContext.HasOpenTransaction"/>).
+    /// </summary>
+    private Task<TValue> PublishedCachedAsync<TValue>(
+        string suffix, Func<CancellationToken, ValueTask<TValue>> load, CancellationToken ct)
+        => _readContext.Mode == ContentReadMode.Published && _readCache != null && !_context.HasOpenTransaction
+            ? _readCache.GetOrCreateAsync($"{_contentTypeKey}:{suffix}:{_readContext.Culture}:{_readContext.Segment}", load, ct)
+            : load(ct).AsTask();
 
     // ─── version-explicit ─────────────────────────────────────────────────────
 

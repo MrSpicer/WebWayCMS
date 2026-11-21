@@ -161,8 +161,14 @@ A package host can add its own EF-backed content type without touching CMS sourc
 ### [Area 15: JSON Content Seeding](15-content-seeding.md)
 A host (or a satellite content DLL) can ship a JSON file of serialized content that is discovered at startup (embedded resources, a configured disk folder, or `IWebWayCmsBuilder` registration) and created or updated in the database, then published. It reuses the admin CRUD dispatch generically and tracks each item's stable seed id through the `ContentSeedRecords` ledger, re-applying only when the content hash changes. Admin mode only.
 
+### [Area 16: Media Library and Images](16-media-and-images.md)
+Uploads are validated by magic bytes, stored in Postgres `bytea` content-addressed by SHA-256 behind a swappable `IMediaBlobStore`, and served from the CMS origin at `/media/{hash}`. Images are versioned content; widgets reference them by node id.
+
 ### [Area 17: Content Relations](17-content-relations.md)
 A single version-owned `ContentRelation` record that carries every content-to-content link (article lists, zone items and ownership, page parents, config pickers, routes). Relations are declared with one `[ContentRelation]` attribute and come in three kinds: containment, reference and owned. One engine supplies storage, versioning, validation, delete policy, read visibility, admin editing, MCP and seeding. Phases 1–5 are implemented (every link above, the containment admin and the generic MCP child tools); phase 6 moves the TestHost onto it.
+
+### [Area 18: Caching](18-caching.md)
+Anonymous public output caching and a Published-mode data read cache (both per-process) evicted by a single-row cross-host generation stamp in the database: an EF interceptor bumps it at commit of every public save, and a background poller (default 5 s) picks up other hosts' bumps. TTLs are the backstop; draft-only saves and direct SQL writes do not invalidate.
 
 ---
 
@@ -185,8 +191,9 @@ Reading order for newcomers:
 
 Dependencies only flow downward in this list. A layer only references layers beneath it.
 
-Areas 11–15 (Deployment Modes, MCP Server, Security, Host Extensibility, JSON Content Seeding) are
-cross-cutting rather than layered — read them when you need them, in any order.
+Areas 11–18 (Deployment Modes, MCP Server, Security, Host Extensibility, JSON Content Seeding,
+Media and Images, Content Relations, Caching) are cross-cutting rather than layered — read them when
+you need them, in any order.
 
 ---
 

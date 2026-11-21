@@ -52,6 +52,18 @@ namespace WebWayCMS.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "CacheGenerations",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false),
+                    Value = table.Column<long>(type: "bigint", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CacheGenerations", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ChangeSets",
                 columns: table => new
                 {
@@ -952,6 +964,9 @@ namespace WebWayCMS.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "AspNetUserTokens");
+
+            migrationBuilder.DropTable(
+                name: "CacheGenerations");
 
             migrationBuilder.DropTable(
                 name: "ChangeSets");
