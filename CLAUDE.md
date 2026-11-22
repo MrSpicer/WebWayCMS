@@ -96,7 +96,8 @@
   MCP `list_content_types` lists handlers plus store-only types (`hasAdminHandler`, `isContentType`, registration
   names/description/category).
 - **Consumers use the published registration's names** via `IContentTypeRegistrationService` (scoped, read once)
-  + `ContentTypeRegistrationNames.DisplayNameOr/PluralDisplayNameOr(key, fallback)`: admin navbar content items,
+  + `ContentTypeRegistrationNames.DisplayNameOr/PluralDisplayNameOr(key, fallback)`: the admin navbar (its **Content**
+  dropdown lists every published registration with an admin handler, minus the Advanced dropdown's types, by `Order` then name),
   children panel heading/"New X", entity picker "New X"/"Edit X" and its JS placeholders (`data-type-name`/
   `data-type-plural`), MCP `list_content_types`.
 
@@ -504,7 +505,7 @@
 - The relation binder rejects an empty/unknown list (field error on `ArticleListId`); the article save path
   rejects a slug another article's current draft already uses (slugs are global: the widget resolves
   `/{page}/{slug}` across every list).
-- Admin entry point is **Article Lists** (`/wadmin/articlelists`, the navbar "Articles" item); a list links
+- Admin entry point is **Article Lists** (`/wadmin/articlelists`, navbar Content → Article Lists); a list links
   to `/wadmin/articles?list={nodeId}` (`ArticleModel.ListQueryKey`), which filters the Articles index and
   preselects the list on **New Article**. Deleting a list deletes its articles in one transaction (the
   relation engine's containment cascade; an article moved to another list, live there, is not touched).

@@ -80,32 +80,43 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ── Navbar "Advanced" dropdown ────────────────────────────
-    const advancedDropdown = document.getElementById('advancedDropdown');
-    const advancedTrigger = document.getElementById('advancedDropdownTrigger');
+    // ── Navbar dropdowns (Content, Advanced) ─────────────────
+    // One open at a time; closes on outside click / Escape.
+    const navbarDropdowns = Array.from(document.querySelectorAll('.admin-navbar [data-navbar-dropdown]'))
+        .map(function (dropdown) { return { dropdown: dropdown, trigger: dropdown.querySelector('.navbar-link') }; })
+        .filter(function (d) { return d.trigger; });
 
-    if (advancedDropdown && advancedTrigger) {
-        function setDropdown(open) {
-            advancedDropdown.classList.toggle('is-active', open);
-            advancedTrigger.setAttribute('aria-expanded', open.toString());
-        }
+    function setNavbarDropdown(d, open) {
+        d.dropdown.classList.toggle('is-active', open);
+        d.trigger.setAttribute('aria-expanded', open.toString());
+    }
 
-        advancedTrigger.addEventListener('click', function (e) {
+    navbarDropdowns.forEach(function (d) {
+        d.trigger.addEventListener('click', function (e) {
             e.preventDefault();
-            setDropdown(!advancedDropdown.classList.contains('is-active'));
+            const open = !d.dropdown.classList.contains('is-active');
+            navbarDropdowns.forEach(function (other) {
+                if (other !== d) setNavbarDropdown(other, false);
+            });
+            setNavbarDropdown(d, open);
         });
+    });
 
+    if (navbarDropdowns.length > 0) {
         document.addEventListener('click', function (e) {
-            if (!advancedDropdown.contains(e.target)) {
-                setDropdown(false);
-            }
+            navbarDropdowns.forEach(function (d) {
+                if (!d.dropdown.contains(e.target)) setNavbarDropdown(d, false);
+            });
         });
 
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && advancedDropdown.classList.contains('is-active')) {
-                setDropdown(false);
-                advancedTrigger.focus();
-            }
+            if (e.key !== 'Escape') return;
+            navbarDropdowns.forEach(function (d) {
+                if (d.dropdown.classList.contains('is-active')) {
+                    setNavbarDropdown(d, false);
+                    d.trigger.focus();
+                }
+            });
         });
     }
 

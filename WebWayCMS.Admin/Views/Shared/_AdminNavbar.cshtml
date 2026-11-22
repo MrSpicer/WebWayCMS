@@ -1,12 +1,34 @@
 @using Microsoft.AspNetCore.Identity
 @using WebWayCMS.Models.CMSRoute;
 @using WebWayCMS.Data.Services.ContentTypes
+@using WebWayCMS.Controllers.Admin.Handlers
 @inject SignInManager<IdentityUser> SignInManager
 @inject IContentTypeRegistrationService ContentTypeRegistrations
+@inject IAdminHandlerRegistry AdminHandlers
 @{
     var currentPath = Context.Request.Path.Value ?? "";
     // Content type entries use the plural names admins gave them (/wadmin/contenttypes).
     var names = await ContentTypeRegistrations.GetPublishedByKeyAsync();
+
+    // The Content dropdown lists every published content type registration with an admin handler (a store-only
+    // type has no /wadmin/{key} page), except the types the Advanced dropdown links to, ordered by the
+    // registration's Order, then its plural name.
+    // TODO: temporary — replace with a generic admin navigation mechanism.
+    var advancedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "widgets", "pagetypes", "contentzones", "contenttypes", "contentzoneitems", "routes"
+    };
+    var contentTypes = names.Values
+        .Where(r => !advancedKeys.Contains(r.ContentTypeKey) && AdminHandlers.GetHandler(r.ContentTypeKey) != null)
+        .Select(r => (Key: r.ContentTypeKey, Name: names.PluralDisplayNameOr(r.ContentTypeKey, r.ContentTypeKey), r.Order))
+        .OrderBy(t => t.Order)
+        .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    // Current on /wadmin/{key} or below it (segment boundary, so /wadmin/articles doesn't mark Article Lists).
+    string? CurrentFor(string href)
+        => currentPath.Equals(href, StringComparison.OrdinalIgnoreCase)
+           || currentPath.StartsWith(href + "/", StringComparison.OrdinalIgnoreCase) ? "page" : null;
 }
 
 <nav class="navbar admin-navbar" role="navigation" aria-label="Administration">
@@ -30,19 +52,24 @@
                 AdminRoutes = true,
                 ViewName = "Navbar"
             })
-            <a class="navbar-item" href="/wadmin/pages" aria-current="@(currentPath.StartsWith("/wadmin/pages") ? "page" : null)">
-                @names.PluralDisplayNameOr("pages", "Pages")
-            </a>
-            <a class="navbar-item" href="/wadmin/contentblocks" aria-current="@(currentPath.StartsWith("/wadmin/contentblocks") ? "page" : null)">
-                @names.PluralDisplayNameOr("contentblocks", "Content Blocks")
-            </a>
-            <a class="navbar-item" href="/wadmin/articlelists" aria-current="@(currentPath.StartsWith("/wadmin/article") ? "page" : null)">
-                @names.PluralDisplayNameOr("articles", "Articles")
-            </a>
-            <a class="navbar-item" href="/wadmin/images" aria-current="@(currentPath.StartsWith("/wadmin/images") ? "page" : null)">
-                @names.PluralDisplayNameOr("images", "Images")
-            </a>
-            <div class="navbar-item has-dropdown" id="advancedDropdown">
+            @if (contentTypes.Count > 0)
+            {
+                <div class="navbar-item has-dropdown" id="contentDropdown" data-navbar-dropdown>
+                    <button class="navbar-link" id="contentDropdownTrigger" aria-expanded="false" aria-controls="contentDropdownMenu">
+                        Content
+                    </button>
+                    <div class="navbar-dropdown" id="contentDropdownMenu">
+                        @foreach (var type in contentTypes)
+                        {
+                            var href = "/wadmin/" + type.Key;
+                            <a class="navbar-item" href="@href" aria-current="@CurrentFor(href)">
+                                @type.Name
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+            <div class="navbar-item has-dropdown" id="advancedDropdown" data-navbar-dropdown>
                 <button class="navbar-link" id="advancedDropdownTrigger" aria-expanded="false" aria-controls="advancedDropdownMenu">
                     Advanced
                 </button>
@@ -61,6 +88,12 @@
                     </a>
                     <a class="navbar-item" href="/wadmin/contentzones" aria-current="@(currentPath.StartsWith("/wadmin/contentzones") ? "page" : null)">
                         @names.PluralDisplayNameOr("contentzones", "Content Zones")
+                    </a>
+                    <a class="navbar-item" href="/wadmin/contentzoneitems" aria-current="@CurrentFor("/wadmin/contentzoneitems")">
+                        @names.PluralDisplayNameOr("contentzoneitems", "Content Zone Items")
+                    </a>
+                    <a class="navbar-item" href="/wadmin/routes" aria-current="@CurrentFor("/wadmin/routes")">
+                        @names.PluralDisplayNameOr("routes", "Routes")
                     </a>
                     <a class="navbar-item" href="/wadmin/contenttypes" aria-current="@(currentPath.StartsWith("/wadmin/contenttypes") ? "page" : null)">
                         @names.PluralDisplayNameOr("contenttypes", "Content Types")
